@@ -21,7 +21,7 @@ export interface ListPageResult { result_type: string; command: string; resource
 
 export const isPagedRequest = (request: ListPageRequest | undefined): request is ListPageRequest => request !== undefined && (request.limit !== undefined || request.cursor !== undefined);
 
-interface CursorBinding { version: 1; resource: string; filters: Record<string, string | number | boolean | null>; sort: string; after: ListPageAfter; high_water: number }
+interface CursorBinding { version: 2; resource: string; filters: Record<string, string | number | boolean | null>; sort: string; after: ListPageAfter; high_water: number }
 
 const encodeCursor = (binding: CursorBinding): string => Buffer.from(JSON.stringify(binding), "utf8").toString("base64url");
 
@@ -31,8 +31,10 @@ const decodeCursor = (cursor: string, resource: string, filters: CursorBinding["
   let value: unknown;
   try { value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")); } catch { return invalid(); }
   if (value === null || typeof value !== "object" || Array.isArray(value)) return invalid();
+  // Version 1 time keys may have lost precision; they cannot be migrated safely.
+  if ((value as { version?: unknown }).version === 1) throw validation("cursor", "list cursor version 1 is no longer supported; restart from the first page");
   const binding = value as Partial<CursorBinding>;
-  if (Object.keys(binding).sort().join(",") !== "after,filters,high_water,resource,sort,version" || binding.version !== 1 || binding.resource !== resource || binding.sort !== sort
+  if (Object.keys(binding).sort().join(",") !== "after,filters,high_water,resource,sort,version" || binding.version !== 2 || binding.resource !== resource || binding.sort !== sort
     || JSON.stringify(binding.filters) !== JSON.stringify(filters) || !Number.isSafeInteger(binding.high_water) || (binding.high_water as number) < 0) return invalid();
   const after = binding.after;
   const validAfter = typeof after === "string" ? after.length > 0 && after.length <= 128
@@ -70,7 +72,7 @@ export const readListPage = async (store: Store, spec: ListPageSpec): Promise<Li
     let more = loaded.more;
     const build = (): ListPageResult => ({
       result_type: "patchledger.result.resource-list/v1", command: spec.command, resources: entries.map((entry) => entry.resource), page: { limit, has_more: more, sort: spec.sort }, ...(spec.query ? { query: spec.query } : {}),
-      ...(more && entries.length ? { next_cursor: encodeCursor({ version: 1, resource: spec.resource, filters: spec.filters, sort: spec.sort, after: entries[entries.length - 1].after, high_water: highWater }) } : {}),
+      ...(more && entries.length ? { next_cursor: encodeCursor({ version: 2, resource: spec.resource, filters: spec.filters, sort: spec.sort, after: entries[entries.length - 1].after, high_water: highWater }) } : {}),
     });
     let result = build();
     // The page limit is a count, not a size guarantee: shrink this page until

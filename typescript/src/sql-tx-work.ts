@@ -586,7 +586,7 @@ export abstract class SqlTxWork extends SqlTxCore {
 
   protected async verificationSummaryPage(candidateId: string, after: string, limit: number, verifyReports: boolean): Promise<{ rows: VerificationSummaryItem[]; more: boolean }> {
     if (!Number.isInteger(limit) || limit < 1 || limit > 256) throw validation("verification_limit", "must be between 1 and 256");
-    let cursor: { created_at: string; id: string } | undefined;
+    let cursor: { key: string; id: string } | undefined;
     if (after) {
       try {
         if (!/^[A-Za-z0-9_-]+$/.test(after) || after.length % 4 === 1) throw new Error("invalid cursor");
@@ -598,7 +598,7 @@ export abstract class SqlTxWork extends SqlTxCore {
         const createdAt = decoded.slice(0, separator);
         const id = decoded.slice(separator + 1);
         if (!Number.isFinite(Date.parse(createdAt)) || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/.test(createdAt) || !isUUIDv7(id)) throw new Error("invalid cursor");
-        cursor = { created_at: createdAt, id };
+        cursor = { key: timestampOrderKey(createdAt), id };
       } catch {
         throw validation("verifications_cursor", "must be an opaque Verification page cursor");
       }
@@ -609,9 +609,8 @@ export abstract class SqlTxWork extends SqlTxCore {
     if (cursor) {
       // Canonical RFC3339 trims fractional zeros; raw text comparison reverses
       // .1Z/.11Z and misses equivalent legacy spellings at page boundaries.
-      const cursorKey = timestampOrderKey(cursor.created_at);
       where += ` AND (${timeKey} > ? OR (${timeKey} = ? AND id > ?))`;
-      args.push(cursorKey, cursorKey, cursor.id);
+      args.push(cursor.key, cursor.key, cursor.id);
     }
     args.push(limit + 1);
     const rows = await this.client.all<Record<string, unknown>>(`SELECT id, candidate_id, overall_verdict, created_at, attribution_json, (SELECT q.overall_verdict FROM verification_quality_reviews q WHERE q.verification_id = verifications.id) AS quality_verdict, (SELECT q.attribution_json FROM verification_quality_reviews q WHERE q.verification_id = verifications.id) AS quality_attribution_json FROM verifications ${where} ORDER BY ${timeKey}, id LIMIT ?`, args);

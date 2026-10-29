@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DomainError } from "../src/errors.js";
 import { SQLStore } from "../src/sql-store.js";
 import { newUUIDv7 } from "../src/identity.js";
 import { LedgerFixture, testAgent, testBaseline } from "./fixture.js";
@@ -95,4 +96,22 @@ test("integrity traverses multiple operation/event pages and detects corrupt tai
   const capped = await f.store.inspectIntegrity();
   assert.equal(capped.report.valid, false);
   assert.equal(capped.report.issues.length, 1000, "report remains bounded, without limiting scan coverage");
+});
+
+
+test("verification page cursors reject impossible calendar dates as input errors", async t => {
+  const { f } = await fixture(t);
+  const candidate = await f.submitCandidate("one");
+  const candidateId = candidate.candidate.candidate_id;
+  for (const method of ["readVerificationDirectoryPage", "listVerificationSummariesPage"] as const) {
+    const cursor = Buffer.from(`2025-02-30T00:00:00Z\0${newUUIDv7()}`).toString("base64url");
+    await assert.rejects(f.store.read(tx => tx[method](candidateId, cursor, 1)), error => {
+      assert.ok(error instanceof DomainError);
+      assert.equal(error.code, "VALIDATION_ERROR");
+      assert.equal(error.details.field, "verifications_cursor");
+      return true;
+    });
+    const valid = Buffer.from(`2025-02-28T00:00:00.100000001Z\0${newUUIDv7()}`).toString("base64url");
+    assert.deepEqual(await f.store.read(tx => tx[method](candidateId, valid, 1)), { rows: [], more: false });
+  }
 });

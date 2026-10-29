@@ -93,6 +93,30 @@ for (const backend of ["sqlite", "mysql", "postgres"] as const) {
     }
   });
 
+  backendTest("version 1 time-based list cursors require restart and version 2 resumes every item", async f => {
+    await seed(f);
+    const lists: [string, Lister][] = [
+      ["candidate", page => f.module.listCandidates("", {}, page)],
+      ["verification", page => f.module.listVerifications("", {}, page)],
+      ["activity", page => f.module.listIssues("", { sort: "activity" }, page)],
+    ];
+    for (const [name, list] of lists) {
+      const first = await list({ limit: 1 });
+      assert.ok(first.next_cursor, name);
+      const binding = JSON.parse(Buffer.from(first.next_cursor, "base64url").toString("utf8"));
+      assert.equal(binding.version, 2, name);
+      const legacy = Buffer.from(JSON.stringify({ ...binding, version: 1 })).toString("base64url");
+      await assert.rejects(list({ cursor: legacy }), error => {
+        failure("VALIDATION_ERROR", "cursor")(error);
+        assert.match(String((error as DomainError).details.reason), /restart from the first page/);
+        return true;
+      });
+      const rest = await list({ cursor: first.next_cursor });
+      assert.deepEqual(ids([first, rest]), (await list()).resources.map(item => item.resource_id), name);
+      assert.equal(rest.next_cursor, undefined, name);
+    }
+  });
+
   backendTest("an empty collection is one explicit empty final page", async f => {
     const page = await f.module.listCandidates("", {}, { limit: 10 });
     assert.deepEqual(page.resources, []); assert.equal(page.page?.has_more, false); assert.equal(page.next_cursor, undefined);

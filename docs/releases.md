@@ -16,6 +16,8 @@ Version `0.2.50` is the first release candidate for this GitHub distribution pro
 
 The earlier `v0.2.49` tag is retained for traceability. Its release validation found a verification pagination ordering defect, so no release packages were published for that tag. Version `0.2.50` fixes ordering across fractional timestamp precisions and legacy UTC formats, with regression coverage for page boundaries.
 
+Upgrading to `0.2.50` invalidates version 1 opaque list cursors, including candidate, verification, and issue activity lists. Their old timestamp keys may have lost precision and cannot be safely resumed. A saved version 1 cursor returns `VALIDATION_ERROR`; restart from the first page without `--cursor`, then follow the newly returned cursors. This changes pagination state only, not stored timestamps or artifact digests.
+
 ## Install a GitHub release
 
 After a release is approved and available, download both package tarballs and the checksums from the same [GitHub Release](https://github.com/MaybeLL/grounds-open/releases). Verify the checksums before installation. Assets are named `maybell-grounds-X.Y.Z.tgz`, `maybell-grounds-tui-X.Y.Z.tgz`, and `SHA256SUMS`. Install the downloaded matching CLI and TUI tarballs using `npm install -g /path/to/cli.tgz /path/to/tui.tgz --registry=https://registry.npmjs.org`, substituting their actual paths. This does not require publication on npm. Native modules may need local build tools.
