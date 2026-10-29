@@ -5,6 +5,7 @@ Grounds keeps a versioned ledger of requirements, issues, development runs, cand
 - [Getting started](getting-started.md): requirements, source build, and configuration.
 - [GitHub archive onboarding](../plugins/grounds/skills/grounds/references/github-archive-onboarding.md): authentication, rulesets, and repository binding.
 - [Release process](releases.md): GitHub automation and distribution gates.
+- [Vendored renderer security review](vendor-security.md): known advisories and integration boundaries.
 - [Machine-readable contracts](contracts/v1/README.md): versioned JSON interfaces and schemas.
 - [Contribution guide](../CONTRIBUTING.md): local checks and pull requests.
 - [Grounds workflow skill](../plugins/grounds/skills/grounds/SKILL.md): agent workflow entry point.

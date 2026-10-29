@@ -16,6 +16,6 @@ Version `0.2.49` is the first release candidate for this GitHub distribution pro
 
 ## Install a GitHub release
 
-After a release is approved and available, download both package tarballs and the checksums from the same [GitHub Release](https://github.com/MaybeLL/grounds-open/releases). Verify the checksums before installation. Assets are named `maybell-grounds-X.Y.Z.tgz`, `maybell-grounds-tui-X.Y.Z.tgz`, and `SHA256SUMS`. Install the downloaded matching CLI and TUI tarballs using `npm install -g /path/to/cli.tgz /path/to/tui.tgz`, substituting their actual paths. This does not require publication on npm. Native modules may need local build tools.
+After a release is approved and available, download both package tarballs and the checksums from the same [GitHub Release](https://github.com/MaybeLL/grounds-open/releases). Verify the checksums before installation. Assets are named `maybell-grounds-X.Y.Z.tgz`, `maybell-grounds-tui-X.Y.Z.tgz`, and `SHA256SUMS`. Install the downloaded matching CLI and TUI tarballs using `npm install -g /path/to/cli.tgz /path/to/tui.tgz --registry=https://registry.npmjs.org`, substituting their actual paths. This does not require publication on npm. Native modules may need local build tools.
 
 Do not install assets from an untrusted fork. Retain the release commit and checksums when reporting a problem. Local databases and workspace state require their own backup and migration procedures; upgrading the executable alone does not authorize a database migration.

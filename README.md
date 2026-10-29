@@ -26,6 +26,8 @@ Repository access is required while it remains private. Building and showing hel
 - [Contributing and testing](CONTRIBUTING.md)
 - [Security reporting](SECURITY.md)
 - [Release process](docs/releases.md)
-- [Third-party notices and outstanding license review](THIRD_PARTY_NOTICES.md)
+- [Third-party notices](THIRD_PARTY_NOTICES.md)
+
+The CI matrix targets Linux/macOS with Node.js 22/24 and is undergoing initial validation; Windows is unverified. SQLite local ledgers and MySQL/PostgreSQL TLS integration checks are included in the validation plan. Consult the actual GitHub run for the commit before relying on a platform result.
 
 The CLI and TUI are versioned together. Generic regression tests ship with the source; private evaluation cases and one-off acceptance materials are not part of the community repository. Optional integrations require their own configuration and credentials.

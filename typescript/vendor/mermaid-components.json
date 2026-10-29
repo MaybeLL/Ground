@@ -1,99 +1,99 @@
 {
   "bundle": "mermaid.min.js",
-  "version": "11.4.1",
-  "bundle_sha256": "a43bc1afd446f9c4cc66ac5dd45d02e8d65e26fc5344ec0ef787f88d6ddb6f9e",
-  "source": "https://registry.npmjs.org/mermaid/-/mermaid-11.4.1.tgz",
+  "version": "12.2.0",
+  "bundle_sha256": "a8a6a6f805b074a8261a2825c86f99c8054acb3b35f50bb7e24a4f9f2c3c3b9f",
+  "source": "https://registry.npmjs.org/mermaid/-/mermaid-12.2.0.tgz",
   "inventory_source": "package/dist/mermaid.min.js.map sources from the official tarball",
   "components": [
     {
       "name": "@braintree/sanitize-url",
-      "version": "7.1.0",
+      "version": "7.1.2",
       "license": "MIT",
-      "source": "https://registry.npmjs.org/@braintree/sanitize-url/-/sanitize-url-7.1.0.tgz",
-      "tarball_sha256": "2589f991e3cbd2e102cf6587a9d5e26f1f0f607cbeb6eee7b76734f7fde62a9e",
+      "source": "https://registry.npmjs.org/@braintree/sanitize-url/-/sanitize-url-7.1.2.tgz",
+      "tarball_sha256": "fd9a220c24c5cdd406433cce1c3db7f09222d8f7977f0fe087aec914e1a63dc0",
       "license_files": [
-        "licenses/@braintree__sanitize-url@7.1.0__LICENSE"
+        "licenses/@braintree__sanitize-url@7.1.2__LICENSE"
       ]
     },
     {
       "name": "@chevrotain/cst-dts-gen",
-      "version": "11.0.3",
+      "version": "13.2.0",
       "license": "Apache-2.0",
-      "source": "https://registry.npmjs.org/@chevrotain/cst-dts-gen/-/cst-dts-gen-11.0.3.tgz",
-      "tarball_sha256": "b927ad31f60a1f47233c5a683a75df3feaa639c2ef36e9eb224f06bcea1239c2",
+      "source": "https://registry.npmjs.org/@chevrotain/cst-dts-gen/-/cst-dts-gen-13.2.0.tgz",
+      "tarball_sha256": "c157cd28cf92702c3af7a2634dfb12524cdc38b91243fe1ddcc0b2c09a53c32b",
       "license_files": [
-        "licenses/@chevrotain__cst-dts-gen@11.0.3__LICENSE.txt"
+        "licenses/@chevrotain__cst-dts-gen@13.2.0__LICENSE.txt"
       ]
     },
     {
       "name": "@chevrotain/gast",
-      "version": "11.0.3",
+      "version": "13.2.0",
       "license": "Apache-2.0",
-      "source": "https://registry.npmjs.org/@chevrotain/gast/-/gast-11.0.3.tgz",
-      "tarball_sha256": "6a67ec6bf65c8ed0f54e41206997f670da8f8085c17b12086a42b22677f4315e",
+      "source": "https://registry.npmjs.org/@chevrotain/gast/-/gast-13.2.0.tgz",
+      "tarball_sha256": "9e30e0bc48ef56a23b8c2138587b39a0805ae9a4679e56f9d8855d95875805eb",
       "license_files": [
-        "licenses/@chevrotain__gast@11.0.3__LICENSE.txt"
+        "licenses/@chevrotain__gast@13.2.0__LICENSE.txt"
       ]
     },
     {
       "name": "@chevrotain/regexp-to-ast",
-      "version": "11.0.3",
+      "version": "13.2.0",
       "license": "Apache-2.0",
-      "source": "https://registry.npmjs.org/@chevrotain/regexp-to-ast/-/regexp-to-ast-11.0.3.tgz",
-      "tarball_sha256": "5cfc2bf73b75c31cfa59e7b244dfbd644f6349e8b5708a1a3ef478cc26c864d0",
+      "source": "https://registry.npmjs.org/@chevrotain/regexp-to-ast/-/regexp-to-ast-13.2.0.tgz",
+      "tarball_sha256": "7ad58991f3bb9da70513559746faf373103bae4857c4e77fbf4efa1d3bd9ef0b",
       "license_files": [
-        "licenses/@chevrotain__regexp-to-ast@11.0.3__LICENSE.txt"
+        "licenses/@chevrotain__regexp-to-ast@13.2.0__LICENSE.txt"
       ]
     },
     {
       "name": "@chevrotain/utils",
-      "version": "11.0.3",
+      "version": "13.2.0",
       "license": "Apache-2.0",
-      "source": "https://registry.npmjs.org/@chevrotain/utils/-/utils-11.0.3.tgz",
-      "tarball_sha256": "e5b0ed157b2a92ec3679f1fe0d6cc9c8648c15f9813f7064b7d7e42af9f9a2af",
+      "source": "https://registry.npmjs.org/@chevrotain/utils/-/utils-13.2.0.tgz",
+      "tarball_sha256": "f80040e4e1e6880a9c404e2ee33cff3329ae455efb3505bd9693cfe5bb5c93b9",
       "license_files": [
-        "licenses/@chevrotain__utils@11.0.3__LICENSE.txt"
+        "licenses/@chevrotain__utils@13.2.0__LICENSE.txt"
       ]
     },
     {
       "name": "@iconify/utils",
-      "version": "2.1.33",
+      "version": "3.0.2",
       "license": "MIT",
-      "source": "https://registry.npmjs.org/@iconify/utils/-/utils-2.1.33.tgz",
-      "tarball_sha256": "8e1aefd200178b254f1630ec05df9894a5b130a8cfa93bb176e5a0524027a731",
+      "source": "https://registry.npmjs.org/@iconify/utils/-/utils-3.0.2.tgz",
+      "tarball_sha256": "7f1b0f8bd152444d962bbcb258f57583bea55bb05e437eedf4cc950b9b56f969",
       "license_files": [
-        "licenses/@iconify__utils@2.1.33__license.txt"
+        "licenses/@iconify__utils@3.0.2__license.txt"
       ]
     },
     {
       "name": "@mermaid-js/parser",
-      "version": "0.3.0",
+      "version": "2.0.1",
       "license": "MIT",
-      "source": "https://registry.npmjs.org/@mermaid-js/parser/-/parser-0.3.0.tgz",
-      "tarball_sha256": "1a229380a456b8deec67b61ed644281eb979e9257fa275702082e3b4d67f2ce5",
+      "source": "https://registry.npmjs.org/@mermaid-js/parser/-/parser-2.0.1.tgz",
+      "tarball_sha256": "52a8dd04e0aae47dd2f17989f14cd60301abe81f5d7096305c6fd05fc7d83cc5",
       "license_files": [
-        "licenses/@mermaid-js__parser@0.3.0__LICENSE"
+        "licenses/@mermaid-js__parser@2.0.1__LICENSE"
       ],
-      "version_source": "https://github.com/mermaid-js/mermaid/blob/mermaid%4011.4.1/packages/parser/package.json"
+      "version_source": "https://github.com/mermaid-js/mermaid/blob/mermaid%4012.2.0/packages/parser/package.json"
     },
     {
-      "name": "chevrotain",
-      "version": "11.0.3",
-      "license": "Apache-2.0",
-      "source": "https://registry.npmjs.org/chevrotain/-/chevrotain-11.0.3.tgz",
-      "tarball_sha256": "53f0981a4592d346ab75003250a67066a8ce8c1f8973dfd52fce5517f82c4be1",
+      "name": "@upsetjs/venn.js",
+      "version": "2.0.0",
+      "license": "MIT",
+      "source": "https://registry.npmjs.org/@upsetjs/venn.js/-/venn.js-2.0.0.tgz",
+      "tarball_sha256": "23c5da5de5c23351c6c6ed891d6416284c05c618e2774bd55484a4c4bef321e4",
       "license_files": [
-        "licenses/chevrotain@11.0.3__LICENSE.txt"
+        "licenses/@upsetjs__venn.js@2.0.0__LICENSE"
       ]
     },
     {
-      "name": "chevrotain-allstar",
-      "version": "0.3.1",
-      "license": "MIT",
-      "source": "https://registry.npmjs.org/chevrotain-allstar/-/chevrotain-allstar-0.3.1.tgz",
-      "tarball_sha256": "51027c5355c69e6404bb6415e2cd27594569616f97daf613535b662cc5cf0763",
+      "name": "chevrotain",
+      "version": "13.2.0",
+      "license": "Apache-2.0",
+      "source": "https://registry.npmjs.org/chevrotain/-/chevrotain-13.2.0.tgz",
+      "tarball_sha256": "ce84df5e0b1e990a5f5f5b2e1b719ac63391489ad28ef6b9ae2703dde1c42233",
       "license_files": [
-        "licenses/chevrotain-allstar@0.3.1__LICENSE"
+        "licenses/chevrotain@13.2.0__LICENSE.txt"
       ]
     },
     {
@@ -118,13 +118,13 @@
     },
     {
       "name": "cytoscape",
-      "version": "3.30.2",
+      "version": "3.34.0",
       "license": "MIT",
-      "source": "https://registry.npmjs.org/cytoscape/-/cytoscape-3.30.2.tgz",
-      "tarball_sha256": "8e9bfaaf9f5f461642355b0d17c6cf1d0d58c5cb9e00ac983e2d242fd1cfb928",
+      "source": "https://registry.npmjs.org/cytoscape/-/cytoscape-3.34.0.tgz",
+      "tarball_sha256": "4155f863f4408d18bb637afb5808dff7840ca7361437067faf45bbe8c970e768",
       "license_files": [
-        "licenses/cytoscape@3.30.2__LICENSE",
-        "licenses/cytoscape@3.30.2__license-update.js"
+        "licenses/cytoscape@3.34.0__LICENSE",
+        "licenses/cytoscape@3.34.0__license-update.mjs"
       ]
     },
     {
@@ -499,43 +499,66 @@
     },
     {
       "name": "dagre-d3-es",
-      "version": "7.0.11",
+      "version": "7.0.14",
       "license": "MIT",
-      "source": "https://registry.npmjs.org/dagre-d3-es/-/dagre-d3-es-7.0.11.tgz",
-      "tarball_sha256": "833df321d82bb20d27a4de29641092c63991c4db53b929b70260eb726c9e3a98",
+      "source": "https://registry.npmjs.org/dagre-d3-es/-/dagre-d3-es-7.0.14.tgz",
+      "tarball_sha256": "488d146fc076978029da937a54628f840dbbcb48e6f95ea79e6c58cc384fe157",
       "license_files": [
-        "licenses/dagre-d3-es@7.0.11__LICENSE.md"
+        "licenses/dagre-d3-es@7.0.14__LICENSE.md"
       ]
     },
     {
       "name": "dayjs",
-      "version": "1.11.13",
+      "version": "1.11.21",
       "license": "MIT",
-      "source": "https://registry.npmjs.org/dayjs/-/dayjs-1.11.13.tgz",
-      "tarball_sha256": "be0396c0f91583421b68f9a034227fb552eb87d93e59add775d533a65f70e47e",
+      "source": "https://registry.npmjs.org/dayjs/-/dayjs-1.11.21.tgz",
+      "tarball_sha256": "290ec8bf81878ae4927581d9be74125f07722ea8bbea2ff77a2226dce12df876",
       "license_files": [
-        "licenses/dayjs@1.11.13__LICENSE"
-      ]
-    },
-    {
-      "name": "debug",
-      "version": "4.3.7",
-      "license": "MIT",
-      "source": "https://registry.npmjs.org/debug/-/debug-4.3.7.tgz",
-      "tarball_sha256": "c803a8ca9b835b7a75f7150ee52f7f640675515bafbe8f5da78fcc0ae12914ac",
-      "license_files": [
-        "licenses/debug@4.3.7__LICENSE"
+        "licenses/dayjs@1.11.21__LICENSE"
       ]
     },
     {
       "name": "dompurify",
-      "version": "3.2.1",
+      "version": "3.4.12",
       "license": "(MPL-2.0 OR Apache-2.0)",
-      "source": "https://registry.npmjs.org/dompurify/-/dompurify-3.2.1.tgz",
-      "tarball_sha256": "55b33818653977f6c37e932ac299110d2309aaa590b4a0b24802cd06c12ed215",
+      "source": "https://registry.npmjs.org/dompurify/-/dompurify-3.4.12.tgz",
+      "tarball_sha256": "4fd255d4cd435ffc74d59b7ffa8b4a92f8e4a7fc84faf1d0f9d298cd7d741616",
       "license_files": [
-        "licenses/dompurify@3.2.1__LICENSE"
+        "licenses/dompurify@3.4.12__LICENSE",
+        "licenses/dompurify@3.4.12__src__license_header",
+        "licenses/dompurify@3.4.12__LICENSE-MPL"
       ]
+    },
+    {
+      "name": "elkjs",
+      "version": "0.9.3",
+      "license": "EPL-2.0",
+      "source": "https://registry.npmjs.org/elkjs/-/elkjs-0.9.3.tgz",
+      "tarball_sha256": "b95b224bd1ab71fd40f6d9a6365c28d989745dff6b0d514407bc1eb68f2f561e",
+      "license_files": [
+        "licenses/elkjs@0.9.3__LICENSE.md"
+      ]
+    },
+    {
+      "name": "es-toolkit",
+      "version": "1.45.1",
+      "license": "MIT",
+      "source": "https://registry.npmjs.org/es-toolkit/-/es-toolkit-1.45.1.tgz",
+      "tarball_sha256": "0ab10ae18c0853f0c989ee187cecd9d5b2dd561bdf2b3c9f314bbc981aab427f",
+      "license_files": [
+        "licenses/es-toolkit@1.45.1__LICENSE"
+      ]
+    },
+    {
+      "name": "fastdom",
+      "version": "1.0.12",
+      "license": "MIT",
+      "source": "https://registry.npmjs.org/fastdom/-/fastdom-1.0.12.tgz",
+      "tarball_sha256": "15e452be64ae3661c3cc9d736524ebb689c23f162765d60741dcc518ec182265",
+      "license_files": [
+        "licenses/fastdom@1.0.12__README-LICENSE"
+      ],
+      "license_source": "package/README.md License section (verbatim)"
     },
     {
       "name": "internmap",
@@ -549,22 +572,22 @@
     },
     {
       "name": "js-yaml",
-      "version": "4.1.0",
+      "version": "4.3.0",
       "license": "MIT",
-      "source": "https://registry.npmjs.org/js-yaml/-/js-yaml-4.1.0.tgz",
-      "tarball_sha256": "0dae332559cf22b21c26ea70e732afd8303ff99412f9c3d9d209faa8882cf2ca",
+      "source": "https://registry.npmjs.org/js-yaml/-/js-yaml-4.3.0.tgz",
+      "tarball_sha256": "8594ee34496dd2e41ec934fd202843dc993be9ab2d7d5d47579146962fbdfae6",
       "license_files": [
-        "licenses/js-yaml@4.1.0__LICENSE"
+        "licenses/js-yaml@4.3.0__LICENSE"
       ]
     },
     {
       "name": "katex",
-      "version": "0.16.11",
+      "version": "0.18.11",
       "license": "MIT",
-      "source": "https://registry.npmjs.org/katex/-/katex-0.16.11.tgz",
-      "tarball_sha256": "8c5494c5f7d8e8bf73ff3fe64d4bd09a340e4878b7eec9bbd9ef8d8f3e24193f",
+      "source": "https://registry.npmjs.org/katex/-/katex-0.18.11.tgz",
+      "tarball_sha256": "a11d6ab44180c6e25a09108c6c391866d0600b49a61ef725368d567f4918ffc3",
       "license_files": [
-        "licenses/katex@0.16.11__LICENSE"
+        "licenses/katex@0.18.11__LICENSE"
       ]
     },
     {
@@ -576,17 +599,7 @@
       "license_files": [
         "licenses/khroma@2.1.0__license"
       ],
-      "license_source": "package/license text (package.json has no license field)"
-    },
-    {
-      "name": "langium",
-      "version": "3.0.0",
-      "license": "MIT",
-      "source": "https://registry.npmjs.org/langium/-/langium-3.0.0.tgz",
-      "tarball_sha256": "dade8ebcdacc9e20477f9b3234c3c2382c880977a5466cae6b2c7b94b2f711bb",
-      "license_files": [
-        "licenses/langium@3.0.0__LICENSE"
-      ]
+      "license_source": "package/license text"
     },
     {
       "name": "layout-base",
@@ -610,32 +623,22 @@
     },
     {
       "name": "lodash-es",
-      "version": "4.17.21",
+      "version": "4.18.1",
       "license": "MIT",
-      "source": "https://registry.npmjs.org/lodash-es/-/lodash-es-4.17.21.tgz",
-      "tarball_sha256": "777598ac703f02b403ef678cd11bce2150ad788f35c774ea7c9cc241a892cb7b",
+      "source": "https://registry.npmjs.org/lodash-es/-/lodash-es-4.18.1.tgz",
+      "tarball_sha256": "b0c810e5cd4cd580ed7b18fc71384b9a80c151dc5c85b1729bd656a49e3f16f8",
       "license_files": [
-        "licenses/lodash-es@4.17.21__LICENSE"
+        "licenses/lodash-es@4.18.1__LICENSE"
       ]
     },
     {
       "name": "marked",
-      "version": "13.0.3",
+      "version": "16.3.0",
       "license": "MIT",
-      "source": "https://registry.npmjs.org/marked/-/marked-13.0.3.tgz",
-      "tarball_sha256": "d70b051b88307eea37ccccae7d3eed9bc6c1adac58b7d616afe26731f44d2b05",
+      "source": "https://registry.npmjs.org/marked/-/marked-16.3.0.tgz",
+      "tarball_sha256": "c333c47cd3802a1d631dfdd8c6cfc411a88599a872c04ce8cd2291381a7767a0",
       "license_files": [
-        "licenses/marked@13.0.3__LICENSE.md"
-      ]
-    },
-    {
-      "name": "ms",
-      "version": "2.1.3",
-      "license": "MIT",
-      "source": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
-      "tarball_sha256": "f6616e15e530ed552f9daa2d3ce71963947c6bc7c98c9b64fd3e673fd02622c6",
-      "license_files": [
-        "licenses/ms@2.1.3__license.md"
+        "licenses/marked@16.3.0__LICENSE.md"
       ]
     },
     {
@@ -650,12 +653,12 @@
     },
     {
       "name": "stylis",
-      "version": "4.3.4",
+      "version": "4.3.6",
       "license": "MIT",
-      "source": "https://registry.npmjs.org/stylis/-/stylis-4.3.4.tgz",
-      "tarball_sha256": "033c341a4a56acde68bbd338d17624ef3ec52c9216fe2c6194fb558b22e64e67",
+      "source": "https://registry.npmjs.org/stylis/-/stylis-4.3.6.tgz",
+      "tarball_sha256": "57bd37727276e7e30d2f15472a43c5d5b8ae6cd9cebd36dbb84880c500de568e",
       "license_files": [
-        "licenses/stylis@4.3.4__LICENSE"
+        "licenses/stylis@4.3.6__LICENSE"
       ]
     },
     {
@@ -670,72 +673,32 @@
     },
     {
       "name": "uuid",
-      "version": "9.0.1",
+      "version": "14.0.0",
       "license": "MIT",
-      "source": "https://registry.npmjs.org/uuid/-/uuid-9.0.1.tgz",
-      "tarball_sha256": "9fa6f415a7d9f7f8ea48e45beeb567686261da85cd395901c54c3515589e3f7e",
+      "source": "https://registry.npmjs.org/uuid/-/uuid-14.0.0.tgz",
+      "tarball_sha256": "ca468c168ec7f2021f6a98041e943443b29e67e0e0ff5b4c1caca17c6efa9870",
       "license_files": [
-        "licenses/uuid@9.0.1__LICENSE.md"
-      ]
-    },
-    {
-      "name": "vscode-jsonrpc",
-      "version": "8.2.0",
-      "license": "MIT",
-      "source": "https://registry.npmjs.org/vscode-jsonrpc/-/vscode-jsonrpc-8.2.0.tgz",
-      "tarball_sha256": "3da44531c398f1545074cb728e359a822f35b9f8ac7171c847f42f0728b9c7cb",
-      "license_files": [
-        "licenses/vscode-jsonrpc@8.2.0__License.txt"
-      ]
-    },
-    {
-      "name": "vscode-languageserver-textdocument",
-      "version": "1.0.12",
-      "license": "MIT",
-      "source": "https://registry.npmjs.org/vscode-languageserver-textdocument/-/vscode-languageserver-textdocument-1.0.12.tgz",
-      "tarball_sha256": "9f1d28814d6ee81267f52f5bc8c920bb6a0a23eb6de48960345a0a25fbf3b0db",
-      "license_files": [
-        "licenses/vscode-languageserver-textdocument@1.0.12__License.txt"
-      ]
-    },
-    {
-      "name": "vscode-languageserver-types",
-      "version": "3.17.5",
-      "license": "MIT",
-      "source": "https://registry.npmjs.org/vscode-languageserver-types/-/vscode-languageserver-types-3.17.5.tgz",
-      "tarball_sha256": "d673f9e7f8bbe51351be51c58f32d4dcfa97a670ebb86bc633368394c609cac0",
-      "license_files": [
-        "licenses/vscode-languageserver-types@3.17.5__License.txt"
-      ]
-    },
-    {
-      "name": "vscode-uri",
-      "version": "3.0.8",
-      "license": "MIT",
-      "source": "https://registry.npmjs.org/vscode-uri/-/vscode-uri-3.0.8.tgz",
-      "tarball_sha256": "a716d2fb0b5ba69c557df007f83dee43117a20faee0adc9400de03be10f475f3",
-      "license_files": [
-        "licenses/vscode-uri@3.0.8__LICENSE.md"
+        "licenses/uuid@14.0.0__LICENSE.md"
       ]
     }
   ],
   "license_files_sha256": {
-    "licenses/@braintree__sanitize-url@7.1.0__LICENSE": "0984740e0c3d725c8044dec7edcefe1dbce180ef5a7bc710c251e19607000158",
-    "licenses/@chevrotain__cst-dts-gen@11.0.3__LICENSE.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
-    "licenses/@chevrotain__gast@11.0.3__LICENSE.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
-    "licenses/@chevrotain__regexp-to-ast@11.0.3__LICENSE.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
-    "licenses/@chevrotain__utils@11.0.3__LICENSE.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
-    "licenses/@iconify__utils@2.1.33__license.txt": "a86793ac023162ce98b91899601c15f6712f44943163c4f92a0a4bf89152b3bf",
-    "licenses/@mermaid-js__parser@0.3.0__LICENSE": "d374061c40bfb6f99c5033290caefda97a9b3e7e477e5ee02f487143ef2177e8",
-    "licenses/chevrotain@11.0.3__LICENSE.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
-    "licenses/chevrotain-allstar@0.3.1__LICENSE": "1db2cfbc7ce5fa3b82699b4ac4badce8984084d25b5308ece00f5c9b1381a0a5",
+    "MERMAID-LICENSE": "ec9fb67dcb25eccc416ed56e1aab819222c805a2a4bfe4cb19e7556bf2ffde80",
+    "licenses/@braintree__sanitize-url@7.1.2__LICENSE": "0984740e0c3d725c8044dec7edcefe1dbce180ef5a7bc710c251e19607000158",
+    "licenses/@chevrotain__cst-dts-gen@13.2.0__LICENSE.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "licenses/@chevrotain__gast@13.2.0__LICENSE.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "licenses/@chevrotain__regexp-to-ast@13.2.0__LICENSE.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "licenses/@chevrotain__utils@13.2.0__LICENSE.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "licenses/@iconify__utils@3.0.2__license.txt": "a86793ac023162ce98b91899601c15f6712f44943163c4f92a0a4bf89152b3bf",
+    "licenses/@mermaid-js__parser@2.0.1__LICENSE": "d374061c40bfb6f99c5033290caefda97a9b3e7e477e5ee02f487143ef2177e8",
+    "licenses/@upsetjs__venn.js@2.0.0__LICENSE": "6a3508febf2cfccfee96597394543a6154a4bb0b1f91f28404be42c09e9fcb54",
+    "licenses/chevrotain@13.2.0__LICENSE.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
     "licenses/cose-base@1.0.3__LICENSE": "5fb3cf4a14c3c5af6e473a192df8bca10c77754e3a0c6492c79fb92a76a5478a",
     "licenses/cose-base@2.2.0__LICENSE": "5fb3cf4a14c3c5af6e473a192df8bca10c77754e3a0c6492c79fb92a76a5478a",
-    "licenses/cytoscape@3.30.2__LICENSE": "a29c0d78a54de204b78357976c3d272a573b8592d0478b9db07af3f1da31a65a",
-    "licenses/cytoscape@3.30.2__license-update.js": "dc621a910b0a2312e3c3db1cf281d93c6170ccc7e69a55d6ca782afe621473e9",
     "licenses/cytoscape-cose-bilkent@4.1.0__LICENSE": "440fc58a56a12814e417d2b341da89b050da052dc75bdb235607d37ec5fe74ef",
     "licenses/cytoscape-fcose@2.2.0__LICENSE": "2837634f403949215760fcdd2fa1ed0c64875d02099ecc8318c704b852f1421d",
-    "licenses/d3@7.9.0__LICENSE": "3e6849627f74ff73c257a3ae1efb574015d94fc1035c05ec3c15805165efcbc4",
+    "licenses/cytoscape@3.34.0__LICENSE": "eb319c6e6f233607f71e8e2f450391751883cfc0eeb3ca7ef574c13d1d9c2203",
+    "licenses/cytoscape@3.34.0__license-update.mjs": "4a5a644717fc90d678e8fbbc537a08452d0566726710eef47b196abd6363e635",
     "licenses/d3-array@2.12.1__LICENSE": "0747bebeb06b10954913149be9b9a8bdf6fad3e6fdcbd9f9524e7a94c13d2cea",
     "licenses/d3-array@3.2.4__LICENSE": "3e6849627f74ff73c257a3ae1efb574015d94fc1035c05ec3c15805165efcbc4",
     "licenses/d3-axis@3.0.0__LICENSE": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
@@ -760,38 +723,36 @@
     "licenses/d3-quadtree@3.0.1__LICENSE": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
     "licenses/d3-random@3.0.1__LICENSE": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
     "licenses/d3-sankey@0.12.3__LICENSE": "2bf785e778d67a4f5266cffcd4f2cc5bb98cde73791666e7efeb8002ba32dfa5",
-    "licenses/d3-scale@4.0.2__LICENSE": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
     "licenses/d3-scale-chromatic@3.1.0__LICENSE": "0986d93944902cca9af86824b6a641b4b7c2d10602fc510c433a8bcd443919fe",
+    "licenses/d3-scale@4.0.2__LICENSE": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
     "licenses/d3-selection@3.0.0__LICENSE": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
     "licenses/d3-shape@1.3.7__LICENSE": "7eea8533ea92bd8c32a901e89ecb0305890905bb12711449565ddff96891146d",
     "licenses/d3-shape@3.2.0__LICENSE": "faa682e3e430941f958d26180458f5934a62f58dac4d70ccdd15608c15d0f884",
-    "licenses/d3-time@3.1.0__LICENSE": "faa682e3e430941f958d26180458f5934a62f58dac4d70ccdd15608c15d0f884",
     "licenses/d3-time-format@4.1.0__LICENSE": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
+    "licenses/d3-time@3.1.0__LICENSE": "faa682e3e430941f958d26180458f5934a62f58dac4d70ccdd15608c15d0f884",
     "licenses/d3-timer@3.0.1__LICENSE": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
     "licenses/d3-transition@3.0.1__LICENSE": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
     "licenses/d3-zoom@3.0.0__LICENSE": "e008c5e25a6be382593089c29bfabbc553c6378eee02895aec46ce396cc404ee",
-    "licenses/dagre-d3-es@7.0.11__LICENSE.md": "d01eb84ccce437dbf5fd40853bceea0f287930920acea066597a4a25ead63858",
-    "licenses/dayjs@1.11.13__LICENSE": "5faab7526d055651be3aab769d58897be6bd91f3d39d137f25f12dba1b31d5dc",
-    "licenses/debug@4.3.7__LICENSE": "3a61c6c96caf5c1d9b623fb9b04c822b783dfcb78aa7e49c76a3f643e6ed7f95",
-    "licenses/dompurify@3.2.1__LICENSE": "7de658e2401fe36e2a3965a5a11a560d2fffe768194849718a4b58c75bf84bda",
+    "licenses/d3@7.9.0__LICENSE": "3e6849627f74ff73c257a3ae1efb574015d94fc1035c05ec3c15805165efcbc4",
+    "licenses/dagre-d3-es@7.0.14__LICENSE.md": "d01eb84ccce437dbf5fd40853bceea0f287930920acea066597a4a25ead63858",
+    "licenses/dayjs@1.11.21__LICENSE": "5faab7526d055651be3aab769d58897be6bd91f3d39d137f25f12dba1b31d5dc",
+    "licenses/dompurify@3.4.12__LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "licenses/dompurify@3.4.12__LICENSE-MPL": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
+    "licenses/dompurify@3.4.12__src__license_header": "5803fa925ae1703b9c752921c95a321570e6cabf06fcf2de895ddaf1687cebef",
+    "licenses/elkjs@0.9.3__LICENSE.md": "89591d4578fb1ebd91501312a3d25f021bd865a2e436641c1cf7b1bc7e3c1617",
+    "licenses/es-toolkit@1.45.1__LICENSE": "ed68888a2a28f32a05e88f24d4d4ee75075a1bda2b6372a1f2e00fa0576a5524",
+    "licenses/fastdom@1.0.12__README-LICENSE": "50c0de64f5cd5e39859b43f7eca7f5843fb3c3d5ac7e34a453e27419ad51e08c",
     "licenses/internmap@2.0.3__LICENSE": "9ea8903938dab5f12c4572d60725069bec2d1b0dc3bcc210b09bae946a5ebb1f",
-    "licenses/js-yaml@4.1.0__LICENSE": "a07bc24468b9654ce76a547d47a2db282d07733b715db4c73a98bd63961f9550",
-    "licenses/katex@0.16.11__LICENSE": "766ccc1f306c885aa45542a9846bbd0a505b27a0374f146778171c2254ce18e3",
+    "licenses/js-yaml@4.3.0__LICENSE": "a07bc24468b9654ce76a547d47a2db282d07733b715db4c73a98bd63961f9550",
+    "licenses/katex@0.18.11__LICENSE": "766ccc1f306c885aa45542a9846bbd0a505b27a0374f146778171c2254ce18e3",
     "licenses/khroma@2.1.0__license": "66b333b0f66759a0b710459e03f7029abe17f4358114a128d2c972e642961b49",
-    "licenses/langium@3.0.0__LICENSE": "599bf70b4e55f06250571d103dbd8441e0c47cb7f858c0147ca312ce38e9ef2a",
     "licenses/layout-base@1.0.2__LICENSE": "eabb762d8a95109a39c9be3247325529a5239a7aca327d909c3ccdc41f3a06bf",
     "licenses/layout-base@2.0.1__LICENSE": "eabb762d8a95109a39c9be3247325529a5239a7aca327d909c3ccdc41f3a06bf",
-    "licenses/lodash-es@4.17.21__LICENSE": "f71e8ed126b46346494aad5486874cd8f0aafe95092ed67d2e3cb6110f939abc",
-    "licenses/marked@13.0.3__LICENSE.md": "8e3a3f82f59a60958f56ca08f445647c32a4733dc7ca6c2c46f6eb898471ab9c",
-    "licenses/ms@2.1.3__license.md": "1662fae9b5314d11cf51284e2dcd1f006a354f7343f08712a730fcff9a359801",
+    "licenses/lodash-es@4.18.1__LICENSE": "f71e8ed126b46346494aad5486874cd8f0aafe95092ed67d2e3cb6110f939abc",
+    "licenses/marked@16.3.0__LICENSE.md": "8e3a3f82f59a60958f56ca08f445647c32a4733dc7ca6c2c46f6eb898471ab9c",
     "licenses/roughjs@4.6.6__LICENSE": "dca9a392272606ac748ac0976a2a1133f14eef841c27beaa51a844d53c56a09d",
-    "licenses/stylis@4.3.4__LICENSE": "88c579c6ee44b41137a21321190d177982e5b17d4fa1b83a4a2e3ea325a8fc9a",
+    "licenses/stylis@4.3.6__LICENSE": "88c579c6ee44b41137a21321190d177982e5b17d4fa1b83a4a2e3ea325a8fc9a",
     "licenses/ts-dedent@2.2.0__LICENSE": "eff13095d9d762c3bd9dda74370c81e2130c28f2691bc455603abf973bac25b9",
-    "licenses/uuid@9.0.1__LICENSE.md": "beaa6b04fb82e41dd2ad679e19e27953afb5999b1abbb455b6564e78ebfeb332",
-    "licenses/vscode-jsonrpc@8.2.0__License.txt": "ec9ee83580841e8eb687aca9867f221503809ba6426c7f876ede17d91b9fcfd0",
-    "licenses/vscode-languageserver-textdocument@1.0.12__License.txt": "ec9ee83580841e8eb687aca9867f221503809ba6426c7f876ede17d91b9fcfd0",
-    "licenses/vscode-languageserver-types@3.17.5__License.txt": "ec9ee83580841e8eb687aca9867f221503809ba6426c7f876ede17d91b9fcfd0",
-    "licenses/vscode-uri@3.0.8__LICENSE.md": "c669138cb1eb01fbb745e8e460b291e4f2869c14a40061390b6095d845ed4c82",
-    "MERMAID-LICENSE": "ec9fb67dcb25eccc416ed56e1aab819222c805a2a4bfe4cb19e7556bf2ffde80"
+    "licenses/uuid@14.0.0__LICENSE.md": "beaa6b04fb82e41dd2ad679e19e27953afb5999b1abbb455b6564e78ebfeb332"
   }
 }

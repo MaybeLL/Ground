@@ -185,6 +185,9 @@ test("the review page renders diagrams under an enforced CSP in Chromium", async
     });
     await loaded.goto(pathToFileURL(path).href, { waitUntil: "networkidle" });
 
+    // Network idle does not mean asynchronous diagram rendering has finished.
+    await loaded.waitForFunction(() => [...document.querySelectorAll("[data-mermaid-source]")]
+      .every(host => host.shadowRoot?.querySelector("svg, .plan-diagram-failed")), undefined, { timeout: 15000 });
     const result = await loaded.evaluate(() => {
       const hosts = [...document.querySelectorAll("[data-mermaid-source]")];
       const figures = [...document.querySelectorAll(".plan-figure")];
@@ -216,6 +219,7 @@ test("the review page renders diagrams under an enforced CSP in Chromium", async
         mainDocStyles: [...document.querySelectorAll("style")].filter((node) => !node.closest("svg") && node.textContent !== null && /#\w+-\d+/.test(node.textContent)).length,
         hosts: hosts.length,
         drawn: hosts.filter((h) => h.shadowRoot && h.shadowRoot.querySelector("svg")).length,
+        outcomes: hosts.map(h => ({ id: h.getAttribute("data-mermaid-source"), drawn: !!h.shadowRoot?.querySelector("svg"), error: h.shadowRoot?.querySelector(".plan-diagram-failed p")?.textContent })),
         mainDocSvgs: document.body.querySelectorAll("svg").length,
         noticeDisplay: notice ? getComputedStyle(notice).display : "MISSING",
         goalsDisplay: goals ? getComputedStyle(goals).display : "MISSING",
@@ -244,7 +248,7 @@ test("the review page renders diagrams under an enforced CSP in Chromium", async
     // 10 hosts = 2 valid + mid-list failure + the diagram after it + 6
     // adversarial; the 2 rule-breaking `:host` attempts fail at runtime.
     assert.equal(result.hosts, 10, `expected 10 hosts, got ${result.hosts}`);
-    assert.equal(result.drawn, 7, "all but the runtime-failing diagrams must draw, including the one after the mid-list failure");
+    assert.equal(result.drawn, 7, `all but the runtime-failing diagrams must draw: ${JSON.stringify(result.outcomes)}`);
     // The hosts whose only failure is at runtime must carry a placeholder too,
     // proving the runtime path was genuinely exercised.
     assert.equal(result.runtimePlaceholders, 3, "the mid-list syntax error and the two unparseable :host attempts are all replaced at runtime");

@@ -37,6 +37,17 @@ repository archive-check --repository REPOSITORY_ID
 
 通过当前 OS 用户的 `gh auth login --hostname github.com` 登录，或显式设置私有环境变量 `GROUNDS_GITHUB_TOKEN`。token 需要读取当前用户、目标仓库权限和 rulesets 详情；细粒度令牌按 GitHub 对这些端点的实际权限要求配置，不能只依据仓库写权限猜测 API 可读。Git 传输继续使用原有 Git/SSH 凭据；API 认证成功不替代 push 授权。
 
+归档 Git 子进程会清除 `GIT_*` 环境覆盖并禁用全局 Git 配置，所以单独执行 `gh auth setup-git` 写入的全局 helper、或临时 `GIT_ASKPASS`，不足以保证 HTTPS 归档 push 可认证。优先使用已配置 SSH 密钥/agent 的 GitHub SSH remote；切换注册仓库的 canonical remote 时按仓库身份迁移协议操作，不能只改本地 remote 后沿用旧绑定。
+
+保留 HTTPS remote 时，可在自己的目标 clone 配置仓库级 helper（只写本地 `.git/config`，不写源码或共享配置）：
+
+```sh
+gh auth login --hostname github.com
+git config --local credential.https://github.com.helper '!gh auth git-credential'
+```
+
+`gh` 必须在执行 Grounds 的 `PATH` 中。Git 子进程保留 OS 用户的 `HOME`、`GH_CONFIG_DIR` 及非 `GIT_*` 环境变量，因此该 helper 可使用同一用户已保存的 gh 登录；显式私有 `GH_TOKEN`/`GITHUB_TOKEN` 也会按 gh 规则覆盖其 Git 传输身份。它不会自动读取 `GROUNDS_GITHUB_TOKEN`：该变量只供 Grounds 的 API 适配器使用。核对 API 用户与 Git 传输身份均获目标仓库授权，不将 token 写入 helper 命令、remote URL 或仓库文件。仓库级 helper 可供同一 clone 的 managed worktree 使用；私有仓库的隔离恢复读取还需要可独立使用的传输认证，推荐 SSH。
+
 适配器只访问 `https://api.github.com`，不会跟随凭据到远端指定的其他主机。它不使用普通 `GH_TOKEN` 或 `GITHUB_TOKEN` 环境变量代替显式 Grounds token；CI 使用时必须显式配置适用身份及 `GROUNDS_GITHUB_TOKEN`，不把任意工作流的默认 token 当成人类身份。凭据不写进共享配置、账本、示例或日志。
 
 ## 日常归档与恢复

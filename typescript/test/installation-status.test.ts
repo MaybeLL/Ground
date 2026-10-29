@@ -108,7 +108,7 @@ test("doctor upgrade uses GitHub assets and rejects unsafe injected versions", (
   const directory = mkdtempSync(join(tmpdir(), "grounds-release-doctor-"));
   try {
     const result = installationStatus(directory, () => "999.0.0");
-    assert.equal(result.recommended_commands[0], "npm install --global https://github.com/MaybeLL/grounds-open/releases/download/v999.0.0/maybell-grounds-999.0.0.tgz");
+    assert.equal(result.recommended_commands[0], "npm install --global https://github.com/MaybeLL/grounds-open/releases/download/v999.0.0/maybell-grounds-999.0.0.tgz --registry=https://registry.npmjs.org");
     const invalid = installationStatus(directory, () => "999.0.0; echo bad");
     assert.equal(invalid.cli.status, "unknown");
     assert.ok(invalid.recommended_commands.every(command => !command.includes("echo bad")));

@@ -92,7 +92,7 @@ export const installationStatus = (skillsPath = defaultSkillsDirectory(), fetchR
   const skillVersion = versions.size === 1 ? [...versions][0] : undefined;
   const upgradeRequired = cliState === "outdated" || skillsState !== "current";
   const commands: string[] = [];
-  if (cliState === "outdated") commands.push(`npm install --global ${GROUNDS_RELEASES}/download/v${latest}/maybell-grounds-${latest}.tgz`);
+  if (cliState === "outdated") commands.push(`npm install --global ${GROUNDS_RELEASES}/download/v${latest}/maybell-grounds-${latest}.tgz --registry=https://registry.npmjs.org`);
   if (cliState === "outdated" || skillsState !== "current") commands.push(`grounds install skill ${JSON.stringify(target)}`);
   return {
     result_type: "patchledger.result.doctor/v1", command: "doctor",
