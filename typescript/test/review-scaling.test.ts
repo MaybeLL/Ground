@@ -171,3 +171,36 @@ test("CLI rejects incompatible new flags before accessing a database", async () 
     }
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
+
+
+test("Markdown export uses nanosecond ordering across pages and rejects reversed or repeated entries", async () => {
+  const fixture = await LedgerFixture.create();
+  try {
+    const candidate = await fixture.submitCandidate();
+    const id = candidate.candidate.candidate_id;
+    const write = fixture.store.write.bind(fixture.store);
+    let time = "2026-01-01T00:00:00Z";
+    fixture.store.write = callback => write(async tx => { tx.now = async () => time; return callback(tx); });
+    for (const at of ["2026-01-01T00:00:00Z", "2026-01-01T00:00:00.1Z", "2026-01-01T00:00:00.100000001Z", "2026-01-01T00:00:00.100000002Z", "2026-01-01T00:00:00.11Z"]) {
+      time = at;
+      await fixture.verify(candidate, "qualified");
+    }
+    const whole = await fixture.module.verificationPage(id);
+    const rows = whole.verifications;
+    assert.deepEqual(rows.map(row => row.created_at), ["2026-01-01T00:00:00Z", "2026-01-01T00:00:00.1Z", "2026-01-01T00:00:00.100000001Z", "2026-01-01T00:00:00.100000002Z", "2026-01-01T00:00:00.11Z"]);
+    // Force each boundary onto a separate page while retaining the real set
+    // digest and reports, so the exporter must maintain order across pages.
+    let ordered = rows;
+    fixture.module.verificationPage = async (_id, cursor = "") => {
+      const index = cursor ? Number(cursor) : 0;
+      return { ...whole, verifications: [ordered[index]], next_cursor: index + 1 < ordered.length ? String(index + 1) : undefined };
+    };
+    const prepared = await prepareReviewMarkdown(fixture.module, id);
+    try { assert.equal(readFileSync(prepared.path, "utf8"), renderReviewMarkdown(await fixture.module.reviewCandidate(id))); }
+    finally { prepared.dispose(); }
+    ordered = [rows[0], rows[1], rows[3], rows[2], rows[4]];
+    await assert.rejects(prepareReviewMarkdown(fixture.module, id), { code: "ARTIFACT_INTEGRITY_ERROR" });
+    ordered = [rows[0], rows[1], rows[2], rows[2], rows[4]];
+    await assert.rejects(prepareReviewMarkdown(fixture.module, id), { code: "ARTIFACT_INTEGRITY_ERROR" });
+  } finally { await fixture.close(); }
+});

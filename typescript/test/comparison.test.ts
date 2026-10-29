@@ -265,3 +265,20 @@ test("comparison bounds upstream payloads without mutating caller evidence", () 
   assert.ok(result.pairwise_diffs.some(pair => pair.upstream_changes!.diff!.diff_state === "omitted_size"));
   assert.ok(input.pairwise_diffs.every(pair => pair.upstream_changes!.diff!.unified_diff === patch));
 });
+
+
+test("Candidate comparison sorts fractional timestamps by instant rather than text", async () => {
+  const fixture = await LedgerFixture.create();
+  try {
+    const write = fixture.store.write.bind(fixture.store);
+    let time = "2026-01-01T00:00:00.1Z";
+    fixture.store.write = callback => write(async tx => { tx.now = async () => time; return callback(tx); });
+    const first = await fixture.submitCandidate("one");
+    time = "2026-01-01T00:00:00.11Z";
+    const second = await fixture.submitCandidate("two");
+    const ids = [first.candidate.candidate_id, second.candidate.candidate_id];
+    for (const result of [await fixture.module.compareCandidateSummary([...ids].reverse()), await fixture.module.compareCandidates([...ids].reverse())]) {
+      assert.deepEqual(result.candidates.map(item => item.candidate_id), ids);
+    }
+  } finally { await fixture.close(); }
+});

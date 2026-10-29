@@ -1,3 +1,4 @@
+import { timestampOrderKey } from "./sql-shared.js";
 import { encodeVerificationCursor } from "./verification-cursor.js";
 import { validateModeSelection } from "./development-mode.js";
 import { completionView, completionProgress, completionText, validateCompletionInput, type CompletionInput, type CompletionRecord, type CompletionView, type CompletionResult, type CompletionWriteCommand } from './completion.js';
@@ -1922,7 +1923,7 @@ export class Module {
       const issue = await tx.getIssue(issueRevision.issue_id);
       const requirementRevision = await tx.getRequirementRevision(issue.requirement_id, issueRevision.requirement_revision_id);
       for (const record of records) validateCandidateBindings(record, issue, issueRevision, requirementRevision);
-      const sorted = [...records].sort((left, right) => compareText(left.candidate.created_at, right.candidate.created_at) || (left.ledger_event_seq ?? Number.MAX_SAFE_INTEGER) - (right.ledger_event_seq ?? Number.MAX_SAFE_INTEGER) || compareText(left.candidate.id, right.candidate.id));
+      const sorted = [...records].sort((left, right) => compareText(timestampOrderKey(left.candidate.created_at), timestampOrderKey(right.candidate.created_at)) || (left.ledger_event_seq ?? Number.MAX_SAFE_INTEGER) - (right.ledger_event_seq ?? Number.MAX_SAFE_INTEGER) || compareText(left.candidate.id, right.candidate.id));
       const candidates: { value: ComparisonCandidate; resultTree: string }[] = [];
       const patches = new Map<string, Buffer>();
       for (const record of sorted) {

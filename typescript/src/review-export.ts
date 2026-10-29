@@ -1,3 +1,4 @@
+import { timestampOrderKey } from "./sql-shared.js";
 import { createHash } from "node:crypto";
 import { createReadStream, mkdtempSync, appendFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -37,7 +38,7 @@ export const prepareReviewMarkdown = async (module: Module, candidateId: string,
       const hash = createHash("sha256").update("[");
       let count = 0;
       let cursor = "";
-      let previous: Entry | undefined;
+      let previous: { key: string; id: string } | undefined;
       const counts = { qualified: 0, rejected: 0, inconclusive: 0 };
       for (;;) {
         const page = await module.verificationPage(candidateId, cursor);
@@ -45,12 +46,13 @@ export const prepareReviewMarkdown = async (module: Module, candidateId: string,
         if (page.verification_set.digest !== summary.trace.verification_set.digest) changed();
         if (!canonicalBytes(page.verification_set).equals(canonicalBytes(summary.trace.verification_set))) corrupt();
         for (const entry of page.verifications) {
-          if (entry.candidate_id !== candidateId || (previous && (entry.created_at < previous.created_at || (entry.created_at === previous.created_at && entry.verification_id <= previous.verification_id)))) corrupt();
+          const key = timestampOrderKey(entry.created_at);
+          if (entry.candidate_id !== candidateId || (previous && (key < previous.key || (key === previous.key && entry.verification_id <= previous.id)))) corrupt();
           if (count++) hash.update(",");
           hash.update(digestEntry(entry));
           counts[entry.overall_verdict as keyof typeof counts]++;
           appendFileSync(manifest, JSON.stringify(entry) + "\n");
-          previous = entry;
+          previous = { key, id: entry.verification_id };
         }
         if (!page.next_cursor) break;
         if (!page.verifications.length || page.next_cursor === cursor) corrupt();
