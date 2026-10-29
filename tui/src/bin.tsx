@@ -34,7 +34,9 @@ try {
     const restore = () => { if (!restoreDone) { process.stdout.write('\u001b[?1049l\u001b[?25h'); restoreDone = true; } };
     process.once('exit', restore);
     const view = values.legacy ? <App reader={client} context={client.context} onExit={() => instance.unmount()} /> : <Workbench client={client} startEval={Boolean(values.eval)} onExit={() => instance.unmount()} />;
-    const instance = render(view, { exitOnCtrlC: false, incrementalRendering: true });
+    // The launcher requires a real TTY above. Keep it interactive even when a
+    // terminal is opened by CI; Ink otherwise suppresses frames until exit.
+    const instance = render(view, { exitOnCtrlC: false, incrementalRendering: true, interactive: true });
     const stop = () => instance.unmount();
     process.once('SIGTERM', stop); process.once('SIGINT', stop);
     try { await instance.waitUntilExit(); }

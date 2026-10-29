@@ -34,7 +34,7 @@ try {
   // Existing is not enough: the contract names components that must be present.
   // A prior revision claimed completeness while omitting KaTeX and d3.
   const notices = readFileSync(join(root, "vendor", "THIRD-PARTY-NOTICES.md"), "utf8");
-  for (const required of ["mermaid", "katex", "d3", "chevrotain", "es-toolkit", "dompurify", "cytoscape"]) {
+  for (const required of ["mermaid", "katex", "d3", "chevrotain", "lodash", "es-toolkit", "dompurify", "cytoscape"]) {
     if (!notices.toLowerCase().includes(required)) throw new Error(`licence notices omit ${required}`);
   }
   if (entries.some(entry => /^package\/node_modules\/mermaid\//.test(entry))) throw new Error("tarball must not bundle mermaid as a runtime dependency");

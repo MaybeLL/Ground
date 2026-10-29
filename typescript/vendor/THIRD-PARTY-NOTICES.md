@@ -8,6 +8,10 @@
 
 The official `dist/mermaid.min.js.map` identifies 66 package/version pairs in pnpm source paths. The additional workspace component `@mermaid-js/parser` is version 2.0.1 in the matching upstream `mermaid@12.2.0` source tag. License/notice files were copied verbatim from each exact npm tarball; fastdom's complete license is the verbatim License section of its package README. Khroma's MIT identification comes from its license text. DOMPurify is dual licensed; Apache-2.0 is selected for this redistribution. Preserve the supplied texts and all license comments embedded in `mermaid.min.js`.
 
+## EPL source availability
+
+elkjs 0.9.3 and the included Eclipse ELK code are available as Source Code under EPL-2.0. See [source downloads, exact upstream revisions, and build instructions](licenses/elkjs@0.9.3__SOURCE.md). Keep this source-availability notice and the EPL license with redistribution; the Grounds MIT license does not replace their terms.
+
 ## Component licenses
 
 | Component | Version | License | License files |

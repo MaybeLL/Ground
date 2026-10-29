@@ -536,8 +536,15 @@
       "source": "https://registry.npmjs.org/elkjs/-/elkjs-0.9.3.tgz",
       "tarball_sha256": "b95b224bd1ab71fd40f6d9a6365c28d989745dff6b0d514407bc1eb68f2f561e",
       "license_files": [
-        "licenses/elkjs@0.9.3__LICENSE.md"
-      ]
+        "licenses/elkjs@0.9.3__LICENSE.md",
+        "licenses/elkjs@0.9.3__SOURCE.md"
+      ],
+      "source_code": {
+        "elkjs_commit": "a8304cf79fde75bc2ab1a89d28320f53f8637436",
+        "elk_source_commit": "62d5909f96fad541bc101ad52dabaece6b7eab7e",
+        "additional_fix_merge": "7ca51784e42a24201f29bc13e458728b6fc61cdc",
+        "instructions": "licenses/elkjs@0.9.3__SOURCE.md"
+      }
     },
     {
       "name": "es-toolkit",
@@ -753,6 +760,7 @@
     "licenses/roughjs@4.6.6__LICENSE": "dca9a392272606ac748ac0976a2a1133f14eef841c27beaa51a844d53c56a09d",
     "licenses/stylis@4.3.6__LICENSE": "88c579c6ee44b41137a21321190d177982e5b17d4fa1b83a4a2e3ea325a8fc9a",
     "licenses/ts-dedent@2.2.0__LICENSE": "eff13095d9d762c3bd9dda74370c81e2130c28f2691bc455603abf973bac25b9",
-    "licenses/uuid@14.0.0__LICENSE.md": "beaa6b04fb82e41dd2ad679e19e27953afb5999b1abbb455b6564e78ebfeb332"
+    "licenses/uuid@14.0.0__LICENSE.md": "beaa6b04fb82e41dd2ad679e19e27953afb5999b1abbb455b6564e78ebfeb332",
+    "licenses/elkjs@0.9.3__SOURCE.md": "f41802d03086f77a5c28f1cdad3dc7f1f1eb7f31b6afaa89d3b1964954415df6"
   }
 }
