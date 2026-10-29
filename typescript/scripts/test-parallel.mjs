@@ -30,7 +30,7 @@ const value = (flag, fallback) => {
 const repository = realpathSync(new URL("..", import.meta.url).pathname);
 const testDirectory = join(repository, "test");
 const workers = Math.max(1, Number(value("--workers", Math.min(4, Math.max(2, cpus().length - 1)))));
-const reporter = args.includes("--reporter") ? ["--reporter", args[args.indexOf("--reporter") + 1]] : [];
+const reporter = ["--test-reporter", value("--reporter", "tap")];
 
 const files = readdirSync(testDirectory)
   .filter(name => name.endsWith(".test.ts"))

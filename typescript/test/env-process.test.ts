@@ -62,11 +62,12 @@ test("host completion includes a detached reparented Python descendant, and pers
 test("host signals require both the correct random scope and process birth identity", async () => {
   const own = createHostProcessScope(), other = createHostProcessScope();
   const a = task(own), b = task(other); const aDone = exited(a), bDone = exited(b);
-  // An unrelated inaccessible newcomer deliberately keeps the host census
-  // incomplete. Signal authorization must still stop only the exact owned
-  // identities; their exit cannot certify a complete host-wide observation.
+  // An unrelated absent/inaccessible environment keeps the host census
+  // incomplete. Empty macOS environments exercise the same fail-closed branch
+  // without assuming that the runner enables SIP for /bin/sleep. Signal
+  // authorization must still stop only the exact owned identities; their exit cannot certify a complete host-wide observation.
   const restrictedArgv = process.platform === "darwin" ? ["/bin/sleep", "60"] : ["python3", "-c", "import ctypes,time;ctypes.CDLL(None).prctl(4,0,0,0,0);time.sleep(60)"];
-  const restricted = spawn(restrictedArgv[0], restrictedArgv.slice(1), { detached: true, stdio: "ignore", env: { PATH: process.env.PATH } });
+  const restricted = spawn(restrictedArgv[0], restrictedArgv.slice(1), { detached: true, stdio: "ignore", env: process.platform === "darwin" ? {} : { PATH: process.env.PATH } });
   const restrictedDone = exited(restricted), restrictedBirth = hostProcessIdentity(restricted.pid!);
   try {
     assert.ok(restrictedBirth);
@@ -101,17 +102,17 @@ test("empty scopes can confirm and malformed or old absent scopes remain unknown
   }
 });
 
-test("unreadable process environments retain unknown; a verified original leader can still be cancelled", async () => {
+test("absent or unreadable process environments retain unknown; a verified original leader can still be cancelled", async () => {
   const scope = createHostProcessScope();
   const argv = process.platform === "darwin" ? ["/bin/sleep", "60"] : ["python3", "-c", "import ctypes,time;ctypes.CDLL(None).prctl(4,0,0,0,0);time.sleep(60)"];
-  const child = spawn(argv[0], argv.slice(1), { detached: true, stdio: "ignore", env: { ...process.env, ...hostProcessEnvironment(scope) } });
+  const child = spawn(argv[0], argv.slice(1), { detached: true, stdio: "ignore", env: process.platform === "darwin" ? {} : { ...process.env, ...hostProcessEnvironment(scope) } });
   const done = exited(child);
   const birth = hostProcessIdentity(child.pid!);
   try {
     assert.ok(birth);
     await delay(100);
     const observed = inspectHostProcessScope(scope);
-    assert.equal(observed.complete, false, "an inaccessible environment is unknown even when the OS returns argv successfully");
+    assert.equal(observed.complete, false, "an absent or inaccessible environment is unknown even when the OS returns argv successfully");
     assert.equal(inspectHostProcessScope(scope, { pid: child.pid!, identity: birth }).complete, false, "the original restricted leader cannot be excluded through its old controller");
     assert.equal(signalHostProcessLeader(child.pid!, "0:0", "SIGTERM"), false);
     assert.equal(signalHostProcessLeader(child.pid!, birth, "SIGTERM"), true);
@@ -169,7 +170,7 @@ test("environment lifecycle retains detached descendants, cancels on recovery, t
 }));
 
 test("a stable unrelated old parent excludes restricted newcomers only with a fixed leader on macOS", async () => {
-  const controller = spawn("python3", ["-c", `import subprocess,sys\nprint('ready',flush=True)\nsys.stdin.readline()\nif sys.platform=='darwin':\n p=subprocess.Popen(['/bin/sleep','60'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\nelse:\n p=subprocess.Popen([sys.executable,'-c',"import ctypes,time;ctypes.CDLL(None).prctl(4,0,0,0,0);print('ready',flush=True);time.sleep(60)"],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)\n p.stdout.readline()\nprint(p.pid,flush=True)\nsys.stdin.readline()\np.terminate()\np.wait()`], { detached: true, stdio: ["pipe", "pipe", "ignore"], env: { PATH: process.env.PATH } });
+  const controller = spawn("python3", ["-c", `import subprocess,sys\nprint('ready',flush=True)\nsys.stdin.readline()\nif sys.platform=='darwin':\n p=subprocess.Popen(['/bin/sleep','60'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,env={})\nelse:\n p=subprocess.Popen([sys.executable,'-c',"import ctypes,time;ctypes.CDLL(None).prctl(4,0,0,0,0);print('ready',flush=True);time.sleep(60)"],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)\n p.stdout.readline()\nprint(p.pid,flush=True)\nsys.stdin.readline()\np.terminate()\np.wait()`], { detached: true, stdio: ["pipe", "pipe", "ignore"], env: { PATH: process.env.PATH } });
   const controllerDone = exited(controller);
   const controllerBirth = hostProcessIdentity(controller.pid!);
   const lines = createInterface({ input: controller.stdout! });
@@ -207,7 +208,7 @@ test("a stable unrelated old parent excludes restricted newcomers only with a fi
 
 test("a detached restricted orphan remains possible after reparenting to PID1", async () => {
   const scope = createHostProcessScope();
-  const root = spawn("python3", ["-c", "import subprocess; p=subprocess.Popen(['/bin/sleep','60'],start_new_session=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);print(p.pid,flush=True)"], { detached: true, stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, ...hostProcessEnvironment(scope) } });
+  const root = spawn("python3", ["-c", "import subprocess,sys; p=subprocess.Popen(['/bin/sleep','60'],start_new_session=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,env={} if sys.platform=='darwin' else None);print(p.pid,flush=True)"], { detached: true, stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, ...hostProcessEnvironment(scope) } });
   const done = exited(root); const rootBirth = hostProcessIdentity(root.pid!);
   let descendant: HostProcessIdentity | undefined;
   try {

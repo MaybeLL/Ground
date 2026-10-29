@@ -25,6 +25,13 @@ SPEC.loader.exec_module(agent)
 UUID7 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 
 
+def retired_auth_login_commands(text: str) -> list[str]:
+    # GitHub CLI authentication is supported. Bare/helper-dispatched auth login
+    # and explicit Grounds auth login still name the retired Grounds family.
+    pattern = re.compile(r"\b(?:(?P<host>gh)[ \t]+)?auth[ \t]+login\b")
+    return [match.group(0) for match in pattern.finditer(text) if match.group("host") is None]
+
+
 class GroundsAgentTests(unittest.TestCase):
     def test_editor_url_is_streamed_while_service_is_running(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -899,7 +906,6 @@ class GroundsAgentTests(unittest.TestCase):
             "environment exec",
             "environment prepare",
             "environment-definition",
-            "auth login",
             "content archive",
         )
         for root in (plugin_root / "skills", plugin_root / "references"):
@@ -907,9 +913,21 @@ class GroundsAgentTests(unittest.TestCase):
                 if not path.is_file() or path.suffix not in {".md", ".json", ".yaml", ".yml"} or contracts in path.parents:
                     continue
                 text = path.read_text(encoding="utf-8")
+                with self.subTest(path=str(path.relative_to(plugin_root)), term="retired Grounds auth login"):
+                    self.assertEqual(retired_auth_login_commands(text), [])
                 for term in removed:
                     with self.subTest(path=str(path.relative_to(plugin_root)), term=term):
                         self.assertNotIn(term, text)
+
+    def test_removed_auth_lint_allows_github_login_but_rejects_grounds_login(self) -> None:
+        for text in ("`gh auth login --hostname github.com`", "gh\tauth login"):
+            with self.subTest(text=text):
+                self.assertEqual(retired_auth_login_commands(text), [])
+        for text in ("grounds auth login", "auth login", "invoke -- auth login", "xgh auth login", "gh auth login; grounds auth login"):
+            with self.subTest(text=text):
+                self.assertTrue(retired_auth_login_commands(text))
+        onboarding = SCRIPT.parents[1] / "skills/grounds/references/github-archive-onboarding.md"
+        self.assertIn("gh auth login --hostname github.com", onboarding.read_text(encoding="utf-8"))
 
     def test_auto_repair_loop_binds_stable_interfaces_and_links(self) -> None:
         skill_root = SCRIPT.parents[1] / "skills" / "grounds"
