@@ -49,7 +49,27 @@ backendTest("Review directory pagination, fixed set and no report reads", async 
       await assert.rejects(fixture.module.verificationPage(newUUIDv7(), first.next_cursor!), { code: "VALIDATION_ERROR" });
       await assert.rejects(fixture.module.verificationPage(id, "invalid"), { code: "VALIDATION_ERROR" });
       await assert.rejects(fixture.module.verificationPage(newUUIDv7()), { code: "NOT_FOUND" });
+      const oldEnvelope = JSON.parse(Buffer.from(first.next_cursor!, "base64url").toString("utf8"));
+      const inner = Buffer.from(oldEnvelope.after, "base64url").toString("utf8");
+      assert.ok(inner.startsWith("v2\0"));
+      const oldCursor = Buffer.from(inner.slice(3)).toString("base64url");
+      const restart = (error: unknown) => {
+        assert.ok(error instanceof DomainError);
+        assert.equal(error.code, "VALIDATION_ERROR");
+        assert.equal(error.details.field, "verifications_cursor");
+        assert.match(String(error.details.reason), /restart from the first page/);
+        return true;
+      };
+      await assert.rejects(fixture.module.verificationPage(id, Buffer.from(JSON.stringify({ ...oldEnvelope, after: oldCursor })).toString("base64url")), restart);
       fixture.store.read = originalRead;
+      await assert.rejects(fixture.module.showCandidate(id, "", oldCursor), restart);
+      const detail = (await fixture.module.showCandidate(id)).candidate;
+      assert.equal(detail.verifications.length, 256);
+      assert.ok(detail.verifications_next_cursor);
+      const detailLast = (await fixture.module.showCandidate(id, "", detail.verifications_next_cursor)).candidate;
+      assert.equal(detailLast.verifications.length, 1);
+      assert.equal(detailLast.verifications_next_cursor, undefined);
+      assert.deepEqual([...detail.verifications, ...detailLast.verifications], [...first.verifications, ...last.verifications].map(({ candidate_id, ...row }) => row));
       await fixture.verify(candidate);
       await assert.rejects(fixture.module.verificationPage(id, first.next_cursor!), error => {
         assertContract("error.schema.json", (error as DomainError).toJSON());

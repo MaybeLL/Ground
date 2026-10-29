@@ -1,3 +1,4 @@
+import { encodeVerificationCursor } from "../src/verification-cursor.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { SQLStore } from "../src/sql-store.js";
@@ -212,7 +213,7 @@ for (const backend of ["sqlite", "mysql", "postgres"] as const) test(`${backend}
           if (!page.more) break;
           assert.ok(page.rows.length > 0 && actual.length <= expected.length, "pagination must advance without duplicates");
           const last = page.rows.at(-1)!;
-          cursor = Buffer.from(`${last.created_at}\0${last.id}`).toString("base64url");
+          cursor = encodeVerificationCursor(last);
         }
         assert.deepEqual(actual, expected);
       }

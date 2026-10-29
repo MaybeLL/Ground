@@ -16,7 +16,9 @@ Version `0.2.50` is the first release candidate for this GitHub distribution pro
 
 The earlier `v0.2.49` tag is retained for traceability. Its release validation found a verification pagination ordering defect, so no release packages were published for that tag. Version `0.2.50` fixes ordering across fractional timestamp precisions and legacy UTC formats, with regression coverage for page boundaries.
 
-Upgrading to `0.2.50` invalidates version 1 opaque list cursors, including candidate, verification, and issue activity lists. Their old timestamp keys may have lost precision and cannot be safely resumed. A saved version 1 cursor returns `VALIDATION_ERROR`; restart from the first page without `--cursor`, then follow the newly returned cursors. This changes pagination state only, not stored timestamps or artifact digests.
+Upgrading to `0.2.50` invalidates version 1 opaque list cursors, including candidate, verification, and issue activity lists. Their old timestamp keys may have lost precision and cannot be safely resumed. A saved version 1 cursor returns `VALIDATION_ERROR`; restart from the first page without `--cursor`, then follow the newly returned cursors. The independent verification cursors returned by `candidate show` and the candidate-bound verification directory also require a fresh first page; unversioned inner cursors are rejected even inside an otherwise valid directory envelope. This changes pagination state only, not stored timestamps or artifact digests.
+
+The ordering correction can change a **derived verification-set digest** even when the stored reports are unchanged. Existing selections retain their recorded snapshots and may report `verification_changed` / `SELECTION_VERIFICATION_CHANGED`; integration snapshots may likewise differ. Review the current verification set and explicitly select the candidate again before proceeding with delivery. The upgrade does not migrate old ledger entries, rewrite selection history, or substitute the old digest. Stored artifact digests remain unchanged.
 
 ## Install a GitHub release
 

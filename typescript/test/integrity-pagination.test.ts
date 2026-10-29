@@ -1,3 +1,4 @@
+import { encodeVerificationCursor } from "../src/verification-cursor.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DatabaseSync } from "node:sqlite";
@@ -104,14 +105,14 @@ test("verification page cursors reject impossible calendar dates as input errors
   const candidate = await f.submitCandidate("one");
   const candidateId = candidate.candidate.candidate_id;
   for (const method of ["readVerificationDirectoryPage", "listVerificationSummariesPage"] as const) {
-    const cursor = Buffer.from(`2025-02-30T00:00:00Z\0${newUUIDv7()}`).toString("base64url");
+    const cursor = encodeVerificationCursor({ created_at: "2025-02-30T00:00:00Z", id: newUUIDv7() });
     await assert.rejects(f.store.read(tx => tx[method](candidateId, cursor, 1)), error => {
       assert.ok(error instanceof DomainError);
       assert.equal(error.code, "VALIDATION_ERROR");
       assert.equal(error.details.field, "verifications_cursor");
       return true;
     });
-    const valid = Buffer.from(`2025-02-28T00:00:00.100000001Z\0${newUUIDv7()}`).toString("base64url");
+    const valid = encodeVerificationCursor({ created_at: "2025-02-28T00:00:00.100000001Z", id: newUUIDv7() });
     assert.deepEqual(await f.store.read(tx => tx[method](candidateId, valid, 1)), { rows: [], more: false });
   }
 });

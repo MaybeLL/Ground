@@ -95,7 +95,7 @@ jobs:
       - run: npm ci --registry=https://registry.npmjs.org && npm run build
         working-directory: tui
       - name: Run TLS database conformance on all stores
-        run: node scripts/test-runtime-postgres.mjs node scripts/test-runtime-mysql.mjs node --import tsx --test --test-concurrency=1 test/runtime-store.test.ts test/mysql-conformance.test.ts test/postgres-conformance.test.ts
+        run: node scripts/test-runtime-postgres.mjs node scripts/test-runtime-mysql.mjs node --import tsx --test --test-concurrency=1 test/runtime-store.test.ts test/mysql-conformance.test.ts test/postgres-conformance.test.ts test/list-paging.test.ts test/selection.test.ts
         working-directory: typescript
       - name: Run TUI scale and PTY against both stores
         run: node scripts/test-runtime-mysql.mjs npm --prefix ../tui run test:release

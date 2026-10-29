@@ -1,3 +1,4 @@
+import { VERIFICATION_CURSOR_PREFIX } from "./verification-cursor.js";
 import { validateModeSelection } from "./development-mode.js";
 import { assertSupportedCandidateArtifact, GIT_CANDIDATE_ARTIFACT_FORMAT, validateGitArtifactCandidateBinding, type GitArtifactResolver, type GitCommitArtifact } from "./git-artifact-storage.js";
 import type { SQLClient } from "./sql-client.js";
@@ -592,7 +593,9 @@ export abstract class SqlTxWork extends SqlTxCore {
         if (!/^[A-Za-z0-9_-]+$/.test(after) || after.length % 4 === 1) throw new Error("invalid cursor");
         const raw = Buffer.from(after, "base64url");
         if (!raw.length || raw.toString("base64url") !== after) throw new Error("invalid cursor");
-        const decoded = raw.toString("utf8");
+        const payload = raw.toString("utf8");
+        if (!payload.startsWith(VERIFICATION_CURSOR_PREFIX)) throw new Error("unsupported cursor version");
+        const decoded = payload.slice(VERIFICATION_CURSOR_PREFIX.length);
         const separator = decoded.indexOf("\0");
         if (separator <= 0 || separator === decoded.length - 1) throw new Error("invalid cursor");
         const createdAt = decoded.slice(0, separator);
@@ -600,7 +603,7 @@ export abstract class SqlTxWork extends SqlTxCore {
         if (!Number.isFinite(Date.parse(createdAt)) || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/.test(createdAt) || !isUUIDv7(id)) throw new Error("invalid cursor");
         cursor = { key: timestampOrderKey(createdAt), id };
       } catch {
-        throw validation("verifications_cursor", "must be an opaque Verification page cursor");
+        throw validation("verifications_cursor", "must be a version 2 opaque Verification page cursor; restart from the first page");
       }
     }
     const args: unknown[] = [candidateId];

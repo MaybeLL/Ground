@@ -68,6 +68,40 @@ for (const backend of ["sqlite", "mysql", "postgres"] as const) {
     const integrity = (await f.store.inspectIntegrity()).report; assert.equal(integrity.valid, true, JSON.stringify(integrity.issues));
   });
 
+  backendTest("upgrading timestamp ordering flags a legacy selection digest until reviewed and reselected", async f => {
+    const candidate = await f.submitCandidate();
+    const id = candidate.candidate.candidate_id;
+    const write = f.store.write.bind(f.store);
+    let time = "2026-01-01T00:00:00.1Z";
+    f.store.write = callback => write(async tx => { tx.now = async () => time; return callback(tx); });
+    await f.verify(candidate, "qualified");
+    time = "2026-01-01T00:00:00.11Z";
+    await f.verify(candidate, "qualified");
+    // Reproduce the old reader when recording the selection; retain real reports
+    // and let production code calculate the legacy digest rather than forging it.
+    f.store.write = callback => write(async tx => {
+      const page = tx.readVerificationDirectoryPage.bind(tx);
+      tx.readVerificationDirectoryPage = async (...args) => {
+        const value = await page(...args);
+        value.rows.sort((a, b) => a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id.localeCompare(b.id));
+        return value;
+      };
+      return callback(tx);
+    });
+    const before = await f.module.setSelection(command(f, id));
+    f.store.write = write;
+    const upgraded = (await f.module.showSelection(f.issue.issue_id)).selection;
+    assert.equal(upgraded.verification_changed, true);
+    assert.ok(upgraded.warnings.some(warning => warning.code === "SELECTION_VERIFICATION_CHANGED"));
+    assert.deepEqual(upgraded.verification_at_selection, before.selection.verification_at_selection);
+    assert.notEqual(upgraded.current_verification?.digest, upgraded.verification_at_selection?.digest);
+    assert.equal(upgraded.current_verification?.count, 2);
+    assert.equal(upgraded.current_verification?.standing, "qualified");
+    const reaffirmed = await f.module.setSelection(command(f, id, 1));
+    assert.equal(reaffirmed.selection.verification_changed, false);
+    assert.equal(reaffirmed.selection.verification_at_selection?.digest, upgraded.current_verification?.digest);
+  });
+
   backendTest("Selection validates risk reasons and reports later verification without changing the choice", async f => {
     const a = await f.submitCandidate(); const input = command(f, a.candidate.candidate_id);
     await assert.rejects(f.module.setSelection({ ...input, reason: undefined }), errorCode("VALIDATION_ERROR"));

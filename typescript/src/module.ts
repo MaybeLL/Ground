@@ -1,3 +1,4 @@
+import { encodeVerificationCursor } from "./verification-cursor.js";
 import { validateModeSelection } from "./development-mode.js";
 import { completionView, completionProgress, completionText, validateCompletionInput, type CompletionInput, type CompletionRecord, type CompletionView, type CompletionResult, type CompletionWriteCommand } from './completion.js';
 import { candidateHistoryProjection, type CandidateHistoryProjection } from "./candidate-history.js";
@@ -2424,7 +2425,6 @@ const decodeManifestCursor = (cursor: string): Buffer | undefined => {
     return decoded;
   } catch { throw validation("manifest_cursor", "must be an opaque Candidate manifest page cursor"); }
 };
-const encodeVerificationCursor = (summary: VerificationSummaryItem): string => Buffer.from(`${summary.created_at}\0${summary.id}`, "utf8").toString("base64url");
 const decodeLedgerCursor = (cursor: string): number => {
   if (!cursor) return 0;
   let value: string;
