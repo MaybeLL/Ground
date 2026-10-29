@@ -30,7 +30,7 @@ export const PROTOCOL_VERSION = 1;
 export const REMOTE_NORMALIZATION_VERSION = 1;
 export const MINIMUM_CLI_VERSION = "0.1.0";
 const CLI_VERSION = "0.1.0";
-import { asText, asOptionalText, asBuffer, json, parseJSON, isDuplicateKeyError, isMissingTableError, retryDelay, requireRow, parseAttribution, parseDate, safeInteger, storedEvidence, evidenceColumns, verificationModeProjection, directoryModeProjection, decodeArtifactChunks, persistedArtifactError, persistedRecordError, persistedVerificationError, validateContiguousOrdinals, validatePersistedCandidateFiles, validatePersistedCandidateArtifact, validatePersistedVerificationCoverage, validatePersistedCandidateCoverage, storedLedgerFacts } from "./sql-shared.js";
+import { asText, asOptionalText, asBuffer, json, parseJSON, isDuplicateKeyError, isMissingTableError, retryDelay, requireRow, parseAttribution, parseDate, timestampOrderKey, safeInteger, storedEvidence, evidenceColumns, verificationModeProjection, directoryModeProjection, decodeArtifactChunks, persistedArtifactError, persistedRecordError, persistedVerificationError, validateContiguousOrdinals, validatePersistedCandidateFiles, validatePersistedCandidateArtifact, validatePersistedVerificationCoverage, validatePersistedCandidateCoverage, storedLedgerFacts } from "./sql-shared.js";
 
 import { SqlTxCore } from "./sql-tx-core.js";
 
@@ -540,7 +540,7 @@ export abstract class SqlTxWork extends SqlTxCore {
   }
 
   protected async verificationCounts(candidateId: string): Promise<{ total: number; qualified: number; rejected: number }> {
-    const rows = await this.client.all<{ id: unknown; overall_verdict: unknown }>("SELECT id, overall_verdict FROM verifications WHERE candidate_id = ? ORDER BY created_at, id", [candidateId]);
+    const rows = await this.client.all<{ id: unknown; overall_verdict: unknown }>(`SELECT id, overall_verdict FROM verifications WHERE candidate_id = ? ORDER BY ${this.client.dialect.timeKey("created_at")}, id`, [candidateId]);
     let qualified = 0;
     let rejected = 0;
     for (const row of rows) {
@@ -605,13 +605,16 @@ export abstract class SqlTxWork extends SqlTxCore {
     }
     const args: unknown[] = [candidateId];
     let where = "WHERE candidate_id = ?";
+    const timeKey = this.client.dialect.timeKey("created_at");
     if (cursor) {
-      // Timestamps are stored in canonical UTC RFC3339 form by SqlTx.now.
-      where += " AND (created_at > ? OR (created_at = ? AND id > ?))";
-      args.push(cursor.created_at, cursor.created_at, cursor.id);
+      // Canonical RFC3339 trims fractional zeros; raw text comparison reverses
+      // .1Z/.11Z and misses equivalent legacy spellings at page boundaries.
+      const cursorKey = timestampOrderKey(cursor.created_at);
+      where += ` AND (${timeKey} > ? OR (${timeKey} = ? AND id > ?))`;
+      args.push(cursorKey, cursorKey, cursor.id);
     }
     args.push(limit + 1);
-    const rows = await this.client.all<Record<string, unknown>>(`SELECT id, candidate_id, overall_verdict, created_at, attribution_json, (SELECT q.overall_verdict FROM verification_quality_reviews q WHERE q.verification_id = verifications.id) AS quality_verdict, (SELECT q.attribution_json FROM verification_quality_reviews q WHERE q.verification_id = verifications.id) AS quality_attribution_json FROM verifications ${where} ORDER BY created_at, id LIMIT ?`, args);
+    const rows = await this.client.all<Record<string, unknown>>(`SELECT id, candidate_id, overall_verdict, created_at, attribution_json, (SELECT q.overall_verdict FROM verification_quality_reviews q WHERE q.verification_id = verifications.id) AS quality_verdict, (SELECT q.attribution_json FROM verification_quality_reviews q WHERE q.verification_id = verifications.id) AS quality_attribution_json FROM verifications ${where} ORDER BY ${timeKey}, id LIMIT ?`, args);
     const pageRows = rows.slice(0, limit);
     const summaries: VerificationSummaryItem[] = [];
     for (const row of pageRows) {

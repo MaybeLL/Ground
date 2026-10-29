@@ -181,7 +181,7 @@ for (const driver of ['sqlite', 'mysql']) test(`${driver}: real Git archives and
     if (driver === 'mysql') process.env.GROUNDS_MYSQL_PASSWORD = env.GROUNDS_MYSQL_PASSWORD;
     try {
       client = await Client.open({ cli, config, cwd: root, timeout: 30000 });
-      assert.equal(client.context.version, '0.2.49');
+      assert.equal(client.context.version, '0.2.50');
       const originalConfig = readFileSync(config, 'utf8');
       writeFileSync(config, 'invalid: external configuration replacement');
       const signal = new AbortController().signal;

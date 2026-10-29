@@ -1,6 +1,6 @@
 {
   "name": "@maybell/grounds",
-  "version": "0.2.49",
+  "version": "0.2.50",
   "description": "Grounds CLI for evidence-backed human and Agent work",
   "type": "module",
   "files": [

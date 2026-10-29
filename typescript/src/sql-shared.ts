@@ -182,6 +182,16 @@ export const parseDate = (value: unknown): string => {
   return `${match[1]}${fraction ? `.${fraction}` : ""}Z`;
 };
 
+/** A chronological key for canonical or supported legacy UTC timestamps.
+ * Preserve all nine fractional digits; Date.getTime() would lose precision.
+ * Must match SqlDialect.timeKey, including equivalent stored spellings.
+ */
+export const timestampOrderKey = (value: string): string => {
+  const canonical = parseDate(value);
+  const fraction = canonical.slice(19, -1).replace(/^\./, "");
+  return canonical.slice(0, 19) + fraction.padEnd(9, "0");
+};
+
 export const safeInteger = (value: unknown, field: string, minimum = 0, maximum = Number.MAX_SAFE_INTEGER): number => {
   let number: number;
   if (typeof value === "number") number = value;

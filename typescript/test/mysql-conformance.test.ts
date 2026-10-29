@@ -178,3 +178,53 @@ for (const backend of ['sqlite', 'mysql', 'postgres'] as const) test(`${backend}
     assert.equal((await m.show('qa', qa.id)).version, 2);
   } finally { await f.close(); }
 });
+
+for (const backend of ["sqlite", "mysql", "postgres"] as const) test(`${backend}: verification pagination preserves nanosecond order across canonical and legacy timestamps`, { skip: !backendEnabled(backend) }, async () => {
+  const f = await openFixture(backend);
+  try {
+    const candidate = await f.submitCandidate("timestamp-order");
+    const seed = await f.verify(candidate, "qualified");
+    const candidateId = candidate.candidate.candidate_id;
+    // Deliberately insert in reverse chronological order. Equal instants use
+    // the id tie-breaker, including legacy space/no-Z and trailing-zero forms.
+    const timestamps = [
+      "2025-01-01T00:00:00.11Z",
+      "2025-01-01T00:00:00.100000002Z",
+      "2025-01-01T00:00:00.100000001Z",
+      "2025-01-01T00:00:00.1Z",
+      "2025-01-01 00:00:00.100",
+      "2025-01-01T00:00:00.100Z",
+      "2025-01-01 00:00:00",
+      "2025-01-01T00:00:00Z",
+    ];
+    const ids = timestamps.map((_, index) => newUUIDv7(1700000000000 + index));
+    await f.store.write(async tx => {
+      const record = await tx.getVerification(seed.verification_id);
+      for (let i = 0; i < ids.length; i++) await tx.createVerification({ verification: { ...record.verification, id: ids[i], created_at: timestamps[i] }, report: record.report });
+    });
+    const expected = [ids[6], ids[7], ids[3], ids[4], ids[5], ids[2], ids[1], ids[0], seed.verification_id];
+    await f.store.read(async tx => {
+      for (const verified of [false, true]) {
+        const actual: string[] = []; let cursor = "";
+        for (;;) {
+          const page = verified ? await tx.listVerificationSummariesPage(candidateId, cursor, 2) : await tx.readVerificationDirectoryPage(candidateId, cursor, 2);
+          actual.push(...page.rows.map(row => row.id));
+          if (!page.more) break;
+          assert.ok(page.rows.length > 0 && actual.length <= expected.length, "pagination must advance without duplicates");
+          const last = page.rows.at(-1)!;
+          cursor = Buffer.from(`${last.created_at}\0${last.id}`).toString("base64url");
+        }
+        assert.deepEqual(actual, expected);
+      }
+      const listed: string[] = []; let after: { key: string; id: string } | undefined;
+      for (;;) {
+        const page = await tx.listVerificationsPage(candidateId, {}, after, 2);
+        listed.push(...page.rows.map(row => row.id));
+        if (!page.more) break;
+        assert.ok(page.rows.length > 0 && listed.length <= expected.length);
+        const last = page.rows.at(-1)!; after = { key: last.order_key, id: last.id };
+      }
+      assert.deepEqual(listed, expected, "generic verification list must agree with report-directory pagination");
+    });
+  } finally { await f.close(); }
+});

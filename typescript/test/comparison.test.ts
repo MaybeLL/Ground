@@ -130,6 +130,11 @@ test("comparison validates reports beyond its summary page and sees later change
   try {
     const fixture = await LedgerFixture.createWithStore(store, async () => undefined);
     const first = await fixture.submitCandidate("one"), second = await fixture.submitCandidate("two");
+    // Fixed times reproduce the fractional-prefix boundary: text order puts
+    // .11Z before .1Z although the rejected report is chronologically later.
+    const write = store.write.bind(store);
+    let verificationTime = "2026-01-01T00:00:00.1Z";
+    store.write = callback => write(async tx => { tx.now = async () => verificationTime; return callback(tx); });
     const seed = await fixture.verify(first, "qualified");
     // Synthetic valid copies exercise the 256/257 boundary without repeated CLI setup.
     await store.write(async tx => {
@@ -141,6 +146,7 @@ test("comparison validates reports beyond its summary page and sees later change
     const beforeValue = before.candidates.find(item => item.candidate_id === ids[0])!;
     assert.equal(beforeValue.standing, "qualified");
     assert.equal(beforeValue.verification_summaries_omitted, false);
+    verificationTime = "2026-01-01T00:00:00.11Z";
     const last = await fixture.verify(first, "rejected");
     const read = store.read.bind(store); const reads = new Map<string, number>();
     store.read = callback => read(async tx => {

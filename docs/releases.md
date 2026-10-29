@@ -12,7 +12,9 @@ Changes go through GitHub pull requests and the repository's build and test work
 
 Release tags `v*` have a separate protection policy from `grounds/candidates/*` and `grounds/deliveries/*`. Only repository administrators may create release tags, and existing release tags must not be moved or deleted. Configure separate rulesets so that the administrator exception for tag creation does not bypass update or deletion restrictions. Inspect the effective GitHub rules before cutting a release; archive namespace readiness does not establish release tag protection.
 
-Version `0.2.49` is the first release candidate for this GitHub distribution process. Its version number does not establish production maturity, stable API guarantees, or completion of the operating-system test matrix. Publish only after the checks for its exact tag pass, and describe unresolved limitations in the release notes.
+Version `0.2.50` is the first release candidate for this GitHub distribution process. Its version number does not establish production maturity, stable API guarantees, or completion of the operating-system test matrix. Publish only after the checks for its exact tag pass, and describe unresolved limitations in the release notes.
+
+The earlier `v0.2.49` tag is retained for traceability. Its release validation found a verification pagination ordering defect, so no release packages were published for that tag. Version `0.2.50` fixes ordering across fractional timestamp precisions and legacy UTC formats, with regression coverage for page boundaries.
 
 ## Install a GitHub release
 

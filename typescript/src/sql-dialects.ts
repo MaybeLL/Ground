@@ -37,8 +37,10 @@ export const sqliteDialect: SqlDialect = {
   forShare: "",
 
   timeKey: (column) => {
-    const fraction = `CASE WHEN length(${column}) > 20 THEN substr(${column}, 21, length(${column}) - 21) ELSE '' END`;
-    return `substr(${column}, 1, 19) || substr((${fraction}) || '000000000', 1, 9)`;
+    // Match parseDate's accepted legacy space separator and omitted UTC suffix.
+    // Strip the suffix before padding so .1Z, .100Z and .100 sort identically.
+    const normalized = `replace(replace(${column}, ' ', 'T'), 'Z', '')`;
+    return `substr(${normalized}, 1, 19) || substr(substr(${normalized}, 21) || '000000000', 1, 9)`;
   },
 
   needsRemoteDigest: false,
@@ -93,8 +95,8 @@ export const mysqlDialect: SqlDialect = {
   forShare: " FOR SHARE",
 
   timeKey: (column) => {
-    const fraction = `CASE WHEN CHAR_LENGTH(${column}) > 20 THEN substr(${column}, 21, CHAR_LENGTH(${column}) - 21) ELSE '' END`;
-    return `CONCAT(substr(${column}, 1, 19), substr(CONCAT(${fraction}, '000000000'), 1, 9))`;
+    const normalized = `replace(replace(${column}, ' ', 'T'), 'Z', '')`;
+    return `CONCAT(substr(${normalized}, 1, 19), substr(CONCAT(substr(${normalized}, 21), '000000000'), 1, 9))`;
   },
 
   needsRemoteDigest: true,
@@ -171,8 +173,10 @@ export const postgresDialect: SqlDialect = {
   forShare: " FOR SHARE",
 
   timeKey: (column) => {
-    const fraction = `CASE WHEN length(${column}) > 20 THEN substr(${column}, 21, length(${column}) - 21) ELSE '' END`;
-    return `substr(${column}, 1, 19) || substr((${fraction}) || '000000000', 1, 9)`;
+    // Match parseDate's accepted legacy space separator and omitted UTC suffix.
+    // Strip the suffix before padding so .1Z, .100Z and .100 sort identically.
+    const normalized = `replace(replace(${column}, ' ', 'T'), 'Z', '')`;
+    return `substr(${normalized}, 1, 19) || substr(substr(${normalized}, 21) || '000000000', 1, 9)`;
   },
 
   needsRemoteDigest: true,
