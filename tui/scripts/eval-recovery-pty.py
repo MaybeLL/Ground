@@ -72,11 +72,16 @@ def select_text(value, previous=''):
 
 try:
     wait('评测工作台')
+    wait('q 退出')
     press('\r')
     wait('题集与评分')
+    wait('q 退出')
     press('\x1b[B')
     press('\r')
     wait('题集 · v8')
+    # A page title is rendered before its asynchronous load clears the input
+    # guard. A quiet PTY is not proof of readiness; wait for the idle footer.
+    wait('q 退出')
     press('\r')
     wait('题集编排')
     select_text('按原请求恢复')

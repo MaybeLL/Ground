@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { Page } from "playwright";
 import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,6 +22,17 @@ import { contractHTML } from "../src/contract-review.js";
  * reported as such, never as a pass.
  */
 const runtime = readFileSync(new URL("../vendor/mermaid.min.js", import.meta.url), "utf8");
+
+/** Network idleness precedes Mermaid's asynchronous layout and shadow insertion.
+ * Wait for a terminal outcome, then let each test assert rendering/safety itself.
+ * A timeout remains a failure; neither an empty page nor pending work is success.
+ */
+async function waitForDiagramResults(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const hosts = [...document.querySelectorAll("[data-mermaid-source]")];
+    return hosts.length > 0 && hosts.every(host => host.shadowRoot?.querySelector("svg, .plan-diagram-failed"));
+  }, undefined, { timeout: 15000 });
+}
 
 const normalPlan = "方案：先加列封存。\n\n```mermaid\nflowchart TD\n  A[加列] --> B[拆定义]\n```";
 const oversized = `flowchart TD\n${Array.from({ length: 6000 }, (_, i) => `  N${i}-->N${i + 1}`).join("\n")}`;
@@ -62,6 +74,7 @@ test("adversarial diagram source cannot hide the page's content", async (t) => {
       writeFileSync(path, pageFor(`\`\`\`mermaid\n${item.source}\n\`\`\``));
       const loaded = await browser.newPage();
       await loaded.goto(pathToFileURL(path).href, { waitUntil: "networkidle" });
+      await waitForDiagramResults(loaded);
       const view = await loaded.evaluate(() => {
         const host = document.querySelector("[data-mermaid-source]");
         const notice = document.querySelector(".plan-notice");
@@ -185,9 +198,7 @@ test("the review page renders diagrams under an enforced CSP in Chromium", async
     });
     await loaded.goto(pathToFileURL(path).href, { waitUntil: "networkidle" });
 
-    // Network idle does not mean asynchronous diagram rendering has finished.
-    await loaded.waitForFunction(() => [...document.querySelectorAll("[data-mermaid-source]")]
-      .every(host => host.shadowRoot?.querySelector("svg, .plan-diagram-failed")), undefined, { timeout: 15000 });
+    await waitForDiagramResults(loaded);
     const result = await loaded.evaluate(() => {
       const hosts = [...document.querySelectorAll("[data-mermaid-source]")];
       const figures = [...document.querySelectorAll(".plan-figure")];
@@ -320,6 +331,7 @@ test("a diagram's ids do not change when other Issues share the page", async (t)
     const ids = async (path: string): Promise<string[]> => {
       const page = await browser!.newPage();
       await page.goto(pathToFileURL(path).href, { waitUntil: "networkidle" });
+      await waitForDiagramResults(page);
       const value = await page.evaluate(() => [...document.querySelectorAll("[data-mermaid-source]")]
         .filter((host) => host.getAttribute("data-mermaid-source")!.startsWith("issue-1"))
         .flatMap((host) => [...(host.shadowRoot?.querySelectorAll("[id]") ?? [])].map((node) => node.id)));
