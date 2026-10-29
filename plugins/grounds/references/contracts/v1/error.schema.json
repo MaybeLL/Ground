@@ -1,0 +1,473 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/error.schema.json",
+  "title": "Grounds 稳定 CLI 错误 v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "code",
+    "message",
+    "retryable",
+    "details"
+  ],
+  "properties": {
+    "code": {
+      "enum": [
+        "VALIDATION_ERROR",
+        "NOT_FOUND",
+        "STATE_CONFLICT",
+        "AUTH_FAILED",
+        "VERSION_CONFLICT",
+        "PREDECESSOR_CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "SCHEMA_INCOMPATIBLE",
+        "MIGRATION_DIRTY",
+        "BRAND_MIGRATION_REQUIRED",
+        "DATABASE_ID_MISMATCH",
+        "REPOSITORY_NOT_RESOLVED",
+        "REPOSITORY_AMBIGUOUS",
+        "BASELINE_UNAVAILABLE",
+        "REPOSITORY_ISSUE_LIMIT",
+        "WORKTREE_MISMATCH",
+        "ENVIRONMENT_CAPABILITY_UNSUPPORTED",
+        "ENVIRONMENT_SETUP_FAILED",
+        "UNSUPPORTED_CANDIDATE_ARTIFACT",
+        "ARTIFACT_TOO_LARGE",
+        "ARTIFACT_INTEGRITY_ERROR",
+        "VERIFICATION_SET_CHANGED",
+        "LIST_CHANGED",
+        "STORAGE_TRANSIENT",
+        "INTERNAL"
+      ]
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "retryable": {
+      "type": "boolean"
+    },
+    "details": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target_path": {
+          "type": "string",
+          "maxLength": 32768
+        },
+        "inspect_argv": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "maxLength": 32768
+          }
+        },
+        "migrate_argv": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "maxLength": 32768
+          }
+        },
+        "resource_type": {
+          "enum": [
+            "config",
+            "database",
+            "repository",
+            "requirement",
+            "issue",
+            "dev_run",
+            "candidate",
+            "verification",
+            "delivery_link",
+            "selection",
+            "artifact",
+            "eval_grader",
+            "eval_suite",
+            "eval_snapshot",
+            "eval_experiment",
+            "eval_run",
+            "eval_execution",
+            "eval_result",
+            "eval_notice",
+            "eval_qa",
+            "eval_artifact",
+            "eval_environment",
+            "eval_envcheck",
+            "eval_preparation",
+            "eval_instance",
+            "environment",
+            "environment_revision",
+            "environment_default",
+            "runtime_operation"
+          ]
+        },
+        "resource_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "field": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "expected_version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "actual_version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expected_predecessor_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "actual_predecessor_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "existing_command": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "request_hash": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "existing_request_hash": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "required_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "actual_version_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "retry_after_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600000
+        },
+        "reason_code": {
+          "enum": [
+            "state_conflict",
+            "busy",
+            "connection_drift",
+            "outcome_unknown",
+            "unsupported",
+            "material_conflict",
+            "ownership_mismatch",
+            "recovery_required"
+          ]
+        },
+        "auth_mode": {
+          "enum": [
+            "chatgpt",
+            "api"
+          ]
+        },
+        "auth_reason": {
+          "enum": [
+            "expired",
+            "denied",
+            "cancelled",
+            "invalid_key",
+            "timeout",
+            "start_failed",
+            "process_failed"
+          ]
+        },
+        "exit_status": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unmet": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "workspace_write",
+              "network",
+              "cpu",
+              "memory",
+              "pids",
+              "ledger_readonly"
+            ]
+          }
+        },
+        "step_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "exit_code": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "artifact_format": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "diagnostic_directory": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "diagnostic": {
+          "type": "string",
+          "maxLength": 2048
+        },
+        "operation_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "phase": {
+          "type": "string",
+          "enum": [
+            "prepared",
+            "verified",
+            "committed",
+            "unknown",
+            "failed"
+          ]
+        },
+        "recheck_archive_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "code": {
+            "enum": [
+              "STORAGE_TRANSIENT",
+              "VERIFICATION_SET_CHANGED",
+              "LIST_CHANGED"
+            ]
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "then": {
+        "properties": {
+          "retryable": {
+            "const": true
+          }
+        }
+      },
+      "else": {
+        "if": {
+          "properties": {
+            "code": {
+              "not": {
+                "const": "ENVIRONMENT_SETUP_FAILED"
+              }
+            }
+          },
+          "required": [
+            "code"
+          ]
+        },
+        "then": {
+          "properties": {
+            "retryable": {
+              "const": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "code": {
+            "const": "AUTH_FAILED"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "then": {
+        "properties": {
+          "details": {
+            "required": [
+              "auth_mode",
+              "auth_reason"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "code": {
+            "const": "NOT_FOUND"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "then": {
+        "properties": {
+          "details": {
+            "required": [
+              "resource_type"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "code": {
+            "const": "VERSION_CONFLICT"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "then": {
+        "properties": {
+          "details": {
+            "required": [
+              "resource_type",
+              "resource_id",
+              "expected_version",
+              "actual_version"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "code": {
+            "const": "PREDECESSOR_CONFLICT"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "then": {
+        "properties": {
+          "details": {
+            "required": [
+              "resource_type",
+              "resource_id",
+              "expected_predecessor_id",
+              "actual_predecessor_id"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "code": {
+            "const": "IDEMPOTENCY_CONFLICT"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "then": {
+        "properties": {
+          "details": {
+            "required": [
+              "existing_command",
+              "request_hash",
+              "existing_request_hash"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "code": {
+            "const": "ENVIRONMENT_CAPABILITY_UNSUPPORTED"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "then": {
+        "properties": {
+          "details": {
+            "required": [
+              "unmet"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "code": {
+            "const": "ENVIRONMENT_SETUP_FAILED"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "then": {
+        "properties": {
+          "details": {
+            "anyOf": [
+              {
+                "required": [
+                  "step_index"
+                ]
+              },
+              {
+                "required": [
+                  "diagnostic_directory"
+                ]
+              },
+              {
+                "required": [
+                  "operation",
+                  "diagnostic"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

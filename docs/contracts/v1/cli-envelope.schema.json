@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/cli-envelope.schema.json",
+  "title": "Grounds CLI JSON 返回结构 v1",
+  "oneOf": [
+    {
+      "title": "成功返回结构",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "ok", "data", "warnings"],
+      "properties": {
+        "format": { "const": "patchledger.cli/v1" },
+        "ok": { "const": true },
+        "operation_id": { "$ref": "common.schema.json#/$defs/id" },
+        "data": { "$ref": "command-results.schema.json" },
+        "warnings": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["code", "message"],
+            "properties": {
+              "code": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_]{0,127}$"
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "title": "错误返回结构",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "ok", "error"],
+      "properties": {
+        "format": { "const": "patchledger.cli/v1" },
+        "ok": { "const": false },
+        "operation_id": { "$ref": "common.schema.json#/$defs/id" },
+        "error": { "$ref": "error.schema.json" }
+      }
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/quality-review-handoff.schema.json",
+  "title": "Grounds 签名质量评审交接 v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "verifier", "report_digest", "report", "public_key", "signature"],
+  "properties": {
+    "format": { "const": "patchledger.quality-review-handoff/v1" },
+    "verifier": { "$ref": "common.schema.json#/$defs/attribution" },
+    "report_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+    "report": { "$ref": "quality-review-report.schema.json" },
+    "public_key": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[A-Za-z0-9_-]+$" },
+    "signature": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[A-Za-z0-9_-]+$" }
+  }
+}

@@ -1,0 +1,61 @@
+#!/bin/sh
+set -eu
+cd /workspace
+fingerprint() {
+  node /usr/local/lib/grounds-dependency-fingerprint.mjs "$1"
+}
+for project in typescript tui; do
+  expected=$(fingerprint "$project")
+  installed=$(fingerprint "/opt/grounds-deps/$project")
+  [ "$expected" = "$installed" ] || {
+    echo "Dependency inputs changed: $project. Rebuild the development image." >&2
+    exit 2
+  }
+done
+mkdir -p node_modules/.grounds-dev/home node_modules/.grounds-dev/tmp node_modules/.grounds-dev/bin
+export HOME=/workspace/node_modules/.grounds-dev/home
+export TMPDIR=/workspace/node_modules/.grounds-dev/tmp
+export npm_config_cache="$HOME/npm-cache"
+export PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+export PYTHONDONTWRITEBYTECODE=1
+# Native TypeScript tooling must respect the managed container CPU/pid budget.
+export GOMAXPROCS=1
+printf '%s\n' '#!/bin/sh' 'exec node /workspace/typescript/dist/src/bin.js "$@"' > node_modules/.grounds-dev/bin/grounds
+chmod 755 node_modules/.grounds-dev/bin/grounds
+export PATH="/workspace/node_modules/.grounds-dev/bin:$PATH"
+for project in typescript tui; do
+  expected=$(fingerprint "$project")
+  if [ -e "$project/node_modules" ]; then
+    [ "$(cat "$project/node_modules/.grounds-image-lock" 2>/dev/null || true)" = "$expected" ] || {
+      echo "Unmanaged or stale dependencies: $project/node_modules. Use a fresh Workspace or preserve and move that directory before retrying." >&2
+      exit 2
+    }
+  else
+    temporary=$(mktemp -d "node_modules/.grounds-dev/$project-deps.XXXXXX")
+    cp -R --no-preserve=ownership "/opt/grounds-deps/$project/node_modules/." "$temporary/"
+    printf '%s\n' "$expected" > "$temporary/.grounds-image-lock"
+    mv "$temporary" "$project/node_modules"
+  fi
+done
+if [ ! -f typescript/build/Release/peercred.node ]; then
+  cp -R --no-preserve=ownership /opt/grounds-deps/typescript/build typescript/build
+fi
+case "${1:-build}" in
+  build)
+    (cd typescript && node /usr/local/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js rebuild --nodedir=/usr/local --jobs=1 && npm run build)
+    (cd tui && npm run typecheck && npm run build)
+    ;;
+  test)
+    grounds-dev build
+    (cd typescript && node scripts/test-parallel.mjs --workers 1)
+    python3 -m unittest discover -s plugins/grounds/tests -v
+    (cd tui && npm test)
+    ;;
+  smoke)
+    grounds-dev build
+    (cd typescript && node --import tsx --test --test-concurrency=1 test/code-workspace.test.ts test/runtime-store.test.ts)
+    python3 -m unittest discover -s plugins/grounds/tests -v
+    (cd tui && npm test)
+    ;;
+  *) exec "$@" ;;
+esac

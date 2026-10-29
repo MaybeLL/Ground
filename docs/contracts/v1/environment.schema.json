@@ -1,0 +1,1277 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/environment.schema.json",
+  "title": "Grounds env 本地环境结果 v1",
+  "description": "grounds env 的本机结果。任务实例与执行记录只保存在本机运行时目录，不写入业务账本。",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/upResult"
+    },
+    {
+      "$ref": "#/$defs/listResult"
+    },
+    {
+      "$ref": "#/$defs/downResult"
+    },
+    {
+      "$ref": "#/$defs/runResult"
+    },
+    {
+      "$ref": "#/$defs/cancelResult"
+    },
+    {
+      "$ref": "#/$defs/logsResult"
+    },
+    {
+      "$ref": "#/$defs/showResult"
+    },
+    {
+      "$ref": "#/$defs/reconcileResult"
+    },
+    {
+      "$ref": "#/$defs/handoffResult"
+    },
+    {
+      "$ref": "#/$defs/credential-grantResult"
+    },
+    {
+      "$ref": "#/$defs/service-registerResult"
+    },
+    {
+      "$ref": "#/$defs/credential-occupancyResult"
+    }
+  ],
+  "$defs": {
+    "resultType": {
+      "const": "grounds.result.environment/v1"
+    },
+    "upResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "environment"
+      ],
+      "properties": {
+        "result_type": {
+          "$ref": "#/$defs/resultType"
+        },
+        "command": {
+          "const": "env.up"
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
+        }
+      }
+    },
+    "listResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "environments"
+      ],
+      "properties": {
+        "result_type": {
+          "$ref": "#/$defs/resultType"
+        },
+        "command": {
+          "const": "env.list"
+        },
+        "environments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/environment"
+          }
+        }
+      }
+    },
+    "downResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "environment_id",
+        "removed",
+        "environment"
+      ],
+      "properties": {
+        "result_type": {
+          "$ref": "#/$defs/resultType"
+        },
+        "command": {
+          "const": "env.down"
+        },
+        "environment_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "removed": {
+          "const": true
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
+        }
+      }
+    },
+    "runResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "run"
+      ],
+      "properties": {
+        "result_type": {
+          "$ref": "#/$defs/resultType"
+        },
+        "command": {
+          "const": "env.run"
+        },
+        "run": {
+          "$ref": "#/$defs/run"
+        }
+      }
+    },
+    "cancelResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "run"
+      ],
+      "properties": {
+        "result_type": {
+          "$ref": "#/$defs/resultType"
+        },
+        "command": {
+          "const": "env.cancel"
+        },
+        "run": {
+          "$ref": "#/$defs/run"
+        }
+      }
+    },
+    "logsResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "run_id",
+        "state",
+        "output"
+      ],
+      "properties": {
+        "result_type": {
+          "$ref": "#/$defs/resultType"
+        },
+        "command": {
+          "const": "env.logs"
+        },
+        "run_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "state": {
+          "$ref": "#/$defs/runState"
+        },
+        "output": {
+          "description": "日志文件末尾的有界文本，默认 16 KiB，最多 256 KiB。",
+          "type": "string",
+          "maxLength": 262144
+        }
+      }
+    },
+    "runState": {
+      "description": "running可包含取消请求或停止证明未知；终态不代表任务/Verification已完成。",
+      "enum": [
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "timed_out"
+      ]
+    },
+    "environment": {
+      "description": "本机任务实例记录（grounds.environment/v1）。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "id",
+        "definition",
+        "backend",
+        "requirements",
+        "base_digest",
+        "workspace",
+        "route",
+        "created_at",
+        "directory",
+        "definition_snapshot",
+        "original_workspace",
+        "state",
+        "trust",
+        "disclosure",
+        "credentials",
+        "services",
+        "artifacts",
+        "inputs"
+      ],
+      "properties": {
+        "format": {
+          "const": "grounds.environment/v1"
+        },
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "definition": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "digest",
+            "implicit"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,62}$"
+            },
+            "digest": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            "implicit": {
+              "description": "无定义文件时使用的隐式 host 默认定义为 true。",
+              "type": "boolean"
+            }
+          }
+        },
+        "backend": {
+          "enum": [
+            "host",
+            "docker"
+          ]
+        },
+        "requirements": {
+          "$ref": "#/$defs/requirements"
+        },
+        "base_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "workspace": {
+          "description": "绑定时经 realpath 解析的工作区绝对路径。",
+          "type": "string",
+          "minLength": 1
+        },
+        "route": {
+          "description": "当前工作区是否为Git仓库；占用记录不接管Git指针。",
+          "type": "boolean"
+        },
+        "created_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "directory": {
+          "type": "string"
+        },
+        "definition_snapshot": {
+          "title": "Grounds 仓库环境定义 v1",
+          "description": "可版本化的非敏感仓库声明；YAML解析后验证。名称须匹配文件名，服务/凭据名须唯一；运行能力、路径真实性及授权另行检查。缺省字段由实现规范化。",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "format",
+            "name",
+            "backend",
+            "digest"
+          ],
+          "properties": {
+            "format": {
+              "const": "grounds.environment-definition/v1"
+            },
+            "name": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,62}$"
+            },
+            "backend": {
+              "enum": [
+                "host",
+                "docker"
+              ]
+            },
+            "purpose": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "repositories": {
+              "type": "array",
+              "maxItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,62}$"
+                  },
+                  "path": {
+                    "const": "."
+                  }
+                }
+              },
+              "minItems": 1
+            },
+            "requirements": {
+              "$ref": "#/$defs/requirements"
+            },
+            "base": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [],
+              "properties": {
+                "image": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "dockerfile"
+                  ],
+                  "properties": {
+                    "dockerfile": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^(?:\\.|(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//).+)$"
+                    },
+                    "context": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^(?:\\.|(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//).+)$"
+                    }
+                  }
+                },
+                "setup": {
+                  "type": "array",
+                  "maxItems": 32,
+                  "items": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 64,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096,
+                      "pattern": "^[^\\u0000]+$"
+                    }
+                  }
+                }
+              }
+            },
+            "services": {
+              "type": "array",
+              "maxItems": 16,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "kind"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,62}$"
+                  },
+                  "kind": {
+                    "enum": [
+                      "mysql",
+                      "postgres"
+                    ]
+                  },
+                  "shared": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,62}$"
+                  },
+                  "image": {
+                    "type": "string",
+                    "maxLength": 256,
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$"
+                  }
+                }
+              }
+            },
+            "credentials": {
+              "type": "array",
+              "maxItems": 32,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,62}$"
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "^(?:\\.|(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//).+)$"
+                  }
+                }
+              }
+            },
+            "tools": {
+              "type": "array",
+              "maxItems": 32,
+              "items": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9._+-]+$"
+              }
+            },
+            "artifacts": {
+              "type": "array",
+              "maxItems": 32,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^(?:\\.|(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//).+)$"
+              }
+            },
+            "digest": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            "implicit": {
+              "const": true
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "backend": {
+                    "const": "docker"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "base"
+                ],
+                "properties": {
+                  "base": {
+                    "required": [
+                      "image"
+                    ]
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "base": {
+                    "not": {
+                      "required": [
+                        "image"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "image": {
+          "type": "string"
+        },
+        "original_workspace": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "preparing",
+            "ready",
+            "blocked",
+            "released"
+          ]
+        },
+        "trust": {
+          "enum": [
+            "trusted_host",
+            "container"
+          ]
+        },
+        "disclosure": {
+          "type": "string"
+        },
+        "repository_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "dev_run_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source_commit",
+            "commit",
+            "tree",
+            "scope",
+            "branch"
+          ],
+          "properties": {
+            "source_commit": {
+              "$ref": "#/$defs/rawGitObjectId"
+            },
+            "commit": {
+              "$ref": "#/$defs/rawGitObjectId"
+            },
+            "tree": {
+              "$ref": "#/$defs/rawGitObjectId"
+            },
+            "scope": {
+              "enum": [
+                "development",
+                "blind"
+              ]
+            },
+            "branch": {
+              "type": "string"
+            }
+          }
+        },
+        "credentials": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/credentialBinding"
+          }
+        },
+        "services": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/service"
+          }
+        },
+        "network_id": {
+          "type": "string"
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "digest"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "digest": {
+                "$ref": "common.schema.json#/$defs/sha256"
+              }
+            }
+          }
+        },
+        "handoff": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "target",
+            "source_commit",
+            "tree",
+            "parents",
+            "ref"
+          ],
+          "properties": {
+            "target": {
+              "type": "string"
+            },
+            "source_commit": {
+              "$ref": "common.schema.json#/$defs/gitOid"
+            },
+            "tree": {
+              "$ref": "common.schema.json#/$defs/gitOid"
+            },
+            "parents": {
+              "type": "array",
+              "items": {
+                "$ref": "common.schema.json#/$defs/gitOid"
+              }
+            },
+            "ref": {
+              "type": "string"
+            }
+          }
+        },
+        "cleanup": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state"
+          ],
+          "properties": {
+            "state": {
+              "enum": [
+                "pending",
+                "blocked",
+                "complete"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            },
+            "git": {
+              "$ref": "#/$defs/routeReport"
+            },
+            "artifacts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "state"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string"
+                  },
+                  "bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "error": {
+          "type": "string"
+        },
+        "engine_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "requirements": {
+      "description": "环境需求，只包含已知字段；缺省表示不要求。",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "workspace_write": {
+          "const": "confined"
+        },
+        "network": {
+          "enum": [
+            "none",
+            "allowed"
+          ]
+        },
+        "cpu": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256
+        },
+        "memory": {
+          "type": "string",
+          "maxLength": 6,
+          "pattern": "^[1-9][0-9]{0,4}[mg]$"
+        },
+        "pids": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 65536
+        }
+      }
+    },
+    "run": {
+      "description": "执行状态与停止证明、收尾、作者报告分开；进程退出不代表业务任务完成。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "id",
+        "environment_id",
+        "state",
+        "argv",
+        "write_boundary",
+        "network",
+        "directory",
+        "started_at",
+        "termination",
+        "cleanup",
+        "definition_digest",
+        "requirements",
+        "log_truncated",
+        "log_bytes",
+        "author_result"
+      ],
+      "properties": {
+        "format": {
+          "const": "grounds.environment-run/v1"
+        },
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "environment_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "state": {
+          "$ref": "#/$defs/runState"
+        },
+        "argv": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          }
+        },
+        "write_boundary": {
+          "enum": [
+            "container",
+            "not_enforced"
+          ],
+          "description": "container表示Docker任务；trusted host为not_enforced，没有OS隔离。"
+        },
+        "network": {
+          "description": "请求网络策略；Docker强制none，host仅支持allowed。",
+          "enum": [
+            "none",
+            "allowed"
+          ]
+        },
+        "directory": {
+          "description": "运行目录的绝对路径。",
+          "type": "string",
+          "minLength": 1
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "exit_code": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "signal": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cancel_requested": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/routeReport"
+        },
+        "started_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "finished_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "process_identity": {
+          "type": "string"
+        },
+        "host_process_identity": {
+          "type": "string",
+          "description": "Native process birth identity of the original trusted-host process-group leader."
+        },
+        "host_scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "marker",
+            "startedAtMs"
+          ],
+          "properties": {
+            "marker": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "startedAtMs": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "description": "Persisted random task marker and earliest process birth time used to observe ordinary inherited descendants after controller loss. Absence or incomplete observation never confirms termination."
+        },
+        "container_id": {
+          "type": "string"
+        },
+        "container_removed": {
+          "type": "boolean"
+        },
+        "timeout_requested": {
+          "type": "boolean"
+        },
+        "termination": {
+          "enum": [
+            "unknown",
+            "confirmed"
+          ]
+        },
+        "cleanup": {
+          "enum": [
+            "pending",
+            "complete"
+          ]
+        },
+        "lease": {
+          "$ref": "#/$defs/lease"
+        },
+        "definition_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "image": {
+          "type": "string"
+        },
+        "requirements": {
+          "$ref": "#/$defs/requirements"
+        },
+        "log_truncated": {
+          "type": "boolean",
+          "description": "True when output exceeds the retained bound, or recovery from bounded Docker engine logs cannot prove that earlier output was retained."
+        },
+        "log_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "author_result": {
+          "const": "not_reported"
+        }
+      },
+      "if": {
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "state": {
+            "const": "running"
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "required": [
+            "finished_at"
+          ]
+        }
+      },
+      "else": {
+        "required": [
+          "finished_at"
+        ]
+      }
+    },
+    "routeReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pending",
+        "preserved"
+      ],
+      "properties": {
+        "pending": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "head": {
+          "$ref": "#/$defs/rawGitObjectId"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "preserved": {
+          "const": true
+        }
+      }
+    },
+    "rawGitObjectId": {
+      "description": "实例输入和Git现场报告使用裸Git对象名；归档交接字段使用带算法的OID。",
+      "type": "string",
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "credentialGrant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "repository_id",
+        "environment",
+        "source_file",
+        "account",
+        "method",
+        "access"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "repository_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "environment": {
+          "type": "string"
+        },
+        "source_file": {
+          "type": "string"
+        },
+        "account": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "access": {
+          "enum": [
+            "model",
+            "context-read",
+            "repository-read"
+          ]
+        },
+        "writeback": {
+          "type": "boolean"
+        },
+        "identity_fields": {
+          "description": "For writeback, bind at least one account/account_id/email field and one method/auth_mode field; dotted JSON paths are supported. All selected identity values must remain unchanged.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-zA-Z_][a-zA-Z0-9_.]{0,127}$"
+          },
+          "maxItems": 16
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "writeback": {
+                "const": true
+              }
+            },
+            "required": [
+              "writeback"
+            ]
+          },
+          "then": {
+            "required": [
+              "identity_fields"
+            ],
+            "properties": {
+              "identity_fields": {
+                "allOf": [
+                  {
+                    "contains": {
+                      "type": "string",
+                      "pattern": "(^|\\.)(account|account_id|email)$"
+                    }
+                  },
+                  {
+                    "contains": {
+                      "type": "string",
+                      "pattern": "(^|\\.)(method|auth_mode)$"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "credentialBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "path",
+        "grant",
+        "source_version",
+        "identity_digest"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "grant": {
+          "$ref": "#/$defs/credentialGrant"
+        },
+        "source_version": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "sync": {
+          "enum": [
+            "unchanged",
+            "updated",
+            "conflict",
+            "failed"
+          ]
+        },
+        "identity_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind",
+        "ownership",
+        "container_id",
+        "host",
+        "port",
+        "network_id"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "mysql",
+            "postgres"
+          ]
+        },
+        "ownership": {
+          "enum": [
+            "private",
+            "shared"
+          ]
+        },
+        "container_id": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "network_id": {
+          "type": "string"
+        },
+        "image": {
+          "type": "string"
+        }
+      }
+    },
+    "lease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "route",
+        "environmentId",
+        "runDirectory",
+        "acquiredAt",
+        "file"
+      ],
+      "properties": {
+        "runId": {
+          "type": "string"
+        },
+        "route": {
+          "type": "string"
+        },
+        "environmentId": {
+          "type": "string"
+        },
+        "runDirectory": {
+          "type": "string"
+        },
+        "acquiredAt": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        }
+      }
+    },
+    "showResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "environment"
+      ],
+      "properties": {
+        "result_type": {
+          "$ref": "#/$defs/resultType"
+        },
+        "command": {
+          "const": "env.show"
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
+        }
+      }
+    },
+    "reconcileResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "environment"
+      ],
+      "properties": {
+        "result_type": {
+          "$ref": "#/$defs/resultType"
+        },
+        "command": {
+          "const": "env.reconcile"
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
+        }
+      }
+    },
+    "handoffResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "environment"
+      ],
+      "properties": {
+        "result_type": {
+          "$ref": "#/$defs/resultType"
+        },
+        "command": {
+          "const": "env.handoff"
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
+        }
+      }
+    },
+    "credential-grantResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "registered"
+      ],
+      "properties": {
+        "result_type": {
+          "$ref": "#/$defs/resultType"
+        },
+        "command": {
+          "const": "env.credential-grant"
+        },
+        "registered": {
+          "const": true
+        }
+      }
+    },
+    "service-registerResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "registered"
+      ],
+      "properties": {
+        "result_type": {
+          "$ref": "#/$defs/resultType"
+        },
+        "command": {
+          "const": "env.service-register"
+        },
+        "registered": {
+          "const": true
+        }
+      }
+    },
+    "credential-occupancyResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "occupancy"
+      ],
+      "properties": {
+        "result_type": {
+          "$ref": "#/$defs/resultType"
+        },
+        "command": {
+          "const": "env.credential-occupancy"
+        },
+        "occupancy": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "environment_id",
+              "name",
+              "source_file",
+              "state"
+            ],
+            "properties": {
+              "environment_id": {
+                "$ref": "common.schema.json#/$defs/id"
+              },
+              "name": {
+                "type": "string"
+              },
+              "source_file": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

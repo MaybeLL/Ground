@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/verification-context.schema.json",
+  "title": "Grounds VerificationContext v1 验证上下文",
+  "oneOf": [
+    {
+      "title": "盲验 VerificationContext",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "phase", "candidate_id", "result_tree_oid", "blind_context_digest", "repository", "baseline", "requirement", "issue", "artifact"],
+      "properties": {
+        "format": { "const": "patchledger.verification-context/v1" },
+        "phase": { "const": "blind" },
+        "candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+        "result_tree_oid": { "$ref": "common.schema.json#/$defs/gitOid" },
+        "blind_context_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+        "repository": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "canonical_remote_at_submission"],
+          "properties": {
+            "id": { "$ref": "common.schema.json#/$defs/id" },
+            "canonical_remote_at_submission": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          }
+        },
+        "baseline": { "$ref": "common.schema.json#/$defs/baseline" },
+        "base_commit": { "$ref": "common.schema.json#/$defs/gitOid" },
+        "snapshot_relation": { "$ref": "devrun-context.schema.json#/$defs/snapshotRelation" },
+        "requirement": { "$ref": "devrun-context.schema.json#/$defs/requirementVersion" },
+        "issue": { "$ref": "devrun-context.schema.json#/$defs/blindIssueVersion" },
+        "artifact": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["format", "patch_digest", "uncompressed_size", "file_manifest"],
+          "properties": {
+            "format": { "const": "patchledger.git-full-index-binary-patch/v1" },
+            "patch_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+            "uncompressed_size": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 33554432
+            },
+            "file_manifest": {
+              "type": "array",
+              "maxItems": 100000,
+              "items": { "$ref": "common.schema.json#/$defs/fileManifestEntry" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "title": "对照 VerificationContext",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "phase", "candidate_id", "result_tree_oid", "blind_context_digest", "submission_explanation", "claims"],
+      "properties": {
+        "format": { "const": "patchledger.verification-context/v1" },
+        "phase": { "const": "reconcile" },
+        "candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+        "result_tree_oid": { "$ref": "common.schema.json#/$defs/gitOid" },
+        "blind_context_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+        "submission_explanation": { "$ref": "common.schema.json#/$defs/longText" },
+        "claims": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": { "$ref": "common.schema.json#/$defs/claimRecord" }
+        }
+      }
+    }
+  ]
+}

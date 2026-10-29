@@ -1,0 +1,260 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/preflight.schema.json",
+  "title": "Grounds target-flow preflight freshness and appropriateness",
+  "oneOf": [
+    { "$ref": "#/$defs/observeResult" },
+    { "$ref": "#/$defs/assessResult" },
+    { "$ref": "#/$defs/showResult" },
+    { "$ref": "#/$defs/admitResult" },
+    { "$ref": "#/$defs/prepareResult" }
+  ],
+  "$defs": {
+    "runtimeRecord": {
+      "type": "object", "additionalProperties": false, "required": ["id", "kind", "version", "data"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" },
+        "kind": { "const": "runtime_operation" },
+        "parent_id": { "$ref": "common.schema.json#/$defs/id" },
+        "version": { "type": "integer", "minimum": 1 },
+        "data": { "type": "object" }
+      }
+    },
+    "admitResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["result_type", "command", "dev_run_id", "preflight", "admission"],
+      "properties": {
+        "result_type": { "const": "grounds.result.preflight-admission/v1" },
+        "command": { "const": "devrun.admit" },
+        "dev_run_id": { "$ref": "common.schema.json#/$defs/id" },
+        "preflight": { "$ref": "#/$defs/runtimeRecord" },
+        "admission": {
+          "type": "object", "additionalProperties": false,
+          "required": ["observation_id", "assessment_id", "target_commit", "base_commit", "admitted_at"],
+          "properties": {
+            "observation_id": { "$ref": "common.schema.json#/$defs/id" },
+            "assessment_id": { "$ref": "common.schema.json#/$defs/id" },
+            "target_commit": { "$ref": "common.schema.json#/$defs/gitOid" },
+            "base_commit": { "$ref": "common.schema.json#/$defs/gitOid" },
+            "admitted_at": { "$ref": "common.schema.json#/$defs/timestamp" }
+          }
+        }
+      }
+    },
+    "prepareResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["result_type", "command", "dev_run_id", "prepare_id"],
+      "properties": {
+        "result_type": { "const": "grounds.result.preflight-preparation/v1" },
+        "command": { "const": "devrun.prepare" },
+        "dev_run_id": { "$ref": "common.schema.json#/$defs/id" },
+        "prepare_id": { "$ref": "common.schema.json#/$defs/id" },
+        "local_worktree": {},
+        "preflight": { "$ref": "#/$defs/devRunPreflight" }
+      }
+    },
+    "target": { "$ref": "issue.schema.json#/$defs/targetBranch" },
+    "observationFailure": { "enum": ["refresh_failed", "history_unavailable"] },
+    "commitIdentity": { "$ref": "integration.schema.json#/$defs/commit" },
+    "binds": {
+      "type": "object", "additionalProperties": false,
+      "required": ["canonical_remote"],
+      "properties": {
+        "repository_id": { "$ref": "common.schema.json#/$defs/id" },
+        "canonical_remote": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "issue_id": { "$ref": "common.schema.json#/$defs/id" },
+        "issue_version": { "type": "integer", "minimum": 1 },
+        "issue_revision_id": { "$ref": "common.schema.json#/$defs/id" },
+        "scope_digest": { "type": "string", "pattern": "^(sha256:)?[a-f0-9]{64}$" },
+        "content_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+        "dev_run_id": { "$ref": "common.schema.json#/$defs/id" },
+        "dev_run_version": { "type": "integer", "minimum": 1 },
+        "parent_candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+        "source_head": { "$ref": "common.schema.json#/$defs/gitOid" },
+        "source_tree": { "$ref": "common.schema.json#/$defs/gitOid" },
+        "base_commit": { "$ref": "common.schema.json#/$defs/gitOid" },
+        "parent_result_tree": { "$ref": "common.schema.json#/$defs/gitOid" },
+        "parent_patch_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+        "preparation_id": { "$ref": "common.schema.json#/$defs/id" },
+        "input_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+        "sync_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+        "workspace_identity": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
+    },
+    "observationData": {
+      "type": "object", "additionalProperties": false,
+      "required": ["format", "phase", "observed_at", "target", "tracking_ref", "observation", "binds", "attribution"],
+      "properties": {
+        "format": { "const": "grounds.preflight-observation/v1" },
+        "phase": { "enum": ["definition", "publish", "start"] },
+        "observed_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "target": { "$ref": "#/$defs/target" },
+        "tracking_ref": { "type": "string", "maxLength": 4096 },
+        "observation": {
+          "type": "object", "additionalProperties": false,
+          "required": ["refreshed", "observed_at"],
+          "properties": {
+            "refreshed": { "type": "boolean" },
+            "observed_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+            "commit": { "$ref": "#/$defs/commitIdentity" },
+            "failure": { "$ref": "#/$defs/observationFailure" }
+          }
+        },
+        "definition_reference": {
+          "type": "object", "additionalProperties": false, "required": ["commit_oid"],
+          "properties": { "commit_oid": { "$ref": "common.schema.json#/$defs/gitOid" } }
+        },
+        "binds": { "$ref": "#/$defs/binds" },
+        "attribution": { "$ref": "common.schema.json#/$defs/attribution" }
+      }
+    },
+    "assessmentData": {
+      "type": "object", "additionalProperties": false,
+      "required": ["format", "observation_id", "assessment", "author", "rationale", "affected", "assessed_at", "binds"],
+      "properties": {
+        "format": { "const": "grounds.preflight-assessment/v1" },
+        "observation_id": { "$ref": "common.schema.json#/$defs/id" },
+        "assessment": { "enum": ["applicable", "revision_required", "unknown"] },
+        "author": { "$ref": "common.schema.json#/$defs/attribution" },
+        "rationale": { "type": "string", "minLength": 1, "maxLength": 65536 },
+        "affected": {
+          "type": "array", "maxItems": 2000,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["target_type", "target_id", "note"],
+            "properties": {
+              "target_type": { "enum": ["goal", "constraint", "criterion", "requirement", "outcome", "decision"] },
+              "target_id": { "$ref": "common.schema.json#/$defs/id" },
+              "criterion_id": { "$ref": "common.schema.json#/$defs/id" },
+              "note": { "type": "string", "minLength": 1, "maxLength": 4096 }
+            }
+          }
+        },
+        "assessed_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "assessment_seq": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "binds": { "$ref": "#/$defs/binds" },
+        "target_commit": { "$ref": "common.schema.json#/$defs/gitOid" }
+      }
+    },
+    "observationView": {
+      "type": "object", "additionalProperties": false,
+      "required": ["observation_id", "phase", "observed_at", "target", "tracking_ref", "observation", "binds"],
+      "properties": {
+        "observation_id": { "$ref": "common.schema.json#/$defs/id" },
+        "phase": { "enum": ["definition", "publish", "start"] },
+        "observed_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "target": { "$ref": "#/$defs/target" },
+        "tracking_ref": { "type": "string", "maxLength": 4096 },
+        "observation": { "type": "object" },
+        "definition_reference": { "type": "object" },
+        "binds": { "$ref": "#/$defs/binds" }
+      }
+    },
+    "issueHint": {
+      "type": "object", "additionalProperties": false,
+      "required": ["required"],
+      "allOf": [
+        { "if": { "properties": { "required": { "const": true } }, "required": ["required"] },
+          "then": { "required": ["state", "code", "next_commands"] } }
+      ],
+      "properties": {
+        "required": { "type": "boolean" },
+        "state": { "enum": ["missing", "preparing", "admitted"] },
+        "code": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "next_commands": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 4096 } }
+      }
+    },
+    "devRunPreflight": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state", "code", "summary", "blocking", "required_inputs", "next_commands"],
+      "properties": {
+        "state": { "enum": ["missing", "preparing", "admitted"] },
+        "code": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "blocking": {
+          "type": "array", "maxItems": 100,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["code"],
+            "properties": { "code": { "type": "string", "minLength": 1, "maxLength": 128 }, "detail": { "type": "string", "maxLength": 65536 }, "affected": {} }
+          }
+        },
+        "required_inputs": {
+          "type": "object", "additionalProperties": false,
+          "required": ["repository_id", "issue_id", "issue_version", "target", "base_commit"],
+          "properties": {
+            "repository_id": { "$ref": "common.schema.json#/$defs/id" },
+            "issue_id": { "$ref": "common.schema.json#/$defs/id" },
+            "issue_version": { "type": "integer", "minimum": 1 },
+            "target": { "$ref": "#/$defs/target" },
+            "base_commit": { "$ref": "common.schema.json#/$defs/gitOid" },
+            "observed_commit": { "$ref": "common.schema.json#/$defs/gitOid" }
+          }
+        },
+        "next_commands": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 4096 } },
+        "observation": {
+          "type": "object", "additionalProperties": false, "required": ["observation_id", "target_commit", "observed_at"],
+          "properties": { "observation_id": { "$ref": "common.schema.json#/$defs/id" }, "target_commit": { "$ref": "common.schema.json#/$defs/gitOid" }, "observed_at": { "type": "string", "maxLength": 64 } }
+        },
+        "assessment": { "type": "object" },
+        "assessment_hint": { "$ref": "common.schema.json#/$defs/id" },
+        "admission": {
+          "type": "object", "additionalProperties": false, "required": ["admitted_at", "target_commit", "base_commit"],
+          "properties": { "admitted_at": { "$ref": "common.schema.json#/$defs/timestamp" }, "target_commit": { "$ref": "common.schema.json#/$defs/gitOid" }, "base_commit": { "$ref": "common.schema.json#/$defs/gitOid" } }
+        }
+      }
+    },
+    "observeResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["result_type", "command", "observation_id", "phase", "observed_at", "target", "tracking_ref", "observation", "binds"],
+      "properties": {
+        "result_type": { "const": "grounds.result.preflight-observation/v1" },
+        "command": { "const": "preflight.observe" },
+        "observation_id": { "$ref": "common.schema.json#/$defs/id" },
+        "phase": { "enum": ["definition", "publish", "start"] },
+        "observed_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "target": { "$ref": "#/$defs/target" },
+        "tracking_ref": { "type": "string", "maxLength": 4096 },
+        "observation": { "type": "object" },
+        "definition_reference": { "type": "object" },
+        "binds": { "$ref": "#/$defs/binds" }
+      }
+    },
+    "assessResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["result_type", "command", "assessment_id", "observation_id", "assessment", "author", "rationale", "affected", "assessed_at", "binds"],
+      "properties": {
+        "result_type": { "const": "grounds.result.preflight-assessment/v1" },
+        "command": { "const": "preflight.assess" },
+        "preflight": { "type": "object" },
+        "assessment_id": { "$ref": "common.schema.json#/$defs/id" },
+        "observation_id": { "$ref": "common.schema.json#/$defs/id" },
+        "assessment": { "enum": ["applicable", "revision_required", "unknown"] },
+        "author": { "$ref": "common.schema.json#/$defs/attribution" },
+        "rationale": { "type": "string", "minLength": 1, "maxLength": 65536 },
+        "affected": { "type": "array", "maxItems": 2000, "items": { "type": "object" } },
+        "assessed_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "assessment_seq": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "binds": { "$ref": "#/$defs/binds" },
+        "target_commit": { "$ref": "common.schema.json#/$defs/gitOid" }
+      }
+    },
+    "showResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["result_type", "command", "preflight"],
+      "properties": {
+        "result_type": { "const": "grounds.result.preflight/v1" },
+        "command": { "const": "preflight.show" },
+        "preflight": {
+          "type": "object", "additionalProperties": false, "required": ["id", "kind", "version", "data"],
+          "properties": {
+            "id": { "$ref": "common.schema.json#/$defs/id" },
+            "kind": { "const": "runtime_operation" },
+            "parent_id": { "$ref": "common.schema.json#/$defs/id" },
+            "version": { "type": "integer", "minimum": 1 },
+            "data": { "type": "object" }
+          }
+        }
+      }
+    }
+  }
+}

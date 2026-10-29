@@ -1,0 +1,731 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/code-workspace.schema.json",
+  "title": "Grounds code Workspace preparation v1",
+  "description": "Versioned repository context and fixed baseline preparation. Prepared does not grant development execution or admission.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "configuration"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.code-workspace/v1"
+        },
+        "command": {
+          "enum": [
+            "code-workspace.config-save",
+            "code-workspace.config-show"
+          ]
+        },
+        "configuration": {
+          "$ref": "#/$defs/configurationVersion"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "instance"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.code-workspace/v1"
+        },
+        "command": {
+          "enum": [
+            "code-workspace.create",
+            "code-workspace.show",
+            "code-workspace.prepare",
+            "code-workspace.end",
+            "code-workspace.restore"
+          ]
+        },
+        "instance": {
+          "$ref": "#/$defs/instance"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "route"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.code-workspace/v1"
+        },
+        "command": {
+          "enum": [
+            "code-workspace.route-prepare",
+            "code-workspace.route-bind",
+            "code-workspace.route-show"
+          ]
+        },
+        "route": {
+          "$ref": "#/$defs/route"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "plan"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.code-workspace/v1"
+        },
+        "command": {
+          "const": "code-workspace.cleanup-preview"
+        },
+        "plan": {
+          "$ref": "#/$defs/cleanupPlan"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "cleanup"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.code-workspace/v1"
+        },
+        "command": {
+          "const": "code-workspace.cleanup"
+        },
+        "cleanup": {
+          "$ref": "#/$defs/cleanupResult"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "oid": {
+      "$ref": "common.schema.json#/$defs/gitOid"
+    },
+    "alias": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,62}$"
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository_id",
+        "alias",
+        "revision"
+      ],
+      "properties": {
+        "repository_id": {
+          "$ref": "#/$defs/id"
+        },
+        "alias": {
+          "$ref": "#/$defs/alias"
+        },
+        "revision": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "branch"
+              ],
+              "properties": {
+                "branch": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._/-]*$"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "commit"
+              ],
+              "properties": {
+                "commit": {
+                  "$ref": "#/$defs/oid"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "repositories"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "repositories": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/selection"
+          }
+        }
+      }
+    },
+    "configurationVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "configuration_id",
+        "revision_id",
+        "version",
+        "configuration",
+        "digest",
+        "attribution",
+        "created_at"
+      ],
+      "properties": {
+        "format": {
+          "const": "grounds.workspace-configuration/v1"
+        },
+        "configuration_id": {
+          "$ref": "#/$defs/id"
+        },
+        "revision_id": {
+          "$ref": "#/$defs/id"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "configuration": {
+          "$ref": "#/$defs/configuration"
+        },
+        "digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository_id",
+        "alias",
+        "commit",
+        "tree",
+        "path",
+        "refresh",
+        "materialized"
+      ],
+      "properties": {
+        "repository_id": {
+          "$ref": "#/$defs/id"
+        },
+        "alias": {
+          "$ref": "#/$defs/alias"
+        },
+        "commit": {
+          "$ref": "#/$defs/oid"
+        },
+        "tree": {
+          "$ref": "#/$defs/oid"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "refresh": {
+          "enum": [
+            "fetched",
+            "cached"
+          ]
+        },
+        "materialized": {
+          "type": "boolean"
+        }
+      }
+    },
+    "instance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "instance_id",
+        "database_id",
+        "host_id",
+        "issue_id",
+        "issue_version",
+        "issue_revision_id",
+        "target_repository_id",
+        "configuration",
+        "state",
+        "baselines",
+        "execution_enabled",
+        "attribution",
+        "created_at"
+      ],
+      "properties": {
+        "format": {
+          "const": "grounds.code-workspace-instance/v1"
+        },
+        "instance_id": {
+          "$ref": "#/$defs/id"
+        },
+        "database_id": {
+          "$ref": "#/$defs/id"
+        },
+        "host_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "issue_id": {
+          "$ref": "#/$defs/id"
+        },
+        "issue_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "issue_revision_id": {
+          "$ref": "#/$defs/id"
+        },
+        "target_repository_id": {
+          "$ref": "#/$defs/id"
+        },
+        "configuration": {
+          "$ref": "#/$defs/configurationVersion"
+        },
+        "state": {
+          "enum": [
+            "preparing",
+            "prepared",
+            "blocked"
+          ]
+        },
+        "baselines": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/baseline"
+          }
+        },
+        "execution_enabled": {
+          "const": false
+        },
+        "data_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
+        },
+        "restoration": {
+          "$ref": "#/$defs/restoration"
+        }
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "route_id",
+        "instance_id",
+        "database_id",
+        "repository_id",
+        "issue_revision_id",
+        "host_id",
+        "development",
+        "base_commit",
+        "path",
+        "request_digest",
+        "state",
+        "execution_enabled",
+        "attribution",
+        "created_at"
+      ],
+      "properties": {
+        "format": {
+          "const": "grounds.code-workspace-route/v1"
+        },
+        "route_id": {
+          "$ref": "#/$defs/id"
+        },
+        "dev_run_id": {
+          "$ref": "#/$defs/id"
+        },
+        "instance_id": {
+          "$ref": "#/$defs/id"
+        },
+        "database_id": {
+          "$ref": "#/$defs/id"
+        },
+        "repository_id": {
+          "$ref": "#/$defs/id"
+        },
+        "issue_revision_id": {
+          "$ref": "#/$defs/id"
+        },
+        "host_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "development": {
+          "$ref": "development-collaboration.schema.json#/$defs/developmentIdentity"
+        },
+        "base_commit": {
+          "$ref": "#/$defs/oid",
+          "description": "Immutable route creation base; matches DevRun initial_base_commit. Sync advances the DevRun current base without changing this field or the fixed Workspace context."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "request_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "state": {
+          "enum": [
+            "preparing",
+            "prepared",
+            "blocked"
+          ]
+        },
+        "execution_enabled": {
+          "const": false
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "restoration": {
+          "$ref": "#/$defs/routeRestoration"
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "version",
+        "ended_at",
+        "retention_days",
+        "retain_until",
+        "pinned",
+        "attribution"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "ended",
+            "code_reclaimed"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "ended_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "retention_days": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3650
+        },
+        "retain_until": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "cleanup_operation_id": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "cleanupIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "directory",
+        "administration",
+        "cache",
+        "git_dir",
+        "head",
+        "tree"
+      ],
+      "properties": {
+        "directory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "administration": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cache": {
+          "type": "string",
+          "minLength": 1
+        },
+        "git_dir": {
+          "type": "string",
+          "minLength": 1
+        },
+        "head": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tree": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "cleanupResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "path",
+        "state"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "baseline",
+            "development"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "enum": [
+            "eligible",
+            "blocked",
+            "removed"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identity": {
+          "$ref": "#/$defs/cleanupIdentity"
+        },
+        "estimated_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "cleanupPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instance_id",
+        "lifecycle_version",
+        "scope",
+        "gate",
+        "resources",
+        "plan_digest",
+        "retained_paths"
+      ],
+      "properties": {
+        "instance_id": {
+          "$ref": "#/$defs/id"
+        },
+        "lifecycle_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "scope": {
+          "const": "code_worktrees"
+        },
+        "gate": {
+          "enum": [
+            "ready",
+            "retention",
+            "pinned"
+          ]
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cleanupResource"
+          }
+        },
+        "plan_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "retained_paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "cleanupResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instance_id",
+        "operation_id",
+        "scope",
+        "resources"
+      ],
+      "properties": {
+        "instance_id": {
+          "$ref": "#/$defs/id"
+        },
+        "operation_id": {
+          "$ref": "#/$defs/id"
+        },
+        "scope": {
+          "const": "code_worktrees"
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cleanupResource"
+          }
+        }
+      }
+    },
+    "routeRestoration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_id",
+        "source_commit"
+      ],
+      "properties": {
+        "candidate_id": {
+          "$ref": "#/$defs/id"
+        },
+        "source_commit": {
+          "$ref": "#/$defs/oid"
+        }
+      }
+    },
+    "restoration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_instance_id",
+        "candidate_id",
+        "context_policy",
+        "source_commit",
+        "archive_binding",
+        "baselines"
+      ],
+      "properties": {
+        "source_instance_id": {
+          "$ref": "#/$defs/id"
+        },
+        "candidate_id": {
+          "$ref": "#/$defs/id"
+        },
+        "context_policy": {
+          "const": "original"
+        },
+        "source_commit": {
+          "$ref": "#/$defs/oid"
+        },
+        "archive_binding": {
+          "$ref": "candidate-archive.schema.json#/$defs/binding"
+        },
+        "baselines": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "repository_id",
+              "alias",
+              "commit",
+              "tree"
+            ],
+            "properties": {
+              "repository_id": {
+                "$ref": "#/$defs/id"
+              },
+              "alias": {
+                "$ref": "#/$defs/alias"
+              },
+              "commit": {
+                "$ref": "#/$defs/oid"
+              },
+              "tree": {
+                "$ref": "#/$defs/oid"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

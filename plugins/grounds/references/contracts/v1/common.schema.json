@@ -1,0 +1,571 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/common.schema.json",
+  "title": "Grounds v1 共享契约类型",
+  "$defs": {
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "statement"
+      ],
+      "properties": {
+        "statement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "rationale": {
+          "type": "string",
+          "maxLength": 16384
+        },
+        "context": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "options": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key",
+              "description"
+            ],
+            "properties": {
+              "key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[a-z][a-z0-9-]*$"
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "benefits": {
+                "type": "array",
+                "minItems": 0,
+                "maxItems": 100,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "costs": {
+                "type": "array",
+                "minItems": 0,
+                "maxItems": 100,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              }
+            }
+          }
+        },
+        "chosen_option": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "trade_offs": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "gain",
+              "sacrifice",
+              "reason"
+            ],
+            "properties": {
+              "gain": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "sacrifice": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16384
+              }
+            }
+          }
+        },
+        "consequences": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "statement"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "benefit",
+                  "obligation",
+                  "risk",
+                  "limitation"
+                ]
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              }
+            }
+          }
+        }
+      },
+      "dependentRequired": {
+        "options": [
+          "chosen_option"
+        ],
+        "chosen_option": [
+          "options"
+        ]
+      }
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "gitOid": {
+      "type": "string",
+      "pattern": "^(sha1:[0-9a-f]{40}|sha256:[0-9a-f]{64})$"
+    },
+    "shortText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "statement": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "longText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 65536
+    },
+    "verdict": {
+      "enum": ["qualified", "rejected", "inconclusive"]
+    },
+    "verificationMode": {
+      "enum": ["normal", "ultra"]
+    },
+    "standing": {
+      "enum": ["unverified", "inconclusive", "qualified", "rejected", "disputed"]
+    },
+    "attribution": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "git_name", "git_email"],
+          "properties": {
+            "kind": { "const": "human" },
+            "git_name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "git_email": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "agent_id", "display_name"],
+          "properties": {
+            "kind": { "const": "agent" },
+            "agent_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "display_name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          }
+        }
+      ]
+    },
+    "evidenceInput": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["type", "command", "exit_code"], "properties": { "type": { "const": "command" }, "command": { "type": "string", "minLength": 1, "maxLength": 4096 }, "exit_code": { "type": "integer", "minimum": -2147483648, "maximum": 2147483647 }, "output": { "type": "string", "maxLength": 65536 } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "name", "media_type", "content_base64"], "properties": { "type": { "const": "artifact" }, "name": { "$ref": "#/$defs/shortText" }, "media_type": { "type": "string", "minLength": 1, "maxLength": 255 }, "content_base64": { "type": "string", "contentEncoding": "base64", "maxLength": 87384 } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "statement", "attribution"], "properties": { "type": { "const": "observation" }, "statement": { "$ref": "#/$defs/longText" }, "attribution": { "$ref": "#/$defs/attribution" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "url", "content_digest"], "properties": { "type": { "const": "external_reference" }, "url": { "type": "string", "format": "uri", "pattern": "^https?://", "maxLength": 4096 }, "content_digest": { "$ref": "#/$defs/sha256" }, "title": { "$ref": "#/$defs/shortText" } } }
+      ]
+    },
+    "evidenceRecord": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["type", "command", "exit_code", "digest"], "properties": { "type": { "const": "command" }, "command": { "type": "string", "minLength": 1, "maxLength": 4096 }, "exit_code": { "type": "integer", "minimum": -2147483648, "maximum": 2147483647 }, "output": { "type": "string", "maxLength": 65536 }, "digest": { "$ref": "#/$defs/sha256" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "name", "media_type", "content_base64", "digest"], "properties": { "type": { "const": "artifact" }, "name": { "$ref": "#/$defs/shortText" }, "media_type": { "type": "string", "minLength": 1, "maxLength": 255 }, "content_base64": { "type": "string", "contentEncoding": "base64", "maxLength": 87384 }, "digest": { "$ref": "#/$defs/sha256" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "statement", "attribution", "digest"], "properties": { "type": { "const": "observation" }, "statement": { "$ref": "#/$defs/longText" }, "attribution": { "$ref": "#/$defs/attribution" }, "digest": { "$ref": "#/$defs/sha256" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "url", "content_digest", "digest"], "properties": { "type": { "const": "external_reference" }, "url": { "type": "string", "format": "uri", "pattern": "^https?://", "maxLength": 4096 }, "content_digest": { "$ref": "#/$defs/sha256" }, "title": { "$ref": "#/$defs/shortText" }, "digest": { "$ref": "#/$defs/sha256" } } }
+      ]
+    },
+    "criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "statement": { "$ref": "#/$defs/statement" }
+      }
+    },
+    "intentLink": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "ordinal"],
+      "properties": {
+        "type": { "enum": ["outcome", "decision"] },
+        "ordinal": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
+    "goal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "criteria", "guidance"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "statement": { "$ref": "#/$defs/statement" },
+        "criteria": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/criterion" }
+        },
+        "guidance": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/statement" }
+        },
+        "traces_to": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/intentLink" }
+        }
+      }
+    },
+    "constraint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "criteria", "guidance"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "statement": { "$ref": "#/$defs/statement" },
+        "criteria": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/criterion" }
+        },
+        "guidance": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/statement" }
+        },
+        "traces_to": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/intentLink" }
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        }
+      }
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["git_oid", "reachability"],
+      "properties": {
+        "git_oid": { "$ref": "#/$defs/gitOid" },
+        "reachability": {
+          "enum": ["remote_tracking_reachable", "unconfirmed"]
+        },
+        "warning": { "$ref": "#/$defs/statement" },
+        "override_reason": { "$ref": "#/$defs/longText" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "reachability": { "const": "unconfirmed" } },
+            "required": ["reachability"]
+          },
+          "then": { "required": ["warning"] }
+        },
+        {
+          "if": {
+            "properties": { "reachability": { "const": "remote_tracking_reachable" } },
+            "required": ["reachability"]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                { "required": ["warning"] },
+                { "required": ["override_reason"] }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "fileManifestEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path_bytes", "display_path", "change"],
+      "properties": {
+        "path_bytes": {
+          "type": "string",
+          "minLength": 4,
+          "contentEncoding": "base64"
+        },
+        "display_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "change": {
+          "enum": ["added", "modified", "deleted", "renamed", "copied", "type_changed"]
+        },
+        "old_path_bytes": {
+          "type": "string",
+          "minLength": 4,
+          "contentEncoding": "base64"
+        },
+        "old_mode": {
+          "type": "string",
+          "pattern": "^[0-7]{6}$"
+        },
+        "new_mode": {
+          "type": "string",
+          "pattern": "^[0-7]{6}$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "change": { "const": "deleted" } },
+            "required": ["change"]
+          },
+          "then": { "required": ["old_mode"] },
+          "else": { "required": ["new_mode"] }
+        },
+        {
+          "if": {
+            "properties": { "change": { "enum": ["renamed", "copied"] } },
+            "required": ["change"]
+          },
+          "then": { "required": ["old_path_bytes"] }
+        }
+      ]
+    },
+    "changeRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "lines"],
+      "properties": {
+        "start": { "type": "integer", "minimum": 0 },
+        "lines": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "changeUnit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change_unit_id", "kind", "path_bytes", "display_path", "change", "content_digest"],
+      "properties": {
+        "change_unit_id": { "$ref": "#/$defs/sha256" },
+        "kind": { "enum": ["hunk", "file"] },
+        "path_bytes": { "type": "string", "minLength": 4, "contentEncoding": "base64" },
+        "display_path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "change": { "enum": ["added", "modified", "deleted", "renamed", "copied", "type_changed"] },
+        "old_path_bytes": { "type": "string", "minLength": 4, "contentEncoding": "base64" },
+        "old_range": { "$ref": "#/$defs/changeRange" },
+        "new_range": { "$ref": "#/$defs/changeRange" },
+        "content_digest": { "$ref": "#/$defs/sha256" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "hunk" } }, "required": ["kind"] },
+          "then": { "required": ["old_range", "new_range"] },
+          "else": { "not": { "anyOf": [{ "required": ["old_range"] }, { "required": ["new_range"] }] } }
+        }
+      ]
+    },
+    "changeIndex": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "patch_digest", "units_digest", "change_units"],
+      "properties": {
+        "format": { "const": "patchledger.change-index/v1" },
+        "patch_digest": { "$ref": "#/$defs/sha256" },
+        "units_digest": { "$ref": "#/$defs/sha256" },
+        "change_units": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/changeUnit" } }
+      }
+    },
+    "changeRationale": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change_refs", "relation", "target_refs", "rationale", "alternatives", "risks"],
+      "properties": {
+        "change_refs": { "type": "array", "minItems": 1, "maxItems": 1000, "uniqueItems": true, "items": { "$ref": "#/$defs/sha256" } },
+        "relation": { "enum": ["implements", "verifies", "supports", "generated", "incidental"] },
+        "target_refs": {
+          "type": "array", "minItems": 1, "maxItems": 200, "uniqueItems": true,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["type", "id"],
+            "properties": { "type": { "const": "criterion" }, "id": { "$ref": "#/$defs/id" } }
+          }
+        },
+        "rationale": { "allOf": [{ "$ref": "#/$defs/longText" }, { "not": { "pattern": "^TODO:" } }] },
+        "alternatives": {
+          "type": "array", "maxItems": 20,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["approach", "rejected_because"],
+            "properties": { "approach": { "$ref": "#/$defs/statement" }, "rejected_because": { "$ref": "#/$defs/longText" } }
+          }
+        },
+        "risks": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/statement" } }
+      }
+    },
+    "selfVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "explanation"],
+      "properties": {
+        "status": { "enum": ["satisfied", "partially_satisfied", "not_satisfied", "inconclusive", "not_verified"] },
+        "explanation": { "$ref": "#/$defs/longText" },
+        "method": { "$ref": "#/$defs/longText" }
+      },
+      "if": { "properties": { "status": { "const": "not_verified" } } },
+      "then": { "not": { "required": ["method"] } },
+      "else": { "required": ["method"] }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_type", "target_id", "explanation", "criteria"],
+      "properties": {
+        "target_type": { "enum": ["goal", "constraint"] },
+        "target_id": { "$ref": "#/$defs/id" },
+        "explanation": { "$ref": "#/$defs/longText" },
+        "criteria": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["criterion_id", "explanation", "evidence"],
+            "allOf": [{
+              "if": { "required": ["self_verification"], "properties": { "self_verification": { "properties": { "status": { "not": { "const": "not_verified" } } }, "required": ["status"] } } },
+              "then": { "properties": { "evidence": { "minItems": 1 } } }
+            }],
+            "properties": {
+              "criterion_id": { "$ref": "#/$defs/id" },
+              "self_verification": { "$ref": "#/$defs/selfVerification" },
+              "explanation": { "$ref": "#/$defs/longText" },
+              "evidence": {
+                "type": "array",
+                "maxItems": 8,
+                "items": { "$ref": "#/$defs/evidenceInput" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "claimRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_type", "target_id", "explanation", "criteria"],
+      "properties": {
+        "self_verification_summary": {
+          "type": "object", "additionalProperties": false,
+          "required": ["satisfied", "partially_satisfied", "not_satisfied", "inconclusive", "not_verified", "not_recorded"],
+          "properties": {
+            "satisfied": { "type": "integer", "minimum": 0 },
+            "partially_satisfied": { "type": "integer", "minimum": 0 },
+            "not_satisfied": { "type": "integer", "minimum": 0 },
+            "inconclusive": { "type": "integer", "minimum": 0 },
+            "not_verified": { "type": "integer", "minimum": 0 },
+            "not_recorded": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "target_type": { "enum": ["goal", "constraint"] },
+        "target_id": { "$ref": "#/$defs/id" },
+        "explanation": { "$ref": "#/$defs/longText" },
+        "criteria": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["criterion_id", "explanation", "evidence"],
+            "allOf": [{
+              "if": { "required": ["self_verification"], "properties": { "self_verification": { "properties": { "status": { "not": { "const": "not_verified" } } }, "required": ["status"] } } },
+              "then": { "properties": { "evidence": { "minItems": 1 } } }
+            }],
+            "properties": {
+              "criterion_id": { "$ref": "#/$defs/id" },
+              "self_verification": { "$ref": "#/$defs/selfVerification" },
+              "explanation": { "$ref": "#/$defs/longText" },
+              "evidence": {
+                "type": "array",
+                "maxItems": 8,
+                "items": { "$ref": "#/$defs/evidenceRecord" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

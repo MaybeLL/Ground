@@ -1,0 +1,834 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://grounds.dev/contracts/v1/qa-candidate.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "grounds.qa-candidate/v1"
+    },
+    "identity": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 65536
+    },
+    "revision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 65536
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "first_captured_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "first_captured_at",
+        "expires_at"
+      ]
+    },
+    "qa": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "grounds.eval-qa/v1"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "question": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "instructions": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "rubric": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "reference_answer": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "required_points": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          },
+          "maxItems": 1000
+        },
+        "forbidden_claims": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          },
+          "maxItems": 1000
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          },
+          "maxItems": 1000
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "identity": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "repository": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "revision": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "record": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "format": {
+                  "type": "string",
+                  "enum": [
+                    "graphkb.qa-source/v1",
+                    "graphkb.qa-source/v2",
+                    "grounds.tui-qa-source/v1"
+                  ]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "captured_review",
+                    "manual",
+                    "manual_revision"
+                  ]
+                },
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512,
+                  "pattern": "^[A-Za-z0-9_.:@/#=+~-]+$"
+                },
+                "original_question": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512,
+                  "pattern": "^[A-Za-z0-9_.:@/#=+~-]+$"
+                },
+                "question_index": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "origin_key": {
+                  "type": "string",
+                  "pattern": "^(?:sha256:)?[0-9a-f]{64}$"
+                },
+                "question_span_digest": {
+                  "type": "string",
+                  "pattern": "^(?:sha256:)?[0-9a-f]{64}$"
+                },
+                "model_question_proposal_digest": {
+                  "type": "string",
+                  "pattern": "^(?:sha256:)?[0-9a-f]{64}$"
+                },
+                "model_proposal_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512,
+                  "pattern": "^[A-Za-z0-9_.:@/#=+~-]+$"
+                },
+                "question_policy": {
+                  "type": "string",
+                  "enum": [
+                    "original_span_until_review",
+                    "normalized_unverified"
+                  ]
+                },
+                "observation": {
+                  "type": "string",
+                  "enum": [
+                    "model_extraction_unverified"
+                  ]
+                },
+                "condition_type": {
+                  "type": "string",
+                  "enum": [
+                    "stable",
+                    "current_state",
+                    "historical_state",
+                    "unknown"
+                  ]
+                },
+                "call_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "pattern": "^[A-Za-z0-9_.:@/#=+~-]+$"
+                  },
+                  "maxItems": 1000
+                },
+                "message_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "pattern": "^[A-Za-z0-9_.:@/#=+~-]+$"
+                  },
+                  "maxItems": 1000
+                },
+                "material_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "pattern": "^[A-Za-z0-9_.:@/#=+~-]+$"
+                  },
+                  "maxItems": 1000
+                },
+                "clue_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "pattern": "^[A-Za-z0-9_.:@/#=+~-]+$"
+                  },
+                  "maxItems": 1000
+                },
+                "authorization_digest": {
+                  "type": "string",
+                  "pattern": "^(?:sha256:)?[0-9a-f]{64}$"
+                },
+                "input_digest": {
+                  "type": "string",
+                  "pattern": "^(?:sha256:)?[0-9a-f]{64}$"
+                },
+                "context_reads": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "completed",
+                          "rejected"
+                        ]
+                      },
+                      "request_digest": {
+                        "type": "string",
+                        "pattern": "^(?:sha256:)?[0-9a-f]{64}$"
+                      },
+                      "requested_count": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "material_ids": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 512,
+                          "pattern": "^[A-Za-z0-9_.:@/#=+~-]+$"
+                        },
+                        "maxItems": 1000
+                      },
+                      "scopes": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 512,
+                          "pattern": "^[A-Za-z0-9_.:@/#=+~-]+$"
+                        },
+                        "maxItems": 1000
+                      },
+                      "authorization_digest": {
+                        "type": "string",
+                        "pattern": "^(?:sha256:)?[0-9a-f]{64}$"
+                      },
+                      "input_digest": {
+                        "type": "string",
+                        "pattern": "^(?:sha256:)?[0-9a-f]{64}$"
+                      },
+                      "added_bytes": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "missing_count": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512,
+                        "pattern": "^[A-Za-z0-9_.:@/#=+~-]+$"
+                      },
+                      "records": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 512,
+                              "pattern": "^[A-Za-z0-9_.:@/#=+~-]+$"
+                            },
+                            "scope": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 512,
+                              "pattern": "^[A-Za-z0-9_.:@/#=+~-]+$"
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "host_event",
+                                "persisted_message",
+                                "cli_start",
+                                "cli_result",
+                                "clue",
+                                "question",
+                                "query",
+                                "answer",
+                                "feedback",
+                                "model_proposal",
+                                "missing_record"
+                              ]
+                            },
+                            "sha256": {
+                              "type": "string",
+                              "pattern": "^(?:sha256:)?[0-9a-f]{64}$"
+                            },
+                            "bytes": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "first_captured_at": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "expires_at": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "kind",
+                            "sha256",
+                            "bytes",
+                            "first_captured_at",
+                            "expires_at"
+                          ]
+                        },
+                        "maxItems": 64
+                      }
+                    },
+                    "required": [
+                      "state",
+                      "request_digest",
+                      "requested_count",
+                      "material_ids",
+                      "scopes",
+                      "authorization_digest",
+                      "input_digest",
+                      "added_bytes",
+                      "missing_count"
+                    ]
+                  },
+                  "maxItems": 8
+                },
+                "source_package": {
+                  "type": "string",
+                  "pattern": "^(?:sha256:)?[0-9a-f]{64}$"
+                },
+                "lineage_digest": {
+                  "type": "string",
+                  "pattern": "^(?:sha256:)?[0-9a-f]{64}$"
+                },
+                "digest_algorithm": {
+                  "type": "string",
+                  "enum": [
+                    "JCS-SHA256"
+                  ]
+                },
+                "based_on": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512,
+                      "pattern": "^[A-Za-z0-9_.:@/#=+~-]+$"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "version"
+                  ]
+                },
+                "captured_sources": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "identity": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512,
+                        "pattern": "^[A-Za-z0-9_.:@/#=+~-]+$"
+                      },
+                      "revision": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512,
+                        "pattern": "^[A-Za-z0-9_.:@/#=+~-]+$"
+                      },
+                      "provenance": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "repository": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 4096,
+                            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                          },
+                          "revision": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 512,
+                            "pattern": "^[A-Za-z0-9_.:@/#=+~-]+$"
+                          },
+                          "path": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 4096,
+                            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                          },
+                          "digest": {
+                            "type": "string",
+                            "pattern": "^(?:sha256:)?[0-9a-f]{64}$"
+                          },
+                          "record_digest": {
+                            "type": "string",
+                            "pattern": "^(?:sha256:)?[0-9a-f]{64}$"
+                          }
+                        }
+                      },
+                      "relations_digest": {
+                        "type": "string",
+                        "pattern": "^(?:sha256:)?[0-9a-f]{64}$"
+                      },
+                      "completeness": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "question": {
+                            "type": "string",
+                            "enum": [
+                              "complete",
+                              "partial",
+                              "missing",
+                              "unknown",
+                              "not_applicable"
+                            ]
+                          },
+                          "query": {
+                            "type": "string",
+                            "enum": [
+                              "complete",
+                              "partial",
+                              "missing",
+                              "unknown",
+                              "not_applicable"
+                            ]
+                          },
+                          "answer": {
+                            "type": "string",
+                            "enum": [
+                              "complete",
+                              "partial",
+                              "missing",
+                              "unknown",
+                              "not_applicable"
+                            ]
+                          },
+                          "feedback": {
+                            "type": "string",
+                            "enum": [
+                              "complete",
+                              "partial",
+                              "missing",
+                              "unknown",
+                              "not_applicable"
+                            ]
+                          },
+                          "attachments": {
+                            "type": "string",
+                            "enum": [
+                              "complete",
+                              "partial",
+                              "missing",
+                              "unknown",
+                              "not_applicable"
+                            ]
+                          },
+                          "subtasks": {
+                            "type": "string",
+                            "enum": [
+                              "complete",
+                              "partial",
+                              "missing",
+                              "unknown",
+                              "not_applicable"
+                            ]
+                          }
+                        }
+                      },
+                      "limitations_digest": {
+                        "type": "string",
+                        "pattern": "^(?:sha256:)?[0-9a-f]{64}$"
+                      }
+                    }
+                  },
+                  "maxItems": 100
+                },
+                "manual_revision": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "human"
+                      ]
+                    },
+                    "draft": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512,
+                      "pattern": "^[A-Za-z0-9_.:@/#=+~-]+$"
+                    },
+                    "draft_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512,
+                      "pattern": "^[A-Za-z0-9_.:@/#=+~-]+$"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "editing_version": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "digest": {
+                      "type": "string",
+                      "pattern": "^(?:sha256:)?[0-9a-f]{64}$"
+                    },
+                    "based_on": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 512,
+                          "pattern": "^[A-Za-z0-9_.:@/#=+~-]+$"
+                        },
+                        "version": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "version"
+                      ]
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "name",
+                          "question",
+                          "instructions",
+                          "rubric",
+                          "reference_answer",
+                          "required_points",
+                          "forbidden_claims",
+                          "references"
+                        ]
+                      },
+                      "maxItems": 8
+                    }
+                  }
+                },
+                "review": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "reviewed",
+                        "ignored",
+                        "not_applicable"
+                      ]
+                    },
+                    "knowledge": {
+                      "type": "string",
+                      "enum": [
+                        "unknown",
+                        "stable",
+                        "historical"
+                      ]
+                    },
+                    "authority_digest": {
+                      "type": "string",
+                      "pattern": "^(?:sha256:)?[0-9a-f]{64}$"
+                    },
+                    "conditions_digest": {
+                      "type": "string",
+                      "pattern": "^(?:sha256:)?[0-9a-f]{64}$"
+                    },
+                    "independent_text": {
+                      "type": "boolean"
+                    },
+                    "attachments_resolved": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "required": [
+            "identity",
+            "repository",
+            "revision",
+            "path",
+            "digest",
+            "record"
+          ]
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          },
+          "locator": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 1048576
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "first_captured_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "locator",
+          "content",
+          "digest",
+          "first_captured_at",
+          "expires_at"
+        ]
+      },
+      "maxItems": 1000,
+      "minItems": 1
+    },
+    "relations": {
+      "type": "object"
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 65536
+      },
+      "maxItems": 1000
+    },
+    "completeness": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "question": {
+          "enum": [
+            "complete",
+            "partial",
+            "missing",
+            "unknown",
+            "not_applicable"
+          ]
+        },
+        "query": {
+          "enum": [
+            "complete",
+            "partial",
+            "missing",
+            "unknown",
+            "not_applicable"
+          ]
+        },
+        "answer": {
+          "enum": [
+            "complete",
+            "partial",
+            "missing",
+            "unknown",
+            "not_applicable"
+          ]
+        },
+        "feedback": {
+          "enum": [
+            "complete",
+            "partial",
+            "missing",
+            "unknown",
+            "not_applicable"
+          ]
+        },
+        "attachments": {
+          "enum": [
+            "complete",
+            "partial",
+            "missing",
+            "unknown",
+            "not_applicable"
+          ]
+        },
+        "subtasks": {
+          "enum": [
+            "complete",
+            "partial",
+            "missing",
+            "unknown",
+            "not_applicable"
+          ]
+        }
+      },
+      "required": [
+        "question",
+        "query",
+        "answer",
+        "feedback",
+        "attachments",
+        "subtasks"
+      ]
+    },
+    "extraction": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "format",
+    "identity",
+    "revision",
+    "project",
+    "qa",
+    "evidence",
+    "relations",
+    "limitations",
+    "completeness",
+    "extraction"
+  ]
+}

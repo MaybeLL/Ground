@@ -1,0 +1,3670 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/eval.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "result_type": {
+      "const": "patchledger.result.eval/v1"
+    },
+    "command": {
+      "type": "string",
+      "pattern": "^eval\\."
+    },
+    "payload": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/record"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/record"
+          },
+          "minItems": 0,
+          "maxItems": 100000
+        },
+        {
+          "$ref": "#/$defs/graderDraft"
+        },
+        {
+          "$ref": "#/$defs/report"
+        },
+        {
+          "$ref": "#/$defs/comparison"
+        },
+        {
+          "$ref": "#/$defs/context"
+        },
+        {
+          "$ref": "command-results.schema.json#/$defs/devRunContextResult"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "run": {
+              "$ref": "#/$defs/run"
+            },
+            "executions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/execution"
+              },
+              "minItems": 0,
+              "maxItems": 100
+            },
+            "progress": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "phase",
+                "planned_graders",
+                "submitted_graders"
+              ],
+              "properties": {
+                "phase": {
+                  "enum": [
+                    "developing",
+                    "ready_to_grade",
+                    "grading",
+                    "ready_to_finish",
+                    "closed",
+                    "answering"
+                  ]
+                },
+                "planned_graders": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "submitted_graders": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "candidate_id": {
+                  "$ref": "common.schema.json#/$defs/id"
+                }
+              }
+            }
+          },
+          "required": [
+            "run",
+            "executions",
+            "progress"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "run": {
+              "$ref": "#/$defs/run"
+            },
+            "local_worktree": {
+              "$ref": "command-results.schema.json#/$defs/localWorktree"
+            },
+            "development_context": {
+              "$ref": "command-results.schema.json#/$defs/devRunContextResult"
+            }
+          },
+          "required": [
+            "run",
+            "local_worktree",
+            "development_context"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "report": {
+              "$ref": "#/$defs/report"
+            },
+            "directory": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "report",
+            "directory"
+          ]
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "$ref": "#/$defs/publicQA"
+        },
+        {
+          "$ref": "#/$defs/qaContext"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "artifact": {
+              "$ref": "#/$defs/artifact"
+            },
+            "directory": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "artifact",
+            "directory"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "execution": {
+              "$ref": "#/$defs/execution"
+            },
+            "directory": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "execution",
+            "directory"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "record": {
+              "$ref": "#/$defs/record"
+            },
+            "directory": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "record",
+            "directory"
+          ]
+        },
+        {
+          "$ref": "#/$defs/evidenceFilePage"
+        },
+        {
+          "$ref": "https://grounds.dev/contracts/v1/qa-draft-result.schema.json"
+        },
+        {
+          "$ref": "https://grounds.dev/contracts/v1/source-clue-result.schema.json"
+        }
+      ]
+    }
+  },
+  "required": [
+    "result_type",
+    "command",
+    "payload"
+  ],
+  "$defs": {
+    "ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "id",
+        "version"
+      ]
+    },
+    "spec": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "decision"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "score"
+            },
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            },
+            "higher_is_better": {
+              "type": "boolean"
+            },
+            "rubric": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "kind",
+            "min",
+            "max",
+            "higher_is_better",
+            "rubric"
+          ]
+        }
+      ]
+    },
+    "definition": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "agent"
+            },
+            "instructions": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "type",
+            "instructions"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "unit_test"
+            },
+            "adapter": {
+              "const": "go"
+            },
+            "package": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "test_name": {
+              "type": "string",
+              "pattern": "^Test[A-Z0-9_][A-Za-z0-9_]*$"
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 300
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]+_test\\.go$"
+                  },
+                  "content": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 65536
+                  }
+                },
+                "required": [
+                  "path",
+                  "content"
+                ]
+              },
+              "minItems": 1,
+              "maxItems": 20
+            }
+          },
+          "required": [
+            "type",
+            "adapter",
+            "package",
+            "test_name",
+            "timeout_seconds",
+            "files"
+          ]
+        }
+      ]
+    },
+    "graderDraft": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "const": "patchledger.eval-grader/v1"
+            },
+            "issue": {
+              "$ref": "#/$defs/ref"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "scope": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "criterion_ids"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "criterion"
+                    },
+                    "criterion_ids": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "$ref": "common.schema.json#/$defs/id"
+                      }
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "name"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "diagnostic"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 65536
+                    }
+                  }
+                }
+              ]
+            },
+            "result_spec": {
+              "$ref": "#/$defs/spec"
+            },
+            "definition": {
+              "$ref": "#/$defs/definition"
+            },
+            "limitations": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "format",
+            "issue",
+            "name",
+            "scope",
+            "result_spec",
+            "definition",
+            "limitations"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "const": "grounds.eval-grader/v1"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "scope": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "name"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "diagnostic"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 65536
+                }
+              }
+            },
+            "result_spec": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "qa_decision"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "definition": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "agent"
+                },
+                "instructions": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 65536
+                }
+              },
+              "required": [
+                "type",
+                "instructions"
+              ]
+            },
+            "limitations": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "qa": {
+              "$ref": "#/$defs/ref"
+            }
+          },
+          "required": [
+            "format",
+            "name",
+            "scope",
+            "result_spec",
+            "definition",
+            "limitations",
+            "qa"
+          ]
+        }
+      ]
+    },
+    "suiteMembersDraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "grounds.eval-suite-members/v1"
+        },
+        "tasks": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/task"
+              },
+              {
+                "$ref": "#/$defs/taskDraft"
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "format",
+        "tasks"
+      ]
+    },
+    "taskDraft": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "issue": {
+              "$ref": "#/$defs/ref"
+            },
+            "graders": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ref"
+              },
+              "minItems": 1,
+              "maxItems": 100
+            }
+          },
+          "required": [
+            "name",
+            "issue",
+            "graders"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "graders": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ref"
+              },
+              "minItems": 1,
+              "maxItems": 100
+            },
+            "kind": {
+              "const": "qa"
+            },
+            "qa": {
+              "$ref": "#/$defs/ref"
+            }
+          },
+          "required": [
+            "name",
+            "graders",
+            "kind",
+            "qa"
+          ]
+        }
+      ]
+    },
+    "task": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "issue": {
+              "$ref": "#/$defs/ref"
+            },
+            "graders": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ref"
+              },
+              "minItems": 1,
+              "maxItems": 100
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "issue",
+            "graders"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "graders": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ref"
+              },
+              "minItems": 1,
+              "maxItems": 100
+            },
+            "kind": {
+              "const": "qa"
+            },
+            "qa": {
+              "$ref": "#/$defs/ref"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "graders",
+            "kind",
+            "qa"
+          ]
+        }
+      ]
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        }
+      },
+      "required": [
+        "name",
+        "description"
+      ]
+    },
+    "outcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "decision"
+            },
+            "verdict": {
+              "enum": [
+                "pass",
+                "fail"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "verdict"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "score"
+            },
+            "value": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "inconclusive"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ]
+        }
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "command",
+            "observation",
+            "test_source"
+          ]
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        }
+      },
+      "required": [
+        "kind",
+        "content"
+      ]
+    },
+    "submission": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "const": "patchledger.eval-grader-submission/v1"
+            },
+            "execution_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "context_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "status": {
+              "enum": [
+                "completed",
+                "error",
+                "not_executed"
+              ]
+            },
+            "outcome": {
+              "$ref": "#/$defs/outcome"
+            },
+            "explanation": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/evidence"
+              },
+              "minItems": 0,
+              "maxItems": 100
+            }
+          },
+          "required": [
+            "format",
+            "execution_id",
+            "context_digest",
+            "status",
+            "explanation",
+            "evidence"
+          ],
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "completed"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "outcome"
+                ]
+              },
+              "else": {
+                "not": {
+                  "required": [
+                    "outcome"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "const": "grounds.eval-grader-submission/v1"
+            },
+            "execution_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "context_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "status": {
+              "enum": [
+                "completed",
+                "error",
+                "not_executed"
+              ]
+            },
+            "outcome": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "const": "qa_decision"
+                    },
+                    "verdict": {
+                      "enum": [
+                        "pass",
+                        "partial",
+                        "fail"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "verdict"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "const": "inconclusive"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 65536
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "reason"
+                  ]
+                }
+              ]
+            },
+            "explanation": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/evidence"
+              },
+              "minItems": 0,
+              "maxItems": 100
+            }
+          },
+          "required": [
+            "format",
+            "execution_id",
+            "context_digest",
+            "status",
+            "explanation",
+            "evidence"
+          ],
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "completed"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "outcome"
+                ]
+              },
+              "else": {
+                "not": {
+                  "required": [
+                    "outcome"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "duration": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "unknown"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "measured",
+                "referenced"
+              ]
+            },
+            "started_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "finished_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "duration_ms": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "source_dev_run_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            }
+          },
+          "required": [
+            "kind",
+            "started_at",
+            "finished_at",
+            "duration_ms",
+            "source_dev_run_id"
+          ]
+        }
+      ]
+    },
+    "grader": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "kind": {
+          "const": "grader"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "parent_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "data": {
+          "$ref": "#/$defs/graderDraft"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "version",
+        "created_at",
+        "attribution",
+        "data"
+      ]
+    },
+    "suite": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "kind": {
+          "const": "suite"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "parent_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "tasks": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/task"
+              },
+              "minItems": 0,
+              "maxItems": 1000
+            }
+          },
+          "required": [
+            "name",
+            "tasks"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "version",
+        "created_at",
+        "attribution",
+        "data"
+      ]
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "kind": {
+          "const": "snapshot"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "parent_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "suite": {
+              "$ref": "#/$defs/ref"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "tasks": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/task"
+              },
+              "minItems": 1,
+              "maxItems": 1000
+            }
+          },
+          "required": [
+            "suite",
+            "name",
+            "tasks"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "version",
+        "created_at",
+        "attribution",
+        "data"
+      ]
+    },
+    "experiment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "kind": {
+          "const": "experiment"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "parent_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "snapshot_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "subject": {
+              "$ref": "#/$defs/subject"
+            },
+            "environment": {
+              "$ref": "#/$defs/experimentEnvironment"
+            }
+          },
+          "required": [
+            "snapshot_id",
+            "subject"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "version",
+        "created_at",
+        "attribution",
+        "data"
+      ]
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "kind": {
+          "const": "run"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "parent_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "data": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "experiment_id": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "task": {
+                  "$ref": "#/$defs/task"
+                },
+                "mode": {
+                  "enum": [
+                    "develop",
+                    "regrade"
+                  ]
+                },
+                "dev_run_id": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "candidate_id": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "rerun_of": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "state": {
+                  "enum": [
+                    "open",
+                    "closed"
+                  ]
+                },
+                "result_id": {
+                  "$ref": "common.schema.json#/$defs/id"
+                }
+              },
+              "required": [
+                "experiment_id",
+                "task",
+                "mode",
+                "state"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "experiment_id": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "task": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "$ref": "common.schema.json#/$defs/id"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 65536
+                    },
+                    "graders": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/$defs/ref"
+                      },
+                      "minItems": 1,
+                      "maxItems": 100
+                    },
+                    "kind": {
+                      "const": "qa"
+                    },
+                    "qa": {
+                      "$ref": "#/$defs/ref"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "graders",
+                    "kind",
+                    "qa"
+                  ]
+                },
+                "mode": {
+                  "enum": [
+                    "answer",
+                    "qa_regrade"
+                  ]
+                },
+                "rerun_of": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "state": {
+                  "enum": [
+                    "open",
+                    "closed"
+                  ]
+                },
+                "result_id": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "artifact_id": {
+                  "$ref": "common.schema.json#/$defs/id"
+                }
+              },
+              "required": [
+                "experiment_id",
+                "task",
+                "mode",
+                "state"
+              ]
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "version",
+        "created_at",
+        "attribution",
+        "data"
+      ]
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "kind": {
+          "const": "execution"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "parent_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "data": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "run_id": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "grader": {
+                  "$ref": "#/$defs/ref"
+                },
+                "candidate_id": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "result_tree_oid": {
+                  "$ref": "common.schema.json#/$defs/gitOid"
+                },
+                "context_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "unit_execution_started": {
+                  "type": "boolean"
+                },
+                "submission": {
+                  "$ref": "#/$defs/submission"
+                }
+              },
+              "required": [
+                "run_id",
+                "grader",
+                "candidate_id",
+                "result_tree_oid",
+                "context_digest"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "run_id": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "grader": {
+                  "$ref": "#/$defs/ref"
+                },
+                "context_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "submission": {
+                  "$ref": "#/$defs/submission"
+                },
+                "artifact_id": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "grading_evidence": {
+                  "$ref": "#/$defs/qaGradingEvidence"
+                }
+              },
+              "required": [
+                "run_id",
+                "grader",
+                "context_digest",
+                "artifact_id"
+              ]
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "version",
+        "created_at",
+        "attribution",
+        "data"
+      ]
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "kind": {
+          "const": "result"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "parent_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "data": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "run_id": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "experiment_id": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "task": {
+                  "$ref": "#/$defs/task"
+                },
+                "mode": {
+                  "enum": [
+                    "develop",
+                    "regrade"
+                  ]
+                },
+                "candidate_id": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "development_duration": {
+                  "$ref": "#/$defs/duration"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 65536
+                },
+                "graders": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "grader": {
+                        "$ref": "#/$defs/ref"
+                      },
+                      "execution_id": {
+                        "$ref": "common.schema.json#/$defs/id"
+                      },
+                      "submission": {
+                        "$ref": "#/$defs/submission"
+                      },
+                      "missing_reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 65536
+                      }
+                    },
+                    "required": [
+                      "grader"
+                    ],
+                    "oneOf": [
+                      {
+                        "required": [
+                          "submission"
+                        ],
+                        "not": {
+                          "required": [
+                            "missing_reason"
+                          ]
+                        }
+                      },
+                      {
+                        "required": [
+                          "missing_reason"
+                        ],
+                        "not": {
+                          "required": [
+                            "submission"
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "minItems": 1,
+                  "maxItems": 100
+                }
+              },
+              "required": [
+                "run_id",
+                "experiment_id",
+                "task",
+                "mode",
+                "development_duration",
+                "graders"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "run_id": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "experiment_id": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "task": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "$ref": "common.schema.json#/$defs/id"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 65536
+                    },
+                    "graders": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/$defs/ref"
+                      },
+                      "minItems": 1,
+                      "maxItems": 100
+                    },
+                    "kind": {
+                      "const": "qa"
+                    },
+                    "qa": {
+                      "$ref": "#/$defs/ref"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "graders",
+                    "kind",
+                    "qa"
+                  ]
+                },
+                "mode": {
+                  "enum": [
+                    "answer",
+                    "qa_regrade"
+                  ]
+                },
+                "development_duration": {
+                  "$ref": "#/$defs/duration"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 65536
+                },
+                "graders": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "grader": {
+                        "$ref": "#/$defs/ref"
+                      },
+                      "execution_id": {
+                        "$ref": "common.schema.json#/$defs/id"
+                      },
+                      "submission": {
+                        "$ref": "#/$defs/submission"
+                      },
+                      "missing_reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 65536
+                      }
+                    },
+                    "required": [
+                      "grader"
+                    ],
+                    "oneOf": [
+                      {
+                        "required": [
+                          "submission"
+                        ],
+                        "not": {
+                          "required": [
+                            "missing_reason"
+                          ]
+                        }
+                      },
+                      {
+                        "required": [
+                          "missing_reason"
+                        ],
+                        "not": {
+                          "required": [
+                            "submission"
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "minItems": 1,
+                  "maxItems": 100
+                },
+                "artifact_id": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "answering_duration_ms": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "run_id",
+                "experiment_id",
+                "task",
+                "mode",
+                "development_duration",
+                "graders"
+              ]
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "version",
+        "created_at",
+        "attribution",
+        "data"
+      ]
+    },
+    "record": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/grader"
+        },
+        {
+          "$ref": "#/$defs/suite"
+        },
+        {
+          "$ref": "#/$defs/snapshot"
+        },
+        {
+          "$ref": "#/$defs/experiment"
+        },
+        {
+          "$ref": "#/$defs/run"
+        },
+        {
+          "$ref": "#/$defs/execution"
+        },
+        {
+          "$ref": "#/$defs/result"
+        },
+        {
+          "$ref": "#/$defs/notice"
+        },
+        {
+          "$ref": "#/$defs/qa"
+        },
+        {
+          "$ref": "#/$defs/artifact"
+        },
+        {
+          "$ref": "#/$defs/environment"
+        },
+        {
+          "$ref": "#/$defs/envcheck"
+        },
+        {
+          "$ref": "#/$defs/preparation"
+        },
+        {
+          "$ref": "#/$defs/instance"
+        }
+      ]
+    },
+    "report": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "patchledger.eval-report/v1"
+        },
+        "experiment": {
+          "$ref": "#/$defs/experiment"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/snapshot"
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "task": {
+                "$ref": "#/$defs/task"
+              },
+              "graders": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/grader"
+                },
+                "minItems": 1,
+                "maxItems": 100
+              },
+              "runs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "run": {
+                      "$ref": "#/$defs/run"
+                    },
+                    "result": {
+                      "$ref": "#/$defs/result"
+                    },
+                    "artifact": {
+                      "$ref": "#/$defs/artifact"
+                    },
+                    "executions": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/$defs/execution"
+                      }
+                    }
+                  },
+                  "required": [
+                    "run"
+                  ]
+                },
+                "minItems": 0,
+                "maxItems": 100000
+              }
+            },
+            "required": [
+              "task",
+              "graders",
+              "runs"
+            ]
+          },
+          "minItems": 0,
+          "maxItems": 1000
+        },
+        "notices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/notice"
+          }
+        },
+        "environment": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "preparations": {
+              "type": "array",
+              "items": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/record"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "preparation"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "attempts": {
+              "type": "array",
+              "items": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/record"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "preparation"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "instances": {
+              "type": "array",
+              "items": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/record"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "instance"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "owned_preparation_duration_ms": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "answers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "run_id": {
+                    "$ref": "common.schema.json#/$defs/id"
+                  },
+                  "artifact_id": {
+                    "$ref": "common.schema.json#/$defs/id"
+                  },
+                  "provenance": {
+                    "enum": [
+                      "recorded",
+                      "unknown"
+                    ]
+                  },
+                  "cost_attribution": {
+                    "enum": [
+                      "original_answer",
+                      "this_run"
+                    ]
+                  },
+                  "reference": {
+                    "$ref": "#/$defs/instanceReference"
+                  }
+                },
+                "required": [
+                  "run_id",
+                  "artifact_id",
+                  "provenance",
+                  "cost_attribution"
+                ]
+              }
+            }
+          },
+          "required": [
+            "preparations",
+            "attempts",
+            "instances",
+            "owned_preparation_duration_ms",
+            "answers"
+          ]
+        }
+      },
+      "required": [
+        "format",
+        "experiment",
+        "snapshot",
+        "tasks",
+        "notices"
+      ]
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "patchledger.eval-grader-context/v1"
+        },
+        "execution": {
+          "$ref": "#/$defs/execution"
+        },
+        "grader": {
+          "$ref": "#/$defs/grader"
+        },
+        "candidate_context": {
+          "$ref": "verification-context.schema.json"
+        },
+        "submission_template": {
+          "$ref": "#/$defs/submission"
+        }
+      },
+      "required": [
+        "format",
+        "execution",
+        "grader",
+        "candidate_context",
+        "submission_template"
+      ]
+    },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "patchledger.eval-comparison/v1"
+        },
+        "reports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/report"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "format",
+        "reports"
+      ]
+    },
+    "notice": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "kind": {
+          "const": "notice"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "parent_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "grader",
+            "reason"
+          ],
+          "properties": {
+            "grader": {
+              "$ref": "#/$defs/ref"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            }
+          }
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "version",
+        "created_at",
+        "attribution",
+        "data"
+      ]
+    },
+    "qaDraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "grounds.eval-qa/v1"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "instructions": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "rubric": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "reference_answer": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "required_points": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          },
+          "minItems": 0,
+          "maxItems": 1000
+        },
+        "forbidden_claims": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          },
+          "minItems": 0,
+          "maxItems": 1000
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          },
+          "minItems": 0,
+          "maxItems": 1000
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "identity": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "repository": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "revision": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "record": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "identity",
+            "repository",
+            "revision",
+            "path",
+            "digest",
+            "record"
+          ]
+        }
+      },
+      "required": [
+        "format",
+        "name",
+        "question",
+        "instructions",
+        "rubric",
+        "required_points",
+        "forbidden_claims",
+        "references",
+        "source"
+      ]
+    },
+    "qaArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "grounds.eval-artifact/v1"
+        },
+        "run_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "qa": {
+          "$ref": "#/$defs/ref"
+        },
+        "answer": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "citations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 65536
+              },
+              "locator": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 65536
+              }
+            },
+            "required": [
+              "content",
+              "locator"
+            ]
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "execution": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "started_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "finished_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "status": {
+              "enum": [
+                "completed",
+                "error"
+              ]
+            },
+            "exit_code": {
+              "type": "integer"
+            },
+            "declared": {
+              "type": "object"
+            },
+            "observed": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "session_id",
+            "started_at",
+            "finished_at",
+            "status",
+            "exit_code",
+            "declared",
+            "observed"
+          ]
+        },
+        "capture": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "coverage": {
+              "enum": [
+                "complete",
+                "partial",
+                "missing"
+              ]
+            },
+            "limitations": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 65536
+              },
+              "minItems": 0,
+              "maxItems": 1000
+            }
+          },
+          "required": [
+            "coverage",
+            "limitations"
+          ]
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 33554432
+              }
+            },
+            "required": [
+              "name",
+              "digest",
+              "size"
+            ]
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "environment": {
+          "$ref": "#/$defs/instanceReference"
+        },
+        "metrics": {
+          "$ref": "#/$defs/environmentMetrics"
+        }
+      },
+      "required": [
+        "format",
+        "run_id",
+        "qa",
+        "answer",
+        "citations",
+        "execution",
+        "capture",
+        "files"
+      ]
+    },
+    "qa": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "kind": {
+          "const": "qa"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "parent_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "data": {
+          "$ref": "#/$defs/qaDraft"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "version",
+        "created_at",
+        "attribution",
+        "data"
+      ]
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "kind": {
+          "const": "artifact"
+        },
+        "version": {
+          "const": 1
+        },
+        "parent_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "data": {
+          "$ref": "#/$defs/qaArtifact"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "version",
+        "created_at",
+        "attribution",
+        "data"
+      ]
+    },
+    "publicQA": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "grounds.eval-public-task/v1"
+        },
+        "run_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "qa": {
+          "$ref": "#/$defs/ref"
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "instructions": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        }
+      },
+      "required": [
+        "format",
+        "run_id",
+        "qa",
+        "question",
+        "instructions"
+      ]
+    },
+    "qaContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "grounds.eval-grading-context/v1"
+        },
+        "execution_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "context_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "qa": {
+          "$ref": "#/$defs/qaDraft"
+        },
+        "grader": {
+          "$ref": "#/$defs/graderDraft"
+        },
+        "artifact": {
+          "$ref": "#/$defs/qaArtifact"
+        },
+        "qa_ref": {
+          "$ref": "#/$defs/ref"
+        }
+      },
+      "required": [
+        "format",
+        "execution_id",
+        "context_digest",
+        "qa",
+        "grader",
+        "artifact"
+      ]
+    },
+    "qaGradingEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "grounds.eval-grading-evidence/v1"
+        },
+        "execution_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "context_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "execution": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "session_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "started_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "finished_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "status": {
+              "enum": [
+                "completed",
+                "error"
+              ]
+            },
+            "exit_code": {
+              "type": "integer"
+            },
+            "declared": {
+              "type": "object"
+            },
+            "observed": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "session_id",
+            "started_at",
+            "finished_at",
+            "status",
+            "exit_code",
+            "declared",
+            "observed"
+          ]
+        },
+        "capture": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "coverage": {
+              "enum": [
+                "complete",
+                "partial",
+                "missing"
+              ]
+            },
+            "limitations": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 65536
+              },
+              "minItems": 0,
+              "maxItems": 1000
+            }
+          },
+          "required": [
+            "coverage",
+            "limitations"
+          ]
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 33554432
+              }
+            },
+            "required": [
+              "name",
+              "digest",
+              "size"
+            ]
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "environment": {
+          "$ref": "#/$defs/instanceReference"
+        },
+        "metrics": {
+          "$ref": "#/$defs/environmentMetrics"
+        }
+      },
+      "required": [
+        "format",
+        "execution_id",
+        "context_digest",
+        "execution",
+        "capture",
+        "files"
+      ]
+    },
+    "environmentRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "digest"
+      ]
+    },
+    "adapterIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "platform"
+      ]
+    },
+    "environmentDraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "grounds.eval-environment/v1"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "task_kind": {
+          "enum": [
+            "qa",
+            "coding"
+          ]
+        },
+        "role": {
+          "enum": [
+            "answer",
+            "grade"
+          ]
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "enum": [
+                  "string",
+                  "number",
+                  "boolean"
+                ]
+              },
+              "required": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "type",
+              "required"
+            ]
+          }
+        },
+        "script": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "interpreter": {
+              "type": "string",
+              "minLength": 1
+            },
+            "content": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1048576
+            }
+          },
+          "required": [
+            "interpreter",
+            "content"
+          ]
+        },
+        "execution": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "backend": {
+              "type": "string",
+              "minLength": 1
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3600
+            },
+            "network_hosts": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "maxItems": 100
+            }
+          },
+          "required": [
+            "backend",
+            "timeout_seconds",
+            "network_hosts"
+          ]
+        },
+        "access": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "read_roles": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "code",
+                  "doc",
+                  "fixture"
+                ]
+              },
+              "maxItems": 3,
+              "uniqueItems": true
+            },
+            "kb": {
+              "type": "boolean"
+            },
+            "writable_workspace": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "read_roles",
+            "kb",
+            "writable_workspace"
+          ]
+        },
+        "skills": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "entrypoint": {
+                "const": "SKILL.md"
+              }
+            },
+            "required": [
+              "name",
+              "entrypoint"
+            ]
+          }
+        }
+      },
+      "required": [
+        "format",
+        "name",
+        "task_kind",
+        "role",
+        "parameters",
+        "script",
+        "execution",
+        "access"
+      ]
+    },
+    "environmentBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "environment": {
+          "$ref": "#/$defs/environmentRef"
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          }
+        },
+        "validation": {
+          "$ref": "#/$defs/ref"
+        },
+        "execution_config": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "environment",
+        "parameters",
+        "validation",
+        "execution_config"
+      ]
+    },
+    "experimentEnvironment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "answer": {
+          "$ref": "#/$defs/environmentBinding"
+        },
+        "grade": {
+          "$ref": "#/$defs/environmentBinding"
+        }
+      },
+      "required": [
+        "answer",
+        "grade"
+      ]
+    },
+    "environmentCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "grounds.environment-validation/v1"
+        },
+        "environment": {
+          "$ref": "#/$defs/environmentRef"
+        },
+        "adapter": {
+          "$ref": "#/$defs/adapterIdentity"
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          }
+        },
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "success": {
+              "type": "boolean"
+            },
+            "failure": {
+              "type": "boolean"
+            },
+            "protocol": {
+              "type": "boolean"
+            },
+            "isolation": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "success",
+            "failure",
+            "protocol",
+            "isolation"
+          ]
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 33554432
+              }
+            },
+            "required": [
+              "name",
+              "digest",
+              "size"
+            ]
+          },
+          "minItems": 0,
+          "maxItems": 100
+        }
+      },
+      "required": [
+        "format",
+        "environment",
+        "adapter",
+        "parameters",
+        "checks",
+        "files"
+      ]
+    },
+    "preparationResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "const": "grounds.environment-preparation-result/v1"
+            },
+            "attempt_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "status": {
+              "const": "failed"
+            },
+            "error": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "stage": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "details": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "stage",
+                "message"
+              ]
+            }
+          },
+          "required": [
+            "format",
+            "attempt_id",
+            "status",
+            "error"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "const": "grounds.environment-preparation-result/v1"
+            },
+            "attempt_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "status": {
+              "const": "success"
+            },
+            "workspace": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "root": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "materials": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "role": {
+                        "enum": [
+                          "code",
+                          "doc",
+                          "fixture"
+                        ]
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "role",
+                      "path"
+                    ]
+                  },
+                  "maxItems": 1000
+                }
+              },
+              "required": [
+                "root",
+                "materials"
+              ]
+            },
+            "tools": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "version": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "entry": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "name",
+                  "version",
+                  "entry"
+                ]
+              },
+              "maxItems": 1000
+            },
+            "sources": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "git",
+                      "kb",
+                      "file"
+                    ]
+                  },
+                  "identity": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "revision": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "role": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "branch": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "kind",
+                  "identity",
+                  "revision",
+                  "role"
+                ]
+              },
+              "maxItems": 1000
+            },
+            "skills": {
+              "type": "array",
+              "maxItems": 32,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    "maxLength": 64
+                  },
+                  "root": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "entrypoint": {
+                    "const": "SKILL.md"
+                  },
+                  "bundle_digest": {
+                    "type": "string",
+                    "pattern": "^sha256:[a-f0-9]{64}$"
+                  },
+                  "file_count": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000
+                  },
+                  "total_bytes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 33554432
+                  }
+                },
+                "required": [
+                  "name",
+                  "root",
+                  "entrypoint",
+                  "bundle_digest",
+                  "file_count",
+                  "total_bytes"
+                ]
+              }
+            }
+          },
+          "required": [
+            "format",
+            "attempt_id",
+            "status",
+            "workspace",
+            "tools",
+            "sources"
+          ]
+        }
+      ]
+    },
+    "preparationDraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "grounds.environment-preparation/v1"
+        },
+        "environment": {
+          "$ref": "#/$defs/environmentRef"
+        },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          }
+        },
+        "adapter": {
+          "$ref": "#/$defs/adapterIdentity"
+        },
+        "experiment_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/id"
+          },
+          "maxItems": 1000,
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "state": {
+          "enum": [
+            "registered",
+            "success",
+            "failed",
+            "released"
+          ]
+        },
+        "result": {
+          "$ref": "#/$defs/preparationResult"
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 33554432
+              }
+            },
+            "required": [
+              "name",
+              "digest",
+              "size"
+            ]
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "manifest_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "preparation_contract_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "format",
+        "environment",
+        "parameters",
+        "adapter",
+        "experiment_ids",
+        "owner",
+        "attempt",
+        "state",
+        "duration_ms",
+        "files"
+      ]
+    },
+    "instanceDraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "grounds.environment-instance/v1"
+        },
+        "run_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "execution_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "role": {
+          "enum": [
+            "answer",
+            "grade"
+          ]
+        },
+        "environment": {
+          "$ref": "#/$defs/environmentRef"
+        },
+        "preparation_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "state": {
+          "enum": [
+            "registered",
+            "preparing",
+            "prepare_failed",
+            "ready",
+            "launch_intent",
+            "running",
+            "collected",
+            "unknown",
+            "aborted",
+            "cancelled"
+          ]
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "input_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "policy_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "manifest_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "validity": {
+          "enum": [
+            "pending",
+            "valid",
+            "invalid",
+            "unknown"
+          ]
+        },
+        "release": {
+          "enum": [
+            "pending",
+            "released",
+            "failed"
+          ]
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 33554432
+              }
+            },
+            "required": [
+              "name",
+              "digest",
+              "size"
+            ]
+          },
+          "minItems": 0,
+          "maxItems": 100
+        }
+      },
+      "required": [
+        "format",
+        "run_id",
+        "role",
+        "environment",
+        "preparation_id",
+        "state",
+        "attempt",
+        "input_digest",
+        "validity",
+        "release",
+        "duration_ms",
+        "files"
+      ]
+    },
+    "instanceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "instance": {
+          "$ref": "#/$defs/ref"
+        },
+        "preparation": {
+          "$ref": "#/$defs/ref"
+        }
+      },
+      "required": [
+        "instance",
+        "preparation"
+      ]
+    },
+    "environmentMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "input_tokens": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "output_tokens": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "cached_input_tokens": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "input_tokens",
+                "output_tokens"
+              ]
+            }
+          ]
+        }
+      },
+      "required": [
+        "duration_ms",
+        "source",
+        "usage"
+      ]
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "kind": {
+          "const": "environment"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "data": {
+          "$ref": "#/$defs/environmentDraft"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "version",
+        "created_at",
+        "attribution",
+        "data"
+      ]
+    },
+    "envcheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "kind": {
+          "const": "envcheck"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "parent_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "data": {
+          "$ref": "#/$defs/environmentCheck"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "version",
+        "created_at",
+        "attribution",
+        "data",
+        "parent_id"
+      ]
+    },
+    "preparation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "kind": {
+          "const": "preparation"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "data": {
+          "$ref": "#/$defs/preparationDraft"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "version",
+        "created_at",
+        "attribution",
+        "data"
+      ]
+    },
+    "instance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "kind": {
+          "const": "instance"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "parent_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "data": {
+          "$ref": "#/$defs/instanceDraft"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "version",
+        "created_at",
+        "attribution",
+        "data",
+        "parent_id"
+      ]
+    },
+    "evidenceFilePage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "name",
+        "digest",
+        "size",
+        "offset",
+        "next_offset",
+        "encoding",
+        "content"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "artifact",
+            "execution"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "next_offset": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "encoding": {
+          "const": "base64"
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 87384
+        }
+      }
+    }
+  }
+}

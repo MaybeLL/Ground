@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/selection.schema.json",
+  "title": "当前 Selection 与选择命令结果",
+  "$ref": "#/$defs/result",
+  "$defs": {
+    "view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "version",
+        "verification_changed",
+        "warnings"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {
+          "enum": [
+            "selected",
+            "unselected"
+          ]
+        },
+        "candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "updated_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "verification_at_selection": {
+          "$ref": "query-results.schema.json#/$defs/verificationSetSummary"
+        },
+        "current_verification": {
+          "$ref": "query-results.schema.json#/$defs/verificationSetSummary"
+        },
+        "verification_changed": {
+          "type": "boolean"
+        },
+        "warnings": {
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_]{0,127}$"
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "version": {
+                "const": 0
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "state": {
+                "const": "unselected"
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "id"
+                  ]
+                },
+                {
+                  "required": [
+                    "candidate_id"
+                  ]
+                },
+                {
+                  "required": [
+                    "updated_at"
+                  ]
+                },
+                {
+                  "required": [
+                    "attribution"
+                  ]
+                },
+                {
+                  "required": [
+                    "reason"
+                  ]
+                },
+                {
+                  "required": [
+                    "verification_at_selection"
+                  ]
+                },
+                {
+                  "required": [
+                    "current_verification"
+                  ]
+                }
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "id",
+              "updated_at",
+              "attribution"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "selected"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "id",
+              "candidate_id",
+              "verification_at_selection",
+              "current_verification"
+            ],
+            "properties": {
+              "version": {
+                "minimum": 1
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "candidate_id"
+                  ]
+                },
+                {
+                  "required": [
+                    "verification_at_selection"
+                  ]
+                },
+                {
+                  "required": [
+                    "current_verification"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "verification_changed": {
+                "const": false
+              },
+              "warnings": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "issue",
+        "selection"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "patchledger.result.selection/v1"
+        },
+        "command": {
+          "enum": [
+            "selection.show",
+            "selection.set",
+            "selection.clear"
+          ]
+        },
+        "issue": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "version"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "selection": {
+          "$ref": "#/$defs/view"
+        }
+      }
+    }
+  }
+}

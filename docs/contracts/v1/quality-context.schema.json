@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/quality-context.schema.json",
+  "title": "Grounds QualityContext v1 质量评审上下文",
+  "description": "ultra Verification 中质量评审 Agent 的上下文。盲评阶段只含封存契约、Candidate Artifact 和质量维度；对照阶段只含作者说明与 Change Rationales。两阶段都不含作者 Claims、自验或任何验证者结论。",
+  "oneOf": [
+    {
+      "title": "盲评 QualityContext",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "phase", "candidate_id", "result_tree_oid", "blind_context_digest", "repository", "baseline", "requirement", "issue", "artifact", "rubric"],
+      "properties": {
+        "format": { "const": "patchledger.quality-context/v1" },
+        "phase": { "const": "blind" },
+        "candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+        "result_tree_oid": { "$ref": "common.schema.json#/$defs/gitOid" },
+        "blind_context_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+        "repository": { "$ref": "verification-context.schema.json#/oneOf/0/properties/repository" },
+        "baseline": { "$ref": "common.schema.json#/$defs/baseline" },
+        "base_commit": { "$ref": "common.schema.json#/$defs/gitOid" },
+        "snapshot_relation": { "$ref": "devrun-context.schema.json#/$defs/snapshotRelation" },
+        "requirement": { "$ref": "devrun-context.schema.json#/$defs/requirementVersion" },
+        "issue": { "$ref": "devrun-context.schema.json#/$defs/blindIssueVersion" },
+        "artifact": { "$ref": "verification-context.schema.json#/oneOf/0/properties/artifact" },
+        "rubric": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "dimensions"],
+          "properties": {
+            "version": { "const": "grounds.quality-rubric/v1" },
+            "dimensions": {
+              "type": "array",
+              "minItems": 6,
+              "maxItems": 6,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "name", "definition"],
+                "properties": {
+                  "id": { "$ref": "quality-review-report.schema.json#/$defs/dimensionId" },
+                  "name": { "$ref": "common.schema.json#/$defs/shortText" },
+                  "definition": { "$ref": "common.schema.json#/$defs/longText" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "title": "对照 QualityContext",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "phase", "candidate_id", "result_tree_oid", "blind_context_digest", "submission_explanation", "change_rationales_status", "change_rationales"],
+      "properties": {
+        "format": { "const": "patchledger.quality-context/v1" },
+        "phase": { "const": "reconcile" },
+        "candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+        "result_tree_oid": { "$ref": "common.schema.json#/$defs/gitOid" },
+        "blind_context_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+        "submission_explanation": { "$ref": "common.schema.json#/$defs/longText" },
+        "change_rationales_status": { "enum": ["recorded", "not_recorded"] },
+        "change_rationales": { "type": "array", "maxItems": 10000, "items": { "$ref": "common.schema.json#/$defs/changeRationale" } }
+      }
+    }
+  ]
+}

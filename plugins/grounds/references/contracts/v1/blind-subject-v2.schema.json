@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/blind-subject-v2.schema.json",
+  "title": "Grounds Candidate 自身基础提交盲验对象 v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "candidate_id", "repository_id", "baseline_oid", "base_commit", "result_tree_oid", "patch_digest", "artifact_format", "requirement", "issue", "file_manifest"],
+  "properties": {
+    "format": { "const": "patchledger.blind-subject/v2" },
+    "candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+    "repository_id": { "$ref": "common.schema.json#/$defs/id" },
+    "baseline_oid": { "$ref": "common.schema.json#/$defs/gitOid" },
+    "base_commit": { "$ref": "common.schema.json#/$defs/gitOid" },
+    "result_tree_oid": { "$ref": "common.schema.json#/$defs/gitOid" },
+    "patch_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+    "artifact_format": { "const": "patchledger.git-full-index-binary-patch/v1" },
+    "requirement": { "$ref": "devrun-context.schema.json#/$defs/requirementVersion" },
+    "issue": { "$ref": "devrun-context.schema.json#/$defs/blindIssueVersion" },
+    "file_manifest": { "$ref": "blind-subject.schema.json#/properties/file_manifest" }
+  }
+}

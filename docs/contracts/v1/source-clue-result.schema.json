@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://grounds.dev/contracts/v1/source-clue-result.schema.json",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/record"
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "grounds.source-clue-import/v1"
+        },
+        "project_id": {
+          "type": "string",
+          "maxLength": 1024,
+          "minLength": 1
+        },
+        "clues": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/$defs/record"
+          }
+        }
+      },
+      "required": [
+        "format",
+        "project_id",
+        "clues"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "grounds.source-clue-list/v1"
+        },
+        "clues": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/$defs/record"
+          }
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "format",
+        "clues",
+        "next_cursor"
+      ]
+    }
+  ],
+  "$defs": {
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "grounds.source-clue-record/v1"
+        },
+        "id": {
+          "type": "string",
+          "maxLength": 1024,
+          "minLength": 1
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "project": {
+          "$ref": "https://grounds.dev/contracts/v1/source-clue.schema.json#/$defs/project"
+        },
+        "source": {
+          "$ref": "https://grounds.dev/contracts/v1/source-clue.schema.json#/$defs/clue"
+        },
+        "ignored": {
+          "type": "boolean"
+        },
+        "state": {
+          "enum": [
+            "pending_analysis",
+            "expired",
+            "ignored"
+          ]
+        }
+      },
+      "required": [
+        "format",
+        "id",
+        "version",
+        "project",
+        "source",
+        "ignored",
+        "state"
+      ]
+    }
+  }
+}

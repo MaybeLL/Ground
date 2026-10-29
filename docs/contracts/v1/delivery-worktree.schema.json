@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/delivery-worktree.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "database_id",
+    "issue",
+    "selection_id",
+    "selection_version",
+    "candidate_id",
+    "repository_id",
+    "baseline_oid",
+    "patch_digest",
+    "result_tree_oid"
+  ],
+  "properties": {
+    "format": {
+      "enum": [
+        "patchledger.delivery-worktree/v1",
+        "grounds.delivery-worktree/v2"
+      ]
+    },
+    "database_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "selection_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "selection_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "candidate_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "repository_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "baseline_oid": {
+      "$ref": "common.schema.json#/$defs/gitOid"
+    },
+    "patch_digest": {
+      "$ref": "common.schema.json#/$defs/sha256"
+    },
+    "result_tree_oid": {
+      "$ref": "common.schema.json#/$defs/gitOid"
+    },
+    "source_commit": {
+      "$ref": "common.schema.json#/$defs/gitOid"
+    },
+    "observed_target_commit": {
+      "$ref": "common.schema.json#/$defs/gitOid"
+    },
+    "delivery_decision_id": {
+      "$ref": "common.schema.json#/$defs/id"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "format": {
+            "const": "grounds.delivery-worktree/v2"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "source_commit"
+        ]
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "source_commit"
+              ]
+            },
+            {
+              "required": [
+                "observed_target_commit"
+              ]
+            },
+            {
+              "required": [
+                "delivery_decision_id"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

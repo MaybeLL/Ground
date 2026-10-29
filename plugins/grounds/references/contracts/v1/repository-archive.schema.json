@@ -1,0 +1,1003 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/repository-archive.schema.json",
+  "title": "Grounds GitLab项目归档接入 v1",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/showResult"
+    },
+    {
+      "$ref": "#/$defs/bindResult"
+    },
+    {
+      "$ref": "#/$defs/batchResult"
+    }
+  ],
+  "$defs": {
+    "grant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "access_level": {
+          "enum": [
+            null,
+            0,
+            30,
+            40,
+            50,
+            60
+          ]
+        },
+        "user_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "group_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "deploy_key_id": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "access_level"
+      ],
+      "oneOf": [
+        {
+          "properties": {
+            "access_level": {
+              "enum": [
+                0,
+                30,
+                40,
+                50,
+                60
+              ]
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "user_id"
+                ]
+              },
+              {
+                "required": [
+                  "group_id"
+                ]
+              },
+              {
+                "required": [
+                  "deploy_key_id"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "user_id"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "group_id"
+                ]
+              },
+              {
+                "required": [
+                  "deploy_key_id"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "group_id"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "user_id"
+                ]
+              },
+              {
+                "required": [
+                  "deploy_key_id"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "deploy_key_id"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "user_id"
+                ]
+              },
+              {
+                "required": [
+                  "group_id"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "GitLab保护规则名，仅*为通配符；合法字面字符如]保持字面语义。",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "create_access_levels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/grant"
+          },
+          "minItems": 1,
+          "maxItems": 1000
+        }
+      },
+      "required": [
+        "name",
+        "create_access_levels"
+      ]
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "grounds.repository-archive-binding/v1"
+        },
+        "repository_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "canonical_remote": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "instance": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 4096
+        },
+        "project_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "project_path": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 1024
+        },
+        "ref_namespaces": {
+          "const": [
+            "refs/tags/grounds/candidates/",
+            "refs/tags/grounds/deliveries/"
+          ]
+        },
+        "initial_policy_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "bound_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        }
+      },
+      "required": [
+        "format",
+        "repository_id",
+        "canonical_remote",
+        "instance",
+        "project_id",
+        "project_path",
+        "ref_namespaces",
+        "initial_policy_digest",
+        "bound_at",
+        "attribution"
+      ]
+    },
+    "namespace": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ref_namespace": {
+          "enum": [
+            "refs/tags/grounds/candidates/",
+            "refs/tags/grounds/deliveries/"
+          ]
+        },
+        "tag_pattern": {
+          "enum": [
+            "grounds/candidates/*",
+            "grounds/deliveries/*"
+          ]
+        },
+        "protection": {
+          "enum": [
+            "confirmed",
+            "missing"
+          ]
+        },
+        "current_user_can_create": {
+          "enum": [
+            true,
+            false,
+            "unknown"
+          ]
+        },
+        "developer_can_create": {
+          "enum": [
+            true,
+            false,
+            "unknown"
+          ]
+        },
+        "ordinary_developer_cannot_update": {
+          "type": "boolean"
+        },
+        "ordinary_developer_cannot_delete": {
+          "type": "boolean"
+        },
+        "maintainer_delete": {
+          "const": "explicit_gitlab_ui_or_api"
+        },
+        "matches": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "rule": {
+                "$ref": "#/$defs/rule"
+              },
+              "coverage": {
+                "enum": [
+                  "whole_namespace",
+                  "partial_namespace"
+                ]
+              }
+            },
+            "required": [
+              "rule",
+              "coverage"
+            ]
+          },
+          "maxItems": 1000
+        },
+        "default_difference": {
+          "enum": [
+            "recommended",
+            "stricter_or_custom",
+            "missing"
+          ]
+        }
+      },
+      "required": [
+        "ref_namespace",
+        "tag_pattern",
+        "protection",
+        "current_user_can_create",
+        "developer_can_create",
+        "ordinary_developer_cannot_update",
+        "ordinary_developer_cannot_delete",
+        "maintainer_delete",
+        "matches",
+        "default_difference"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "ref_namespace": {
+                "const": "refs/tags/grounds/candidates/"
+              }
+            },
+            "required": [
+              "ref_namespace"
+            ]
+          },
+          "then": {
+            "properties": {
+              "tag_pattern": {
+                "const": "grounds/candidates/*"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ref_namespace": {
+                "const": "refs/tags/grounds/deliveries/"
+              }
+            },
+            "required": [
+              "ref_namespace"
+            ]
+          },
+          "then": {
+            "properties": {
+              "tag_pattern": {
+                "const": "grounds/deliveries/*"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "GET"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "status": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 599
+        },
+        "response_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        }
+      },
+      "required": [
+        "method",
+        "path",
+        "status"
+      ]
+    },
+    "report": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "grounds.repository-archive-check/v1"
+        },
+        "repository_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "canonical_remote": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "instance": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 4096
+        },
+        "project_path": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 1024
+        },
+        "project_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "checked_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "valid_until": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "source": {
+          "const": "live_gitlab_api"
+        },
+        "state": {
+          "enum": [
+            "ready",
+            "unbound",
+            "needs_configuration",
+            "permission_denied",
+            "binding_changed",
+            "unknown"
+          ]
+        },
+        "configuration": {
+          "enum": [
+            "ready",
+            "needs_configuration",
+            "unknown"
+          ]
+        },
+        "binding_version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "gitlab_version": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "actor": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "username": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "access_level": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 50
+            }
+          },
+          "required": [
+            "id",
+            "username",
+            "access_level"
+          ]
+        },
+        "namespaces": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/namespace"
+          },
+          "maxItems": 2
+        },
+        "requests": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/request"
+          },
+          "maxItems": 1024
+        },
+        "policy_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "drift": {
+          "enum": [
+            "unchanged",
+            "changed",
+            "not_compared"
+          ]
+        },
+        "unknowns": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "maxItems": 100
+        },
+        "recovery": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "maxItems": 100
+        }
+      },
+      "required": [
+        "format",
+        "repository_id",
+        "canonical_remote",
+        "instance",
+        "project_path",
+        "checked_at",
+        "valid_until",
+        "source",
+        "state",
+        "configuration",
+        "binding_version",
+        "namespaces",
+        "requests",
+        "drift",
+        "unknowns",
+        "recovery"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "ready"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "required": [
+              "binding",
+              "project_id",
+              "actor",
+              "policy_digest",
+              "gitlab_version"
+            ],
+            "properties": {
+              "binding_version": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "configuration": {
+                "const": "ready"
+              },
+              "namespaces": {
+                "minItems": 2,
+                "items": {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/namespace"
+                    },
+                    {
+                      "properties": {
+                        "protection": {
+                          "const": "confirmed"
+                        },
+                        "current_user_can_create": {
+                          "const": true
+                        },
+                        "ordinary_developer_cannot_update": {
+                          "const": true
+                        },
+                        "ordinary_developer_cannot_delete": {
+                          "const": true
+                        }
+                      }
+                    }
+                  ]
+                },
+                "allOf": [
+                  {
+                    "contains": {
+                      "type": "object",
+                      "properties": {
+                        "ref_namespace": {
+                          "const": "refs/tags/grounds/candidates/"
+                        }
+                      },
+                      "required": [
+                        "ref_namespace"
+                      ]
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                  },
+                  {
+                    "contains": {
+                      "type": "object",
+                      "properties": {
+                        "ref_namespace": {
+                          "const": "refs/tags/grounds/deliveries/"
+                        }
+                      },
+                      "required": [
+                        "ref_namespace"
+                      ]
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                  }
+                ]
+              },
+              "unknowns": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "template": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "grounds.gitlab-archive-template/v1"
+        },
+        "tag_patterns": {
+          "const": [
+            "grounds/candidates/*",
+            "grounds/deliveries/*"
+          ]
+        },
+        "create_access_level": {
+          "const": 30
+        },
+        "existing_tag_update": {
+          "const": "forbidden"
+        },
+        "developer_delete": {
+          "const": "forbidden"
+        },
+        "maintainer_delete": {
+          "const": "explicit_gitlab_ui_or_api"
+        }
+      },
+      "required": [
+        "format",
+        "tag_patterns",
+        "create_access_level",
+        "existing_tag_update",
+        "developer_delete",
+        "maintainer_delete"
+      ]
+    },
+    "guide": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "instance": {
+          "type": "string",
+          "format": "uri"
+        },
+        "project_id": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "project_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "settings_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "template": {
+          "$ref": "#/$defs/template"
+        },
+        "namespaces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "ref_namespace": {
+                "enum": [
+                  "refs/tags/grounds/candidates/",
+                  "refs/tags/grounds/deliveries/"
+                ]
+              },
+              "existing_rules": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "rule": {
+                      "$ref": "#/$defs/rule"
+                    },
+                    "coverage": {
+                      "enum": [
+                        "whole_namespace",
+                        "partial_namespace"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "rule",
+                    "coverage"
+                  ]
+                }
+              },
+              "action": {
+                "enum": [
+                  "preserve_existing_rules",
+                  "administrator_review_required"
+                ]
+              },
+              "suggestion": {
+                "type": "string",
+                "maxLength": 4096
+              },
+              "recommended_request_preview": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "method": {
+                    "const": "POST"
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "body": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "enum": [
+                          "grounds/candidates/*",
+                          "grounds/deliveries/*"
+                        ]
+                      },
+                      "create_access_level": {
+                        "const": 30
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "create_access_level"
+                    ]
+                  },
+                  "executed": {
+                    "const": false
+                  }
+                },
+                "required": [
+                  "method",
+                  "path",
+                  "body",
+                  "executed"
+                ]
+              }
+            },
+            "required": [
+              "ref_namespace",
+              "existing_rules",
+              "action",
+              "suggestion",
+              "recommended_request_preview"
+            ]
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "confirmation": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "instance",
+        "project_id",
+        "project_path",
+        "settings_url",
+        "template",
+        "namespaces",
+        "confirmation"
+      ]
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "canonical_remote": {
+          "type": "string",
+          "minLength": 1
+        },
+        "binding_version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {
+          "enum": [
+            "not_checked",
+            "binding_changed",
+            "unbound"
+          ]
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "authorization": {
+          "const": "unknown"
+        },
+        "recovery": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        }
+      },
+      "required": [
+        "repository_id",
+        "canonical_remote",
+        "binding_version",
+        "state",
+        "authorization",
+        "recovery"
+      ]
+    },
+    "showResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.repository-archive-access/v1"
+        },
+        "command": {
+          "const": "repository.archive-show"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        }
+      },
+      "required": [
+        "result_type",
+        "command",
+        "status"
+      ]
+    },
+    "bindResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.repository-archive-access/v1"
+        },
+        "command": {
+          "const": "repository.archive-bind"
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "binding_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "report": {
+          "$ref": "#/$defs/report"
+        }
+      },
+      "required": [
+        "result_type",
+        "command",
+        "binding",
+        "binding_version",
+        "report"
+      ]
+    },
+    "batchResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.repository-archive-access/v1"
+        },
+        "command": {
+          "enum": [
+            "repository.archive-check",
+            "repository.archive-guide",
+            "repository.archive-template"
+          ]
+        },
+        "projects": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "repository_id": {
+                    "$ref": "common.schema.json#/$defs/id"
+                  },
+                  "report": {
+                    "$ref": "#/$defs/report"
+                  },
+                  "guide": {
+                    "$ref": "#/$defs/guide"
+                  }
+                },
+                "required": [
+                  "repository_id",
+                  "report"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "repository_id": {
+                    "$ref": "common.schema.json#/$defs/id"
+                  },
+                  "error": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "reason"
+                    ]
+                  }
+                },
+                "required": [
+                  "repository_id",
+                  "error"
+                ]
+              }
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 50
+        },
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "selected": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "ready": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "requires_attention": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "selected",
+            "ready",
+            "requires_attention"
+          ]
+        },
+        "meaning": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "result_type",
+        "command",
+        "projects",
+        "summary",
+        "meaning"
+      ]
+    }
+  }
+}

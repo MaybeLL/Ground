@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/blind-subject.schema.json",
+  "title": "Grounds 不可变盲验对象投影 v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "candidate_id", "repository_id", "baseline_oid", "result_tree_oid", "patch_digest", "artifact_format", "requirement", "issue", "file_manifest"],
+  "properties": {
+    "format": { "const": "patchledger.blind-subject/v1" },
+    "candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+    "repository_id": { "$ref": "common.schema.json#/$defs/id" },
+    "baseline_oid": { "$ref": "common.schema.json#/$defs/gitOid" },
+    "result_tree_oid": { "$ref": "common.schema.json#/$defs/gitOid" },
+    "patch_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+    "artifact_format": { "const": "patchledger.git-full-index-binary-patch/v1" },
+    "requirement": { "$ref": "devrun-context.schema.json#/$defs/requirementVersion" },
+    "issue": { "$ref": "devrun-context.schema.json#/$defs/blindIssueVersion" },
+    "file_manifest": {
+      "type": "array",
+      "maxItems": 100000,
+      "items": { "$ref": "#/$defs/hashManifestEntry" }
+    }
+  },
+  "$defs": {
+    "hashManifestEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path_bytes", "change"],
+      "properties": {
+        "path_bytes": {
+          "type": "string",
+          "minLength": 4,
+          "contentEncoding": "base64"
+        },
+        "change": {
+          "enum": ["added", "modified", "deleted", "renamed", "copied", "type_changed"]
+        },
+        "old_path_bytes": {
+          "type": "string",
+          "minLength": 4,
+          "contentEncoding": "base64"
+        },
+        "old_mode": {
+          "type": "string",
+          "pattern": "^[0-7]{6}$"
+        },
+        "new_mode": {
+          "type": "string",
+          "pattern": "^[0-7]{6}$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "change": { "const": "deleted" } },
+            "required": ["change"]
+          },
+          "then": { "required": ["old_mode"] },
+          "else": { "required": ["new_mode"] }
+        },
+        {
+          "if": {
+            "properties": { "change": { "enum": ["renamed", "copied"] } },
+            "required": ["change"]
+          },
+          "then": { "required": ["old_path_bytes"] }
+        }
+      ]
+    }
+  }
+}

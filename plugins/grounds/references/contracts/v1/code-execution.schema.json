@@ -1,0 +1,385 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/code-execution.schema.json",
+  "title": "Grounds route execution CLI v1",
+  "description": "Host execution records and foreground controller outcomes. Saved state does not prove liveness; container exit is distinct from task acceptance.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "execution"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.code-execution/v1"
+        },
+        "command": {
+          "enum": [
+            "code-workspace.execution-start",
+            "code-workspace.execution-show",
+            "code-workspace.execution-stop"
+          ]
+        },
+        "execution": {
+          "$ref": "#/$defs/execution"
+        },
+        "observation": {
+          "$ref": "#/$defs/observation"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "observation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "command": {
+                "const": "code-workspace.execution-show"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "execution",
+        "outcome"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.code-execution/v1"
+        },
+        "command": {
+          "const": "code-workspace.execution-serve"
+        },
+        "execution": {
+          "$ref": "#/$defs/execution"
+        },
+        "outcome": {
+          "$ref": "#/$defs/outcome"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "startInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "argv"
+      ],
+      "properties": {
+        "image": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "argv": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "maxLength": 8192,
+            "pattern": "^[^\\u0000]*$"
+          }
+        },
+        "mode": {
+          "enum": [
+            "read-only-diagnostic",
+            "development"
+          ]
+        },
+        "environment_revision_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "environment_default": {
+          "const": true
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "image"
+          ]
+        },
+        {
+          "required": [
+            "environment_revision_id"
+          ]
+        },
+        {
+          "required": [
+            "environment_default"
+          ]
+        }
+      ]
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "execution_id",
+        "route_id",
+        "database_id",
+        "dev_run_id",
+        "host_id",
+        "generation",
+        "request_digest",
+        "engine_id",
+        "image",
+        "argv",
+        "code_path",
+        "mode",
+        "state",
+        "attribution"
+      ],
+      "properties": {
+        "format": {
+          "const": "grounds.code-route-execution/v1"
+        },
+        "execution_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "route_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "database_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "dev_run_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "host_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "request_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "engine_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "image": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "argv": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "maxLength": 8192,
+            "pattern": "^[^\\u0000]*$"
+          }
+        },
+        "code_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "baselines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "alias",
+              "path",
+              "repository_id",
+              "commit"
+            ],
+            "properties": {
+              "alias": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "repository_id": {
+                "$ref": "common.schema.json#/$defs/id"
+              },
+              "commit": {
+                "$ref": "common.schema.json#/$defs/gitOid"
+              }
+            }
+          }
+        },
+        "container_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pause_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "git_view_dirty": {
+          "type": "boolean"
+        },
+        "exit_code": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mode": {
+          "enum": [
+            "read-only-diagnostic",
+            "development"
+          ]
+        },
+        "state": {
+          "enum": [
+            "intent",
+            "preparing-runtime",
+            "creating",
+            "created",
+            "starting",
+            "running",
+            "pausing",
+            "paused",
+            "resuming",
+            "stopping",
+            "stopped"
+          ]
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "environment": {
+          "$ref": "repository-environment.schema.json#/$defs/version"
+        },
+        "dependency": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "network_id",
+            "container_id",
+            "volume_name",
+            "host",
+            "port",
+            "database",
+            "user"
+          ],
+          "properties": {
+            "kind": {
+              "const": "postgres"
+            },
+            "network_id": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "container_id": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "volume_name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "host": {
+              "const": "postgres"
+            },
+            "port": {
+              "const": 5432
+            },
+            "database": {
+              "const": "task"
+            },
+            "user": {
+              "const": "postgres"
+            }
+          }
+        },
+        "environment_default": {
+          "$ref": "environment-control.schema.json#/$defs/default"
+        }
+      }
+    },
+    "observation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state"
+          ],
+          "properties": {
+            "state": {
+              "enum": [
+                "running",
+                "paused"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "exit_code"
+          ],
+          "properties": {
+            "state": {
+              "const": "exited"
+            },
+            "exit_code": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      ]
+    },
+    "outcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reason"
+          ],
+          "properties": {
+            "reason": {
+              "const": "cancelled"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reason",
+            "exit_code"
+          ],
+          "properties": {
+            "reason": {
+              "const": "exited"
+            },
+            "exit_code": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      ]
+    }
+  }
+}

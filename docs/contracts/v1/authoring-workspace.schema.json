@@ -1,0 +1,744 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/authoring-workspace.schema.json",
+  "title": "Grounds JSON authoring Workspace v2",
+  "description": "Local editable draft and CLI-managed publication metadata. Draft prose can be incomplete; publication applies Requirement/Issue domain validation. UTF-8 file limit is 32 MiB, with the next base state and publication metadata budget checked before saving. version in CLI results is SHA-256 of exact manifest bytes, distinct from revision and published Version.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "grounds.authoring-workspace/v2"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "database_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repository_remote": {
+      "type": "string",
+      "description": "Empty only for an unpublished local draft; bind a Repository before publishing."
+    },
+    "requirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "revision_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "base": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "const": 1
+            },
+            "summary": {
+              "type": "string"
+            },
+            "context": {
+              "type": "string"
+            },
+            "outcomes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "decisions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "statement": {
+                    "type": "string"
+                  },
+                  "rationale": {
+                    "type": "string"
+                  },
+                  "context": {
+                    "type": "string"
+                  },
+                  "chosen_option": {
+                    "type": "string"
+                  },
+                  "options": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string"
+                        },
+                        "benefits": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "costs": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "description"
+                      ]
+                    }
+                  },
+                  "trade_offs": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "gain": {
+                          "type": "string"
+                        },
+                        "sacrifice": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "gain",
+                        "sacrifice",
+                        "reason"
+                      ]
+                    }
+                  },
+                  "consequences": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "kind": {
+                          "enum": [
+                            "benefit",
+                            "obligation",
+                            "risk",
+                            "limitation"
+                          ]
+                        },
+                        "statement": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "statement"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "statement"
+                ]
+              }
+            },
+            "open_questions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "question": {
+                    "type": "string"
+                  },
+                  "blocking": {
+                    "type": "boolean"
+                  },
+                  "assumption": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "question",
+                  "blocking"
+                ]
+              }
+            }
+          },
+          "required": [
+            "format",
+            "summary",
+            "outcomes"
+          ]
+        },
+        "require_current": {
+          "type": "boolean"
+        }
+      },
+      "required": []
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          },
+          "id": {
+            "$ref": "common.schema.json#/$defs/id"
+          },
+          "revision_id": {
+            "$ref": "common.schema.json#/$defs/id"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "requirement_revision_id": {
+            "$ref": "common.schema.json#/$defs/id"
+          },
+          "desired_requirement_revision_id": {
+            "$ref": "common.schema.json#/$defs/id"
+          },
+          "base": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "format": {
+                "const": 1
+              },
+              "summary": {
+                "type": "string"
+              },
+              "context": {
+                "type": "string"
+              },
+              "plan": {
+                "type": "string",
+                "description": "非规范：整体方案说明，供开发与阅读参考，不产生验收义务。"
+              },
+              "target_branch": {
+                "type": "object", "additionalProperties": false,
+                "required": ["remote", "ref"],
+                "properties": { "remote": { "type": "string" }, "ref": { "type": "string" } }
+              },
+              "goals": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "statement": {
+                      "type": "string"
+                    },
+                    "criteria": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "guidance": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "traces_to": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "type": {
+                            "enum": [
+                              "outcome",
+                              "decision"
+                            ]
+                          },
+                          "ordinal": {
+                            "type": "integer",
+                            "minimum": 1
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "ordinal"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "statement",
+                    "criteria"
+                  ]
+                }
+              },
+              "constraints": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "statement": {
+                      "type": "string"
+                    },
+                    "criteria": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "guidance": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "traces_to": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "type": {
+                            "enum": [
+                              "outcome",
+                              "decision"
+                            ]
+                          },
+                          "ordinal": {
+                            "type": "integer",
+                            "minimum": 1
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "ordinal"
+                        ]
+                      }
+                    },
+                    "rationale": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "statement",
+                    "criteria"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "format",
+              "summary",
+              "goals"
+            ]
+          },
+          "baseline": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "key",
+          "file"
+        ]
+      }
+    },
+    "draft": {
+      "$ref": "#/$defs/draft"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "receipt": {},
+    "external_issues": {
+      "type": "string"
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {}
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backup": {
+          "type": "string",
+          "pattern": "^legacy/[a-f0-9]{24}$"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "backup",
+        "files"
+      ]
+    }
+  },
+  "required": [
+    "format",
+    "name",
+    "database_id",
+    "repository_remote",
+    "requirement",
+    "issues",
+    "draft",
+    "revision"
+  ],
+  "$defs": {
+    "draft": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requirement": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "format": {
+              "const": 1
+            },
+            "summary": {
+              "type": "string"
+            },
+            "context": {
+              "type": "string"
+            },
+            "outcomes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "decisions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "statement": {
+                    "type": "string"
+                  },
+                  "rationale": {
+                    "type": "string"
+                  },
+                  "context": {
+                    "type": "string"
+                  },
+                  "chosen_option": {
+                    "type": "string"
+                  },
+                  "options": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string"
+                        },
+                        "benefits": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "costs": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "description"
+                      ]
+                    }
+                  },
+                  "trade_offs": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "gain": {
+                          "type": "string"
+                        },
+                        "sacrifice": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "gain",
+                        "sacrifice",
+                        "reason"
+                      ]
+                    }
+                  },
+                  "consequences": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "kind": {
+                          "enum": [
+                            "benefit",
+                            "obligation",
+                            "risk",
+                            "limitation"
+                          ]
+                        },
+                        "statement": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "statement"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "statement"
+                ]
+              }
+            },
+            "open_questions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "question": {
+                    "type": "string"
+                  },
+                  "blocking": {
+                    "type": "boolean"
+                  },
+                  "assumption": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "question",
+                  "blocking"
+                ]
+              }
+            }
+          },
+          "required": [
+            "format",
+            "summary",
+            "outcomes"
+          ]
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "input": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "format": {
+                    "const": 1
+                  },
+                  "summary": {
+                    "type": "string"
+                  },
+                  "context": {
+                    "type": "string"
+                  },
+                  "plan": {
+                    "type": "string",
+                    "description": "非规范：整体方案说明，供开发与阅读参考，不产生验收义务。"
+                  },
+                  "target_branch": {
+                    "type": "object", "additionalProperties": false,
+                    "required": ["remote", "ref"],
+                    "properties": { "remote": { "type": "string" }, "ref": { "type": "string" } }
+                  },
+                  "goals": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "statement": {
+                          "type": "string"
+                        },
+                        "criteria": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "guidance": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "traces_to": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "type": {
+                                "enum": [
+                                  "outcome",
+                                  "decision"
+                                ]
+                              },
+                              "ordinal": {
+                                "type": "integer",
+                                "minimum": 1
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "ordinal"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "statement",
+                        "criteria"
+                      ]
+                    }
+                  },
+                  "constraints": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "statement": {
+                          "type": "string"
+                        },
+                        "criteria": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "guidance": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "traces_to": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "type": {
+                                "enum": [
+                                  "outcome",
+                                  "decision"
+                                ]
+                              },
+                              "ordinal": {
+                                "type": "integer",
+                                "minimum": 1
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "ordinal"
+                            ]
+                          }
+                        },
+                        "rationale": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "statement",
+                        "criteria"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "format",
+                  "summary",
+                  "goals"
+                ]
+              },
+              "baselineExpression": {
+                "type": "string"
+              },
+              "questions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "assumptions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "key",
+              "input",
+              "baselineExpression",
+              "questions",
+              "assumptions"
+            ]
+          }
+        }
+      },
+      "required": [
+        "requirement",
+        "issues"
+      ]
+    }
+  }
+}

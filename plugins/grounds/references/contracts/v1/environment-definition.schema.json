@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/environment-definition.schema.json",
+  "title": "Grounds 仓库环境定义 v1",
+  "description": "可版本化的非敏感仓库声明；YAML解析后验证。名称须匹配文件名，服务/凭据名须唯一；运行能力、路径真实性及授权另行检查。缺省字段由实现规范化。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "name",
+    "backend"
+  ],
+  "properties": {
+    "format": {
+      "const": "grounds.environment-definition/v1"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,62}$"
+    },
+    "backend": {
+      "enum": [
+        "host",
+        "docker"
+      ]
+    },
+    "purpose": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "repositories": {
+      "type": "array",
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$"
+          },
+          "path": {
+            "const": "."
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "requirements": {
+      "$ref": "environment.schema.json#/$defs/requirements"
+    },
+    "base": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "dockerfile"
+          ],
+          "properties": {
+            "dockerfile": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^(?:\\.|(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//).+)$"
+            },
+            "context": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^(?:\\.|(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//).+)$"
+            }
+          }
+        },
+        "setup": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[^\\u0000]+$"
+            }
+          }
+        }
+      }
+    },
+    "services": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "kind"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$"
+          },
+          "kind": {
+            "enum": [
+              "mysql",
+              "postgres"
+            ]
+          },
+          "shared": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$"
+          },
+          "image": {
+            "type": "string",
+            "maxLength": 256,
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$"
+          }
+        }
+      }
+    },
+    "credentials": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "^(?:\\.|(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//).+)$"
+          }
+        }
+      }
+    },
+    "tools": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9._+-]+$"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "pattern": "^(?:\\.|(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//).+)$"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "backend": {
+            "const": "docker"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "base"
+        ],
+        "properties": {
+          "base": {
+            "required": [
+              "image"
+            ]
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "base": {
+            "not": {
+              "required": [
+                "image"
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+}

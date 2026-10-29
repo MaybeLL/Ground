@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/quickstart.schema.json",
+  "title": "Grounds Quickstart YAML v1 契约",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "requirement", "issue"],
+  "properties": {
+    "format": { "const": "patchledger.quickstart/v1" },
+    "requirement": { "$ref": "requirement.schema.json" },
+    "issue": { "$ref": "issue.schema.json" }
+  }
+}

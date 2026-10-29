@@ -1,0 +1,26 @@
+{
+  "name": "grounds",
+  "version": "0.2.49",
+  "description": "Grounds development, evaluation and repository knowledge improvement through focused skills.",
+  "author": {
+    "name": "Grounds"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "有据 Grounds",
+    "shortDescription": "Keep every human and Agent output and choice grounded in traceable evidence.",
+    "longDescription": "Model intent, create immutable Candidates, preserve rationale and evidence, verify independently, record human Selection, and turn real work into reusable evaluations.",
+    "developerName": "Grounds",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Question and refine this request before creating Grounds contracts.",
+      "Turn this request into a Grounds Requirement and Issues.",
+      "Develop and submit an independent Candidate for this Issue.",
+      "Blind-verify and compare Candidates for this Issue."
+    ]
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/quality-review-report.schema.json",
+  "title": "Grounds QualityReviewReport v1 代码质量评审报告",
+  "description": "ultra Verification 的质量部分。必须恰好覆盖 rubric_version 对应的全部维度；某阶段存在 blocking 发现时该阶段结论必须为 rejected，没有 blocking 发现时不得为 rejected。第一版维度集合 grounds.quality-rubric/v1：conciseness、testability、abstraction、readability、conventions、test_quality。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "candidate_id", "result_tree_oid", "blind_context_digest", "rubric_version", "dimensions"],
+  "properties": {
+    "format": { "const": "patchledger.quality-review-report/v1" },
+    "candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+    "result_tree_oid": { "$ref": "common.schema.json#/$defs/gitOid" },
+    "blind_context_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+    "rubric_version": { "const": "grounds.quality-rubric/v1" },
+    "dimensions": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": { "$ref": "#/$defs/dimensionAssessment" }
+    }
+  },
+  "$defs": {
+    "dimensionId": {
+      "enum": ["conciseness", "testability", "abstraction", "readability", "conventions", "test_quality"]
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "explanation"],
+      "properties": {
+        "severity": { "enum": ["blocking", "non_blocking"] },
+        "explanation": { "type": "string", "minLength": 1, "maxLength": 8192 },
+        "location": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path"],
+          "properties": {
+            "path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+            "line": { "type": "integer", "minimum": 1, "maximum": 2147483647 }
+          }
+        }
+      },
+      "if": { "properties": { "severity": { "const": "blocking" } } },
+      "then": { "required": ["location"] }
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 20,
+      "items": { "$ref": "#/$defs/finding" }
+    },
+    "dimensionAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dimension_id", "independent", "reconciliation", "final"],
+      "properties": {
+        "dimension_id": { "$ref": "#/$defs/dimensionId" },
+        "independent": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["verdict", "explanation", "findings", "evidence"],
+          "properties": {
+            "verdict": { "$ref": "common.schema.json#/$defs/verdict" },
+            "explanation": { "$ref": "common.schema.json#/$defs/longText" },
+            "findings": { "$ref": "#/$defs/findings" },
+            "evidence": { "type": "array", "maxItems": 8, "items": { "$ref": "common.schema.json#/$defs/evidenceInput" } }
+          },
+          "if": { "properties": { "findings": { "contains": { "properties": { "severity": { "const": "blocking" } }, "required": ["severity"] } } } },
+          "then": { "properties": { "verdict": { "const": "rejected" } } },
+          "else": { "properties": { "verdict": { "enum": ["qualified", "inconclusive"] } } }
+        },
+        "reconciliation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["explanation"],
+          "properties": { "explanation": { "$ref": "common.schema.json#/$defs/longText" } }
+        },
+        "final": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["verdict", "explanation", "findings"],
+          "properties": {
+            "verdict": { "$ref": "common.schema.json#/$defs/verdict" },
+            "explanation": { "$ref": "common.schema.json#/$defs/longText" },
+            "findings": { "$ref": "#/$defs/findings" }
+          },
+          "if": { "properties": { "findings": { "contains": { "properties": { "severity": { "const": "blocking" } }, "required": ["severity"] } } } },
+          "then": { "properties": { "verdict": { "const": "rejected" } } },
+          "else": { "properties": { "verdict": { "enum": ["qualified", "inconclusive"] } } }
+        }
+      }
+    }
+  }
+}

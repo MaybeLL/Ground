@@ -1,0 +1,66 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { runCLI } from '../src/cli.js';
+import { sha256Bytes } from '../src/canonical-json.js';
+import { assertContract } from './schema-fixture.js';
+
+test('QA CLI works outside Git, exports verified evidence and submits independent grades', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'grounds-qa-cli-')); const config = join(root, 'config.yaml');
+  const invoke = async (args: string[], write = false, expected = 0): Promise<any> => {
+    const output: string[] = [];
+    const code = await runCLI([...args, '--config', config, '--json', ...(write ? ['--agent-id', 'qa-coordinator', '--agent-name', 'QA coordinator'] : [])], { cwd: root, stdout: s => output.push(s), stderr: () => {} });
+    const envelope = JSON.parse(output.join('\n')); assert.equal(code, expected, JSON.stringify(envelope)); assertContract('cli-envelope.schema.json', envelope);
+    if (!code) assertContract('command-results.schema.json', envelope.data);
+    return envelope.data?.payload ?? envelope.data;
+  };
+  const file = (name: string, value: unknown) => { const path = join(root, name); writeFileSync(path, JSON.stringify(value)); return path; };
+  try {
+    await invoke(['init', '--driver', 'sqlite', '--path', join(root, 'ledger.db'), '--non-interactive']);
+    const qa = await invoke(['eval', 'qa', 'publish', '--file', file('qa.json', { format: 'grounds.eval-qa/v1', name: 'q1', question: 'Explain recovery', instructions: 'Cite sources.', rubric: 'PRIVATE rubric', required_points: ['Recovery'], forbidden_claims: [], references: [], source: { identity: 'cli:q1', repository: 'fixture', revision: 'fixed', path: 'samples.csv', digest: sha256Bytes(Buffer.from('fixture')), record: { id: 'q1' } } })], true);
+    const ref = { id: qa.id, version: 1 };
+    const grader = await invoke(['eval', 'grader', 'publish', '--file', file('grader.json', { format: 'grounds.eval-grader/v1', qa: ref, name: 'Correctness', scope: { kind: 'diagnostic', name: 'Correctness' }, result_spec: { kind: 'qa_decision' }, definition: { type: 'agent', instructions: 'Use frozen materials.' }, limitations: 'Fixture only' })], true);
+    let suite = await invoke(['eval', 'suite', 'create', '--name', 'QA'], true);
+    suite = await invoke(['eval', 'suite', 'task', 'add', suite.id, '--expected-version', '1', '--file', file('task.json', { kind: 'qa', name: 'q1', qa: ref, graders: [{ id: grader.id, version: 1 }] })], true);
+    suite = await invoke(['eval', 'suite', 'tasks', 'publish', suite.id, '--expected-version', '2', '--file', file('members.json', { format: 'grounds.eval-suite-members/v1', tasks: [...suite.data.tasks, { kind: 'qa', name: 'q2', qa: ref, graders: [{ id: grader.id, version: 1 }] }] })], true);
+    assert.equal(suite.version, 3); assert.equal(suite.data.tasks.length, 2);
+    assert.equal((await invoke(['eval', 'suite', 'show', suite.id])).version, 3);
+    const experiment = await invoke(['eval', 'experiment', 'create', '--suite', suite.id, '--file', file('subject.json', { name: 'Fixture', description: 'No live model' })], true);
+    const run = await invoke(['eval', 'run', 'start', '--experiment', experiment.id, '--task', suite.data.tasks[0].id], true);
+    assert.equal((await invoke(['eval', 'run', 'show', run.id])).progress.phase, 'answering');
+    await invoke(['eval', 'run', 'context', run.id, '--out', join(root, 'public.json')]); assert.ok(!readFileSync(join(root, 'public.json'), 'utf8').includes('PRIVATE'));
+    const evidence = join(root, 'evidence'); mkdirSync(evidence); const bytes = Buffer.from('x'.repeat(65535) + '分页证据'); writeFileSync(join(evidence, 'tools.jsonl'), bytes); writeFileSync(join(evidence, 'stderr.txt'), '');
+    const manifest = file('artifact.json', { format: 'grounds.eval-artifact/v1', run_id: run.id, qa: ref, answer: 'Recovery', citations: [], execution: { session_id: 'session', started_at: '2026-09-21T01:00:00Z', finished_at: '2026-09-21T01:00:01Z', exit_code: 0, status: 'completed', declared: {}, observed: {} }, capture: { coverage: 'partial', limitations: ['Fixture'] }, files: [{ name: 'tools.jsonl', size: bytes.length, digest: sha256Bytes(bytes) }, { name: 'stderr.txt', size: 0, digest: sha256Bytes(Buffer.alloc(0)) }] });
+    const artifact = await invoke(['eval', 'artifact', 'submit', '--file', manifest, '--files', evidence], true);
+    const ledgerBefore = await invoke(['ledger', 'list']);
+    const first = await invoke(['eval', 'artifact', 'file', artifact.id, '--name', 'tools.jsonl']);
+    const second = await invoke(['eval', 'artifact', 'file', artifact.id, '--name', 'tools.jsonl', '--offset', String(first.next_offset)]);
+    assert.equal(first.content.length, 87384); assert.equal(second.next_offset, null);
+    assert.equal(first.digest, sha256Bytes(bytes)); assert.equal(first.size, bytes.length);
+    assert.deepEqual(Buffer.concat([Buffer.from(first.content, 'base64'), Buffer.from(second.content, 'base64')]), bytes);
+    assert.equal((await invoke(['eval', 'artifact', 'file', artifact.id, '--name', 'stderr.txt'])).content, '');
+    await invoke(['eval', 'artifact', 'file', artifact.id, '--name', '../tools.jsonl'], false, 2);
+    await invoke(['eval', 'artifact', 'file', artifact.id, '--name', 'tools.jsonl', '--offset', String(bytes.length + 1)], false, 2);
+    assert.deepEqual(await invoke(['eval', 'grader', 'notices', grader.id, '--version', '1']), []);
+    assert.deepEqual(await invoke(['ledger', 'list']), ledgerBefore);
+    const exported = join(root, 'export'); await invoke(['eval', 'artifact', 'export', artifact.id, '--out', exported]); assert.deepEqual(readFileSync(join(exported, 'files/tools.jsonl')), bytes);
+    const packet = await invoke(['eval', 'grader', 'context', '--eval-run', run.id, '--grader', grader.id, '--out', join(root, 'grade')], true);
+    assert.equal(packet.qa.rubric, 'PRIVATE rubric'); assert.deepEqual(readFileSync(join(root, 'grade/files/tools.jsonl')), bytes);
+    const frozen = JSON.parse(readFileSync(manifest, 'utf8'));
+    const gradeManifest = file('grading-evidence.json', { format: 'grounds.eval-grading-evidence/v1', execution_id: packet.execution_id, context_digest: packet.context_digest, execution: { ...frozen.execution, session_id: 'grade-session' }, capture: frozen.capture, files: frozen.files });
+    await invoke(['eval', 'grader', 'evidence-submit', '--file', gradeManifest, '--files', evidence], true);
+    const gradingPage = await invoke(['eval', 'grader', 'evidence-file', packet.execution_id, '--name', 'tools.jsonl']);
+    assert.equal(gradingPage.kind, 'execution'); assert.equal(gradingPage.digest, first.digest);
+    const gradeExport = join(root, 'grade-export');
+    await invoke(['eval', 'grader', 'evidence-export', packet.execution_id, '--out', gradeExport]);
+    assert.deepEqual(readFileSync(join(gradeExport, 'files/tools.jsonl')), bytes);
+    assert.equal(JSON.parse(readFileSync(join(gradeExport, 'grading-evidence.json'), 'utf8')).execution.session_id, 'grade-session');
+    await invoke(['eval', 'grader', 'submit', '--file', file('grade.json', { format: 'grounds.eval-grader-submission/v1', execution_id: packet.execution_id, context_digest: packet.context_digest, status: 'completed', outcome: { kind: 'qa_decision', verdict: 'partial' }, explanation: 'Sources missing', evidence: [{ kind: 'observation', content: 'No citations' }] })], true);
+    await invoke(['eval', 'run', 'finish', run.id], true);
+    await invoke(['eval', 'experiment', 'report', experiment.id, '--out', join(root, 'report')]); assert.match(readFileSync(join(root, 'report/report.md'), 'utf8'), /Verdict: partial/);
+    const regrade = await invoke(['eval', 'run', 'start', '--experiment', experiment.id, '--task', suite.data.tasks[0].id, '--rerun-of', run.id, '--artifact', artifact.id], true); assert.equal(regrade.data.mode, 'qa_regrade');
+    await invoke(['eval', 'run', 'stop', regrade.id, '--reason', 'No new grading requested in fixture'], true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

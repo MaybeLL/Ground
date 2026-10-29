@@ -1,0 +1,489 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://grounds.dev/contracts/v1/qa-source-package.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "grounds.qa-source-package/v1"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "format": {
+            "const": "grounds.qa-candidate/v1"
+          },
+          "identity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          },
+          "project": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 65536
+              },
+              "first_captured_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "id",
+              "first_captured_at",
+              "expires_at"
+            ]
+          },
+          "qa": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "format": {
+                "const": "grounds.eval-qa/v1"
+              },
+              "name": {
+                "type": "string",
+                "maxLength": 1024
+              },
+              "question": {
+                "type": "string",
+                "maxLength": 65536
+              },
+              "instructions": {
+                "type": "string",
+                "maxLength": 65536
+              },
+              "rubric": {
+                "type": "string",
+                "maxLength": 65536
+              },
+              "reference_answer": {
+                "type": "string",
+                "maxLength": 65536
+              },
+              "required_points": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 65536
+                },
+                "maxItems": 1000
+              },
+              "forbidden_claims": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 65536
+                },
+                "maxItems": 1000
+              },
+              "references": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 65536
+                },
+                "maxItems": 1000
+              },
+              "source": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "identity": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 65536
+                  },
+                  "repository": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 65536
+                  },
+                  "revision": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 65536
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 65536
+                  },
+                  "digest": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  },
+                  "record": {
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "identity",
+                  "repository",
+                  "revision",
+                  "path",
+                  "digest",
+                  "record"
+                ]
+              }
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 65536
+                },
+                "kind": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 65536
+                },
+                "locator": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 65536
+                },
+                "content": {
+                  "type": "string",
+                  "maxLength": 1048576
+                },
+                "digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "first_captured_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "expires_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "locator",
+                "content",
+                "digest",
+                "first_captured_at",
+                "expires_at"
+              ]
+            },
+            "maxItems": 1000,
+            "minItems": 1
+          },
+          "relations": {
+            "type": "object"
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "maxItems": 1000
+          },
+          "completeness": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "question": {
+                "enum": [
+                  "complete",
+                  "partial",
+                  "missing",
+                  "unknown",
+                  "not_applicable"
+                ]
+              },
+              "query": {
+                "enum": [
+                  "complete",
+                  "partial",
+                  "missing",
+                  "unknown",
+                  "not_applicable"
+                ]
+              },
+              "answer": {
+                "enum": [
+                  "complete",
+                  "partial",
+                  "missing",
+                  "unknown",
+                  "not_applicable"
+                ]
+              },
+              "feedback": {
+                "enum": [
+                  "complete",
+                  "partial",
+                  "missing",
+                  "unknown",
+                  "not_applicable"
+                ]
+              },
+              "attachments": {
+                "enum": [
+                  "complete",
+                  "partial",
+                  "missing",
+                  "unknown",
+                  "not_applicable"
+                ]
+              },
+              "subtasks": {
+                "enum": [
+                  "complete",
+                  "partial",
+                  "missing",
+                  "unknown",
+                  "not_applicable"
+                ]
+              }
+            },
+            "required": [
+              "question",
+              "query",
+              "answer",
+              "feedback",
+              "attachments",
+              "subtasks"
+            ]
+          },
+          "extraction": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "format",
+          "identity",
+          "revision",
+          "project",
+          "qa",
+          "evidence",
+          "relations",
+          "limitations",
+          "completeness",
+          "extraction"
+        ]
+      },
+      "maxItems": 100,
+      "minItems": 1
+    },
+    "manual": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "question": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "instructions": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "rubric": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "reference_answer": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "required_points": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          },
+          "maxItems": 1000
+        },
+        "forbidden_claims": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          },
+          "maxItems": 1000
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          },
+          "maxItems": 1000
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "pending",
+            "reviewed",
+            "ignored",
+            "not_applicable"
+          ]
+        },
+        "knowledge": {
+          "enum": [
+            "unknown",
+            "stable",
+            "historical"
+          ]
+        },
+        "independent_text": {
+          "type": "boolean"
+        },
+        "attachments_resolved": {
+          "type": "boolean"
+        },
+        "authority": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "answer_conditions": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "accessible": {
+              "type": "boolean"
+            },
+            "preserves_question": {
+              "type": "boolean"
+            },
+            "locator": {
+              "type": "string",
+              "maxLength": 65536
+            },
+            "instructions": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "accessible",
+            "preserves_question",
+            "locator",
+            "instructions"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "knowledge",
+        "independent_text",
+        "attachments_resolved",
+        "authority"
+      ]
+    },
+    "lineage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 65536
+            },
+            "maxItems": 100
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "action",
+          "sources",
+          "at"
+        ]
+      },
+      "maxItems": 1000
+    },
+    "retained_from": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      },
+      "maxItems": 100
+    },
+    "retained_operations": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          }
+        },
+        "required": [
+          "digest",
+          "operation_id"
+        ]
+      }
+    }
+  },
+  "required": [
+    "format",
+    "sources",
+    "manual",
+    "review",
+    "lineage"
+  ]
+}

@@ -1,0 +1,249 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/devrun-context.schema.json",
+  "title": "Grounds DevRunContext v1 开发上下文",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "generated_at", "dev_run", "repository", "baseline", "requirement", "issue"],
+  "properties": {
+    "format": { "const": "patchledger.devrun-context/v1" },
+    "generated_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+    "dev_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "state"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" },
+        "version": { "type": "integer", "minimum": 1 },
+        "state": { "enum": ["open", "submitted", "abandoned"] },
+        "exploration_brief": { "$ref": "common.schema.json#/$defs/longText" },
+        "execution_mode": { "$ref": "development-collaboration.schema.json#/$defs/executionMode" },
+        "development": {
+          "$ref": "development-collaboration.schema.json#/$defs/developmentIdentity"
+        },
+        "initial_base_commit": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "artifact_restoration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "method",
+            "parent_candidate_id",
+            "source_history"
+          ],
+          "properties": {
+            "method": {
+              "const": "base_patch"
+            },
+            "parent_candidate_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "source_history": {
+              "const": "not_reconstructed"
+            }
+          }
+        }
+      }
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "canonical_remote"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" },
+        "canonical_remote": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      }
+    },
+    "baseline": { "$ref": "common.schema.json#/$defs/baseline" },
+    "base_commit": { "$ref": "common.schema.json#/$defs/gitOid" },
+    "snapshot_relation": { "$ref": "#/$defs/snapshotRelation" },
+    "preflight": { "$ref": "preflight.schema.json#/$defs/devRunPreflight" },
+    "requirement": { "$ref": "#/$defs/requirementVersion" },
+    "issue": { "$ref": "#/$defs/publicIssueVersion" },
+    "refinement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parent_candidate_id", "parent_result_tree_oid", "parent_claims", "standing_at_start", "frozen_verifications", "criterion_standings", "included_verification_reports"],
+      "properties": {
+        "parent_candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+        "parent_result_tree_oid": { "$ref": "common.schema.json#/$defs/gitOid" },
+        "standing_at_start": { "$ref": "common.schema.json#/$defs/standing" },
+        "parent_claims": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": { "$ref": "common.schema.json#/$defs/claimRecord" }
+        },
+        "frozen_verifications": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["verification_id", "created_at", "attribution", "overall_verdict", "mode"],
+            "properties": {
+              "verification_id": { "$ref": "common.schema.json#/$defs/id" },
+              "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+              "attribution": { "$ref": "common.schema.json#/$defs/attribution" },
+              "overall_verdict": { "$ref": "common.schema.json#/$defs/verdict" },
+              "mode": { "$ref": "common.schema.json#/$defs/verificationMode" },
+              "quality_verdict": { "$ref": "common.schema.json#/$defs/verdict" },
+              "quality_attribution": { "$ref": "common.schema.json#/$defs/attribution" }
+            }
+          }
+        },
+        "criterion_standings": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["target_type", "target_id", "criteria"],
+            "properties": {
+              "target_type": { "enum": ["goal", "constraint"] },
+              "target_id": { "$ref": "common.schema.json#/$defs/id" },
+              "criteria": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 50,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["criterion_id", "standing"],
+                  "properties": {
+                    "criterion_id": { "$ref": "common.schema.json#/$defs/id" },
+                    "standing": { "$ref": "common.schema.json#/$defs/standing" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "included_verification_reports": {
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["verification_id", "report", "mode"],
+            "properties": {
+              "verification_id": { "$ref": "common.schema.json#/$defs/id" },
+              "report": { "$ref": "verification-report.schema.json" },
+              "mode": { "$ref": "common.schema.json#/$defs/verificationMode" },
+              "quality": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["overall_verdict", "attribution", "report"],
+                "properties": {
+                  "overall_verdict": { "$ref": "common.schema.json#/$defs/verdict" },
+                  "attribution": { "$ref": "common.schema.json#/$defs/attribution" },
+                  "report": { "$ref": "quality-review-report.schema.json" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "issueVersionCore": {
+      "type": "object",
+      "required": ["id", "version", "requirement", "summary", "goals", "constraints"],
+      "properties": {
+        "target_branch": { "$ref": "issue.schema.json#/$defs/targetBranch" },
+        "id": { "$ref": "common.schema.json#/$defs/id" },
+        "version": { "type": "integer", "minimum": 1 },
+        "requirement": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "version"],
+          "properties": {
+            "id": { "$ref": "common.schema.json#/$defs/id" },
+            "version": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "summary": { "$ref": "common.schema.json#/$defs/shortText" },
+        "context": { "$ref": "common.schema.json#/$defs/longText" },
+        "goals": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "common.schema.json#/$defs/goal" }
+        },
+        "constraints": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "common.schema.json#/$defs/constraint" }
+        }
+      }
+    },
+    "publicIssueVersion": {
+      "$ref": "#/$defs/issueVersionCore",
+      "properties": {
+        "plan": { "$ref": "common.schema.json#/$defs/longText", "description": "非规范：整体方案说明，供开发与阅读参考，不产生验收义务；有约束力的内容必须出现在 goals 或 constraints 的 criteria 中。" }
+      },
+      "unevaluatedProperties": false
+    },
+    "blindIssueVersion": {
+      "$ref": "#/$defs/issueVersionCore",
+      "unevaluatedProperties": false
+    },
+    "snapshotRelation": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["kind", "base_ahead", "snapshot_ahead"], "properties": { "kind": { "const": "ahead" }, "base_ahead": { "type": "integer", "minimum": 0 }, "snapshot_ahead": { "const": 0 } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "base_ahead", "snapshot_ahead"], "properties": { "kind": { "const": "diverged" }, "base_ahead": { "type": "integer", "minimum": 0 }, "snapshot_ahead": { "type": "integer", "minimum": 1 } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind"], "properties": { "kind": { "enum": ["unrelated", "unknown"] } } }
+      ]
+    },
+    "requirementVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "summary", "outcomes", "decisions"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" },
+        "version": { "type": "integer", "minimum": 1 },
+        "summary": { "$ref": "common.schema.json#/$defs/shortText" },
+        "context": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "outcomes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "decisions": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "common.schema.json#/$defs/decision" }
+        },
+        "open_questions": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["question", "blocking"],
+            "properties": {
+              "question": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "blocking": { "type": "boolean" },
+              "assumption": { "type": "string", "minLength": 1, "maxLength": 16384 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

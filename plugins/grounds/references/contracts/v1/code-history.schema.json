@@ -1,0 +1,545 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/code-history.schema.json",
+  "title": "代码历史与交付关联 v1",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/trace"
+    },
+    {
+      "$ref": "#/$defs/deliveryResult"
+    }
+  ],
+  "$defs": {
+    "trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "source",
+        "locations",
+        "segments",
+        "coverage",
+        "limitations",
+        "next_action"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "patchledger.result.code-history-trace/v1"
+        },
+        "command": {
+          "const": "trace"
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "database_id",
+            "repository_id",
+            "commit_oid",
+            "input_digest",
+            "scan_digest",
+            "files",
+            "index"
+          ],
+          "properties": {
+            "database_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "repository_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "commit_oid": {
+              "type": "string",
+              "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+            },
+            "input_digest": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            "scan_digest": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            "files": {
+              "type": "array",
+              "maxItems": 512,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "content_digest"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "maxLength": 4096
+                  },
+                  "content_digest": {
+                    "$ref": "common.schema.json#/$defs/sha256"
+                  }
+                }
+              }
+            },
+            "index": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "staged_paths",
+                "unmerged_paths"
+              ],
+              "properties": {
+                "staged_paths": {
+                  "type": "array",
+                  "maxItems": 512,
+                  "items": {
+                    "type": "string",
+                    "maxLength": 4096
+                  }
+                },
+                "unmerged_paths": {
+                  "type": "array",
+                  "maxItems": 512,
+                  "items": {
+                    "type": "string",
+                    "maxLength": 4096
+                  }
+                }
+              }
+            }
+          }
+        },
+        "locations": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "resolution",
+            "matches"
+          ],
+          "properties": {
+            "resolution": {
+              "enum": [
+                "explicit",
+                "unique_in_scan",
+                "incomplete",
+                "ambiguous",
+                "not_found"
+              ]
+            },
+            "matches": {
+              "type": "array",
+              "maxItems": 512,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "start_line",
+                  "end_line"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "maxLength": 4096
+                  },
+                  "start_line": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "end_line": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "segments": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "candidate_id",
+              "origin",
+              "content",
+              "connection",
+              "source",
+              "historical",
+              "issue_id",
+              "issue_version",
+              "requirement_id",
+              "requirement_version",
+              "review_argv",
+              "evidence"
+            ],
+            "properties": {
+              "candidate_id": {
+                "$ref": "common.schema.json#/$defs/id"
+              },
+              "origin": {
+                "enum": [
+                  "recorded_delivery",
+                  "review_snapshot",
+                  "unrecorded"
+                ]
+              },
+              "content": {
+                "enum": [
+                  "exact_artifact",
+                  "exact_scope",
+                  "heuristic",
+                  "mismatch",
+                  "unavailable"
+                ]
+              },
+              "connection": {
+                "enum": [
+                  "mapped",
+                  "snapshot_exact",
+                  "ambiguous",
+                  "unavailable"
+                ]
+              },
+              "source": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "start_line",
+                  "end_line"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "maxLength": 4096
+                  },
+                  "start_line": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "end_line": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              },
+              "historical": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "start_line",
+                  "end_line"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "maxLength": 4096
+                  },
+                  "start_line": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "end_line": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              },
+              "issue_id": {
+                "$ref": "common.schema.json#/$defs/id"
+              },
+              "issue_version": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "requirement_id": {
+                "$ref": "common.schema.json#/$defs/id"
+              },
+              "requirement_version": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "review_argv": {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "string",
+                  "maxLength": 4096
+                }
+              },
+              "evidence": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "patch_digest",
+                  "change_unit_ids"
+                ],
+                "properties": {
+                  "patch_digest": {
+                    "$ref": "common.schema.json#/$defs/sha256"
+                  },
+                  "change_unit_ids": {
+                    "type": "array",
+                    "maxItems": 10000,
+                    "items": {
+                      "$ref": "common.schema.json#/$defs/sha256"
+                    }
+                  },
+                  "commit_oid": {
+                    "type": "string",
+                    "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                  },
+                  "parent_oid": {
+                    "type": "string",
+                    "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                  },
+                  "delivery_link": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "id",
+                      "version",
+                      "state"
+                    ],
+                    "properties": {
+                      "id": {
+                        "$ref": "common.schema.json#/$defs/id"
+                      },
+                      "version": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "state": {
+                        "enum": [
+                          "recorded",
+                          "withdrawn"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "candidate_search_complete",
+            "local_only",
+            "unexplained"
+          ],
+          "properties": {
+            "candidate_search_complete": {
+              "type": "boolean"
+            },
+            "local_only": {
+              "type": "array",
+              "maxItems": 2000,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "start_line",
+                  "end_line"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "maxLength": 4096
+                  },
+                  "start_line": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "end_line": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            },
+            "unexplained": {
+              "type": "array",
+              "maxItems": 2000,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "start_line",
+                  "end_line"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "maxLength": 4096
+                  },
+                  "start_line": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "end_line": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "limitations": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "next_action": {
+          "enum": [
+            "complete",
+            "choose_location",
+            "narrow_query"
+          ]
+        }
+      }
+    },
+    "deliveryResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "link"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "patchledger.result.delivery-link/v1"
+        },
+        "command": {
+          "enum": [
+            "delivery-link.record",
+            "delivery-link.show",
+            "delivery-link.withdraw"
+          ]
+        },
+        "link": {
+          "$ref": "#/$defs/link"
+        }
+      }
+    },
+    "link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_id",
+        "repository_id",
+        "commit_oid",
+        "parent_oid",
+        "patch_digest",
+        "method",
+        "content",
+        "units",
+        "id",
+        "version",
+        "state",
+        "updated_at",
+        "attribution"
+      ],
+      "properties": {
+        "candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "repository_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "commit_oid": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "parent_oid": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "patch_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "method": {
+          "const": "raw-double-sided/v1"
+        },
+        "content": {
+          "enum": [
+            "exact_artifact",
+            "exact_scope"
+          ]
+        },
+        "units": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "change_unit_id",
+              "path",
+              "candidate_start",
+              "commit_start",
+              "lines"
+            ],
+            "properties": {
+              "change_unit_id": {
+                "$ref": "common.schema.json#/$defs/sha256"
+              },
+              "path": {
+                "type": "string",
+                "maxLength": 4096
+              },
+              "candidate_start": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "commit_start": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "lines": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "state": {
+          "enum": [
+            "recorded",
+            "withdrawn"
+          ]
+        },
+        "updated_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      }
+    }
+  }
+}

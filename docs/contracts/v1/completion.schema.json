@@ -1,0 +1,311 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/completion.schema.json",
+  "title": "Grounds Issue completion and immutable history",
+  "$ref": "#/$defs/result",
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reference",
+        "description"
+      ],
+      "properties": {
+        "reference": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "origin",
+        "repository_id",
+        "target_branch",
+        "landed_commit",
+        "adoption_evidence",
+        "release",
+        "completed_at"
+      ],
+      "properties": {
+        "format": {
+          "const": "grounds.issue-completion-input/v1"
+        },
+        "origin": {
+          "enum": [
+            "workflow",
+            "historical"
+          ]
+        },
+        "repository_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "target_branch": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 1024,
+          "pattern": "^refs/heads/"
+        },
+        "landed_commit": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "adoption_evidence": {
+          "$ref": "#/$defs/evidence"
+        },
+        "release": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "version",
+                "channel",
+                "evidence"
+              ],
+              "properties": {
+                "status": {
+                  "const": "released"
+                },
+                "version": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "channel": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "evidence": {
+                  "$ref": "#/$defs/evidence"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "reason"
+              ],
+              "properties": {
+                "status": {
+                  "const": "not_applicable"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              }
+            }
+          ]
+        },
+        "completed_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        }
+      }
+    },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "state",
+        "recorded_at",
+        "attribution",
+        "evidence_status",
+        "completion"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "state": {
+          "enum": [
+            "completed",
+            "reopened"
+          ]
+        },
+        "recorded_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "evidence_status": {
+          "const": "asserted_not_checked"
+        },
+        "completion": {
+          "$ref": "#/$defs/input"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "reopened"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "reason"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "reason"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "view": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "state"
+          ],
+          "properties": {
+            "version": {
+              "const": 0
+            },
+            "state": {
+              "const": "unrecorded"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "state",
+            "record"
+          ],
+          "properties": {
+            "version": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "state": {
+              "enum": [
+                "completed",
+                "reopened"
+              ]
+            },
+            "record": {
+              "$ref": "#/$defs/record"
+            }
+          }
+        }
+      ]
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "issue",
+        "completion"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.issue-completion/v1"
+        },
+        "command": {
+          "enum": [
+            "completion.show",
+            "completion.record",
+            "completion.reopen"
+          ]
+        },
+        "issue": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "version"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            }
+          }
+        },
+        "completion": {
+          "$ref": "#/$defs/view"
+        },
+        "history": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/$defs/record"
+          }
+        },
+        "current_verification": {
+          "$ref": "query-results.schema.json#/$defs/verificationSetSummary"
+        },
+        "warnings": {
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

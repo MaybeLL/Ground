@@ -1,0 +1,60 @@
+{
+  "name": "@grounds-review/grounds",
+  "version": "0.2.49",
+  "description": "Grounds CLI for evidence-backed human and Agent work",
+  "type": "module",
+  "files": [
+    "dist/",
+    "README.md",
+    "binding.gyp",
+    "native/",
+    "vendor/"
+  ],
+  "bin": {
+    "grounds": "dist/src/bin.js"
+  },
+  "scripts": {
+    "build": "node scripts/clean.mjs && tsc -p tsconfig.json && node scripts/bundle-skills.mjs",
+    "dev": "tsx src/main.ts",
+    "start": "node dist/src/main.js",
+    "test": "node --test scripts/test-environment.test.mjs && node scripts/test-parallel.mjs",
+    "test:coverage": "node --import tsx --test --test-concurrency=1 --experimental-test-coverage test/*.test.ts",
+    "test:brand": "node ../scripts/brand-audit.mjs",
+    "test:package": "npm run build && node scripts/package-test.mjs",
+    "prepublishOnly": "npm run release:guard && npm run test:release-registry && npm run release:check && npm run build && npm test && npm run test:brand && node scripts/package-test.mjs",
+    "release:check": "node scripts/release-check.mjs",
+    "release:version": "node scripts/release-version.mjs",
+    "release:patch": "npm run release:version && npm run release:check && npm publish --registry=https://registry.invalid",
+    "test:serial": "node scripts/test-parallel.mjs --workers 1",
+    "release:guard": "node ../scripts/release-registry.mjs guard",
+    "release:verify": "node ../scripts/release-registry.mjs verify",
+    "release:publish": "node ../scripts/release-registry.mjs publish",
+    "postpublish": "npm run release:verify",
+    "test:release-registry": "node --test ../scripts/release-registry.test.mjs",
+    "test:code-workspace": "node scripts/test-code-workspace.mjs",
+    "test:workspace-compatibility": "node scripts/test-workspace-compatibility.mjs"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1137.0",
+    "fs-ext": "^2.1.1",
+    "marked": "^17.0.6",
+    "mysql2": "^3.24.2",
+    "node-pty": "1.0.0",
+    "pg": "^8.23.1",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/fs-ext": "^2.0.3",
+    "@types/node": "^26.4.0",
+    "@types/pg": "^8.23.1",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "playwright": "^1.63.0",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  },
+  "private": true
+}

@@ -1,0 +1,325 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/development-collaboration.schema.json",
+  "title": "Grounds managed development collaboration v1",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/planResult"
+    },
+    {
+      "$ref": "#/$defs/continuationResult"
+    },
+    {
+      "$ref": "#/$defs/cleanupPreviewResult"
+    }
+  ],
+  "$defs": {
+    "developmentIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "workspace_id",
+        "branch"
+      ],
+      "properties": {
+        "format": {
+          "const": "grounds.development-branch/v1"
+        },
+        "workspace_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "branch": {
+          "type": "string",
+          "pattern": "^grounds/",
+          "maxLength": 1024
+        }
+      }
+    },
+    "sourceIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commit",
+        "parents"
+      ],
+      "properties": {
+        "commit": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "parents": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "common.schema.json#/$defs/gitOid"
+          }
+        }
+      }
+    },
+    "developmentPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "workspace_id",
+        "branch",
+        "database_id",
+        "repository_id",
+        "definition_commit",
+        "target",
+        "path",
+        "observed_at",
+        "observation",
+        "status"
+      ],
+      "properties": {
+        "format": {
+          "const": "grounds.development-branch/v1"
+        },
+        "workspace_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "branch": {
+          "type": "string",
+          "pattern": "^grounds/",
+          "maxLength": 1024
+        },
+        "database_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "repository_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "definition_commit": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "target": {
+          "$ref": "issue.schema.json#/$defs/targetBranch"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32768
+        },
+        "observed_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "observation": {
+          "enum": [
+            "local_tracking",
+            "refreshed"
+          ]
+        },
+        "status": {
+          "const": "planned"
+        }
+      }
+    },
+    "adoptionBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "repository_id",
+        "candidate_id",
+        "source_commit",
+        "landed_commit",
+        "target",
+        "method",
+        "source"
+      ],
+      "properties": {
+        "format": {
+          "const": "grounds.adoption-binding/v1"
+        },
+        "repository_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "source_commit": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "landed_commit": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "target_predecessor": {
+          "$ref": "common.schema.json#/$defs/gitOid",
+          "description": "\u5b9e\u9645\u76ee\u6807\u5f15\u7528\u672c\u6b21\u66f4\u65b0\u524d\u7684\u63d0\u4ea4 P\uff0c\u4e0e\u91c7\u7528\u6765\u6e90\u8bc1\u636e\u7ed1\u5b9a\uff1b\u53ef\u4e0d\u540c\u4e8e L \u7684 Git \u9996\u7236\u3002\u65e7\u8bb0\u5f55\u53ef\u7f3a\u5931\uff0c\u65b0 FF \u524d\u9a71\u786e\u8ba4\u9700\u663e\u5f0f\u63d0\u4f9b\u3002"
+        },
+        "target": {
+          "$ref": "issue.schema.json#/$defs/targetBranch"
+        },
+        "method": {
+          "enum": [
+            "ff",
+            "merge",
+            "squash"
+          ]
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "reference"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "user_confirmation",
+                "merged_mr"
+              ]
+            },
+            "reference": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          }
+        }
+      }
+    },
+    "planResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "plan",
+        "target_observation",
+        "git_created"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.development-plan/v1"
+        },
+        "command": {
+          "const": "devrun.plan"
+        },
+        "plan": {
+          "$ref": "#/$defs/developmentPlan"
+        },
+        "target_observation": {
+          "$ref": "integration.schema.json#/$defs/branchObservation"
+        },
+        "git_created": {
+          "const": false
+        }
+      }
+    },
+    "continuationResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "dev_run_id",
+        "expected_head",
+        "policy"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.development-continuation/v1"
+        },
+        "command": {
+          "const": "devrun.continue"
+        },
+        "dev_run_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "expected_head": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "policy": {
+          "enum": [
+            "parallel",
+            "paused"
+          ]
+        }
+      }
+    },
+    "cleanupPreviewResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "preview"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.development-cleanup-preview/v1"
+        },
+        "command": {
+          "const": "devrun.cleanup"
+        },
+        "preview": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "dev_run_id",
+            "local_worktree",
+            "risks",
+            "options"
+          ],
+          "properties": {
+            "dev_run_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "local_worktree": {
+              "$ref": "command-results.schema.json#/$defs/localWorktree"
+            },
+            "branch": {
+              "type": "string",
+              "minLength": 1
+            },
+            "risks": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "options": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "worktree",
+                  "worktree-and-branch",
+                  "keep"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "executionMode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "source"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "simple",
+            "container"
+          ]
+        },
+        "source": {
+          "enum": [
+            "argument",
+            "environment",
+            "configuration",
+            "interactive"
+          ]
+        }
+      }
+    }
+  }
+}

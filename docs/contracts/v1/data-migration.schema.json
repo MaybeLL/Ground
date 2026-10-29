@@ -1,0 +1,288 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/data-migration.schema.json",
+  "title": "Grounds one-time data layout migration",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "phase",
+        "data_root",
+        "journal_path",
+        "moved_entries"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.data-migration/v1"
+        },
+        "command": {
+          "const": "migrate.data"
+        },
+        "phase": {
+          "const": "complete"
+        },
+        "data_root": {
+          "$ref": "#/$defs/path"
+        },
+        "journal_path": {
+          "$ref": "#/$defs/path"
+        },
+        "moved_entries": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "phase",
+        "dry_run",
+        "plan"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.data-migration-plan/v1"
+        },
+        "command": {
+          "const": "migrate.data"
+        },
+        "phase": {
+          "const": "planned"
+        },
+        "dry_run": {
+          "const": true
+        },
+        "plan": {
+          "$ref": "#/$defs/plan"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32768
+    },
+    "mapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "target"
+      ],
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/path"
+        },
+        "target": {
+          "$ref": "#/$defs/path"
+        }
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "oldDataRoot": {
+          "$ref": "#/$defs/path"
+        },
+        "oldConfig": {
+          "$ref": "#/$defs/path"
+        },
+        "oldRuntime": {
+          "$ref": "#/$defs/path"
+        },
+        "oldRegistry": {
+          "$ref": "#/$defs/path"
+        },
+        "repositories": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/path"
+          }
+        }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "target_root",
+        "mappings",
+        "relocation",
+        "repositories",
+        "worktrees",
+        "git_metadata",
+        "metadata_roots",
+        "preserved",
+        "blockers"
+      ],
+      "properties": {
+        "format": {
+          "const": "grounds.data-migration-plan/v1"
+        },
+        "target_root": {
+          "$ref": "#/$defs/path"
+        },
+        "mappings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mapping"
+          }
+        },
+        "repositories": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/path"
+          }
+        },
+        "metadata_roots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/path"
+          }
+        },
+        "preserved": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/path"
+          }
+        },
+        "blockers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "git_metadata": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "bytes_base64"
+            ],
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/path"
+              },
+              "bytes_base64": {
+                "type": "string",
+                "maxLength": 32768
+              }
+            }
+          }
+        },
+        "worktrees": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source",
+              "target",
+              "head",
+              "status",
+              "common",
+              "index_digest"
+            ],
+            "properties": {
+              "source": {
+                "$ref": "#/$defs/path"
+              },
+              "target": {
+                "$ref": "#/$defs/path"
+              },
+              "common": {
+                "$ref": "#/$defs/path"
+              },
+              "head": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "index_digest": {
+                "type": "string",
+                "pattern": "^(absent|sha256:[a-f0-9]{64})$"
+              }
+            }
+          }
+        },
+        "relocation": {
+          "$ref": "#/$defs/relocation"
+        },
+        "extractions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/relocation"
+          }
+        }
+      }
+    },
+    "relocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "id",
+        "phase",
+        "entries"
+      ],
+      "properties": {
+        "format": {
+          "const": "grounds.storage-relocation/v1"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9-]{1,100}$"
+        },
+        "phase": {
+          "const": "planned"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source",
+              "target",
+              "retired",
+              "staged",
+              "digest"
+            ],
+            "properties": {
+              "source": {
+                "$ref": "#/$defs/path"
+              },
+              "target": {
+                "$ref": "#/$defs/path"
+              },
+              "retired": {
+                "$ref": "#/$defs/path"
+              },
+              "staged": {
+                "$ref": "#/$defs/path"
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

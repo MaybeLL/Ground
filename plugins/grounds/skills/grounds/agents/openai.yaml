@@ -1,0 +1,4 @@
+interface:
+  display_name: "有据 Grounds"
+  short_description: "使用 Grounds 澄清需求、开发候选、独立验证并准备交付"
+  default_prompt: "使用 $grounds 定位当前工作，并完成用户要求的开发流程。"

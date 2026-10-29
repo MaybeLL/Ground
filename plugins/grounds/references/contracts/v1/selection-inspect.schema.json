@@ -1,0 +1,93 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "result_type",
+    "command",
+    "issue",
+    "selection",
+    "discovery_scope",
+    "worktrees"
+  ],
+  "properties": {
+    "result_type": {
+      "const": "patchledger.result.selection-inspect/v1"
+    },
+    "command": {
+      "const": "selection.inspect"
+    },
+    "issue": {
+      "$ref": "delivery-worktree.schema.json#/properties/issue"
+    },
+    "selection": {
+      "$ref": "selection.schema.json#/$defs/view"
+    },
+    "discovery_scope": {
+      "const": "current_clone"
+    },
+    "worktrees": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target_path",
+          "status",
+          "selection_changed",
+          "reason",
+          "next_action",
+          "recommended_argv"
+        ],
+        "properties": {
+          "target_path": {
+            "type": "string",
+            "maxLength": 32768
+          },
+          "status": {
+            "enum": [
+              "not_found",
+              "incomplete",
+              "ready",
+              "missing",
+              "changed",
+              "invalid"
+            ]
+          },
+          "receipt": {
+            "$ref": "delivery-worktree.schema.json"
+          },
+          "branch": {
+            "type": "string",
+            "maxLength": 1024
+          },
+          "selection_changed": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "next_action": {
+            "enum": [
+              "prepare_delivery",
+              "resume_preparation",
+              "continue_delivery",
+              "review_selection",
+              "inspect_manually",
+              "prepare_new_path"
+            ]
+          },
+          "recommended_argv": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 32768
+            }
+          }
+        }
+      }
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/selection-inspect.schema.json"
+}

@@ -1,0 +1,570 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/verification-run.schema.json",
+  "title": "Grounds VerificationRun v1 验证运行记录",
+  "$defs": {
+    "stageName": {
+      "enum": [
+        "prepare",
+        "blind",
+        "freeze",
+        "reconcile",
+        "handoff",
+        "submit",
+        "wait"
+      ]
+    },
+    "stageState": {
+      "enum": [
+        "running",
+        "succeeded",
+        "failed",
+        "blocked",
+        "skipped",
+        "unknown"
+      ]
+    },
+    "role": {
+      "enum": [
+        "contract",
+        "quality"
+      ]
+    },
+    "durationMs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "stageSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stage",
+        "state",
+        "attempts",
+        "started_at",
+        "complete"
+      ],
+      "properties": {
+        "stage": {
+          "$ref": "#/$defs/stageName"
+        },
+        "state": {
+          "$ref": "#/$defs/stageState"
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "started_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "ended_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "duration_ms": {
+          "$ref": "#/$defs/durationMs"
+        },
+        "reason": {
+          "$ref": "common.schema.json#/$defs/longText"
+        },
+        "complete": {
+          "type": "boolean"
+        }
+      }
+    },
+    "freeze": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "independent_digest",
+        "fixed_at"
+      ],
+      "properties": {
+        "independent_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "fixed_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "copy_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      }
+    },
+    "handoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "report_digest",
+        "recorded_at"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "signed",
+            "unknown"
+          ]
+        },
+        "report_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "recorded_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      }
+    },
+    "submit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "operation_id",
+        "recorded_at"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "pending",
+            "confirmed",
+            "unknown"
+          ]
+        },
+        "operation_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "verification_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "recorded_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity",
+        "hit",
+        "reason",
+        "state",
+        "recorded_at"
+      ],
+      "properties": {
+        "identity": {
+          "$ref": "common.schema.json#/$defs/shortText"
+        },
+        "asset": {
+          "$ref": "common.schema.json#/$defs/shortText"
+        },
+        "lease": {
+          "$ref": "common.schema.json#/$defs/shortText"
+        },
+        "hit": {
+          "type": "boolean"
+        },
+        "reason": {
+          "$ref": "common.schema.json#/$defs/longText"
+        },
+        "state": {
+          "$ref": "#/$defs/stageState"
+        },
+        "recorded_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        }
+      }
+    },
+    "timingBasis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unit",
+        "stage_duration",
+        "total",
+        "commands",
+        "missing",
+        "clock"
+      ],
+      "properties": {
+        "unit": {
+          "const": "ms"
+        },
+        "stage_duration": {
+          "$ref": "common.schema.json#/$defs/longText"
+        },
+        "total": {
+          "$ref": "common.schema.json#/$defs/longText"
+        },
+        "commands": {
+          "$ref": "common.schema.json#/$defs/longText"
+        },
+        "missing": {
+          "$ref": "common.schema.json#/$defs/longText"
+        },
+        "clock": {
+          "$ref": "common.schema.json#/$defs/longText"
+        }
+      }
+    },
+    "runSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "run_id",
+        "version",
+        "candidate_id",
+        "result_tree_oid",
+        "blind_context_digest",
+        "role",
+        "review_session_id",
+        "created_at",
+        "updated_at",
+        "stages",
+        "elapsed_ms",
+        "commands",
+        "anomalies",
+        "timing_basis",
+        "next_step",
+        "retained"
+      ],
+      "properties": {
+        "format": {
+          "const": "grounds.verification-run/v1"
+        },
+        "run_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "result_tree_oid": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "blind_context_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "role": {
+          "$ref": "#/$defs/role"
+        },
+        "review_session_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "created_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "updated_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "current_stage": {
+          "$ref": "#/$defs/stageName"
+        },
+        "stages": {
+          "type": "array",
+          "maxItems": 7,
+          "items": {
+            "$ref": "#/$defs/stageSummary"
+          }
+        },
+        "elapsed_ms": {
+          "$ref": "#/$defs/durationMs"
+        },
+        "commands": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "collected",
+            "duration_ms",
+            "uncollected_interval_ms"
+          ],
+          "properties": {
+            "collected": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 500
+            },
+            "duration_ms": {
+              "$ref": "#/$defs/durationMs"
+            },
+            "uncollected_interval_ms": {
+              "$ref": "#/$defs/durationMs"
+            }
+          }
+        },
+        "freeze": {
+          "$ref": "#/$defs/freeze"
+        },
+        "handoff": {
+          "$ref": "#/$defs/handoff"
+        },
+        "submit": {
+          "$ref": "#/$defs/submit"
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
+        },
+        "anomalies": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "common.schema.json#/$defs/longText"
+          }
+        },
+        "timing_basis": {
+          "$ref": "#/$defs/timingBasis"
+        },
+        "next_step": {
+          "$ref": "common.schema.json#/$defs/longText"
+        },
+        "retained": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "review_worktree"
+          ],
+          "properties": {
+            "review_worktree": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "frozen_copy": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "handoff": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          }
+        }
+      }
+    },
+    "runResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "format",
+        "run_id",
+        "version",
+        "candidate_id",
+        "result_tree_oid",
+        "blind_context_digest",
+        "role",
+        "review_session_id",
+        "created_at",
+        "updated_at",
+        "stages",
+        "elapsed_ms",
+        "commands",
+        "anomalies",
+        "timing_basis",
+        "next_step",
+        "retained"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "patchledger.result.verification-run/v1"
+        },
+        "command": {
+          "type": "string",
+          "pattern": "^verification\\.run\\."
+        },
+        "format": {
+          "const": "grounds.verification-run/v1"
+        },
+        "run_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "result_tree_oid": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "blind_context_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "role": {
+          "$ref": "#/$defs/role"
+        },
+        "review_session_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "created_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "updated_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "current_stage": {
+          "$ref": "#/$defs/stageName"
+        },
+        "stages": {
+          "type": "array",
+          "maxItems": 7,
+          "items": {
+            "$ref": "#/$defs/stageSummary"
+          }
+        },
+        "elapsed_ms": {
+          "$ref": "#/$defs/durationMs"
+        },
+        "commands": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "collected",
+            "duration_ms",
+            "uncollected_interval_ms"
+          ],
+          "properties": {
+            "collected": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 500
+            },
+            "duration_ms": {
+              "$ref": "#/$defs/durationMs"
+            },
+            "uncollected_interval_ms": {
+              "$ref": "#/$defs/durationMs"
+            }
+          }
+        },
+        "freeze": {
+          "$ref": "#/$defs/freeze"
+        },
+        "handoff": {
+          "$ref": "#/$defs/handoff"
+        },
+        "submit": {
+          "$ref": "#/$defs/submit"
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
+        },
+        "anomalies": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "common.schema.json#/$defs/longText"
+          }
+        },
+        "timing_basis": {
+          "$ref": "#/$defs/timingBasis"
+        },
+        "next_step": {
+          "$ref": "common.schema.json#/$defs/longText"
+        },
+        "retained": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "review_worktree"
+          ],
+          "properties": {
+            "review_worktree": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "frozen_copy": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "handoff": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          }
+        },
+        "paths": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "review_worktree",
+            "blind_context",
+            "report_skeleton"
+          ],
+          "properties": {
+            "review_worktree": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "blind_context": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "report_skeleton": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          }
+        }
+      }
+    },
+    "runListResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "candidate_id",
+        "runs"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "patchledger.result.verification-run-list/v1"
+        },
+        "command": {
+          "const": "verification.run.list"
+        },
+        "candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "runs": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/$defs/runSummary"
+          }
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/runResult"
+    },
+    {
+      "$ref": "#/$defs/runListResult"
+    }
+  ]
+}

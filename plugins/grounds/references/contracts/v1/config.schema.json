@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/config.schema.json",
+  "title": "Grounds 本地配置 v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "database"],
+  "properties": {
+    "development": { "type": "object", "additionalProperties": false, "required": ["default_mode"], "properties": { "default_mode": { "enum": ["simple", "container"] } } },
+    "version": { "const": 2 },
+    "database": {
+      "oneOf": [
+        { "$ref": "#/$defs/sqliteDatabase" },
+        { "$ref": "#/$defs/mysqlDatabase" },
+        { "$ref": "#/$defs/postgresDatabase" }
+      ]
+    }
+  },
+  "$defs": {
+    "sqliteDatabase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["driver", "path", "expected_database_id"],
+      "properties": {
+        "driver": { "const": "sqlite" },
+        "path": { "type": "string", "minLength": 1, "maxLength": 32768 },
+        "expected_database_id": { "$ref": "common.schema.json#/$defs/id" }
+      }
+    },
+    "mysqlDatabase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["driver", "host", "port", "database", "username", "tls", "password", "expected_database_id"],
+      "properties": {
+        "driver": { "const": "mysql" },
+        "host": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "database": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "username": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "tls": { "$ref": "#/$defs/mysqlTls" },
+        "password": { "$ref": "#/$defs/passwordSource" },
+        "expected_database_id": { "$ref": "common.schema.json#/$defs/id" }
+      }
+    },
+    "postgresDatabase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["driver", "host", "port", "database", "username", "tls", "password", "expected_database_id"],
+      "properties": {
+        "driver": { "const": "postgres" },
+        "host": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "database": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "username": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "tls": { "$ref": "#/$defs/mysqlTls" },
+        "password": { "$ref": "#/$defs/passwordSource" },
+        "expected_database_id": { "$ref": "common.schema.json#/$defs/id" }
+      }
+    },
+    "mysqlTls": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": { "const": "verify_identity" },
+        "ca_file": { "type": "string", "minLength": 1, "maxLength": 32768 }
+      }
+    },
+    "passwordSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source"],
+          "properties": {
+            "source": { "const": "keychain" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "variable"],
+          "properties": {
+            "source": { "const": "environment" },
+            "variable": { "enum": ["GROUNDS_MYSQL_PASSWORD", "GROUNDS_POSTGRES_PASSWORD"] }
+          }
+        }
+      ]
+    }
+  }
+}

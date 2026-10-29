@@ -1,0 +1,936 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/candidate-archive.schema.json",
+  "title": "Grounds Git Candidate 工件与归档 v1",
+  "$ref": "#/$defs/artifact",
+  "$defs": {
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository_id",
+        "canonical_remote",
+        "archive_ref",
+        "source_commit",
+        "ordered_parents",
+        "result_tree",
+        "base_commit"
+      ],
+      "properties": {
+        "repository_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "canonical_remote": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "archive_ref": {
+          "type": "string",
+          "pattern": "^refs/tags/grounds/(candidates|deliveries)/[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+        },
+        "source_commit": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "ordered_parents": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "common.schema.json#/$defs/gitOid"
+          },
+          "uniqueItems": true
+        },
+        "result_tree": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "base_commit": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "retained_commits": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": {
+            "$ref": "common.schema.json#/$defs/gitOid"
+          }
+        }
+      }
+    },
+    "protection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "repository_id",
+        "canonical_remote",
+        "ref_namespace",
+        "source",
+        "observed_at",
+        "valid_until",
+        "currently_applicable",
+        "archive_identity_can_create",
+        "ordinary_identity_cannot_update",
+        "ordinary_identity_cannot_delete",
+        "team_can_read_by_ref",
+        "repository_backup",
+        "database_backup"
+      ],
+      "properties": {
+        "format": {
+          "const": "grounds.archive-protection/v1"
+        },
+        "repository_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "canonical_remote": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "ref_namespace": {
+          "enum": [
+            "refs/tags/grounds/candidates/",
+            "refs/tags/grounds/deliveries/"
+          ]
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "locator",
+            "revision",
+            "verified_by"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "verified-deployment-config",
+                "platform-api"
+              ]
+            },
+            "locator": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "revision": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "verified_by": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          }
+        },
+        "observed_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "valid_until": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "currently_applicable": {
+          "type": "boolean"
+        },
+        "archive_identity_can_create": {
+          "type": "boolean"
+        },
+        "ordinary_identity_cannot_update": {
+          "type": "boolean"
+        },
+        "ordinary_identity_cannot_delete": {
+          "type": "boolean"
+        },
+        "team_can_read_by_ref": {
+          "type": "boolean"
+        },
+        "repository_backup": {
+          "enum": [
+            "verified",
+            "unknown"
+          ]
+        },
+        "database_backup": {
+          "enum": [
+            "verified",
+            "unknown"
+          ]
+        }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "status",
+        "observed_at",
+        "binding"
+      ],
+      "properties": {
+        "format": {
+          "const": "grounds.git-archive-observation/v1"
+        },
+        "status": {
+          "enum": [
+            "confirmed",
+            "missing",
+            "conflict",
+            "unreadable",
+            "incomplete",
+            "unknown"
+          ]
+        },
+        "observed_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "remote_source_commit": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "integrity": {
+          "const": "complete"
+        },
+        "protection": {
+          "$ref": "#/$defs/protection"
+        },
+        "protection_diagnosis": {
+          "$ref": "#/$defs/protectionDiagnosis"
+        }
+      }
+    },
+    "receipt": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/observation"
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "confirmed"
+            },
+            "integrity": {
+              "const": "complete"
+            },
+            "protection": {
+              "properties": {
+                "currently_applicable": {
+                  "const": true
+                },
+                "archive_identity_can_create": {
+                  "const": true
+                },
+                "ordinary_identity_cannot_update": {
+                  "const": true
+                },
+                "ordinary_identity_cannot_delete": {
+                  "const": true
+                },
+                "team_can_read_by_ref": {
+                  "const": true
+                }
+              }
+            }
+          },
+          "required": [
+            "remote_source_commit",
+            "integrity",
+            "protection"
+          ]
+        }
+      ]
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "generator_version",
+        "binding",
+        "receipt"
+      ],
+      "properties": {
+        "format": {
+          "const": "grounds.git-commit-artifact/v1"
+        },
+        "generator_version": {
+          "const": "grounds.canonical-git-diff/v1"
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "receipt": {
+          "$ref": "#/$defs/receipt"
+        }
+      }
+    },
+    "comparisonBasis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "left_commit",
+        "right_tree",
+        "purpose",
+        "generator_version",
+        "diff_state"
+      ],
+      "properties": {
+        "left_commit": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "right_commit": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "right_tree": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "purpose": {
+          "const": "candidate_changes"
+        },
+        "generator_version": {
+          "const": "grounds.canonical-git-diff/v1"
+        },
+        "diff_state": {
+          "enum": [
+            "inline",
+            "not_requested",
+            "omitted_size",
+            "binary"
+          ]
+        }
+      }
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_id",
+        "successor_candidate_ids",
+        "successors_omitted"
+      ],
+      "properties": {
+        "candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "refines_candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "successor_candidate_ids": {
+          "type": "array",
+          "maxItems": 100000,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "common.schema.json#/$defs/id"
+          }
+        },
+        "successors_omitted": {
+          "type": "boolean"
+        },
+        "initial_base_commit": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "purpose",
+        "operation_id",
+        "candidate_id",
+        "owner_id",
+        "request_digest",
+        "binding",
+        "phase",
+        "attribution",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "format": {
+          "const": "grounds.candidate-archive-operation/v1"
+        },
+        "purpose": {
+          "enum": [
+            "candidate_submit",
+            "candidate_backfill",
+            "landing"
+          ]
+        },
+        "operation_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "owner_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "request_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "phase": {
+          "enum": [
+            "prepared",
+            "verified",
+            "committed",
+            "unknown",
+            "failed"
+          ]
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "created_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "updated_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "receipt": {
+          "$ref": "#/$defs/observation"
+        },
+        "result": {},
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      }
+    },
+    "archiveStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "candidate_id",
+        "remote_check",
+        "archive_history"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.candidate-archive-status/v1"
+        },
+        "command": {
+          "const": "candidate.archive-status"
+        },
+        "candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "local_availability": {
+          "$ref": "#/$defs/observation"
+        },
+        "remote_observation": {
+          "$ref": "#/$defs/observation"
+        },
+        "remote_check": {
+          "enum": [
+            "not_requested",
+            "observed"
+          ]
+        },
+        "archive_history": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": {
+            "$ref": "#/$defs/operation"
+          }
+        }
+      }
+    },
+    "lineageResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "lineage"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.candidate-lineage/v1"
+        },
+        "command": {
+          "const": "candidate.lineage"
+        },
+        "lineage": {
+          "$ref": "#/$defs/lineage"
+        }
+      }
+    },
+    "operationRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "parent_id",
+        "version",
+        "data"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "kind": {
+          "const": "runtime_operation"
+        },
+        "parent_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "data": {
+          "$ref": "#/$defs/operation"
+        }
+      }
+    },
+    "operationResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "operation"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.candidate-archive-operation/v1"
+        },
+        "command": {
+          "const": "candidate.archive-operation"
+        },
+        "operation": {
+          "$ref": "#/$defs/operationRecord"
+        },
+        "next_action": {
+          "enum": [
+            "none",
+            "retry_original_operation",
+            "resolve_identity_conflict"
+          ]
+        }
+      }
+    },
+    "fetchResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "candidate_id",
+        "observation"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.candidate-fetch/v1"
+        },
+        "command": {
+          "const": "candidate.fetch"
+        },
+        "candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "observation": {
+          "$ref": "#/$defs/observation"
+        }
+      }
+    },
+    "restoreResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "candidate_id",
+        "observation",
+        "target_path",
+        "source_commit"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.candidate-restore/v1"
+        },
+        "command": {
+          "const": "candidate.restore"
+        },
+        "candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "observation": {
+          "$ref": "#/$defs/observation"
+        },
+        "target_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32768
+        },
+        "source_commit": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        }
+      }
+    },
+    "archiveResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "candidate_id",
+        "dry_run",
+        "eligible"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.candidate-archive/v1"
+        },
+        "command": {
+          "const": "candidate.archive"
+        },
+        "candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "eligible": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "artifact": {
+          "$ref": "#/$defs/artifact"
+        },
+        "operation": {
+          "$ref": "#/$defs/operationRecord"
+        },
+        "policy_check": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "protection"
+              ],
+              "properties": {
+                "status": {
+                  "const": "confirmed"
+                },
+                "protection": {
+                  "$ref": "#/$defs/protection"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status"
+              ],
+              "properties": {
+                "status": {
+                  "const": "not_requested"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "dry_run": {
+                "const": false
+              }
+            },
+            "required": [
+              "dry_run"
+            ]
+          },
+          "then": {
+            "required": [
+              "artifact",
+              "operation"
+            ],
+            "properties": {
+              "eligible": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eligible": {
+                "const": false
+              }
+            },
+            "required": [
+              "eligible"
+            ]
+          },
+          "then": {
+            "required": [
+              "reason"
+            ],
+            "properties": {
+              "dry_run": {
+                "const": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    "landingArchive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "operation_id"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "confirmed",
+            "pending",
+            "unknown"
+          ]
+        },
+        "operation_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "operation": {
+          "$ref": "#/$defs/operationRecord"
+        },
+        "reason": {
+          "enum": [
+            "actual_target_predecessor_unknown",
+            "actual_target_predecessor_conflict",
+            "adoption_recorded_but_archive_requires_reconciliation"
+          ]
+        },
+        "protection_diagnosis": {
+          "$ref": "#/$defs/protectionDiagnosis"
+        }
+      }
+    },
+    "fixedDiff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository_id",
+        "left_commit",
+        "right_commit",
+        "purpose",
+        "generator_version",
+        "diff_state",
+        "binary"
+      ],
+      "properties": {
+        "repository_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "left_commit": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "right_commit": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "purpose": {
+          "enum": [
+            "candidate_changes",
+            "original_changes",
+            "upstream_changes",
+            "candidate_evolution",
+            "cumulative_changes",
+            "landing_changes",
+            "target_observation"
+          ]
+        },
+        "generator_version": {
+          "const": "grounds.canonical-git-diff/v1"
+        },
+        "observed_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "delivery_ready": {
+          "const": false
+        },
+        "diff_state": {
+          "enum": [
+            "available",
+            "too_large",
+            "unavailable"
+          ]
+        },
+        "binary": {
+          "type": "boolean"
+        },
+        "patch": {
+          "type": "string",
+          "maxLength": 1048576
+        },
+        "patch_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "purpose": {
+                "const": "target_observation"
+              }
+            },
+            "required": [
+              "purpose"
+            ]
+          },
+          "then": {
+            "required": [
+              "observed_at",
+              "delivery_ready"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "diff_state": {
+                "const": "available"
+              }
+            },
+            "required": [
+              "diff_state"
+            ]
+          },
+          "then": {
+            "required": [
+              "patch",
+              "patch_digest"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "patch"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "diffResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "candidate_id",
+        "view",
+        "comparison"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.candidate-diff/v1"
+        },
+        "command": {
+          "const": "candidate.diff"
+        },
+        "candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "view": {
+          "enum": [
+            "candidate",
+            "original",
+            "upstream",
+            "evolution",
+            "cumulative",
+            "landing",
+            "target"
+          ]
+        },
+        "comparison": {
+          "$ref": "#/$defs/fixedDiff"
+        }
+      }
+    },
+    "protectionDiagnosis": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "repository_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "instance": {
+          "type": "string",
+          "format": "uri"
+        },
+        "project_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "unknowns": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "recovery": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        }
+      },
+      "required": [
+        "state",
+        "repository_id",
+        "instance",
+        "unknowns",
+        "recovery"
+      ]
+    }
+  }
+}

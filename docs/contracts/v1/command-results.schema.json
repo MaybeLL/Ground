@@ -1,0 +1,1612 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/command-results.schema.json",
+  "title": "Grounds CLI 命令结果 v1",
+  "oneOf": [
+    { "$ref": "data-migration.schema.json" },
+    { "$ref": "#/$defs/developmentDefaultResult" },
+    { "$ref": "development-image.schema.json" },
+    { "$ref": "service-cleanup.schema.json" },
+    { "$ref": "repository-image.schema.json" },
+    { "$ref": "environment-control.schema.json" },
+    { "$ref": "code-workspace.schema.json" },
+    { "$ref": "code-execution.schema.json" },
+    { "$ref": "repository-environment.schema.json" },
+    { "$ref": "repository-archive.schema.json" },
+    { "$ref": "#/$defs/contractSessionResult" },
+    {
+      "$ref": "development-collaboration.schema.json"
+    },
+    {
+      "$ref": "#/$defs/workspaceRecoveryResult"
+    },
+    {
+      "$ref": "#/$defs/workspaceDraftResult"
+    },
+    {
+      "$ref": "#/$defs/workspaceMigrateResult"
+    },
+    {
+      "$ref": "#/$defs/workspaceEditorResult"
+    },
+    {
+      "$ref": "environment.schema.json"
+    },
+    {
+      "$ref": "#/$defs/contractReviewResult"
+    },
+    {
+      "$ref": "eval.schema.json"
+    },
+    {
+      "$ref": "eval-list.schema.json"
+    },
+    {
+      "$ref": "#/$defs/selectionMaterialize"
+    },
+    {
+      "$ref": "#/$defs/helpResult"
+    },
+    {
+      "$ref": "#/$defs/versionResult"
+    },
+    {
+      "$ref": "#/$defs/doctorResult"
+    },
+    {
+      "$ref": "#/$defs/brandMigrationResult"
+    },
+    {
+      "$ref": "#/$defs/candidateTemplateResult"
+    },
+    {
+      "$ref": "#/$defs/verificationTemplateResult"
+    },
+    {
+      "$ref": "#/$defs/verificationHandoffResult"
+    },
+    {
+      "$ref": "#/$defs/qualityTemplateResult"
+    },
+    {
+      "$ref": "#/$defs/qualityHandoffResult"
+    },
+    {
+      "$ref": "#/$defs/independentDigestResult"
+    },
+    {
+      "$ref": "#/$defs/skillInstallResult"
+    },
+    {
+      "$ref": "#/$defs/initResult"
+    },
+    {
+      "$ref": "#/$defs/configShowResult"
+    },
+    {
+      "$ref": "#/$defs/configPathResult"
+    },
+    {
+      "$ref": "#/$defs/configValidateResult"
+    },
+    {
+      "$ref": "#/$defs/databaseResult"
+    },
+    {
+      "$ref": "#/$defs/workspaceResult"
+    },
+    {
+      "$ref": "#/$defs/repositoryResult"
+    },
+    {
+      "$ref": "#/$defs/devRunContextResult"
+    },
+    {
+      "$ref": "#/$defs/devRunMutationResult"
+    },
+    {
+      "$ref": "#/$defs/devRunWorktreeCleanupResult"
+    },
+    {
+      "$ref": "#/$defs/candidateSubmitResult"
+    },
+    {
+      "$ref": "#/$defs/candidateMaterializeResult"
+    },
+    {
+      "$ref": "#/$defs/verificationContextResult"
+    },
+    {
+      "$ref": "#/$defs/verificationSubmitResult"
+    },
+    {
+      "$ref": "verification-run.schema.json"
+    },
+    {
+      "$ref": "#/$defs/listResult"
+    },
+    {
+      "$ref": "query-results.schema.json"
+    },
+    {
+      "$ref": "preflight.schema.json"
+    },
+    {
+      "$ref": "#/$defs/workspaceInputResult"
+    }
+  ],
+  "$defs": {
+    "contractReviewResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "format",
+        "path",
+        "content_digest",
+        "generated_at",
+        "source",
+        "source_paths"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "patchledger.result.contract-review/v1"
+        },
+        "command": {
+          "const": "contract.render"
+        },
+        "format": {
+          "enum": [
+            "html",
+            "markdown"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "content_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "source_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "external_issues_excluded",
+            "objects"
+          ],
+          "properties": {
+            "mode": {
+              "enum": [
+                "draft",
+                "published"
+              ]
+            },
+            "workspace": {
+              "type": "string"
+            },
+            "workspace_version": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "workspace_path": {
+              "type": "string"
+            },
+            "external_issues_excluded": {
+              "type": "boolean"
+            },
+            "objects": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "key",
+                  "kind",
+                  "state"
+                ],
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "requirement",
+                      "issue"
+                    ]
+                  },
+                  "state": {
+                    "enum": [
+                      "draft",
+                      "published"
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "repository": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "canonical_remote"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "canonical_remote": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "baseline": {
+                    "type": "string"
+                  },
+                  "binding": {
+                    "type": "string"
+                  },
+                  "original_binding": {
+                    "type": "string"
+                  },
+                  "source_path": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "brandMigrationResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "dry_run", "config", "repository"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.brand-migration/v1" },
+        "command": { "const": "migrate.patchledger" },
+        "dry_run": { "type": "boolean" },
+        "config": { "$ref": "#/$defs/brandMigrationPart" },
+        "repository": { "$ref": "#/$defs/brandMigrationPart" }
+      }
+    },
+    "brandMigrationPart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["not_found", "planned", "migrated"] },
+        "source": { "type": "string", "minLength": 1, "maxLength": 32768 },
+        "target": { "type": "string", "minLength": 1, "maxLength": 32768 },
+        "moved_worktrees": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "selectionMaterialize": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "receipt",
+        "receipt_path",
+        "target_path",
+        "branch",
+        "materialization_mode",
+        "selection_warnings"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "patchledger.result.selection-materialize/v1"
+        },
+        "command": {
+          "const": "selection.materialize"
+        },
+        "receipt": {
+          "$ref": "delivery-worktree.schema.json"
+        },
+        "receipt_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32768
+        },
+        "target_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32768
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "materialization_mode": {
+          "const": "delivery"
+        },
+        "selection_warnings": {
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_]{0,127}$"
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              }
+            }
+          }
+        }
+      }
+    },
+    "versionReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" },
+        "version": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "helpResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "usage"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.help/v1" },
+        "command": { "const": "help" },
+        "usage": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      }
+    },
+    "versionResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "version"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.version/v1" },
+        "command": { "const": "version" },
+        "version": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "doctorResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "cli", "skills", "upgrade_required", "recommended_commands"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.doctor/v1" },
+        "command": { "const": "doctor" },
+        "cli": {
+          "type": "object", "additionalProperties": false,
+          "required": ["installed_version", "status"],
+          "properties": {
+            "installed_version": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "registry_version": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "status": { "enum": ["current", "outdated", "ahead", "unknown"] }
+          }
+        },
+        "skills": {
+          "type": "object", "additionalProperties": false,
+          "required": ["target_path", "status", "details"],
+          "properties": {
+            "target_path": { "type": "string", "minLength": 1, "maxLength": 32768 },
+            "installed_version": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "status": { "enum": ["current", "outdated", "ahead", "unknown", "missing", "mixed"] },
+            "details": {
+              "type": "array", "minItems": 2, "maxItems": 8,
+              "items": {
+                "type": "object", "additionalProperties": false,
+                "required": ["name", "status"],
+                "properties": {
+                  "name": {
+                    "enum": [
+                      "grounds", "grounds-eval", "grounds-knowledge-improve", "grounds-define",
+                      "grounds-develop",
+                      "grounds-verify",
+                      "grounds-deliver",
+                      "grounds-guide", "grounds-eval-author", "grounds-eval-run", "grounds-export-confluence"
+                    ]
+                  },
+                  "status": { "enum": ["current", "outdated", "ahead", "unknown", "missing"] },
+                  "installed_version": { "type": "string", "minLength": 1, "maxLength": 128 }
+                }
+              }
+            }
+          }
+        },
+        "upgrade_required": { "type": "boolean" },
+        "recommended_commands": { "type": "array", "maxItems": 2, "items": { "type": "string", "minLength": 1, "maxLength": 32768 } }
+      }
+    },
+    "candidateTemplateResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "dev_run_id", "submission"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.candidate-template/v1" },
+        "command": { "const": "candidate.template" },
+        "dev_run_id": { "$ref": "common.schema.json#/$defs/id" },
+        "change_index": { "$ref": "common.schema.json#/$defs/changeIndex" },
+        "submission": { "type": "object" }
+      }
+    },
+    "verificationTemplateResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "candidate_id", "blind_context_digest", "result_tree_oid", "report"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.verification-template/v1" },
+        "command": { "const": "verification.template" },
+        "candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+        "blind_context_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+        "result_tree_oid": { "$ref": "common.schema.json#/$defs/gitOid" },
+        "report": { "type": "object" }
+      }
+    },
+    "verificationHandoffResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "candidate_id", "report_digest", "handoff"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.verification-handoff/v1" },
+        "command": { "const": "verification.handoff" },
+        "candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+        "report_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+        "independent_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+        "handoff": { "$ref": "verification-handoff.schema.json" },
+        "output_path": { "type": "string", "minLength": 1, "maxLength": 32768 }
+      }
+    },
+    "qualityTemplateResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "candidate_id", "blind_context_digest", "result_tree_oid", "report"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.quality-template/v1" },
+        "command": { "const": "verification.template" },
+        "candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+        "blind_context_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+        "result_tree_oid": { "$ref": "common.schema.json#/$defs/gitOid" },
+        "report": { "$ref": "quality-review-report.schema.json" }
+      }
+    },
+    "qualityHandoffResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "candidate_id", "report_digest", "independent_digest", "handoff"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.quality-handoff/v1" },
+        "command": { "const": "verification.handoff" },
+        "candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+        "report_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+        "independent_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+        "handoff": { "$ref": "quality-review-handoff.schema.json" },
+        "output_path": { "type": "string", "minLength": 1, "maxLength": 32768 }
+      }
+    },
+    "independentDigestResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "candidate_id", "report_format", "independent_digest"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.independent-digest/v1" },
+        "command": { "const": "verification.independent-digest" },
+        "candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+        "report_format": { "enum": ["patchledger.verification-report/v1", "patchledger.quality-review-report/v1"] },
+        "independent_digest": { "$ref": "common.schema.json#/$defs/sha256" }
+      }
+    },
+    "skillInstallResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "target_path", "skills"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.skill-install/v1" },
+        "command": { "const": "install.skill" },
+        "target_path": { "type": "string", "minLength": 1, "maxLength": 32768 },
+        "skills": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "path"],
+            "properties": {
+              "name": {
+                "enum": [
+                  "grounds", "grounds-eval", "grounds-knowledge-improve", "grounds-define",
+                  "grounds-develop",
+                  "grounds-verify",
+                  "grounds-deliver",
+                  "grounds-guide", "grounds-eval-author", "grounds-eval-run", "grounds-export-confluence"
+                ]
+              },
+              "path": { "type": "string", "minLength": 1, "maxLength": 32768 }
+            }
+          }
+        }
+      }
+    },
+    "initResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "driver", "database_id", "database_action", "config_path"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.init/v1" },
+        "command": { "const": "init" },
+        "driver": { "enum": ["sqlite", "mysql"] },
+        "database_id": { "$ref": "common.schema.json#/$defs/id" },
+        "database_action": { "enum": ["initialized", "attached"] },
+        "config_path": { "type": "string", "minLength": 1, "maxLength": 32768 }
+      }
+    },
+    "developmentDefaultResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "mode"],
+      "properties": {
+        "result_type": { "const": "grounds.result.development-default/v1" },
+        "command": { "const": "config.set-development-mode" },
+        "mode": { "enum": ["simple", "container"] }
+      }
+    },
+    "configShowResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "config"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.config-show/v1" },
+        "command": { "const": "config.show" },
+        "config": { "$ref": "config.schema.json" }
+      }
+    },
+    "configPathResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "config_path"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.config-path/v1" },
+        "command": { "const": "config.path" },
+        "config_path": { "type": "string", "minLength": 1, "maxLength": 32768 }
+      }
+    },
+    "configValidateResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "valid"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.config-validate/v1" },
+        "command": { "const": "config.validate" },
+        "valid": { "const": true }
+      }
+    },
+    "databaseResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "database_id", "schema_version", "protocol_version", "remote_normalization_version", "baseline_reachability_policy", "migration_state"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.database/v1" },
+        "command": { "enum": ["db.test", "db.status", "db.migrate"] },
+        "database_id": { "$ref": "common.schema.json#/$defs/id" },
+        "schema_version": { "type": "integer", "minimum": 0 },
+        "protocol_version": { "type": "integer", "minimum": 0 },
+        "remote_normalization_version": { "type": "integer", "minimum": 0 },
+        "baseline_reachability_policy": { "enum": ["warn", "require_override"] },
+        "migration_state": { "enum": ["clean", "dirty", "in_progress"] },
+        "integrity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["valid", "issues"],
+          "properties": {
+            "valid": { "type": "boolean" },
+            "issues": {
+              "type": "array",
+              "maxItems": 1000,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["check", "reason"],
+                "properties": {
+                  "check": { "type": "string", "minLength": 1, "maxLength": 128 },
+                  "resource_type": { "type": "string", "minLength": 1, "maxLength": 128 },
+                  "resource_id": { "$ref": "common.schema.json#/$defs/id" },
+                  "reason": { "type": "string", "minLength": 1, "maxLength": 4096 }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "repositoryResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "repository_id", "version", "canonical_remote"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.repository/v1" },
+        "command": { "enum": ["repository.register", "repository.resolve", "repository.move", "repository.alias-add", "repository.alias-retire"] },
+        "repository_id": { "$ref": "common.schema.json#/$defs/id" },
+        "version": { "type": "integer", "minimum": 1 },
+        "canonical_remote": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      }
+    },
+    "devRunContextResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "context"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.devrun-context/v1" },
+        "command": { "enum": ["devrun.start", "devrun.context"] },
+        "context": { "$ref": "devrun-context.schema.json" },
+        "local_worktree": { "$ref": "#/$defs/localWorktree" },
+        "prepare_only": { "const": true },
+        "preflight": { "$ref": "preflight.schema.json#/$defs/devRunPreflight" }
+      }
+    },
+    "localWorktree": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "path"
+          ],
+          "properties": {
+            "status": {
+              "const": "available"
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32768
+            },
+            "ownership": {
+              "const": "external"
+            },
+            "input_digest": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            "initial_changes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "initial_result_tree_oid": {
+              "$ref": "common.schema.json#/$defs/gitOid"
+            },
+            "development": {
+              "$ref": "development-collaboration.schema.json#/$defs/developmentIdentity"
+            },
+            "head": {
+              "$ref": "common.schema.json#/$defs/gitOid"
+            },
+            "base_commit": {
+              "$ref": "common.schema.json#/$defs/gitOid"
+            },
+            "active_dev_run_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "owner_phase": {
+              "enum": [
+                "active",
+                "pending"
+              ]
+            },
+            "continuation": {
+              "enum": [
+                "developing",
+                "paused",
+                "parallel"
+              ]
+            },
+            "working_tree_dirty": {
+              "type": "boolean"
+            },
+            "git_operation_in_progress": {
+              "type": "boolean"
+            },
+            "initial_base_commit": {
+              "$ref": "common.schema.json#/$defs/gitOid"
+            },
+            "definition_commit": {
+              "$ref": "common.schema.json#/$defs/gitOid"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "reason"
+          ],
+          "properties": {
+            "status": {
+              "const": "missing"
+            },
+            "reason": {
+              "enum": [
+                "not_available_on_this_machine",
+                "local_worktree_deleted"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "reason"
+          ],
+          "properties": {
+            "status": {
+              "const": "invalid"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "const": "removed"
+            }
+          }
+        }
+      ]
+    },
+    "devRunWorktreeCleanupResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "dev_run_id",
+        "removed",
+        "local_worktree"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "patchledger.result.devrun-worktree-cleanup/v1"
+        },
+        "command": {
+          "const": "devrun.cleanup"
+        },
+        "dev_run_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "removed": {
+          "type": "boolean"
+        },
+        "local_worktree": {
+          "$ref": "#/$defs/localWorktree"
+        },
+        "external_preserved": {
+          "const": true
+        },
+        "deletion_summary": {
+          "$ref": "#/$defs/devRunDeletionSummary"
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "removed": { "const": true } }, "required": ["removed"] },
+          "then": { "required": ["deletion_summary"] },
+          "else": { "not": { "required": ["deletion_summary"] } }
+        }
+      ]
+    },
+    "devRunDeletionSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dev_run_id", "worktree_path", "discard_changes", "entry_count", "occurred_at"],
+      "properties": {
+        "dev_run_id": { "$ref": "common.schema.json#/$defs/id" },
+        "worktree_path": { "type": "string", "minLength": 1, "maxLength": 32768 },
+        "discard_changes": { "type": "boolean" },
+        "entry_count": { "type": "integer", "minimum": 0 },
+        "occurred_at": { "$ref": "common.schema.json#/$defs/timestamp" }
+      }
+    },
+    "devRunMutationResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "dev_run_id", "version", "state"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.devrun-mutation/v1" },
+        "command": { "const": "devrun.abandon" },
+        "dev_run_id": { "$ref": "common.schema.json#/$defs/id" },
+        "version": { "type": "integer", "minimum": 2 },
+        "state": { "const": "abandoned" }
+      }
+    },
+    "candidateSubmitResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "candidate_id", "dev_run_id", "issue", "result_tree_oid", "patch_digest", "created_at"],
+      "properties": {
+        "git_artifact": { "$ref": "candidate-archive.schema.json#/$defs/artifact" },
+        "result_type": { "const": "patchledger.result.candidate-submit/v1" },
+        "command": { "const": "candidate.submit" },
+        "candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+        "dev_run_id": { "$ref": "common.schema.json#/$defs/id" },
+        "issue": { "$ref": "#/$defs/versionReference" },
+        "result_tree_oid": { "$ref": "common.schema.json#/$defs/gitOid" },
+        "patch_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+        "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "source": {
+          "$ref": "development-collaboration.schema.json#/$defs/sourceIdentity"
+        }
+      }
+    },
+    "candidateMaterializeResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "candidate_id", "result_tree_oid", "target_path", "materialization_mode"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.candidate-materialize/v1" },
+        "command": { "const": "candidate.materialize" },
+        "candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+        "result_tree_oid": { "$ref": "common.schema.json#/$defs/gitOid" },
+        "target_path": { "type": "string", "minLength": 1, "maxLength": 32768 },
+        "materialization_mode": { "enum": ["existing", "review", "delivery"] },
+        "branch": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "review_session_id": { "$ref": "common.schema.json#/$defs/id" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "materialization_mode": { "const": "delivery" } }, "required": ["materialization_mode"] },
+          "then": { "required": ["branch"] },
+          "else": { "not": { "required": ["branch"] } }
+        },
+        {
+          "if": { "required": ["review_session_id"] },
+          "then": { "properties": { "materialization_mode": { "const": "review" } } }
+        }
+      ]
+    },
+    "verificationContextResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "context"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.verification-context/v1" },
+        "command": { "const": "verification.context" },
+        "context": {
+          "oneOf": [
+            { "$ref": "verification-context.schema.json" },
+            { "$ref": "quality-context.schema.json" }
+          ]
+        },
+        "output_path": { "type": "string", "minLength": 1, "maxLength": 32768 }
+      }
+    },
+    "verificationSubmitResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "verification_id", "candidate_id", "overall_verdict", "standing", "created_at"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.verification-submit/v1" },
+        "command": { "const": "verification.submit" },
+        "verification_id": { "$ref": "common.schema.json#/$defs/id" },
+        "candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+        "mode": { "$ref": "common.schema.json#/$defs/verificationMode" },
+        "overall_verdict": { "$ref": "common.schema.json#/$defs/verdict" },
+        "standing": { "$ref": "common.schema.json#/$defs/standing" },
+        "created_at": { "$ref": "common.schema.json#/$defs/timestamp" }
+      }
+    },
+    "workspaceResult": {
+      "oneOf": [
+        { "$ref": "#/$defs/workspaceNewResult" },
+        { "$ref": "#/$defs/workspaceOpenResult" },
+        { "$ref": "#/$defs/workspaceListResult" },
+        { "$ref": "#/$defs/workspaceDetailResult" },
+        { "$ref": "#/$defs/workspacePlanResult" },
+        { "$ref": "#/$defs/workspacePublishResult" },
+        { "$ref": "#/$defs/workspacePublishNoOpResult" },
+        { "$ref": "#/$defs/workspaceRebaseResult" },
+        { "$ref": "#/$defs/workspaceRemoveResult" }
+      ]
+    },
+    "workspaceDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "path", "state", "issue_count"],
+      "properties": {
+        "version": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "path": { "type": "string", "minLength": 1, "maxLength": 32768 },
+        "state": { "enum": ["clean", "draft", "publishing", "conflicted", "recoverable_failure"] },
+        "requirement_id": { "$ref": "common.schema.json#/$defs/id" },
+        "issue_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "workspaceNewResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["result_type", "command", "name", "path", "state"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.workspace/v1" }, "command": { "const": "workspace.new" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 }, "path": { "type": "string", "minLength": 1, "maxLength": 32768 }, "state": { "const": "draft" }
+      }
+    },
+    "workspaceOpenResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["result_type", "command", "name", "path", "state"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.workspace/v1" }, "command": { "const": "workspace.open" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 }, "path": { "type": "string", "minLength": 1, "maxLength": 32768 }, "state": { "enum": ["clean", "draft"] },
+        "binding": { "enum": ["preserve", "current"] }, "editable_issues": { "type": "integer", "minimum": 0 }, "readonly_external_issues": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "workspaceListResult": {
+      "type": "object", "additionalProperties": false, "required": ["result_type", "command", "resources"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.workspace-list/v1" }, "command": { "const": "workspace.list" },
+        "resources": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/workspaceDescriptor" } }
+      }
+    },
+    "workspaceDetailResult": {
+      "type": "object", "additionalProperties": false, "required": ["result_type", "command", "name", "path", "state", "issue_count"],
+      "properties": {
+        "version": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "result_type": { "const": "patchledger.result.workspace-detail/v1" }, "command": { "const": "workspace.show" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 }, "path": { "type": "string", "minLength": 1, "maxLength": 32768 },
+        "state": { "enum": ["clean", "draft", "publishing", "conflicted", "recoverable_failure"] }, "requirement_id": { "$ref": "common.schema.json#/$defs/id" }, "issue_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "workspacePlanResult": {
+      "type": "object", "additionalProperties": false, "required": ["result_type", "command", "name", "dry_run", "requirement", "issues"],
+      "properties": {
+        "version": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "result_type": { "const": "patchledger.result.workspace-plan/v1" }, "command": { "const": "workspace.publish" }, "name": { "type": "string", "minLength": 1, "maxLength": 100 }, "dry_run": { "const": true },
+        "requirement": { "$ref": "#/$defs/workspacePlannedRequirement" }, "issues": { "type": "array", "items": { "$ref": "#/$defs/workspacePlannedIssue" } }
+      }
+    },
+    "workspacePlannedRequirement": {
+      "type": "object", "additionalProperties": false, "required": ["action", "version"],
+      "properties": { "action": { "enum": ["create", "revise", "unchanged"] }, "id": { "$ref": "common.schema.json#/$defs/id" }, "version": { "type": "integer", "minimum": 1 } }
+    },
+    "workspacePlannedIssue": {
+      "type": "object", "additionalProperties": false, "required": ["action", "version", "requirement"],
+      "properties": { "action": { "enum": ["create", "revise"] }, "id": { "$ref": "common.schema.json#/$defs/id" }, "version": { "type": "integer", "minimum": 1 }, "requirement": {
+        "type": "object", "additionalProperties": false, "required": ["version"], "properties": { "id": { "$ref": "common.schema.json#/$defs/id" }, "version": { "type": "integer", "minimum": 1 } }
+      } }
+    },
+    "workspacePublishedResource": {
+      "type": "object", "additionalProperties": false, "required": ["action", "id", "version"],
+      "properties": { "action": { "enum": ["created", "revised", "unchanged"] }, "id": { "$ref": "common.schema.json#/$defs/id" }, "version": { "type": "integer", "minimum": 1 } }
+    },
+    "workspacePublishedIssue": {
+      "type": "object", "additionalProperties": false, "required": ["action", "id", "version", "requirement", "baseline"],
+      "properties": { "action": { "enum": ["created", "revised", "unchanged"] }, "id": { "$ref": "common.schema.json#/$defs/id" }, "version": { "type": "integer", "minimum": 1 }, "requirement": { "$ref": "#/$defs/versionReference" }, "baseline": { "$ref": "common.schema.json#/$defs/baseline" } }
+    },
+    "workspacePublishResult": {
+      "type": "object", "additionalProperties": false, "required": ["result_type", "command", "repository_id", "repository_action", "requirement", "issues", "name", "path"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.workspace-publish/v1" }, "command": { "const": "workspace.publish" },
+        "repository_id": { "$ref": "common.schema.json#/$defs/id" },
+        "repository_action": { "enum": ["registered", "resolved"] },
+        "requirement": { "$ref": "#/$defs/workspacePublishedResource" }, "issues": { "type": "array", "items": { "$ref": "#/$defs/workspacePublishedIssue" } },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 }, "path": { "type": "string", "minLength": 1, "maxLength": 32768 }, "recovered": { "const": true }
+      }
+    },
+    "workspacePublishNoOpResult": {
+      "type": "object", "additionalProperties": false, "required": ["result_type", "command", "name", "dry_run", "no_op"],
+      "properties": { "result_type": { "const": "patchledger.result.workspace-publish/v1" }, "command": { "const": "workspace.publish" }, "name": { "type": "string", "minLength": 1, "maxLength": 100 }, "dry_run": { "type": "boolean" }, "no_op": { "const": true } }
+    },
+    "workspaceRebaseResult": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["result_type", "command", "name", "state", "conflicts"], "properties": { "result_type": { "const": "patchledger.result.workspace-rebase/v1" }, "command": { "const": "workspace.rebase" }, "name": { "type": "string", "minLength": 1, "maxLength": 100 }, "state": { "enum": ["draft", "conflicted"] }, "conflicts": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 4096 } } } },
+        { "type": "object", "additionalProperties": false, "required": ["result_type", "command", "name", "no_op"], "properties": { "result_type": { "const": "patchledger.result.workspace-rebase/v1" }, "command": { "const": "workspace.rebase" }, "name": { "type": "string", "minLength": 1, "maxLength": 100 }, "no_op": { "const": true } } }
+      ]
+    },
+    "workspaceRemoveResult": {
+      "type": "object", "additionalProperties": false, "required": ["result_type", "command", "name", "removed"],
+      "properties": { "result_type": { "const": "patchledger.result.workspace-remove/v1" }, "command": { "const": "workspace.remove" }, "name": { "type": "string", "minLength": 1, "maxLength": 100 }, "removed": { "const": true } }
+    },
+    "listResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "resources"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "patchledger.result.resource-list/v1"
+        },
+        "command": {
+          "enum": [
+            "repository.list",
+            "requirement.list",
+            "issue.list",
+            "devrun.list",
+            "candidate.list",
+            "verification.list"
+          ]
+        },
+        "resources": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "resource_type",
+              "resource_id",
+              "label"
+            ],
+            "properties": {
+              "resource_type": {
+                "enum": [
+                  "repository",
+                  "requirement",
+                  "issue",
+                  "dev_run",
+                  "candidate",
+                  "verification",
+                  "ledger_event"
+                ]
+              },
+              "resource_id": {
+                "$ref": "common.schema.json#/$defs/id"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "version": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "created_at": { "type": "string", "format": "date-time" },
+              "last_activity": {
+                "type": ["object", "null"], "additionalProperties": false,
+                "required": ["occurred_at", "kind", "issue_version"],
+                "properties": {
+                  "occurred_at": { "type": "string", "format": "date-time" },
+                  "kind": { "enum": ["published", "devrun_started", "devrun_abandoned", "candidate", "verification", "selection", "completion"] },
+                  "issue_version": { "type": "integer", "minimum": 1 }
+                }
+              },
+              "requirement": {
+                "type": "object", "additionalProperties": false, "required": ["id", "version"],
+                "properties": { "id": { "$ref": "common.schema.json#/$defs/id" }, "version": { "type": "integer", "minimum": 1 } }
+              },
+              "repository": {
+                "type": "object", "additionalProperties": false, "required": ["id", "canonical_remote"],
+                "properties": { "id": { "$ref": "common.schema.json#/$defs/id" }, "canonical_remote": { "type": "string", "minLength": 1, "maxLength": 4096 } }
+              },
+              "issue": {
+                "type": "object", "additionalProperties": false, "required": ["id", "version"],
+                "properties": { "id": { "$ref": "common.schema.json#/$defs/id" }, "version": { "type": "integer", "minimum": 1 } }
+              },
+              "candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+              "overall_verdict": { "enum": ["qualified", "rejected", "inconclusive"] },
+              "mode": { "$ref": "common.schema.json#/$defs/verificationMode" },
+              "quality_verdict": { "$ref": "common.schema.json#/$defs/verdict" },
+              "quality_attribution": { "$ref": "common.schema.json#/$defs/attribution" },
+              "board": {
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "next_action",
+    "open_dev_run_count",
+    "candidate_count",
+    "selection",
+    "completion"
+  ],
+  "properties": {
+    "status": {
+      "enum": [
+        "ready",
+        "exploring",
+        "candidates_available",
+        "candidate_selected",
+        "completed"
+      ]
+    },
+    "next_action": {
+      "enum": [
+        "start_devrun",
+        "resume_devrun",
+        "review_candidates",
+        "prepare_delivery",
+        null
+      ]
+    },
+    "open_dev_run_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "candidate_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "version"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "selected",
+            "unselected"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        }
+      }
+    },
+    "completion": {
+      "$ref": "completion.schema.json#/$defs/view"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "completed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "next_action": {
+            "const": null
+          }
+        }
+      }
+    }
+  ]
+},
+              "progress": {
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "issue_count",
+    "ready_issue_count",
+    "open_dev_run_count",
+    "candidate_count",
+    "completion_status",
+    "completed_issue_count",
+    "bound_to_selected_version_issue_count"
+  ],
+  "properties": {
+    "issue_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ready_issue_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "open_dev_run_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "candidate_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "completion_status": {
+      "enum": [
+        "completed",
+        "incomplete",
+        "no_issues"
+      ]
+    },
+    "completed_issue_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "bound_to_selected_version_issue_count": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+},
+              "state": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "is_selected": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "next_cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "query": {
+          "type": "object",
+          "description": "回显 CLI 实际使用的准确筛选与排序，便于解释空列表或看似部分的结果。",
+          "additionalProperties": { "type": ["string", "boolean", "integer"] }
+        },
+        "page": {
+          "type": "object",
+          "description": "仅在调用者请求游标分页（--limit 和/或 --cursor）时存在；没有此字段则列表为完整集合。",
+          "additionalProperties": false,
+          "required": ["limit", "has_more", "sort"],
+          "properties": {
+            "limit": { "type": "integer", "minimum": 1, "maximum": 1000 },
+            "has_more": { "type": "boolean" },
+            "sort": { "enum": ["id:asc", "activity:desc,id:asc", "created_at:asc,id:asc"] }
+          }
+        }
+      }
+    },
+    "workspaceInputResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "workspace"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "patchledger.result.workspace-input/v1"
+        },
+        "command": {
+          "const": "devrun.inspect-workspace"
+        },
+        "workspace": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "directory",
+            "identity",
+            "baseline_oid",
+            "input_digest",
+            "result_tree_oid",
+            "changes",
+            "dirty"
+          ],
+          "properties": {
+            "directory": {
+              "type": "string",
+              "minLength": 1
+            },
+            "identity": {
+              "type": "string",
+              "pattern": "^\\d+:\\d+$"
+            },
+            "baseline_oid": {
+              "$ref": "common.schema.json#/$defs/gitOid"
+            },
+            "input_digest": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            "result_tree_oid": {
+              "$ref": "common.schema.json#/$defs/gitOid"
+            },
+            "dirty": {
+              "type": "boolean"
+            },
+            "changes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 65536
+            }
+          }
+        }
+      }
+    },
+    "workspaceDraftResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.workspace-draft/v2"
+        },
+        "command": {
+          "enum": [
+            "workspace.read",
+            "workspace.save",
+            "workspace.bind",
+            "workspace.resolve"
+          ]
+        },
+        "manifest": {
+          "$ref": "authoring-workspace.schema.json"
+        },
+        "draft": {
+          "$ref": "authoring-workspace.schema.json#/$defs/draft"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "result_type",
+        "command",
+        "manifest",
+        "draft",
+        "version"
+      ]
+    },
+    "workspaceMigrateResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "result_type": {
+              "const": "grounds.result.workspace-migrate/v2"
+            },
+            "command": {
+              "const": "workspace.migrate"
+            },
+            "manifest": {
+              "$ref": "authoring-workspace.schema.json"
+            },
+            "draft": {
+              "$ref": "authoring-workspace.schema.json#/$defs/draft"
+            },
+            "version": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "result_type",
+            "command",
+            "manifest",
+            "draft",
+            "version"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "result_type": {
+              "const": "grounds.result.workspace-migrate/v2"
+            },
+            "command": {
+              "const": "workspace.migrate"
+            },
+            "dry_run": {
+              "const": true
+            },
+            "issue_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "path": {
+              "type": "string"
+            },
+            "from_format": {
+              "const": "patchledger.authoring-workspace/v1"
+            },
+            "to_format": {
+              "const": "grounds.authoring-workspace/v2"
+            },
+            "backup_path": {
+              "type": "string"
+            },
+            "backup_files": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "warning": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "result_type",
+            "command",
+            "dry_run",
+            "issue_count",
+            "path",
+            "from_format",
+            "to_format",
+            "backup_path",
+            "backup_files",
+            "warning"
+          ]
+        }
+      ]
+    },
+    "workspaceEditorResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.workspace-editor/v2"
+        },
+        "command": {
+          "const": "workspace.edit"
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^http://127\\.0\\.0\\.1:[0-9]+/"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "source": {
+          "type": "object",
+          "required": [
+            "mode",
+            "workspace",
+            "workspace_path",
+            "workspace_version"
+          ],
+          "properties": {
+            "mode": {
+              "const": "draft"
+            },
+            "workspace": {
+              "type": "string"
+            },
+            "workspace_path": {
+              "type": "string"
+            },
+            "workspace_version": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "editable": {
+          "const": true
+        }
+      },
+      "required": [
+        "result_type",
+        "command",
+        "url"
+      ]
+    },
+    "contractSessionResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.contract-session/v1"
+        },
+        "command": {
+          "const": "contract.render"
+        },
+        "mode": {
+          "const": "interactive"
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^http://127\\.0\\.0\\.1:[0-9]+/"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "source": {
+          "type": "object",
+          "required": [
+            "mode",
+            "workspace",
+            "workspace_path",
+            "workspace_version"
+          ],
+          "properties": {
+            "mode": {
+              "const": "draft"
+            },
+            "workspace": {
+              "type": "string"
+            },
+            "workspace_path": {
+              "type": "string"
+            },
+            "workspace_version": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "editable": {
+          "const": true
+        }
+      },
+      "required": [
+        "result_type",
+        "command",
+        "mode",
+        "url",
+        "version",
+        "source",
+        "editable"
+      ]
+    },
+    "workspaceRecoveryResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.workspace-recovery/v2"
+        },
+        "command": {
+          "const": "workspace.abandon-publication"
+        },
+        "abandoned": {
+          "const": true
+        },
+        "recovered": {
+          "const": true
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "abandoned"
+          ]
+        },
+        {
+          "required": [
+            "recovered"
+          ]
+        }
+      ]
+    }
+  }
+}

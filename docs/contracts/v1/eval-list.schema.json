@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/eval-list.schema.json",
+  "title": "评测摘要列表（patchledger.result.eval-list/v1）",
+  "description": "`eval KIND list --view summary` 返回的有界游标分页摘要，--limit/--cursor 隐含此模式。result_type 与完整记录的 `patchledger.result.eval/v1` 不同，不能将一页摘要当作完整列表。摘要不包含 Grader 源码、私有 QA 材料、答案或评分证据，这些用 `eval KIND show` 读取。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["result_type", "command", "kind", "items", "page"],
+  "properties": {
+    "result_type": { "const": "patchledger.result.eval-list/v1" },
+    "command": { "type": "string", "pattern": "^eval\\.[a-z]+\\.list$" },
+    "kind": { "enum": ["environment", "envcheck", "preparation", "instance", "qa", "grader", "suite", "experiment", "run"] },
+    "items": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "version", "created_at", "summary"],
+        "properties": {
+          "id": { "$ref": "common.schema.json#/$defs/id" },
+          "kind": { "enum": ["environment", "envcheck", "preparation", "instance", "qa", "grader", "suite", "experiment", "run"] },
+          "version": { "type": "integer", "minimum": 1 },
+          "created_at": { "type": "string", "format": "date-time" },
+          "parent_id": { "$ref": "common.schema.json#/$defs/id" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 1024 },
+          "summary": {
+            "type": "object",
+            "description": "各类别的固定小投影，只含关系与状态。Experiment 含 snapshot_id、subject{name,description_preview,description_truncated}、runs{total,open,closed}；open/closed 只计 Run 状态，不表示评分证据或成功。",
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["limit", "has_more", "sort"],
+      "properties": {
+        "limit": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "has_more": { "type": "boolean" },
+        "sort": { "const": "id:asc" }
+      }
+    },
+    "next_cursor": { "type": "string", "minLength": 1, "maxLength": 4096 }
+  }
+}

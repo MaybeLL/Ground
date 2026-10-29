@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/devrun-sync.schema.json",
+  "title": "Grounds recoverable DevRun sync",
+  "type": "object", "additionalProperties": false,
+  "required": ["result_type", "command"],
+  "properties": {
+    "result_type": { "const": "patchledger.result.devrun-sync/v1" },
+    "command": { "enum": ["devrun.sync", "devrun.sync-status", "devrun.sync-show", "devrun.sync-complete", "devrun.sync-abandon"] },
+    "sync_id": { "$ref": "common.schema.json#/$defs/id" },
+    "sync": { "$ref": "#/$defs/record" },
+    "status": {
+      "type": "object", "additionalProperties": false,
+      "required": ["dev_run_id", "base_commit", "target_observation", "relation", "syncs"],
+      "properties": {
+        "dev_run_id": { "$ref": "common.schema.json#/$defs/id" },
+        "base_commit": { "$ref": "common.schema.json#/$defs/gitOid" },
+        "target_observation": { "$ref": "integration.schema.json#/$defs/branchObservation" },
+        "relation": { "enum": ["equal", "advanced", "rewritten", "unknown"] },
+        "syncs": { "type": "array", "items": { "$ref": "#/$defs/record" } },
+        "development": {
+          "$ref": "development-collaboration.schema.json#/$defs/developmentIdentity"
+        },
+        "local_worktree": {
+          "$ref": "command-results.schema.json#/$defs/localWorktree"
+        }
+      }
+    }
+  },
+  "oneOf": [{ "required": ["sync_id"] }, { "required": ["sync"] }, { "required": ["status"] }],
+  "$defs": {
+    "decisions": {
+      "type": "array", "maxItems": 10000,
+      "items": { "type": "object", "additionalProperties": false, "required": ["path", "explanation"],
+        "properties": { "path": { "type": "string", "minLength": 1, "maxLength": 4096 }, "explanation": { "type": "string", "minLength": 1, "maxLength": 4096 } } }
+    },
+    "record": {
+      "type": "object", "additionalProperties": false, "required": ["id", "kind", "parent_id", "version", "data"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" }, "kind": { "const": "runtime_operation" }, "parent_id": { "$ref": "common.schema.json#/$defs/id" }, "version": { "type": "integer", "minimum": 1 },
+        "data": {
+          "type": "object", "additionalProperties": false,
+          "required": ["format", "dev_run_id", "original_base", "target", "run_version", "phase", "created_at", "attribution", "recovery"],
+          "properties": {
+            "format": { "const": "grounds.devrun-sync/v1" }, "dev_run_id": { "$ref": "common.schema.json#/$defs/id" },
+            "original_base": { "$ref": "common.schema.json#/$defs/gitOid" }, "target": { "$ref": "common.schema.json#/$defs/gitOid" }, "run_version": { "type": "integer", "minimum": 2 },
+            "phase": { "enum": ["reserved", "prepared", "applying", "resolving", "completing", "abandoning", "completed", "abandoned"] },
+            "created_at": { "$ref": "common.schema.json#/$defs/timestamp" }, "finished_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+            "attribution": { "$ref": "common.schema.json#/$defs/attribution" }, "finished_by": { "$ref": "common.schema.json#/$defs/attribution" },
+            "recovery": { "type": "object", "additionalProperties": false, "required": ["host_id", "directory"], "properties": { "host_id": { "type": "string", "minLength": 1 }, "directory": { "type": "string", "minLength": 1 } } },
+            "material_digest": { "$ref": "common.schema.json#/$defs/sha256" }, "receipt_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+            "conflicts": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }, "decisions": { "$ref": "#/$defs/decisions" },
+            "source_head": {
+              "$ref": "common.schema.json#/$defs/gitOid"
+            }
+          }
+        }
+      }
+    },
+    "review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "original_base", "target", "outcome", "conflicts", "decisions", "created_at", "finished_at", "started_by", "finished_by"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" }, "original_base": { "$ref": "common.schema.json#/$defs/gitOid" }, "target": { "$ref": "common.schema.json#/$defs/gitOid" },
+        "outcome": { "enum": ["completed", "abandoned"] }, "conflicts": { "type": "array", "items": { "type": "string" } }, "decisions": { "$ref": "#/$defs/decisions" },
+        "created_at": { "$ref": "common.schema.json#/$defs/timestamp" }, "finished_at": { "$ref": "common.schema.json#/$defs/timestamp" }, "started_by": { "$ref": "common.schema.json#/$defs/attribution" }, "finished_by": { "$ref": "common.schema.json#/$defs/attribution" }
+      }
+    }
+  }
+}

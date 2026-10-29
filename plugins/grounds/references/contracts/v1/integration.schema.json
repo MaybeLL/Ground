@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/integration.schema.json",
+  "title": "Grounds 门禁、单次授权与落地记录",
+  "type": "object", "additionalProperties": false,
+  "required": ["result_type", "command", "record"],
+  "properties": {
+    "result_type": { "const": "patchledger.result.integration/v1" },
+    "command": { "enum": ["integration.observe", "integration.authorize", "integration.consume", "integration.landing", "integration.show"] },
+    "record": { "$ref": "#/$defs/record" },
+    "landing_archive": { "$ref": "candidate-archive.schema.json#/$defs/landingArchive" },
+    "authorization_state": { "enum": ["available", "consumed"] }
+  },
+  "$defs": {
+    "oid": { "$ref": "common.schema.json#/$defs/gitOid" },
+    "id": { "$ref": "common.schema.json#/$defs/id" },
+    "commit": {
+      "type": "object", "additionalProperties": false, "required": ["oid", "parents", "tree_oid"],
+      "properties": { "oid": { "$ref": "#/$defs/oid" }, "parents": { "type": "array", "items": { "$ref": "#/$defs/oid" } }, "tree_oid": { "$ref": "#/$defs/oid" } }
+    },
+    "selection": {
+      "type": "object", "additionalProperties": false, "required": ["id", "version", "candidate_id"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "version": { "type": "integer", "minimum": 1 }, "candidate_id": { "$ref": "#/$defs/id" } }
+    },
+    "branchObservation": {
+      "type": "object", "additionalProperties": false, "required": ["branch", "refreshed", "observed_at"],
+      "properties": {
+        "branch": { "$ref": "issue.schema.json#/$defs/targetBranch" }, "refreshed": { "type": "boolean" }, "observed_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "commit": { "$ref": "#/$defs/commit" }, "failure": { "enum": ["refresh_failed", "history_unavailable"] }
+      }
+    },
+    "artifact": {
+      "type": "object", "additionalProperties": false, "required": ["candidate_id", "base_commit", "result_tree_oid"],
+      "properties": { "candidate_id": { "$ref": "#/$defs/id" }, "base_commit": { "$ref": "#/$defs/oid" }, "result_tree_oid": { "$ref": "#/$defs/oid" },
+        "source_commit": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        } }
+    },
+    "verification": {
+      "type": "object", "additionalProperties": false, "required": ["candidate_id", "selection", "current_verification", "verification_changed"],
+      "properties": {
+        "candidate_id": { "$ref": "#/$defs/id" },
+        "selection": { "type": "object", "additionalProperties": false, "required": ["version"], "properties": { "id": { "$ref": "#/$defs/id" }, "version": { "type": "integer", "minimum": 0 }, "candidate_id": { "$ref": "#/$defs/id" } } },
+        "current_verification": { "$ref": "query-results.schema.json#/$defs/verificationSetSummary" },
+        "at_selection": { "$ref": "query-results.schema.json#/$defs/verificationSetSummary" },
+        "verification_changed": { "type": ["boolean", "null"] }
+      }
+    },
+    "request": {
+      "type": "object", "additionalProperties": false, "required": ["candidate_id", "selection_id", "selection_version", "source", "source_commit", "refresh"],
+      "properties": { "candidate_id": { "$ref": "#/$defs/id" }, "selection_id": { "$ref": "#/$defs/id" }, "selection_version": { "type": "integer", "minimum": 1 }, "source": { "$ref": "issue.schema.json#/$defs/targetBranch" }, "source_commit": { "$ref": "#/$defs/oid" }, "refresh": { "type": "boolean" } }
+    },
+    "input": {
+      "type": "object", "additionalProperties": false, "required": ["artifact", "expected_selection", "current_selection", "expected_source", "refreshed"],
+      "properties": {
+        "artifact": { "$ref": "#/$defs/artifact" }, "expected_selection": { "$ref": "#/$defs/selection" }, "current_selection": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/selection" }] },
+        "expected_source": { "$ref": "#/$defs/oid" }, "source": { "$ref": "#/$defs/commit" }, "refreshed": { "type": "boolean" },
+        "target": { "type": "object", "additionalProperties": false, "required": ["oid", "relation"], "properties": { "oid": { "$ref": "#/$defs/oid" }, "relation": { "enum": ["equal", "advanced", "rewritten", "unknown"] } } },
+        "source_contains_base": {
+          "type": "boolean"
+        }
+      }
+    },
+    "gate": {
+      "type": "object", "additionalProperties": false, "required": ["request", "input", "decision", "target_observation", "source_observation", "verification"],
+      "properties": {
+        "request": { "$ref": "#/$defs/request" }, "input": { "$ref": "#/$defs/input" },
+        "decision": { "type": "object", "additionalProperties": false, "required": ["consistency", "checks"], "properties": {
+          "consistency": { "enum": ["ready", "expired", "inconsistent", "unknown"] },
+          "checks": { "type": "object", "additionalProperties": false, "required": ["target", "source", "selection"], "properties": { "target": { "$ref": "#/$defs/check" }, "source": { "$ref": "#/$defs/check" }, "selection": { "$ref": "#/$defs/check" } } }
+        } },
+        "target_observation": { "$ref": "#/$defs/branchObservation" }, "source_observation": { "$ref": "#/$defs/branchObservation" }, "verification": { "$ref": "#/$defs/verification" }
+      }
+    },
+    "check": { "enum": ["pass", "fail", "unknown"] },
+    "binding": {
+      "type": "object", "additionalProperties": false, "required": ["candidate_id", "selection", "source_commit", "target_commit"],
+      "properties": { "candidate_id": { "$ref": "#/$defs/id" }, "selection": { "$ref": "#/$defs/selection" }, "source_commit": { "$ref": "#/$defs/oid" }, "target_commit": { "$ref": "#/$defs/oid" } }
+    },
+    "landing": {
+      "type": "object", "additionalProperties": false, "required": ["target_observation", "decision", "verification", "delivery_link_eligibility"],
+      "properties": {
+        "delivery_link_eligibility": { "enum": ["eligible", "no_supported_text_changes", "not_exact_artifact"] },
+        "provenance": { "enum": ["target_is_source", "merge_result", "user"] }, "supplied_commit": { "$ref": "#/$defs/oid" }, "target_observation": { "$ref": "#/$defs/branchObservation" }, "verification": { "$ref": "#/$defs/verification" },
+        "decision": { "type": "object", "additionalProperties": false, "required": ["identity", "shape", "parent_matches", "tree_matches", "outcome"], "properties": {
+          "identity": { "enum": ["trusted", "unknown"] }, "shape": { "enum": ["single_parent", "merge", "root", "unknown"] }, "parent_matches": { "type": ["boolean", "null"] }, "tree_matches": { "type": ["boolean", "null"] },
+          "outcome": { "enum": [
+            "exact_artifact",
+            "same_content_different_base",
+            "different_artifact",
+            "merge_landing",
+            "adoption_unknown",
+            "same_content_different_history"
+          ] }, "delivery_link_commit": { "$ref": "#/$defs/oid" }, "first_parent_landing": { "$ref": "#/$defs/commit" },
+          "source_matches": {
+            "type": "boolean"
+          },
+          "code_consistency": {
+            "enum": [
+              "candidate_tree",
+              "different_tree",
+              "unknown"
+            ]
+          }
+        } },
+        "adoption": {
+          "$ref": "development-collaboration.schema.json#/$defs/adoptionBinding"
+        },
+        "target_predecessor": { "$ref": "#/$defs/targetPredecessor" },
+        "history_sensitive_verification": {
+          "enum": [
+            "requires_landing_context",
+            "candidate_context",
+            "unknown"
+          ]
+        },
+        "actual_landing": {
+          "$ref": "#/$defs/commit"
+        }
+      }
+    },
+    "targetPredecessor": {
+      "type": "object", "additionalProperties": false, "required": ["state"],
+      "description": "实际目标引用更新前驱 P 的证据状态，与实际采用、Git 首父及归档状态分开；旧记录缺字段按未知解释。",
+      "properties": {
+        "state": { "enum": ["confirmed", "unknown", "conflict"] },
+        "commit": { "$ref": "#/$defs/commit" },
+        "source": { "enum": ["adoption_binding", "landing_first_parent"] },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      },
+      "allOf": [{ "if": { "properties": { "state": { "const": "confirmed" } }, "required": ["state"] }, "then": { "required": ["commit", "source"] } }]
+    },
+    "record": {
+      "type": "object", "additionalProperties": false, "required": ["id", "kind", "candidate_id", "created_at", "attribution"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "kind": { "enum": ["gate", "authorization", "consumption", "landing"] }, "candidate_id": { "$ref": "#/$defs/id" }, "created_at": { "$ref": "common.schema.json#/$defs/timestamp" }, "attribution": { "$ref": "common.schema.json#/$defs/attribution" },
+        "gate": { "$ref": "#/$defs/gate" }, "based_on": { "$ref": "#/$defs/id" }, "binding": { "$ref": "#/$defs/binding" }, "reason": { "type": "string", "minLength": 1, "maxLength": 4096 }, "disclosure": { "const": "landed_code_is_unverified" }, "landing": { "$ref": "#/$defs/landing" }
+      },
+      "allOf": [
+        { "if": { "properties": { "kind": { "const": "gate" } } }, "then": { "required": ["gate"] } },
+        { "if": { "properties": { "kind": { "const": "authorization" } } }, "then": { "required": ["based_on", "binding", "reason", "disclosure"] } },
+        { "if": { "properties": { "kind": { "const": "consumption" } } }, "then": { "required": ["based_on", "binding", "gate", "disclosure"] } },
+        { "if": { "properties": { "kind": { "const": "landing" } } }, "then": { "required": ["based_on", "landing"] } }
+      ]
+    }
+  }
+}

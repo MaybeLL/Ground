@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/repository-environment.schema.json",
+  "title": "Grounds Repo environment versions",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "result_type",
+    "command",
+    "environment"
+  ],
+  "properties": {
+    "result_type": {
+      "const": "grounds.result.repository-environment/v1"
+    },
+    "command": {
+      "enum": [
+        "code-workspace.environment-save",
+        "code-workspace.environment-show"
+      ]
+    },
+    "environment": {
+      "$ref": "#/$defs/version"
+    }
+  },
+  "$defs": {
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "image"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "image": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "postgres": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "image"
+          ],
+          "properties": {
+            "image": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        },
+        "preparation_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        }
+      }
+    },
+    "version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "environment_id",
+        "revision_id",
+        "repository_id",
+        "version",
+        "configuration",
+        "digest",
+        "attribution",
+        "created_at"
+      ],
+      "properties": {
+        "format": {
+          "const": "grounds.repository-environment/v1"
+        },
+        "environment_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "revision_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "repository_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "configuration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "image"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "image": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "postgres": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "image"
+              ],
+              "properties": {
+                "image": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                }
+              }
+            },
+            "preparation_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            }
+          }
+        },
+        "digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "created_at": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

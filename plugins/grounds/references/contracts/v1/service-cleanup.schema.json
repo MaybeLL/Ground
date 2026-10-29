@@ -1,0 +1,1600 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/service-cleanup.schema.json",
+  "title": "Grounds stopped route service cleanup with retained data",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "plan"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.service-cleanup/v1"
+        },
+        "command": {
+          "const": "code-workspace.service-cleanup-preview"
+        },
+        "plan": {
+          "$ref": "#/$defs/plan"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "cleanup"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.service-cleanup/v1"
+        },
+        "command": {
+          "const": "code-workspace.service-cleanup"
+        },
+        "cleanup": {
+          "$ref": "#/$defs/cleanup"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "archive"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.service-cleanup/v1"
+        },
+        "command": {
+          "const": "code-workspace.service-volume-export"
+        },
+        "archive": {
+          "$ref": "#/$defs/archive"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "restoration"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.service-cleanup/v1"
+        },
+        "command": {
+          "const": "code-workspace.service-volume-restore"
+        },
+        "restoration": {
+          "$ref": "#/$defs/restoration"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "record"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.service-cleanup/v1"
+        },
+        "command": {
+          "const": "code-workspace.service-volume-restoration-show"
+        },
+        "record": {
+          "$ref": "#/$defs/restorationRecord"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "stopped"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.service-cleanup/v1"
+        },
+        "command": {
+          "const": "code-workspace.service-volume-restoration-stop"
+        },
+        "stopped": {
+          "$ref": "#/$defs/restorationStop"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "preview"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.service-cleanup/v1"
+        },
+        "command": {
+          "const": "code-workspace.service-volume-preview"
+        },
+        "preview": {
+          "$ref": "#/$defs/volumePreview"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "retirement"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.service-cleanup/v1"
+        },
+        "command": {
+          "const": "code-workspace.service-volume-retire"
+        },
+        "retirement": {
+          "$ref": "#/$defs/volumeRetirement"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "cleanup"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.service-cleanup/v1"
+        },
+        "command": {
+          "const": "code-workspace.service-volume-restoration-cleanup"
+        },
+        "cleanup": {
+          "$ref": "#/$defs/restorationCleanup"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "assessment"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.service-cleanup/v1"
+        },
+        "command": {
+          "const": "code-workspace.service-volume-assess"
+        },
+        "assessment": {
+          "$ref": "#/$defs/volumeAssessment"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "deletion"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "grounds.result.service-cleanup/v1"
+        },
+        "command": {
+          "const": "code-workspace.service-volume-delete"
+        },
+        "deletion": {
+          "$ref": "#/$defs/volumeDeletion"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "engine_id",
+        "container_id",
+        "network_id",
+        "volume_name",
+        "volume_created_at",
+        "log_digest",
+        "blockers",
+        "container_state",
+        "network_state"
+      ],
+      "properties": {
+        "key": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "engine_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "container_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "network_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "volume_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "volume_created_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "log_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "blockers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "container_state": {
+          "enum": [
+            "eligible",
+            "removed"
+          ]
+        },
+        "network_state": {
+          "enum": [
+            "eligible",
+            "removed"
+          ]
+        }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "instance_id",
+        "route_id",
+        "execution_id",
+        "lifecycle_version",
+        "gate",
+        "snapshot",
+        "container",
+        "network",
+        "volume",
+        "retained_images",
+        "plan_digest"
+      ],
+      "properties": {
+        "scope": {
+          "const": "route_service"
+        },
+        "instance_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "route_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "execution_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "lifecycle_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "gate": {
+          "enum": [
+            "ready",
+            "retention",
+            "pinned",
+            "blocked"
+          ]
+        },
+        "snapshot": {
+          "$ref": "#/$defs/snapshot"
+        },
+        "container": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "state"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "state": {
+              "enum": [
+                "eligible",
+                "removed"
+              ]
+            }
+          }
+        },
+        "network": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "state"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "state": {
+              "enum": [
+                "eligible",
+                "removed"
+              ]
+            }
+          }
+        },
+        "volume": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "state"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "state": {
+              "const": "retained"
+            }
+          }
+        },
+        "retained_images": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "plan_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "instance_id",
+        "route_id",
+        "execution_id",
+        "operation_id",
+        "container",
+        "network",
+        "volume",
+        "retained_images",
+        "diagnostics"
+      ],
+      "properties": {
+        "scope": {
+          "const": "route_service"
+        },
+        "instance_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "route_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "execution_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "operation_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "container": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "state"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "state": {
+              "enum": [
+                "removed"
+              ]
+            }
+          }
+        },
+        "network": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "state"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "state": {
+              "enum": [
+                "removed"
+              ]
+            }
+          }
+        },
+        "volume": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "state"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "state": {
+              "const": "retained"
+            }
+          }
+        },
+        "retained_images": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "diagnostics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "directory",
+            "digest",
+            "review_after"
+          ],
+          "properties": {
+            "directory": {
+              "type": "string",
+              "minLength": 1
+            },
+            "digest": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            "review_after": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "archive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_volume",
+        "source_created_at",
+        "engine_id",
+        "directory",
+        "path",
+        "review_after",
+        "operation_id",
+        "route_id",
+        "execution_id",
+        "image",
+        "digest",
+        "size_bytes",
+        "restore_status"
+      ],
+      "properties": {
+        "source_volume": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_created_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "engine_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "directory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "review_after": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operation_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "route_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "execution_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "image": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 134217728
+        },
+        "restore_status": {
+          "const": "not_verified"
+        },
+        "comparison": {
+          "$ref": "#/$defs/volumeComparison"
+        },
+        "source_restore_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "capture": {
+          "$ref": "#/$defs/volumeCapture"
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "checked_at",
+        "server_version_num",
+        "databases",
+        "role_count"
+      ],
+      "properties": {
+        "kind": {
+          "const": "postgres-startup-and-catalog"
+        },
+        "checked_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "server_version_num": {
+          "type": "integer",
+          "minimum": 160000,
+          "maximum": 169999
+        },
+        "databases": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "role_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "business_checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "checks_digest",
+            "status",
+            "results"
+          ],
+          "properties": {
+            "checks_digest": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            "status": {
+              "enum": [
+                "passed",
+                "failed"
+              ]
+            },
+            "results": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 16,
+              "items": {
+                "$ref": "#/$defs/businessResult"
+              }
+            }
+          }
+        }
+      }
+    },
+    "restoration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_id",
+        "archive_id",
+        "route_id",
+        "execution_id",
+        "engine_id",
+        "volume_name",
+        "volume_created_at",
+        "container_id",
+        "archive_digest",
+        "image",
+        "container_state",
+        "verification"
+      ],
+      "properties": {
+        "operation_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "archive_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "route_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "execution_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "engine_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "volume_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "volume_created_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "container_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "archive_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "image": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "container_state": {
+          "const": "stopped"
+        },
+        "verification": {
+          "$ref": "#/$defs/verification"
+        }
+      }
+    },
+    "restorationRecord": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "operation_id",
+            "archive_id",
+            "phase",
+            "attempt"
+          ],
+          "properties": {
+            "operation_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "archive_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "phase": {
+              "const": "pending"
+            },
+            "attempt": {
+              "$ref": "#/$defs/attempt"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "operation_id",
+            "archive_id",
+            "phase",
+            "result",
+            "attempt"
+          ],
+          "properties": {
+            "operation_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "archive_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "phase": {
+              "const": "completed"
+            },
+            "result": {
+              "$ref": "#/$defs/restoration"
+            },
+            "attempt": {
+              "$ref": "#/$defs/attempt"
+            }
+          }
+        }
+      ]
+    },
+    "businessResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "database",
+        "schema",
+        "table",
+        "expected_count",
+        "actual_count",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,62}$"
+        },
+        "database": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,62}$"
+        },
+        "schema": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,62}$"
+        },
+        "table": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,62}$"
+        },
+        "expected_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "actual_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "error"
+          ]
+        }
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "failure",
+        "container_id",
+        "volume_name"
+      ],
+      "properties": {
+        "phase": {
+          "enum": [
+            "not_started",
+            "planned",
+            "volume-creating",
+            "volume-ready",
+            "container-creating",
+            "created",
+            "importing",
+            "imported",
+            "starting",
+            "verifying",
+            "stopping",
+            "completed",
+            "failed",
+            "halting",
+            "halted"
+          ]
+        },
+        "failure": {
+          "enum": [
+            null,
+            "import_unknown",
+            "probe_failed"
+          ]
+        },
+        "container_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "volume_name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    },
+    "restorationStop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_id",
+        "restore_id",
+        "route_id",
+        "execution_id",
+        "engine_id",
+        "container_id",
+        "volume_name",
+        "stopped_at",
+        "container_state",
+        "volume_state"
+      ],
+      "properties": {
+        "operation_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "restore_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "route_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "execution_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "engine_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "container_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "volume_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stopped_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "container_state": {
+          "const": "stopped"
+        },
+        "volume_state": {
+          "const": "retained"
+        }
+      }
+    },
+    "retainedVolume": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "expected_created_at",
+        "state",
+        "consumers"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected_created_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "state": {
+          "enum": [
+            "matching",
+            "missing",
+            "identity_changed",
+            "unknown"
+          ]
+        },
+        "consumers": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "managed_writes": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "state"
+              ],
+              "properties": {
+                "state": {
+                  "enum": [
+                    "not_retired",
+                    "unknown"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "state",
+                "operation_id"
+              ],
+              "properties": {
+                "state": {
+                  "const": "retiring"
+                },
+                "operation_id": {
+                  "$ref": "common.schema.json#/$defs/id"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "protectedVolume": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "volume",
+        "blockers"
+      ],
+      "properties": {
+        "volume": {
+          "$ref": "#/$defs/retainedVolume"
+        },
+        "blockers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "volumeArchiveStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "archive_id",
+        "execution_id",
+        "phase",
+        "digest",
+        "integrity"
+      ],
+      "properties": {
+        "archive_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "execution_id": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "phase": {
+          "enum": [
+            "pending",
+            "completed"
+          ]
+        },
+        "digest": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "integrity": {
+          "enum": [
+            "valid",
+            "unavailable",
+            "not_checked"
+          ]
+        },
+        "comparison": {
+          "$ref": "#/$defs/volumeComparison"
+        },
+        "source_restore_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        }
+      }
+    },
+    "volumePreview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "instance_id",
+        "route_id",
+        "execution_id",
+        "lifecycle_version",
+        "lifecycle_gate",
+        "observed_at",
+        "deletion_supported",
+        "source",
+        "archives",
+        "restorations"
+      ],
+      "properties": {
+        "scope": {
+          "const": "route_volumes"
+        },
+        "instance_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "route_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "execution_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "lifecycle_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "lifecycle_gate": {
+          "enum": [
+            "ready",
+            "retention",
+            "pinned"
+          ]
+        },
+        "observed_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "deletion_supported": {
+          "const": true
+        },
+        "source": {
+          "$ref": "#/$defs/protectedVolume"
+        },
+        "archives": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/volumeArchiveStatus"
+          }
+        },
+        "restorations": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/restoredVolumeStatus"
+          }
+        }
+      }
+    },
+    "restoredVolumeStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "restore_id",
+        "archive_id",
+        "phase",
+        "attempt",
+        "volume",
+        "startup_verified",
+        "business_status",
+        "blockers"
+      ],
+      "properties": {
+        "restore_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "archive_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "phase": {
+          "enum": [
+            "pending",
+            "completed"
+          ]
+        },
+        "attempt": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "volume": {
+          "$ref": "#/$defs/retainedVolume"
+        },
+        "startup_verified": {
+          "type": "boolean"
+        },
+        "business_status": {
+          "enum": [
+            "passed",
+            "failed",
+            "not_requested",
+            "unavailable"
+          ]
+        },
+        "blockers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "volumeComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "archive_id",
+        "archive_digest",
+        "algorithm",
+        "status",
+        "compared_at"
+      ],
+      "properties": {
+        "archive_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "archive_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "algorithm": {
+          "const": "docker-tar-sha256/v1"
+        },
+        "status": {
+          "enum": [
+            "identical",
+            "different"
+          ]
+        },
+        "compared_at": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "volumeRetirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_id",
+        "route_id",
+        "execution_id",
+        "engine_id",
+        "volume_name",
+        "volume_created_at",
+        "recorded_at",
+        "scope",
+        "state"
+      ],
+      "properties": {
+        "operation_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "route_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "execution_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "source_restore_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "engine_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "volume_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "volume_created_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recorded_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scope": {
+          "const": "grounds_managed_writes"
+        },
+        "state": {
+          "const": "retiring"
+        }
+      }
+    },
+    "restorationCleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "const": "restoration_container"
+        },
+        "operation_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "restore_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "route_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "execution_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "container": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "state"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "state": {
+              "enum": [
+                "removed"
+              ]
+            }
+          }
+        },
+        "volume": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "state"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "state": {
+              "const": "retained"
+            }
+          }
+        },
+        "diagnostics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "directory",
+            "digest",
+            "review_after"
+          ],
+          "properties": {
+            "directory": {
+              "type": "string",
+              "minLength": 1
+            },
+            "digest": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            "review_after": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      "required": [
+        "scope",
+        "operation_id",
+        "restore_id",
+        "route_id",
+        "execution_id",
+        "container",
+        "volume",
+        "diagnostics"
+      ]
+    },
+    "volumeVerificationReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "restore_id",
+        "result_digest",
+        "archive_id",
+        "archive_digest",
+        "checks_digest"
+      ],
+      "properties": {
+        "restore_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "result_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "archive_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "archive_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "checks_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "volumeCapture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "retirement_id",
+        "retirement_digest"
+      ],
+      "properties": {
+        "retirement_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "retirement_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "verification": {
+          "$ref": "#/$defs/volumeVerificationReference"
+        }
+      }
+    },
+    "volumeAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "instance_id",
+        "route_id",
+        "execution_id",
+        "archive_id",
+        "baseline_archive_id",
+        "verification_id",
+        "retirement_id",
+        "lifecycle_version",
+        "observed_at",
+        "source",
+        "evidence_status",
+        "blockers",
+        "current_contents",
+        "deletion_supported"
+      ],
+      "properties": {
+        "scope": {
+          "const": "volume_evidence"
+        },
+        "instance_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "route_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "execution_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "archive_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "baseline_archive_id": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "verification_id": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "retirement_id": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lifecycle_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "source": {
+          "$ref": "#/$defs/retainedVolume"
+        },
+        "evidence_status": {
+          "enum": [
+            "complete",
+            "blocked"
+          ]
+        },
+        "blockers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "current_contents": {
+          "const": "not_rechecked"
+        },
+        "deletion_supported": {
+          "const": true
+        }
+      }
+    },
+    "volumeDeletion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "operation_id",
+        "route_id",
+        "execution_id",
+        "engine_id",
+        "evidence_archive_id",
+        "volume",
+        "recheck",
+        "deleted_at"
+      ],
+      "properties": {
+        "scope": {
+          "const": "service_volume"
+        },
+        "operation_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "route_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "execution_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "engine_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_archive_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "volume": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "created_at",
+            "state"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "created_at": {
+              "type": "string",
+              "minLength": 1
+            },
+            "state": {
+              "const": "deleted"
+            }
+          }
+        },
+        "recheck": {
+          "$ref": "#/$defs/archive"
+        },
+        "deleted_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

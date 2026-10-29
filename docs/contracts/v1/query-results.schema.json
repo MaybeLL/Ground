@@ -1,0 +1,2206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/query-results.schema.json",
+  "title": "Grounds 详情查询结果 v1",
+  "oneOf": [
+    { "$ref": "completion.schema.json" },
+    { "$ref": "candidate-archive.schema.json#/$defs/diffResult" },
+    { "$ref": "candidate-archive.schema.json#/$defs/operationResult" },
+    { "$ref": "candidate-archive.schema.json#/$defs/fetchResult" },
+    { "$ref": "candidate-archive.schema.json#/$defs/restoreResult" },
+    { "$ref": "candidate-archive.schema.json#/$defs/archiveResult" },
+    { "$ref": "candidate-archive.schema.json#/$defs/archiveStatus" },
+    { "$ref": "candidate-archive.schema.json#/$defs/lineageResult" },
+    { "$ref": "code-history.schema.json" },
+    { "$ref": "integration.schema.json" },
+    { "$ref": "devrun-sync.schema.json" },
+    { "$ref": "selection-inspect.schema.json" },
+    { "$ref": "selection.schema.json" },
+    { "$ref": "#/$defs/reviewSummary" },
+    { "$ref": "#/$defs/verificationPage" },
+    { "$ref": "#/$defs/repositoryDetail" },
+    { "$ref": "#/$defs/requirementDetail" },
+    { "$ref": "#/$defs/issueDetail" },
+    { "$ref": "#/$defs/devRunDetail" },
+    { "$ref": "#/$defs/candidateDetail" },
+    { "$ref": "#/$defs/candidateComparison" },
+    { "$ref": "#/$defs/candidateComparisonSummary" },
+    { "$ref": "#/$defs/reviewTrace" },
+    { "$ref": "#/$defs/verificationDetail" },
+    { "$ref": "#/$defs/ledgerResult" },
+    { "$ref": "#/$defs/devRunReconcile" },
+    { "$ref": "#/$defs/devRunUncommitted" },
+    { "$ref": "#/$defs/candidateArtifactResult" },
+    { "$ref": "#/$defs/candidateReplayCheck" }
+  ],
+  "$defs": {
+    "syncRecovery": {
+      "type": "object", "additionalProperties": false, "required": ["directory", "count"],
+      "properties": { "directory": { "type": "string", "minLength": 1 }, "count": { "type": "integer", "minimum": 1 } }
+    },
+    "upstreamChanges": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source", "role", "left_base_commit", "right_base_commit", "status"],
+      "properties": {
+        "source": { "const": "derived_relation" },
+        "role": { "const": "base_changes_not_candidate_changes" },
+        "left_base_commit": { "$ref": "common.schema.json#/$defs/gitOid" },
+        "right_base_commit": { "$ref": "common.schema.json#/$defs/gitOid" },
+        "status": { "enum": ["available", "unavailable"] },
+        "diff": {
+          "type": "object", "additionalProperties": false, "required": ["diff_digest", "stats", "diff_state"],
+          "properties": {
+            "diff_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+            "stats": { "$ref": "#/$defs/diffStats" },
+            "diff_state": { "enum": ["inline", "not_requested", "omitted_size", "binary"] },
+            "unified_diff": { "type": "string", "maxLength": 1048576 }
+          },
+          "allOf": [{ "if": { "properties": { "diff_state": { "const": "inline" } } }, "then": { "required": ["unified_diff"] }, "else": { "not": { "required": ["unified_diff"] } } }]
+        }
+      },
+      "allOf": [{ "if": { "properties": { "status": { "const": "available" } } }, "then": { "required": ["diff"] }, "else": { "not": { "required": ["diff"] } } }]
+    },
+    "reconcileNextAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "description",
+        "requires"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "requires": {
+          "enum": [
+            "none",
+            "authorization"
+          ]
+        }
+      }
+    },
+    "reconcileFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "severity",
+        "sources",
+        "fields",
+        "next_actions"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "open_local_ready",
+            "open_local_missing",
+            "open_local_removed",
+            "local_invalid",
+            "ledger_local_lifecycle_mismatch",
+            "submitted_local_dirty",
+            "abandoned_local_dirty",
+            "local_state_unrecognized",
+            "sync_in_progress",
+            "sync_interrupted",
+            "sync_recovery_retained",
+            "delivery_changed",
+            "route_leased"
+          ]
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "attention",
+            "needs_inspection"
+          ]
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "ledger",
+              "local_worktree",
+              "delivery"
+            ]
+          }
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "integer",
+              "boolean"
+            ]
+          }
+        },
+        "next_actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reconcileNextAction"
+          }
+        }
+      }
+    },
+    "devRunReconcile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "dev_run_id",
+        "overall",
+        "findings",
+        "next_actions",
+        "ledger",
+        "local_worktree",
+        "route_lease",
+        "delivery"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "patchledger.result.devrun-reconcile/v1"
+        },
+        "command": {
+          "const": "devrun.reconcile"
+        },
+        "dev_run_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "overall": {
+          "enum": [
+            "consistent",
+            "attention",
+            "needs_inspection"
+          ]
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reconcileFinding"
+          }
+        },
+        "next_actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reconcileNextAction"
+          }
+        },
+        "ledger": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "dev_run",
+            "issue",
+            "selection"
+          ],
+          "properties": {
+            "source": {
+              "const": "ledger"
+            },
+            "dev_run": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "version",
+                "state"
+              ],
+              "properties": {
+                "id": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "state": {
+                  "enum": [
+                    "open",
+                    "submitted",
+                    "abandoned"
+                  ]
+                }
+              }
+            },
+            "issue": {
+              "$ref": "#/$defs/versionReference"
+            },
+            "candidate": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "candidate_id",
+                "result_tree_oid",
+                "is_selected"
+              ],
+              "properties": {
+                "candidate_id": {
+                  "$ref": "common.schema.json#/$defs/id"
+                },
+                "result_tree_oid": {
+                  "$ref": "common.schema.json#/$defs/gitOid"
+                },
+                "is_selected": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "selection": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "state",
+                "version"
+              ],
+              "properties": {
+                "state": {
+                  "enum": [
+                    "selected",
+                    "unselected"
+                  ]
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        },
+        "local_worktree": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "status"
+          ],
+          "properties": {
+            "source": {
+              "const": "local_worktree"
+            },
+            "status": {
+              "enum": [
+                "available",
+                "missing",
+                "removed",
+                "invalid",
+                "unknown"
+              ]
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32768
+            },
+            "ownership": {
+              "const": "external"
+            },
+            "sync_recovery": { "$ref": "#/$defs/syncRecovery" },
+            "journal_lifecycle": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "journal_lifecycle_recognized": {
+              "type": "boolean"
+            },
+            "tracked_modified": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "untracked": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "ignored": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "captured_by_candidate": {
+              "type": "boolean"
+            },
+            "uncaptured_changes": {
+              "type": "boolean"
+            }
+          }
+        },
+        "route_lease": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "held"
+          ],
+          "properties": {
+            "held": {
+              "type": "boolean"
+            }
+          }
+        },
+        "delivery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "worktrees"
+          ],
+          "properties": {
+            "source": {
+              "const": "delivery"
+            },
+            "worktrees": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "target_path",
+                  "status",
+                  "reason"
+                ],
+                "properties": {
+                  "target_path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32768
+                  },
+                  "status": {
+                    "enum": [
+                      "not_found",
+                      "incomplete",
+                      "ready",
+                      "missing",
+                      "changed",
+                      "invalid"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  },
+                  "branch": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "devRunUncommitted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "discovery_scope",
+        "scanned",
+        "dev_runs"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "patchledger.result.devrun-uncommitted/v1"
+        },
+        "command": {
+          "const": "devrun.uncommitted"
+        },
+        "discovery_scope": {
+          "const": "current_clone"
+        },
+        "scanned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dev_runs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "dev_run_id",
+              "issue",
+              "ledger_state",
+              "path",
+              "tracked_modified",
+              "untracked",
+              "ignored",
+              "risk_reasons"
+            ],
+            "properties": {
+              "dev_run_id": {
+                "$ref": "common.schema.json#/$defs/id"
+              },
+              "issue": {
+                "$ref": "#/$defs/versionReference"
+              },
+              "ledger_state": {
+                "enum": [
+                  "open",
+                  "submitted",
+                  "abandoned"
+                ]
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 32768
+              },
+              "sync_recovery": { "$ref": "#/$defs/syncRecovery" },
+              "tracked_modified": {
+                "type": ["integer", "null"],
+                "minimum": 0
+              },
+              "untracked": {
+                "type": ["integer", "null"],
+                "minimum": 0
+              },
+              "ignored": {
+                "type": ["integer", "null"],
+                "minimum": 0
+              },
+              "risk_reasons": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "uncaptured_changes",
+                    "ignored_files",
+                    "sync_recovery"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "candidateArtifactResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "candidate_id",
+        "artifact"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "patchledger.result.candidate-artifact/v1"
+        },
+        "command": {
+          "const": "candidate.artifact"
+        },
+        "candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "artifact": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "base_commit",
+            "base_commit_source",
+            "patch_digest",
+            "artifact_format",
+            "result_tree_oid"
+          ],
+          "properties": {
+            "base_commit": {
+              "$ref": "common.schema.json#/$defs/gitOid"
+            },
+            "base_commit_source": {
+              "enum": [
+                "candidate",
+                "issue_version_baseline"
+              ]
+            },
+            "patch_digest": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            "artifact_format": { "const": "grounds.git-commit-artifact/v1" },
+            "git_artifact": { "$ref": "candidate-archive.schema.json#/$defs/artifact" },
+            "patch_size": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "result_tree_oid": {
+              "$ref": "common.schema.json#/$defs/gitOid"
+            },
+            "source": {
+              "$ref": "development-collaboration.schema.json#/$defs/sourceIdentity"
+            },
+            "repository_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            }
+          }
+        },
+        "source_retention": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scope",
+            "status"
+          ],
+          "properties": {
+            "scope": {
+              "const": "current_clone"
+            },
+            "status": {
+              "enum": [
+                "present",
+                "missing",
+                "inconsistent",
+                "unknown"
+              ]
+            },
+            "commit": {
+              "$ref": "common.schema.json#/$defs/gitOid"
+            }
+          }
+        }
+      }
+    },
+    "candidateReplayCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result_type",
+        "command",
+        "candidate_id",
+        "issue",
+        "base_commit",
+        "patch_digest",
+        "result_tree_oid",
+        "artifact_integrity",
+        "local_rebuild",
+        "reason",
+        "remote_reachability",
+        "remote_reason",
+        "checked_refs",
+        "checked_refs_total",
+        "checked_refs_truncated",
+        "checked_at",
+        "refs_may_be_stale",
+        "refresh"
+      ],
+      "properties": {
+        "result_type": {
+          "const": "patchledger.result.candidate-replay-check/v1"
+        },
+        "command": {
+          "const": "candidate.replay-check"
+        },
+        "candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "issue": {
+          "$ref": "#/$defs/versionReference"
+        },
+        "base_commit": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "patch_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "result_tree_oid": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "artifact_integrity": {
+          "enum": [
+            "consistent",
+            "inconsistent",
+            "unknown"
+          ]
+        },
+        "local_rebuild": {
+          "enum": [
+            "yes",
+            "no",
+            "unknown"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "ok",
+            "patch_missing",
+            "patch_digest_mismatch",
+            "local_repository_incomplete",
+            "base_commit_missing",
+            "check_error",
+            "patch_apply_failed",
+            "result_tree_mismatch"
+          ]
+        },
+        "remote_reachability": {
+          "enum": [
+            "reachable",
+            "unreachable",
+            "unknown"
+          ]
+        },
+        "remote_reason": {
+          "enum": [
+            "none",
+            "base_commit_missing_locally",
+            "remote_undetermined",
+            "no_remote_tracking_refs",
+            "repository_incomplete",
+            "refresh_failed",
+            "check_error"
+          ]
+        },
+        "remote_hint": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "checked_refs": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "ref",
+              "tip",
+              "contains_base_commit"
+            ],
+            "properties": {
+              "ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "tip": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "contains_base_commit": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "checked_refs_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "checked_refs_truncated": {
+          "type": "boolean"
+        },
+        "checked_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "refs_may_be_stale": {
+          "type": "boolean"
+        },
+        "refresh": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "requested",
+            "outcome"
+          ],
+          "properties": {
+            "requested": {
+              "type": "boolean"
+            },
+            "outcome": {
+              "enum": [
+                "not_requested",
+                "succeeded",
+                "failed"
+              ]
+            },
+            "error": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            }
+          }
+        }
+      }
+    },
+  "comparisonSummaryCandidate": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "candidate_id",
+      "dev_run_id",
+      "submission_explanation",
+      "attribution",
+      "created_at",
+      "standing",
+      "result_tree_oid",
+      "equivalence_group",
+      "patch_digest",
+      "manifest_digest",
+      "changed_files_count",
+      "changed_files",
+      "changed_files_omitted",
+      "claims",
+      "verification_count",
+      "verification_digest",
+      "verification_summaries",
+      "verification_summaries_omitted"
+    ],
+    "properties": {
+      "base_commit": { "$ref": "common.schema.json#/$defs/gitOid" },
+      "candidate_id": {
+        "$ref": "common.schema.json#/$defs/id"
+      },
+      "dev_run_id": {
+        "$ref": "common.schema.json#/$defs/id"
+      },
+      "exploration_brief": {
+        "$ref": "common.schema.json#/$defs/longText"
+      },
+      "refines_candidate_id": {
+        "$ref": "common.schema.json#/$defs/id"
+      },
+      "submission_explanation": {
+        "$ref": "#/$defs/textPreview"
+      },
+      "attribution": {
+        "$ref": "common.schema.json#/$defs/attribution"
+      },
+      "created_at": {
+        "$ref": "common.schema.json#/$defs/timestamp"
+      },
+      "standing": {
+        "$ref": "common.schema.json#/$defs/standing"
+      },
+      "result_tree_oid": {
+        "$ref": "common.schema.json#/$defs/gitOid"
+      },
+      "equivalence_group": {
+        "$ref": "common.schema.json#/$defs/gitOid"
+      },
+      "patch_digest": {
+        "$ref": "common.schema.json#/$defs/sha256"
+      },
+      "manifest_digest": {
+        "$ref": "common.schema.json#/$defs/sha256"
+      },
+      "changed_files_count": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "changed_files": {
+        "type": "array",
+        "maxItems": 2000,
+        "items": {
+          "$ref": "common.schema.json#/$defs/fileManifestEntry"
+        }
+      },
+      "changed_files_omitted": {
+        "type": "boolean"
+      },
+      "claims": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 200,
+        "items": {
+          "$ref": "#/$defs/claimComparison"
+        }
+      },
+      "verification_count": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "verification_digest": {
+        "$ref": "common.schema.json#/$defs/sha256"
+      },
+      "verification_summaries": {
+        "type": "array",
+        "maxItems": 256,
+        "items": {
+          "$ref": "#/$defs/verificationSummary"
+        }
+      },
+      "verification_summaries_omitted": {
+        "type": "boolean"
+      },
+      "is_selected": {
+        "type": "boolean"
+      }
+    }
+  },
+  "candidateComparisonSummary": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "result_type",
+      "command",
+      "issue",
+      "baseline_oid",
+      "candidates"
+    ],
+    "properties": {
+      "result_type": {
+        "const": "patchledger.result.candidate-comparison-summary/v1"
+      },
+      "command": {
+        "const": "candidate.compare"
+      },
+      "issue": {
+        "$ref": "#/$defs/versionReference"
+      },
+      "baseline_oid": {
+        "$ref": "common.schema.json#/$defs/gitOid"
+      },
+      "candidates": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 16,
+        "items": {
+          "$ref": "#/$defs/comparisonSummaryCandidate"
+        }
+      }
+    }
+  },
+  "verificationSetSummary": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "source",
+      "count",
+      "digest",
+      "standing",
+      "verdict_counts",
+      "reports_included"
+    ],
+    "properties": {
+      "source": {
+        "const": "derived_relation"
+      },
+      "count": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "digest": {
+        "$ref": "common.schema.json#/$defs/sha256"
+      },
+      "standing": {
+        "$ref": "common.schema.json#/$defs/standing"
+      },
+      "reports_included": {
+        "const": false
+      },
+      "verdict_counts": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "qualified",
+          "rejected",
+          "inconclusive"
+        ],
+        "properties": {
+          "qualified": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "rejected": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "inconclusive": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  },
+  "reviewSummary": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "result_type",
+      "command",
+      "trace"
+    ],
+    "properties": {
+      "result_type": {
+        "const": "patchledger.result.review-summary/v1"
+      },
+      "command": {
+        "const": "review"
+      },
+      "trace": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "format",
+          "candidate",
+          "repository",
+          "baseline",
+          "contract",
+          "artifact",
+          "change_index",
+          "submission",
+          "verification_set",
+          "explanation_coverage"
+        ],
+        "properties": {
+          "format": {
+            "const": "patchledger.review-summary/v1"
+          },
+          "candidate": {
+            "$ref": "#/$defs/reviewTrace/properties/trace/properties/candidate"
+          },
+          "repository": {
+            "$ref": "#/$defs/reviewTrace/properties/trace/properties/repository"
+          },
+          "baseline": {
+            "$ref": "#/$defs/reviewTrace/properties/trace/properties/baseline"
+          },
+          "contract": {
+            "$ref": "#/$defs/reviewTrace/properties/trace/properties/contract"
+          },
+          "artifact": {
+            "$ref": "#/$defs/reviewTrace/properties/trace/properties/artifact"
+          },
+          "comparison_basis": { "$ref": "candidate-archive.schema.json#/$defs/comparisonBasis" },
+          "lineage": { "$ref": "candidate-archive.schema.json#/$defs/lineage" },
+          "archive_history": { "type": "array", "maxItems": 100000, "items": { "$ref": "candidate-archive.schema.json#/$defs/operation" } },
+          "adoption": { "type": "array", "maxItems": 100000, "items": { "$ref": "integration.schema.json#/$defs/record" } },
+          "upstream_changes": { "$ref": "#/$defs/upstreamChanges" },
+          "sync_records": { "type": "array", "items": { "$ref": "devrun-sync.schema.json#/$defs/review" } },
+          "change_index": {
+            "$ref": "#/$defs/reviewTrace/properties/trace/properties/change_index"
+          },
+          "location": {
+            "$ref": "#/$defs/reviewTrace/properties/trace/properties/location"
+          },
+          "submission": {
+            "$ref": "#/$defs/reviewTrace/properties/trace/properties/submission"
+          },
+          "verification_set": {
+            "$ref": "#/$defs/verificationSetSummary"
+          },
+          "explanation_coverage": {
+            "$ref": "#/$defs/reviewTrace/properties/trace/properties/explanation_coverage"
+          }
+        }
+      }
+    }
+  },
+  "verificationPage": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "result_type",
+      "command",
+      "candidate_id",
+      "verification_set",
+      "verifications"
+    ],
+    "properties": {
+      "result_type": {
+        "const": "patchledger.result.verification-page/v1"
+      },
+      "command": {
+        "const": "verification.list"
+      },
+      "candidate_id": {
+        "$ref": "common.schema.json#/$defs/id"
+      },
+      "verification_set": {
+        "$ref": "#/$defs/verificationSetSummary"
+      },
+      "verifications": {
+        "type": "array",
+        "maxItems": 256,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "verification_id",
+            "candidate_id",
+            "overall_verdict",
+            "created_at",
+            "attribution",
+            "mode"
+          ],
+          "properties": {
+            "verification_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "candidate_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "overall_verdict": {
+              "$ref": "common.schema.json#/$defs/verdict"
+            },
+            "created_at": {
+              "$ref": "common.schema.json#/$defs/timestamp"
+            },
+            "attribution": {
+              "$ref": "common.schema.json#/$defs/attribution"
+            },
+            "mode": {
+              "$ref": "common.schema.json#/$defs/verificationMode"
+            },
+            "quality_verdict": {
+              "$ref": "common.schema.json#/$defs/verdict"
+            },
+            "quality_attribution": {
+              "$ref": "common.schema.json#/$defs/attribution"
+            }
+          }
+        }
+      },
+      "next_cursor": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
+      }
+    }
+  },
+    "repositoryDetail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "repository_id", "version", "canonical_remote", "aliases"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.repository-detail/v1" },
+        "command": { "const": "repository.show" },
+        "repository_id": { "$ref": "common.schema.json#/$defs/id" },
+        "version": { "type": "integer", "minimum": 1 },
+        "canonical_remote": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "aliases": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["remote", "state"],
+            "properties": {
+              "remote": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "state": { "enum": ["active", "retired"] }
+            }
+          }
+        }
+      }
+    },
+    "issueBoard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "next_action",
+        "open_dev_run_count",
+        "candidate_count",
+        "completion"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ready",
+            "exploring",
+            "candidates_available",
+            "candidate_selected",
+            "completed"
+          ]
+        },
+        "next_action": {
+          "enum": [
+            "start_devrun",
+            "resume_devrun",
+            "review_candidates",
+            "prepare_delivery",
+            null
+          ]
+        },
+        "open_dev_run_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "candidate_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "selection": {
+          "$ref": "selection.schema.json#/$defs/view"
+        },
+        "completion": {
+          "$ref": "completion.schema.json#/$defs/view"
+        },
+        "preflight": {
+          "$ref": "preflight.schema.json#/$defs/issueHint"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "completed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "next_action": {
+                "const": null
+              }
+            }
+          }
+        }
+      ]
+    },
+    "standingCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unverified", "inconclusive", "qualified", "rejected", "disputed"],
+      "properties": {
+        "unverified": { "type": "integer", "minimum": 0 },
+        "inconclusive": { "type": "integer", "minimum": 0 },
+        "qualified": { "type": "integer", "minimum": 0 },
+        "rejected": { "type": "integer", "minimum": 0 },
+        "disputed": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "versionReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "$ref": "common.schema.json#/$defs/id" },
+        "version": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "requirementDetail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "requirement", "issues", "issues_omitted", "aggregates"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.requirement-detail/v1" },
+        "command": { "const": "requirement.show" },
+        "requirement": { "$ref": "devrun-context.schema.json#/$defs/requirementVersion" },
+        "issues": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["issue", "repository", "baseline", "bound_to_selected_version", "board"],
+            "properties": {
+              "issue": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "version", "summary", "requirement"],
+                "properties": {
+                  "id": { "$ref": "common.schema.json#/$defs/id" },
+                  "version": { "type": "integer", "minimum": 1 },
+                  "summary": { "$ref": "common.schema.json#/$defs/shortText" },
+                  "requirement": { "$ref": "#/$defs/versionReference" }
+                }
+              },
+              "repository": { "$ref": "devrun-context.schema.json#/properties/repository" },
+              "baseline": { "$ref": "common.schema.json#/$defs/baseline" },
+              "bound_to_selected_version": { "type": "boolean" },
+              "board": { "$ref": "#/$defs/issueBoard" }
+            }
+          }
+        },
+        "issues_omitted": { "type": "boolean" },
+        "issues_next_cursor": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "aggregates": {
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "repository_count",
+    "issue_count",
+    "open_dev_run_count",
+    "candidate_count",
+    "bound_to_selected_version_issue_count",
+    "other_requirement_version_issue_count",
+    "candidate_standing_counts",
+    "completion_status",
+    "completed_issue_count"
+  ],
+  "properties": {
+    "repository_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "issue_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "open_dev_run_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "candidate_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "bound_to_selected_version_issue_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "other_requirement_version_issue_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "candidate_standing_counts": {
+      "$ref": "#/$defs/standingCounts"
+    },
+    "completion_status": {
+      "enum": [
+        "completed",
+        "incomplete",
+        "no_issues"
+      ]
+    },
+    "completed_issue_count": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "issues_omitted": { "const": true } },
+            "required": ["issues_omitted"]
+          },
+          "then": { "required": ["issues_next_cursor"] },
+          "else": { "not": { "required": ["issues_next_cursor"] } }
+        }
+      ]
+    },
+    "issueDetail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "requirement", "repository", "baseline", "issue", "board"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.issue-detail/v1" },
+        "command": { "const": "issue.show" },
+        "requirement": { "$ref": "devrun-context.schema.json#/$defs/requirementVersion" },
+        "repository": { "$ref": "devrun-context.schema.json#/properties/repository" },
+        "baseline": { "$ref": "common.schema.json#/$defs/baseline" },
+        "issue": { "$ref": "devrun-context.schema.json#/properties/issue" },
+        "board": { "$ref": "#/$defs/issueBoard" }
+      }
+    },
+    "devRunDetail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "dev_run_id", "issue", "version", "state", "created_at", "attribution"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.devrun-detail/v1" },
+        "command": { "const": "devrun.show" },
+        "execution_mode": { "$ref": "development-collaboration.schema.json#/$defs/executionMode" },
+        "dev_run_id": { "$ref": "common.schema.json#/$defs/id" },
+        "issue": { "$ref": "#/$defs/versionReference" },
+        "version": { "type": "integer", "minimum": 1 },
+        "state": { "enum": ["open", "submitted", "abandoned"] },
+        "exploration_brief": { "$ref": "common.schema.json#/$defs/longText" },
+        "refines_candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+        "candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+        "abandon_reason": { "$ref": "common.schema.json#/$defs/longText" },
+        "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "attribution": { "$ref": "common.schema.json#/$defs/attribution" },
+        "development": {
+          "$ref": "development-collaboration.schema.json#/$defs/developmentIdentity"
+        },
+        "local_worktree": {
+          "$ref": "command-results.schema.json#/$defs/localWorktree"
+        },
+        "current_head": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "standing"
+          ],
+          "properties": {
+            "standing": {
+              "enum": [
+                "unverified",
+                "qualified",
+                "rejected",
+                "disputed",
+                "inconclusive",
+                "unknown"
+              ]
+            },
+            "candidate_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "verification": {
+              "$ref": "#/$defs/verificationSetSummary"
+            }
+          }
+        },
+        "initial_base_commit": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "artifact_restoration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "method",
+            "parent_candidate_id",
+            "source_history"
+          ],
+          "properties": {
+            "method": {
+              "const": "base_patch"
+            },
+            "parent_candidate_id": {
+              "$ref": "common.schema.json#/$defs/id"
+            },
+            "source_history": {
+              "const": "not_reconstructed"
+            }
+          }
+        },
+        "preflight": {
+          "$ref": "preflight.schema.json#/$defs/devRunPreflight"
+        }
+      }
+    },
+    "verificationSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verification_id", "overall_verdict", "created_at", "attribution", "mode"],
+      "properties": {
+        "verification_id": { "$ref": "common.schema.json#/$defs/id" },
+        "overall_verdict": { "$ref": "common.schema.json#/$defs/verdict" },
+        "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "attribution": { "$ref": "common.schema.json#/$defs/attribution" },
+        "mode": { "$ref": "common.schema.json#/$defs/verificationMode" },
+        "quality_verdict": { "$ref": "common.schema.json#/$defs/verdict" },
+        "quality_attribution": { "$ref": "common.schema.json#/$defs/attribution" }
+      }
+    },
+    "candidateRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_id",
+        "dev_run_id",
+        "issue",
+        "submission_explanation",
+        "attribution",
+        "created_at",
+        "result_tree_oid",
+        "patch_digest",
+        "artifact_format",
+        "standing",
+        "file_count",
+        "manifest_digest",
+        "file_manifest",
+        "file_manifest_omitted",
+        "claims",
+        "verification_count",
+        "verification_digest",
+        "verifications",
+        "verifications_omitted"
+      ],
+      "properties": {
+        "candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "dev_run_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "issue": {
+          "$ref": "#/$defs/versionReference"
+        },
+        "exploration_brief": {
+          "$ref": "common.schema.json#/$defs/longText"
+        },
+        "refines_candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "submission_explanation": {
+          "$ref": "common.schema.json#/$defs/longText"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "created_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "result_tree_oid": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "patch_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "artifact_format": {
+          "const": "grounds.git-commit-artifact/v1"
+        },
+        "git_artifact": { "$ref": "candidate-archive.schema.json#/$defs/artifact" },
+        "lineage": { "$ref": "candidate-archive.schema.json#/$defs/lineage" },
+        "archive_history": { "type": "array", "maxItems": 100000, "items": { "$ref": "candidate-archive.schema.json#/$defs/operation" } },
+        "adoption": { "type": "array", "maxItems": 100000, "items": { "$ref": "integration.schema.json#/$defs/record" } },
+        "standing": {
+          "$ref": "common.schema.json#/$defs/standing"
+        },
+        "file_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "manifest_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "file_manifest": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": {
+            "$ref": "common.schema.json#/$defs/fileManifestEntry"
+          }
+        },
+        "file_manifest_omitted": {
+          "type": "boolean"
+        },
+        "manifest_next_cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "claims": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": {
+            "$ref": "common.schema.json#/$defs/claimRecord"
+          }
+        },
+        "verification_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "verification_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "verifications": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/verificationSummary"
+          }
+        },
+        "verifications_omitted": {
+          "type": "boolean"
+        },
+        "verifications_next_cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "is_selected": {
+          "type": "boolean"
+        },
+        "source": {
+          "$ref": "development-collaboration.schema.json#/$defs/sourceIdentity"
+        }
+      }
+    },
+    "candidateDetail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "candidate"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.candidate-detail/v1" },
+        "command": { "const": "candidate.show" },
+        "candidate": { "$ref": "#/$defs/candidateRecord" }
+      }
+    },
+    "textPreview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest", "preview", "truncated"],
+      "properties": {
+        "digest": { "$ref": "common.schema.json#/$defs/sha256" },
+        "preview": { "type": "string", "maxLength": 2048 },
+        "truncated": { "type": "boolean" }
+      }
+    },
+    "claimComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_type", "target_id", "explanation", "criteria"],
+      "properties": {
+        "target_type": { "enum": ["goal", "constraint"] },
+        "target_id": { "$ref": "common.schema.json#/$defs/id" },
+        "explanation": { "$ref": "#/$defs/textPreview" },
+        "criteria": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["criterion_id", "explanation", "evidence_count", "verification_standing"],
+            "properties": {
+              "criterion_id": { "$ref": "common.schema.json#/$defs/id" },
+              "explanation": { "$ref": "#/$defs/textPreview" },
+              "self_verification": {
+                "type": "object", "additionalProperties": false,
+                "required": ["status", "explanation"],
+                "properties": {
+                  "status": { "enum": ["satisfied", "partially_satisfied", "not_satisfied", "inconclusive", "not_verified"] },
+                  "explanation": { "$ref": "#/$defs/textPreview" },
+                  "method": { "$ref": "#/$defs/textPreview" }
+                }
+              },
+              "evidence_count": { "type": "integer", "minimum": 0, "maximum": 8 },
+              "verification_standing": { "$ref": "common.schema.json#/$defs/standing" }
+            }
+          }
+        }
+      }
+    },
+    "diffStats": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["files", "insertions", "deletions"],
+      "properties": {
+        "files": { "type": "integer", "minimum": 0 },
+        "insertions": { "type": "integer", "minimum": 0 },
+        "deletions": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "comparisonCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_id",
+        "dev_run_id",
+        "submission_explanation",
+        "attribution",
+        "created_at",
+        "standing",
+        "result_tree_oid",
+        "equivalence_group",
+        "patch_digest",
+        "patch_state",
+        "diff_from_baseline",
+        "manifest_digest",
+        "changed_files_count",
+        "changed_files",
+        "changed_files_omitted",
+        "claims",
+        "verification_count",
+        "verification_digest",
+        "verification_summaries",
+        "verification_summaries_omitted"
+      ],
+      "properties": {
+        "base_commit": { "$ref": "common.schema.json#/$defs/gitOid" },
+        "candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "dev_run_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "exploration_brief": {
+          "$ref": "common.schema.json#/$defs/longText"
+        },
+        "refines_candidate_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "submission_explanation": {
+          "$ref": "#/$defs/textPreview"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "created_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "standing": {
+          "$ref": "common.schema.json#/$defs/standing"
+        },
+        "result_tree_oid": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "equivalence_group": {
+          "$ref": "common.schema.json#/$defs/gitOid"
+        },
+        "patch_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "patch_state": {
+          "enum": [
+            "inline",
+            "not_requested",
+            "omitted_size",
+            "binary"
+          ]
+        },
+        "patch": {
+          "type": "string",
+          "maxLength": 1048576
+        },
+        "diff_from_baseline": {
+          "$ref": "#/$defs/diffStats"
+        },
+        "manifest_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "changed_files_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "changed_files": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": {
+            "$ref": "common.schema.json#/$defs/fileManifestEntry"
+          }
+        },
+        "changed_files_omitted": {
+          "type": "boolean"
+        },
+        "claims": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": {
+            "$ref": "#/$defs/claimComparison"
+          }
+        },
+        "verification_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "verification_digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "verification_summaries": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/verificationSummary"
+          }
+        },
+        "verification_summaries_omitted": {
+          "type": "boolean"
+        },
+        "is_selected": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "patch_state": {
+                "const": "inline"
+              }
+            },
+            "required": [
+              "patch_state"
+            ]
+          },
+          "then": {
+            "required": [
+              "patch"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "patch"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "pairwiseDiff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["left_candidate_id", "right_candidate_id", "equivalent", "diff_digest", "stats", "diff_state"],
+      "properties": {
+        "upstream_changes": { "$ref": "#/$defs/upstreamChanges" },
+        "left_candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+        "right_candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+        "equivalent": { "type": "boolean" },
+        "diff_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+        "stats": { "$ref": "#/$defs/diffStats" },
+        "diff_state": { "enum": ["inline", "not_requested", "omitted_size", "binary"] },
+        "unified_diff": { "type": "string", "maxLength": 1048576 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "diff_state": { "const": "inline" } }, "required": ["diff_state"] },
+          "then": { "required": ["unified_diff"] },
+          "else": { "not": { "required": ["unified_diff"] } }
+        }
+      ]
+    },
+    "candidateComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "issue", "baseline_oid", "candidates", "pairwise_diffs"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.candidate-comparison/v1" },
+        "command": { "const": "candidate.compare" },
+        "issue": { "$ref": "#/$defs/versionReference" },
+        "baseline_oid": { "$ref": "common.schema.json#/$defs/gitOid" },
+        "candidates": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/comparisonCandidate" }
+        },
+        "pairwise_diffs": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/pairwiseDiff" }
+        }
+      }
+    },
+    "verificationDetail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "verification_id", "candidate_id", "mode", "overall_verdict", "created_at", "attribution", "report"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.verification-detail/v1" },
+        "command": { "const": "verification.show" },
+        "verification_id": { "$ref": "common.schema.json#/$defs/id" },
+        "candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+        "mode": { "$ref": "common.schema.json#/$defs/verificationMode" },
+        "overall_verdict": { "$ref": "common.schema.json#/$defs/verdict" },
+        "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "attribution": { "$ref": "common.schema.json#/$defs/attribution" },
+        "report": { "$ref": "verification-report.schema.json" },
+        "quality": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["overall_verdict", "attribution", "report"],
+          "properties": {
+            "overall_verdict": { "$ref": "common.schema.json#/$defs/verdict" },
+            "attribution": { "$ref": "common.schema.json#/$defs/attribution" },
+            "report": { "$ref": "quality-review-report.schema.json" }
+          }
+        }
+      }
+    },
+    "reviewRationaleCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "status"],
+      "properties": {
+        "source": { "const": "derived_relation" },
+        "status": { "enum": ["complete", "not_recorded", "not_applicable"] },
+        "reason": { "enum": ["candidate_submission_v1_has_no_change_rationales", "line_is_unchanged_context", "line_is_outside_changed_ranges", "line_precision_unavailable"] }
+      }
+    },
+    "reviewChangeIndex": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "format", "patch_digest", "units_digest", "change_units"],
+      "properties": {
+        "source": { "const": "derived_relation" },
+        "format": { "const": "patchledger.change-index/v1" },
+        "patch_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+        "units_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+        "change_units": { "type": "array", "maxItems": 100000, "items": { "$ref": "common.schema.json#/$defs/changeUnit" } }
+      }
+    },
+    "reviewExplanationCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "status", "total_change_units", "explained_change_units", "unexplained_change_unit_ids"],
+      "properties": {
+        "source": { "const": "derived_relation" },
+        "status": { "enum": ["complete", "not_recorded", "not_applicable"] },
+        "total_change_units": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "explained_change_units": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "unexplained_change_unit_ids": { "type": "array", "maxItems": 100000, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/sha256" } },
+        "reason": { "enum": ["candidate_submission_v1_has_no_change_rationales", "candidate_has_no_changes"] }
+      }
+    },
+    "reviewLocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "requested_path", "side", "match", "change_units", "rationales", "rationale_coverage"],
+      "properties": {
+        "source": { "const": "derived_relation" },
+        "requested_path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "side": { "enum": ["old", "new"] },
+        "line": { "type": "integer", "minimum": 1 },
+        "match": { "enum": ["change_unit", "file", "none"] },
+        "line_status": { "enum": ["added", "deleted", "context", "outside_hunks", "unavailable"] },
+        "file": { "$ref": "common.schema.json#/$defs/fileManifestEntry" },
+        "change_units": { "type": "array", "maxItems": 100000, "items": { "$ref": "common.schema.json#/$defs/changeUnit" } },
+        "rationales": { "type": "array", "maxItems": 10000, "items": { "$ref": "common.schema.json#/$defs/changeRationale" } },
+        "rationale_coverage": { "$ref": "#/$defs/reviewRationaleCoverage" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "match": { "enum": ["file", "change_unit"] } }, "required": ["match"] },
+          "then": { "required": ["file"] },
+          "else": { "not": { "required": ["file"] } }
+        },
+        {
+          "if": { "required": ["line", "file"] },
+          "then": { "required": ["line_status"] },
+          "else": { "not": { "required": ["line_status"] } }
+        },
+        {
+          "if": { "properties": { "line_status": { "enum": ["added", "deleted"] } }, "required": ["line_status"] },
+          "then": { "properties": { "match": { "const": "change_unit" } } }
+        },
+        {
+          "if": { "properties": { "line_status": { "enum": ["context", "outside_hunks", "unavailable"] } }, "required": ["line_status"] },
+          "then": { "properties": { "match": { "const": "file" } } }
+        }
+      ]
+    },
+    "reviewVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "verification_id", "mode", "overall_verdict", "created_at", "attribution", "report"],
+      "properties": {
+        "source": { "const": "verifier_finding" },
+        "verification_id": { "$ref": "common.schema.json#/$defs/id" },
+        "mode": { "$ref": "common.schema.json#/$defs/verificationMode" },
+        "overall_verdict": { "$ref": "common.schema.json#/$defs/verdict" },
+        "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "attribution": { "$ref": "common.schema.json#/$defs/attribution" },
+        "report": { "$ref": "verification-report.schema.json" },
+        "quality": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["overall_verdict", "attribution", "report"],
+          "properties": {
+            "overall_verdict": { "$ref": "common.schema.json#/$defs/verdict" },
+            "attribution": { "$ref": "common.schema.json#/$defs/attribution" },
+            "report": { "$ref": "quality-review-report.schema.json" }
+          }
+        }
+      }
+    },
+    "reviewTrace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "trace"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.review-trace/v3" },
+        "command": { "const": "review" },
+        "trace": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["format", "candidate", "repository", "baseline", "contract", "artifact", "change_index", "submission", "verification_set", "explanation_coverage"],
+          "properties": {
+            "format": { "const": "patchledger.review-trace/v3" },
+            "candidate": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["source", "candidate_id", "dev_run_id", "created_at", "attribution", "standing"],
+              "properties": {
+                "source": { "const": "ledger_fact" },
+                "candidate_id": { "$ref": "common.schema.json#/$defs/id" },
+                "dev_run_id": { "$ref": "common.schema.json#/$defs/id" },
+                "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+                "attribution": { "$ref": "common.schema.json#/$defs/attribution" },
+                "standing": { "$ref": "common.schema.json#/$defs/standing" },
+                "exploration_brief": { "$ref": "common.schema.json#/$defs/longText" },
+                "refines_candidate_id": { "$ref": "common.schema.json#/$defs/id" }
+              }
+            },
+            "repository": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["source", "id", "canonical_remote_at_submission"],
+              "properties": {
+                "source": { "const": "ledger_fact" },
+                "id": { "$ref": "common.schema.json#/$defs/id" },
+                "canonical_remote_at_submission": { "type": "string", "minLength": 1, "maxLength": 4096 }
+              }
+            },
+            "baseline": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["source", "git_oid", "reachability"],
+              "properties": {
+                "source": { "const": "ledger_fact" },
+                "git_oid": { "$ref": "common.schema.json#/$defs/gitOid" },
+                "reachability": { "enum": ["remote_tracking_reachable", "unconfirmed"] },
+                "warning": { "$ref": "common.schema.json#/$defs/statement" },
+                "override_reason": { "$ref": "common.schema.json#/$defs/longText" }
+              },
+              "allOf": [
+                {
+                  "if": { "properties": { "reachability": { "const": "unconfirmed" } }, "required": ["reachability"] },
+                  "then": { "required": ["warning"] }
+                },
+                {
+                  "if": { "properties": { "reachability": { "const": "remote_tracking_reachable" } }, "required": ["reachability"] },
+                  "then": { "not": { "anyOf": [{ "required": ["warning"] }, { "required": ["override_reason"] }] } }
+                }
+              ]
+            },
+            "contract": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["source", "requirement", "issue"],
+              "properties": {
+                "source": { "const": "ledger_fact" },
+                "requirement": { "$ref": "devrun-context.schema.json#/$defs/requirementVersion" },
+                "issue": { "$ref": "devrun-context.schema.json#/properties/issue" }
+              }
+            },
+            "artifact": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["source", "format", "result_tree_oid", "patch_digest", "uncompressed_size", "file_manifest", "patch_state"],
+              "properties": {
+                "base_commit": { "$ref": "common.schema.json#/$defs/gitOid" },
+                "source": { "const": "ledger_fact" },
+                "format": { "const": "grounds.git-commit-artifact/v1" },
+                "git_artifact": { "$ref": "candidate-archive.schema.json#/$defs/artifact" },
+                "result_tree_oid": { "$ref": "common.schema.json#/$defs/gitOid" },
+                "patch_digest": { "$ref": "common.schema.json#/$defs/sha256" },
+                "uncompressed_size": { "type": "integer", "minimum": 0, "maximum": 67108864 },
+                "file_manifest": { "type": "array", "maxItems": 100000, "items": { "$ref": "common.schema.json#/$defs/fileManifestEntry" } },
+                "patch_state": { "enum": ["inline", "not_requested", "omitted_size", "binary"] },
+                "patch": { "type": "string", "maxLength": 1048576 },
+                "source_commit": {
+                  "$ref": "common.schema.json#/$defs/gitOid"
+                },
+                "source_parents": {
+                  "type": "array",
+                  "maxItems": 32,
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "common.schema.json#/$defs/gitOid"
+                  }
+                }
+              },
+              "allOf": [
+                {
+                  "if": { "properties": { "patch_state": { "const": "inline" } }, "required": ["patch_state"] },
+                  "then": { "required": ["patch"] },
+                  "else": { "not": { "required": ["patch"] } }
+                }
+              ]
+            },
+            "comparison_basis": { "$ref": "candidate-archive.schema.json#/$defs/comparisonBasis" },
+            "lineage": { "$ref": "candidate-archive.schema.json#/$defs/lineage" },
+            "archive_history": { "type": "array", "maxItems": 100000, "items": { "$ref": "candidate-archive.schema.json#/$defs/operation" } },
+            "adoption": { "type": "array", "maxItems": 100000, "items": { "$ref": "integration.schema.json#/$defs/record" } },
+            "upstream_changes": { "$ref": "#/$defs/upstreamChanges" },
+            "sync_records": { "type": "array", "items": { "$ref": "devrun-sync.schema.json#/$defs/review" } },
+            "change_index": { "$ref": "#/$defs/reviewChangeIndex" },
+            "location": { "$ref": "#/$defs/reviewLocation" },
+            "submission": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["source", "format", "explanation", "claims", "change_rationales"],
+              "properties": {
+                "source": { "const": "author_claim" },
+                "format": { "enum": ["patchledger.candidate-submission/v1", "patchledger.candidate-submission/v2"] },
+                "explanation": { "$ref": "common.schema.json#/$defs/longText" },
+                "claims": { "type": "array", "minItems": 1, "maxItems": 200, "items": { "$ref": "common.schema.json#/$defs/claimRecord" } },
+                "change_rationales": { "type": "array", "maxItems": 10000, "items": { "$ref": "common.schema.json#/$defs/changeRationale" } }
+              }
+            },
+            "verification_set": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["source", "count", "digest", "standing", "complete", "verifications"],
+              "properties": {
+                "source": { "const": "derived_relation" },
+                "count": { "type": "integer", "minimum": 0 },
+                "digest": { "$ref": "common.schema.json#/$defs/sha256" },
+                "standing": { "$ref": "common.schema.json#/$defs/standing" },
+                "complete": { "const": true },
+                "verifications": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/reviewVerification" } }
+              }
+            },
+            "explanation_coverage": { "$ref": "#/$defs/reviewExplanationCoverage" }
+          }
+        }
+      }
+    },
+    "ledgerEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id",
+        "event_seq",
+        "event_type",
+        "event_version",
+        "operation_id",
+        "subject_type",
+        "subject_id",
+        "occurred_at",
+        "attribution",
+        "facts"
+      ],
+      "properties": {
+        "event_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "event_seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "event_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "event_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "operation_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "repository_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "subject_type": {
+          "enum": [
+            "requirement",
+            "repository",
+            "issue",
+            "dev_run",
+            "candidate",
+            "verification",
+            "delivery_link", "selection", "issue_completion", "eval_grader", "eval_suite", "eval_snapshot", "eval_experiment", "eval_run", "eval_execution", "eval_result", "eval_notice", "eval_qa", "eval_artifact", "eval_environment", "eval_envcheck", "eval_preparation", "eval_instance"]
+        },
+        "subject_id": {
+          "$ref": "common.schema.json#/$defs/id"
+        },
+        "subject_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "occurred_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "attribution": {
+          "$ref": "common.schema.json#/$defs/attribution"
+        },
+        "facts": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "value"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "value": {
+                "type": "string",
+                "maxLength": 4096
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "subject_type": {
+                "enum": ["requirement", "eval_grader", "eval_suite", "eval_snapshot", "eval_experiment", "eval_run", "eval_execution", "eval_result", "eval_notice", "eval_qa", "eval_artifact", "eval_environment", "eval_envcheck", "eval_preparation", "eval_instance"]
+              }
+            },
+            "required": [
+              "subject_type"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "repository_id"
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "repository_id"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "subject_type": {
+                "enum": [
+                  "requirement",
+                  "issue",
+                  "repository",
+                  "dev_run",
+                  "delivery_link", "selection", "issue_completion", "eval_grader", "eval_suite", "eval_snapshot", "eval_experiment", "eval_run", "eval_execution", "eval_result", "eval_notice", "eval_qa", "eval_artifact", "eval_environment", "eval_envcheck", "eval_preparation", "eval_instance"]
+              }
+            },
+            "required": [
+              "subject_type"
+            ]
+          },
+          "then": {
+            "required": [
+              "subject_version"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "subject_version"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "ledgerResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "events"],
+      "properties": {
+        "result_type": { "const": "patchledger.result.ledger/v1" },
+        "command": { "enum": ["ledger.list", "ledger.show"] },
+        "events": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/ledgerEvent" }
+        },
+        "next_cursor": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      }
+    }
+  }
+}
