@@ -11,6 +11,7 @@ import { DomainError } from "../src/errors.js";
 import { LedgerFixture, testAgent, testBaseline } from "./fixture.js";
 import { assertContract } from "./schema-fixture.js";
 import { isolatedPostgres, postgresEnabled } from "./isolated-postgres.js";
+import { isolatedMySQL } from "./isolated-mysql.js";
 
 const mysqlEnabled = ["HOST", "DATABASE", "USERNAME", "PASSWORD"].every(key => process.env[`GROUNDS_TEST_MYSQL_${key}`]);
 const mysql = () => SQLStore.mysql({ host: process.env.GROUNDS_TEST_MYSQL_HOST!, port: Number(process.env.GROUNDS_TEST_MYSQL_PORT ?? 3306), database: process.env.GROUNDS_TEST_MYSQL_DATABASE!, username: process.env.GROUNDS_TEST_MYSQL_USERNAME!, password: process.env.GROUNDS_TEST_MYSQL_PASSWORD!, ...(process.env.GROUNDS_TEST_MYSQL_CA_FILE ? { caFile: process.env.GROUNDS_TEST_MYSQL_CA_FILE } : {}) });
@@ -22,8 +23,11 @@ const errorCode = (code: string) => (error: unknown) => {
 for (const backend of ["sqlite", "mysql", "postgres"] as const) {
   const skipped = backend === "mysql" ? !mysqlEnabled : backend === "postgres" ? !postgresEnabled : false;
   const backendTest = (name: string, run: (f: LedgerFixture) => Promise<void>) => test(`${backend}: ${name}`, { skip: skipped }, async () => {
-    const pg = backend === "postgres" ? await isolatedPostgres() : undefined;
-    const f = pg ? await LedgerFixture.createWithStore(pg.store, pg.cleanup) : backend === "sqlite" ? await LedgerFixture.create() : await LedgerFixture.createWithStore(mysql());
+    const remote = backend === "postgres" ? await isolatedPostgres() : backend === "mysql" ? await isolatedMySQL() : undefined;
+    const f = remote ? await LedgerFixture.createWithStore(remote.store, async () => {
+      try { if (backend === "mysql") await remote.store.close(); }
+      finally { await remote.cleanup(); }
+    }) : await LedgerFixture.create();
     try { await run(f); } finally { await f.close(); }
   });
 
