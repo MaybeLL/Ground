@@ -3,6 +3,7 @@
 Grounds keeps a versioned ledger of requirements, issues, development runs, candidates, independent verification, and delivery records. Claims and test evidence are stored explicitly; an unverified claim is not a successful verification.
 
 - [Getting started](getting-started.md): requirements, source build, and configuration.
+- [GitHub archive onboarding](../plugins/grounds/skills/grounds/references/github-archive-onboarding.md): authentication, rulesets, and repository binding.
 - [Release process](releases.md): GitHub automation and distribution gates.
 - [Machine-readable contracts](contracts/v1/README.md): versioned JSON interfaces and schemas.
 - [Contribution guide](../CONTRIBUTING.md): local checks and pull requests.

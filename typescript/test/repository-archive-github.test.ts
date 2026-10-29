@@ -77,11 +77,12 @@ test("GitHub transport uses pinned host, bounded pagination and redacted errors"
 
 test("default CLI init/register/bind/check uses isolated SQLite and real GitHub transport wiring", async t => {
   const { runCLI } = await import("../src/cli.js");
-  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { withRuntimeDirectories } = await import("../src/runtime-files.js");
+  const { mkdtempSync, rmSync, realpathSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const { execFileSync } = await import("node:child_process");
-  const root = mkdtempSync(join(tmpdir(), "grounds-github-cli-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "grounds-github-cli-")));
   const original = globalThis.fetch, originalToken = process.env.GROUNDS_GITHUB_TOKEN, originalData = process.env.GROUNDS_DATA_HOME;
   t.after(() => { globalThis.fetch = original; if (originalToken === undefined) delete process.env.GROUNDS_GITHUB_TOKEN; else process.env.GROUNDS_GITHUB_TOKEN = originalToken; if (originalData === undefined) delete process.env.GROUNDS_DATA_HOME; else process.env.GROUNDS_DATA_HOME = originalData; rmSync(root, { recursive: true, force: true }); });
   process.env.GROUNDS_GITHUB_TOKEN = "isolated-fixture-token";
@@ -105,7 +106,7 @@ test("default CLI init/register/bind/check uses isolated SQLite and real GitHub 
   const config = join(root, "config.yaml");
   async function cli(args: string[]) {
     const lines: string[] = [];
-    const code = await runCLI([...args, "--config", config, "--json"], { cwd: root, stdout: line => lines.push(line), stderr: () => {} });
+    const code = await withRuntimeDirectories({ runtimeHome: join(root, "runtime"), directoryRegistryHome: join(root, "registry") }, () => runCLI([...args, "--config", config, "--json"], { cwd: root, stdout: line => lines.push(line), stderr: () => {} }));
     const envelope = JSON.parse(lines.join("\n"));
     assert.equal(code, 0, JSON.stringify(envelope)); assert.equal(envelope.ok, true);
     assertContract("cli-envelope.schema.json", envelope);
@@ -122,4 +123,14 @@ test("default CLI init/register/bind/check uses isolated SQLite and real GitHub 
   forbidden = true;
   const denied = await cli(["repository", "archive-check", "--repository", id]); assert.equal(denied.projects[0].report.state, "unknown"); assert.equal(denied.summary.ready, 0);
   assert.ok(reads >= 17);
+});
+
+
+test("release tag creation bypass does not poison provably disjoint archive protections", () => {
+  const release = { ...ruleset(), id: 2, bypass_actors: [{ actor_type: "RepositoryRole", actor_id: 5, bypass_mode: "always" }], conditions: { ref_name: { include: ["refs/tags/v*"], exclude: [] } }, rules: [{ type: "creation" }] };
+  assert.ok(githubArchiveNamespaces([ruleset(), release], true).every(n => n.protection === "confirmed"));
+  assert.ok(githubArchiveNamespaces([release], true).every(n => n.protection === "missing"), "release protection does not cover archives");
+  for (const include of [["refs/tags/v*", "refs/tags/grounds/candidates/*"], ["refs/tags/g*"], ["refs/tags/*"], ["~ALL"], ["refs/tags/[gv]*"]]) {
+    assert.throws(() => githubArchiveNamespaces([ruleset(), { ...release, conditions: { ref_name: { include, exclude: [] } } }], true), GitLabFailure);
+  }
 });

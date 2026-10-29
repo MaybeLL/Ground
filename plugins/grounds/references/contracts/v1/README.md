@@ -265,7 +265,7 @@ Docker 实例记录可包含 `engine_id`，运行/停止时按实例核对 以�
 
 该查询是快照，不能单独消除检查后新实例注入的竞争。宿主认证流程应使用 `env-credentials.ts` 的 `acquireCredentialSourceLocks`，在同一来源锁内查询全部关联 grant/实例、核对来源版本并完成显式退出；异步调用结束后在 `finally` 释放锁。准备流程在相同来源锁内复核版本、先发布 `preparing` 占用再注入，凭据回写也使用此锁。不同运行根通过同一目录注册根共享来源锁；使用私有测试注册根的认证组件和任务必须显式使用相同注册根。认证侧不能只按 grant 名称过滤，也不能在终止未知、收尾失败或占用查询失败时删除/吊销来源。历史回写冲突但已安全 `released` 的实例不永久占用。此协议不恢复已退役的 `auth` 命令。
 
-GitLab项目归档接入的闭合结果与绑定格式见 `repository-archive.schema.json`；保护失败诊断扩展见 `candidate-archive.schema.json`。当前实现及权限边界见总设计。
+GitHub.com / GitLab 项目归档接入的闭合结果与绑定格式见 `repository-archive.schema.json`；保护失败诊断扩展见 `candidate-archive.schema.json`。GitHub 使用实时 rulesets API 核验两个完整归档命名空间，要求有效的更新/删除限制、无 bypass 和无排除；创建权限来自当前用户的仓库写权限。未知规则、API 拒绝或保护不可用不放行。GitLab 继续使用其保护标签适配器；项目绑定不缓存授权。
 
 归档错误响应的 `details.operation_id` 指向需恢复的原操作；可选 `phase` 为 prepared / verified / committed / unknown / failed。它们不代表重新提交授权或允许创建新Candidate。
 

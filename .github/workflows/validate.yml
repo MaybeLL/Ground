@@ -52,6 +52,7 @@ jobs:
       - run: npm test
         working-directory: tui
       - run: node --test scripts/*.test.mjs
+      - run: node scripts/check-docs.mjs
       - run: python3 -m unittest discover -s plugins/grounds/tests -p 'test_*.py' -q
       - name: Validate packaged CLI and skills
         run: node scripts/package-test.mjs
@@ -61,6 +62,14 @@ jobs:
         working-directory: tui
       - name: Install release tarballs as a user
         run: node scripts/release-artifacts.mjs
+      - name: Preserve failed test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-failures-${{ matrix.os }}-node-${{ matrix.node }}
+          path: typescript/test-worker-*.log
+          if-no-files-found: ignore
+          retention-days: 7
 
   integration:
     name: Integration (MySQL, PostgreSQL, SQLite, PTY)

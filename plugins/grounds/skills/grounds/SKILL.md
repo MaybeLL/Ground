@@ -61,9 +61,9 @@ python3 "${GROUNDS_SKILL_ROOT:-$PLUGIN_ROOT}/scripts/grounds_agent.py" invoke --
 
 对于混合请求，保留用户的每项意图，只按需要串联相应流程。Verification 失败本身不能确定应修改代码还是契约：先检查发现，必要时澄清预期行为。相互冲突的报告仍与当前审阅相关；遵循交付流程的完整 Review Trace 协议，不只选择最新结论。不要仅为准备盲验而读取作者声明。
 
-## GitLab 项目归档接入
+## GitHub / GitLab 项目归档接入
 
-需要首次接入、管理员配置引导、批量检查或权限漂移复查时，按 [GitLab 项目归档接入](references/gitlab-archive-onboarding.md) 使用公开 `repository archive-show/check/guide/template/bind`。共享绑定不是授权缓存；日常候选和落地归档重新核验当前项目及两个命名空间，不自动写 ACL 或成员角色。
+需要首次接入、管理员配置引导、批量检查或权限漂移复查时，GitHub.com 仓库按 [GitHub 项目归档接入](references/github-archive-onboarding.md)，已有 GitLab 仓库按 [GitLab 项目归档接入](references/gitlab-archive-onboarding.md)，使用公开 `repository archive-show/check/guide/template/bind`。共享绑定不是授权缓存；日常候选和落地归档重新核验当前项目及两个命名空间，不自动写 ACL 或成员角色。
 
 ## 保持授权与隔离边界
 

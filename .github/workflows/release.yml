@@ -61,6 +61,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_COMMIT: ${{ github.sha }}
         run: |
           sha256sum --check SHA256SUMS
+          remote_commit=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)
+          test "$remote_commit" = "$RELEASE_COMMIT"
           gh release create "$RELEASE_TAG" ./*.tgz SHA256SUMS --verify-tag --generate-notes --title "Grounds $RELEASE_TAG"

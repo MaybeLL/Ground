@@ -16,3 +16,15 @@ concurrency:
 jobs:
   validate:
     uses: ./.github/workflows/validate.yml
+
+  complete:
+    name: CI passed
+    needs: validate
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every validation job
+        env:
+          VALIDATION_RESULT: ${{ needs.validate.result }}
+        run: test "$VALIDATION_RESULT" = success

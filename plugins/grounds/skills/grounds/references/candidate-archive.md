@@ -6,7 +6,7 @@
 
 正式新模式 Candidate 的远程归档是封存的一部分。归档属于远程写入，遵循用户已有授权；普通本地 checkpoint 不要求归档。封存使用部署方提供、范围匹配且仍有效的保护策略，不因为 ref 名字包含 `grounds` 就认定它受保护。策略须有可核查来源、团队按 ref 读取权限、普通身份不能覆盖/删除和归档身份可创建；仓库与数据库备份状态分别披露。
 
-已按[GitLab项目接入](gitlab-archive-onboarding.md)绑定的仓库，`candidate submit` 默认使用实时API核验；显式 `--archive-policy FILE` / `GROUNDS_ARCHIVE_POLICY` 保留有时效、来源可复核的运维核验兼容路径。实时检查覆盖两个完整命名空间和本次用户权限，绑定/旧检查成功不持续放行，也不自动回退到旧文件。
+已按 [GitHub 项目接入](github-archive-onboarding.md)或 [GitLab 项目接入](gitlab-archive-onboarding.md)绑定的仓库，`candidate submit` 默认使用实时API核验；显式 `--archive-policy FILE` / `GROUNDS_ARCHIVE_POLICY` 保留有时效、来源可复核的运维核验兼容路径。实时检查覆盖两个完整命名空间和本次用户权限，绑定/旧检查成功不持续放行，也不自动回退到旧文件。
 
 `candidate submit` 将固定输入绑定同一归档操作。网络与 SQL 不在同一事务中；失败不表示未写远端。先读取 `candidate archive-operation --operation-id UUID`，核对原操作的 Candidate、source、base、tree、仓库和 ref，保留原 operation ID 恢复。不得 force 覆盖冲突引用、盲目另造 Candidate、删除已成功的远端 ref 或将重试输入改成当前 HEAD。pending/unknown 不是正式归档成功。
 

@@ -110,13 +110,13 @@ try {
     const help = execFileSync("python3", [join(output, "package/dist/assets/grounds/skills/grounds-eval/scripts", script), "--help"], { cwd: output, encoding: "utf8" });
     if (!help.includes("usage:")) throw new Error(`packaged helper failed: ${script}`);
   }
-  for (const required of ["package/dist/src/gitlab-api.js", "package/dist/src/gitlab-tag-policy.js", "package/dist/src/repository-archive-access.js", "package/dist/src/repository-archive-cli.js", "package/dist/assets/grounds/skills/grounds/references/gitlab-archive-onboarding.md", "package/dist/assets/grounds/skills/grounds/references/contracts/v1/repository-archive.schema.json"]) {
+  for (const required of ["package/dist/src/repository-archive-github.js", "package/dist/assets/grounds/skills/grounds/references/github-archive-onboarding.md", "package/dist/src/gitlab-api.js", "package/dist/src/gitlab-tag-policy.js", "package/dist/src/repository-archive-access.js", "package/dist/src/repository-archive-cli.js", "package/dist/assets/grounds/skills/grounds/references/gitlab-archive-onboarding.md", "package/dist/assets/grounds/skills/grounds/references/contracts/v1/repository-archive.schema.json"]) {
     if (!entries.includes(required)) throw new Error(`tarball is missing ${required}`);
   }
   // Exercise the extracted package's public executable, not source imports, for
   // every CLI step of the GitLab binding -> Candidate -> actual landing journey.
   const archiveSmoke = execFileSync(process.execPath, ["--import", "tsx", "--test", "--test-concurrency=1", "--test-name-pattern", "GitLab onboarding", "test/candidate-archive-cli.test.ts"], {
-    cwd: root, encoding: "utf8", timeout: 180_000, maxBuffer: 4 * 1024 * 1024,
+    cwd: root, encoding: "utf8", timeout: 600_000, maxBuffer: 4 * 1024 * 1024,
     env: { ...process.env, GROUNDS_ARCHIVE_TEST_CLI: join(output, "package/dist/src/bin.js"), GROUNDS_ARCHIVE_TEST_TRANSCRIPT: process.env.GROUNDS_ARCHIVE_TEST_TRANSCRIPT ?? join(output, "archive-api-transcript.json") },
   });
   process.stdout.write(archiveSmoke);

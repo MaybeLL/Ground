@@ -61,15 +61,25 @@ export function githubArchiveNamespaces(rulesets: unknown[], canPush: boolean): 
     if (row.target !== "tag") throw new GitLabFailure("policy_too_complex");
     return true;
   });
+  const applicable: Record<string, unknown>[] = [];
   for (const row of rules) {
     apiID(row.id);
-    if (!Array.isArray(row.bypass_actors)) throw new GitLabFailure("invalid_response");
-    if (row.bypass_actors.length) throw new GitLabFailure("policy_too_complex");
     const conditions = apiRecord(row.conditions);
     if (Object.keys(conditions).some(key => key !== "ref_name")) throw new GitLabFailure("policy_too_complex");
     const condition = apiRecord(conditions.ref_name);
     if (Object.keys(condition).some(key => key !== "include" && key !== "exclude")) throw new GitLabFailure("policy_too_complex");
     if (!Array.isArray(condition.include) || !condition.include.length || !condition.include.every(p => typeof p === "string") || !Array.isArray(condition.exclude)) throw new GitLabFailure("invalid_response");
+    // A separate release-tag rule (for example refs/tags/v*) cannot affect an
+    // archive whose literal prefix diverges before the only optional wildcard.
+    // Do not generalize this proof to fnmatch brackets, escapes, or mixed includes.
+    const disjoint = condition.include.every(pattern => {
+      if (!/^refs\/tags\/[a-zA-Z0-9._-]+\*?$/.test(pattern)) return false;
+      const prefix = pattern.replace(/\*$/, "");
+      return ARCHIVE_NAMESPACES.every(namespace => !namespace.startsWith(prefix) && !prefix.startsWith(namespace));
+    });
+    if (disjoint) continue;
+    if (!Array.isArray(row.bypass_actors)) throw new GitLabFailure("invalid_response");
+    if (row.bypass_actors.length) throw new GitLabFailure("policy_too_complex");
     if (condition.exclude.length || condition.include.some(p => p !== "~ALL" && !ARCHIVE_NAMESPACES.some(n => p === n + "*" || p === n + "**"))) throw new GitLabFailure("policy_too_complex");
     if (!Array.isArray(row.rules)) throw new GitLabFailure("invalid_response");
     for (const value of row.rules) {
@@ -80,9 +90,10 @@ export function githubArchiveNamespaces(rulesets: unknown[], canPush: boolean): 
         if (Object.keys(parameters).some(key => rule.type !== "update" || key !== "update_allows_fetch_and_merge" || parameters[key] !== false)) throw new GitLabFailure("policy_too_complex");
       }
     }
+    applicable.push(row);
   }
   return ARCHIVE_NAMESPACES.map(namespace => {
-    const matching = rules.filter(row => (apiRecord(apiRecord(row.conditions).ref_name).include as string[]).some(p => p === "~ALL" || p === namespace + "*" || p === namespace + "**"));
+    const matching = applicable.filter(row => (apiRecord(apiRecord(row.conditions).ref_name).include as string[]).some(p => p === "~ALL" || p === namespace + "*" || p === namespace + "**"));
     const types = matching.flatMap(row => (row.rules as unknown[]).map(rule => apiRecord(rule).type));
     const update = types.includes("update"), deletion = types.includes("deletion"), confirmed = update && deletion;
     return { ref_namespace: namespace, tag_pattern: namespace.slice(10) + "*", protection: confirmed ? "confirmed" : "missing", current_user_can_create: canPush, developer_can_create: canPush,
