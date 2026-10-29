@@ -6,4 +6,4 @@ When enabled, use [GitHub private vulnerability reporting](https://github.com/Ma
 
 Include the affected commit or version, operating system, a minimal sanitized reproduction, expected impact, and any suggested mitigation in the private report. Remove secrets and personal data from logs and screenshots.
 
-There is not yet a supported public release or an established security response SLA. Until a stable support policy is announced, fixes target the current development branch; no historical release line is promised security updates.
+Security fixes target the current development branch and the latest GitHub release. Historical release lines are not promised backports. This pre-1.0 project has no established security response SLA.
