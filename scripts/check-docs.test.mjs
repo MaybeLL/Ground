@@ -25,7 +25,7 @@ function fixture(action) {
     put('README.md', '# Grounds\n\n[总设计](GROUNDS_DESIGN.md)\n');
     for (const name of ['AGENTS.md', 'TODO.md', 'docs/README.md']) put(name, '# 入口\n');
     put('GROUNDS_DESIGN.md', '# 总设计\n\n## 当前设计\n\n<a id="旧链接"></a>\n\n<!-- design-index:start -->\n<!-- design-index:end -->\n');
-    for (const name of ['typescript/README.md', 'tui/README.md']) put(name, '# 包入口\n\n[完整手册](https://git.example.test/review-user/grounds/-/blob/main/GROUNDS_DESIGN.md)\n');
+    for (const name of ['typescript/README.md', 'tui/README.md']) put(name, '# 包入口\n\n[完整手册](https://github.com/MaybeLL/grounds-open/blob/main/GROUNDS_DESIGN.md)\n');
     put('docs/design/example.md', metadata + '# 设计\n\n[当前上下文](../../GROUNDS_DESIGN.md#当前设计)\n');
     assert.deepEqual(checkDocumentation(root, { writeIndex: true }).errors, []);
     action(root, put);
@@ -77,7 +77,7 @@ test('rejects a parallel generated index in the short README', () => fixture((ro
 }));
 
 test('rejects package links that only work inside the source checkout', () => fixture((root, put) => {
-  put('typescript/README.md', '# 包入口\n\n[完整手册](https://git.example.test/review-user/grounds/-/blob/main/GROUNDS_DESIGN.md)\n[仓库外文件](../README.md)\n');
+  put('typescript/README.md', '# 包入口\n\n[完整手册](https://github.com/MaybeLL/grounds-open/blob/main/GROUNDS_DESIGN.md)\n[仓库外文件](../README.md)\n');
   assert.ok(checkDocumentation(root).errors.some(error => error.includes('outside the repository')));
 }));
 
@@ -91,8 +91,8 @@ test('checks source skill entrypoints and their private and shared references', 
   assert.ok(result.errors.some(error => error.includes('skills/grounds/references/workflows/develop.md') && error.includes('missing local reference')));
 }));
 
-test('checks canonical GitLab manual anchors against the current canonical design source', () => fixture((root, put) => {
-  put('tui/README.md', '# 包入口\n\n[完整手册](https://git.example.test/review-user/grounds/-/blob/main/GROUNDS_DESIGN.md#不存在的入口)\n');
+test('checks canonical GitHub manual anchors against the current canonical design source', () => fixture((root, put) => {
+  put('tui/README.md', '# 包入口\n\n[完整手册](https://github.com/MaybeLL/grounds-open/blob/main/GROUNDS_DESIGN.md#不存在的入口)\n');
   assert.ok(checkDocumentation(root).errors.some(error => error.includes('missing anchor')));
 }));
 
@@ -139,4 +139,15 @@ test('checks migrated evaluation validation links and rejects top-level entrance
   put('docs/validation/' + name, valid);
   put('docs/' + name, '# 旧入口\n');
   assert.ok(checkDocumentation(root).errors.some(error => error.includes('top-level evaluation validation files must be moved')));
+}));
+
+ test('supports community documentation without private design history and checks all guides', () => fixture((root, put) => {
+  rmSync(join(root, 'docs/design'), { recursive: true });
+  rmSync(join(root, 'GROUNDS_DESIGN.md'));
+  rmSync(join(root, 'TODO.md'));
+  put('README.md', '# Grounds\n[Documentation](docs/README.md)\n');
+  for (const name of ['typescript/README.md', 'tui/README.md']) put(name, '# Package\n[Manual](https://github.com/MaybeLL/grounds-open/blob/main/docs/README.md)\n');
+  assert.deepEqual(checkDocumentation(root).errors, []);
+  put('docs/getting-started.md', '# Guide\n[Broken](missing.md)\n');
+  assert.ok(checkDocumentation(root).errors.some(error => error.includes('missing local reference')));
 }));

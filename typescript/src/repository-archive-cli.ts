@@ -8,11 +8,11 @@ import { archiveConfigurationGuide, RepositoryArchiveAccess, type ArchiveAccessR
 import type { Store } from "./store-types.js";
 
 export const repositoryArchiveCommands = {
-  "archive-show": { options: ["config", "repository"], description: "读取所选仓库的共享GitLab项目绑定；离线状态不证明当前授权，使用 archive-check 复查" },
-  "archive-check": { options: ["config", "repository", "instance"], description: "实时只读检查GitLab项目、两个完整归档命名空间和当前用户权限；重复 --repository 可汇总明确选定项目" },
-  "archive-guide": { options: ["config", "repository", "instance"], description: "实时检查并预览逐项目管理员配置建议；保留严格规则，不写GitLab ACL或成员角色；重复 --repository 可批量引导" },
+  "archive-show": { options: ["config", "repository"], description: "读取所选仓库的共享GitHub/GitLab项目绑定；离线状态不证明当前授权，使用 archive-check 复查" },
+  "archive-check": { options: ["config", "repository", "instance"], description: "实时只读检查GitHub/GitLab项目、两个完整归档命名空间和当前用户权限；重复 --repository 可汇总明确选定项目" },
+  "archive-guide": { options: ["config", "repository", "instance"], description: "实时检查并预览逐项目管理员配置建议；保留严格规则，不写GitHub/GitLab ACL或成员角色；重复 --repository 可批量引导" },
   "archive-template": { options: ["config", "repository", "instance"], description: "输出可复用的双命名空间默认模板及所选项目检查/建议；不含认证或机器路径，不执行预览中的请求" },
-  "archive-bind": { options: ["config", "repository", "instance", "expected-version", "operation-id", "agent-id", "agent-name"], description: "实时发现并显式保存一个仓库的GitLab实例/项目绑定；初次 --expected-version 0，绑定不缓存授权或自动修改ACL" },
+  "archive-bind": { options: ["config", "repository", "instance", "expected-version", "operation-id", "agent-id", "agent-name"], description: "实时发现并显式保存一个仓库的GitHub/GitLab实例/项目绑定；初次 --expected-version 0，绑定不缓存授权或自动修改ACL" },
 } as const;
 
 export async function executeRepositoryArchive(input: { action: keyof typeof repositoryArchiveCommands; args: ParsedArgs; store: Store; attribution: () => Attribution; operationID: () => string }) {

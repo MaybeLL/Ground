@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { execFileSync } from "node:child_process";
@@ -23,7 +24,7 @@ test("the legacy whole-directory rule is upgraded so environment definitions sta
 });
 
 test("ensureGroundsExcluded accepts tracked environment definitions and refuses other tracked Grounds state", () => {
-  const root = mkdtempSync("/private/tmp/grounds-exclude-");
+  const root = mkdtempSync(join(tmpdir(), "grounds-exclude-"));
   const env = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
   const git = (...args: string[]) => execFileSync("git", args, { cwd: root, env, encoding: "utf8" }).trim();
   const ignored = (path: string): boolean => {
@@ -58,7 +59,7 @@ test("ensureGroundsExcluded accepts tracked environment definitions and refuses 
 
 
 test("the exclude file is rewritten to the new rules when the legacy rule is present", () => {
-  const root = mkdtempSync("/private/tmp/grounds-exclude-legacy-");
+  const root = mkdtempSync(join(tmpdir(), "grounds-exclude-legacy-"));
   const env = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
   try {
     execFileSync("git", ["init", "-q", "-b", "main"], { cwd: root, env });

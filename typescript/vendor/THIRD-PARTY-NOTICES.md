@@ -1,14 +1,90 @@
-# 第三方组件许可声明（`vendor/mermaid.min.js`）
+# Vendored Mermaid notices
 
-本包在 `vendor/mermaid.min.js` 内嵌 **mermaid 11.4.1** 的官方浏览器构建产物（`dist/mermaid.min.js`，与 npm 发布件 sha256 一致）。
+`mermaid.min.js` is the unmodified browser bundle from the official Mermaid 11.4.1 npm tarball. Its SHA-256 is `a43bc1afd446f9c4cc66ac5dd45d02e8d65e26fc5344ec0ef787f88d6ddb6f9e`. The bundle was compared byte-for-byte against that tarball during this review.
 
-## mermaid
+- Source: https://registry.npmjs.org/mermaid/-/mermaid-11.4.1.tgz
+- Mermaid license and copyright: [MERMAID-LICENSE](MERMAID-LICENSE).
+- Machine-readable provenance, exact versions, tarball hashes, and license files: [mermaid-components.json](mermaid-components.json).
 
-- 版本：11.4.1 ｜ 许可：MIT ｜ 出处：`mermaid@11.4.1` npm 包的 `LICENSE`
+The official `dist/mermaid.min.js.map` identifies 70 package/version pairs in its pnpm source paths. The additional workspace component `@mermaid-js/parser` is version 0.3.0 in the matching upstream `mermaid@11.4.1` source tag. For each component, the license/notice files below were copied verbatim from its exact npm tarball. Khroma's MIT license is identified by its license text because its package manifest lacks a license field. DOMPurify is dual licensed; Apache-2.0 is the license selected for this redistribution. Preserve the complete supplied license text and embedded notices.
 
-## 该构建产物自带的第三方声明（逐字转录）
+## Component licenses
 
-> 来源：`vendor/mermaid.min.js` 中 `Bundled license information:` 段落原文。
+| Component | Version | License | License files |
+| --- | --- | --- | --- |
+| `@braintree/sanitize-url` | 7.1.0 | MIT | [LICENSE](licenses/@braintree__sanitize-url@7.1.0__LICENSE) |
+| `@chevrotain/cst-dts-gen` | 11.0.3 | Apache-2.0 | [LICENSE.txt](licenses/@chevrotain__cst-dts-gen@11.0.3__LICENSE.txt) |
+| `@chevrotain/gast` | 11.0.3 | Apache-2.0 | [LICENSE.txt](licenses/@chevrotain__gast@11.0.3__LICENSE.txt) |
+| `@chevrotain/regexp-to-ast` | 11.0.3 | Apache-2.0 | [LICENSE.txt](licenses/@chevrotain__regexp-to-ast@11.0.3__LICENSE.txt) |
+| `@chevrotain/utils` | 11.0.3 | Apache-2.0 | [LICENSE.txt](licenses/@chevrotain__utils@11.0.3__LICENSE.txt) |
+| `@iconify/utils` | 2.1.33 | MIT | [license.txt](licenses/@iconify__utils@2.1.33__license.txt) |
+| `@mermaid-js/parser` | 0.3.0 | MIT | [LICENSE](licenses/@mermaid-js__parser@0.3.0__LICENSE) |
+| `chevrotain` | 11.0.3 | Apache-2.0 | [LICENSE.txt](licenses/chevrotain@11.0.3__LICENSE.txt) |
+| `chevrotain-allstar` | 0.3.1 | MIT | [LICENSE](licenses/chevrotain-allstar@0.3.1__LICENSE) |
+| `cose-base` | 1.0.3 | MIT | [LICENSE](licenses/cose-base@1.0.3__LICENSE) |
+| `cose-base` | 2.2.0 | MIT | [LICENSE](licenses/cose-base@2.2.0__LICENSE) |
+| `cytoscape` | 3.30.2 | MIT | [LICENSE](licenses/cytoscape@3.30.2__LICENSE), [license-update.js](licenses/cytoscape@3.30.2__license-update.js) |
+| `cytoscape-cose-bilkent` | 4.1.0 | MIT | [LICENSE](licenses/cytoscape-cose-bilkent@4.1.0__LICENSE) |
+| `cytoscape-fcose` | 2.2.0 | MIT | [LICENSE](licenses/cytoscape-fcose@2.2.0__LICENSE) |
+| `d3` | 7.9.0 | ISC | [LICENSE](licenses/d3@7.9.0__LICENSE) |
+| `d3-array` | 2.12.1 | BSD-3-Clause | [LICENSE](licenses/d3-array@2.12.1__LICENSE) |
+| `d3-array` | 3.2.4 | ISC | [LICENSE](licenses/d3-array@3.2.4__LICENSE) |
+| `d3-axis` | 3.0.0 | ISC | [LICENSE](licenses/d3-axis@3.0.0__LICENSE) |
+| `d3-brush` | 3.0.0 | ISC | [LICENSE](licenses/d3-brush@3.0.0__LICENSE) |
+| `d3-chord` | 3.0.1 | ISC | [LICENSE](licenses/d3-chord@3.0.1__LICENSE) |
+| `d3-color` | 3.1.0 | ISC | [LICENSE](licenses/d3-color@3.1.0__LICENSE) |
+| `d3-contour` | 4.0.2 | ISC | [LICENSE](licenses/d3-contour@4.0.2__LICENSE) |
+| `d3-delaunay` | 6.0.4 | ISC | [LICENSE](licenses/d3-delaunay@6.0.4__LICENSE) |
+| `d3-dispatch` | 3.0.1 | ISC | [LICENSE](licenses/d3-dispatch@3.0.1__LICENSE) |
+| `d3-drag` | 3.0.0 | ISC | [LICENSE](licenses/d3-drag@3.0.0__LICENSE) |
+| `d3-dsv` | 3.0.1 | ISC | [LICENSE](licenses/d3-dsv@3.0.1__LICENSE) |
+| `d3-ease` | 3.0.1 | BSD-3-Clause | [LICENSE](licenses/d3-ease@3.0.1__LICENSE) |
+| `d3-fetch` | 3.0.1 | ISC | [LICENSE](licenses/d3-fetch@3.0.1__LICENSE) |
+| `d3-force` | 3.0.0 | ISC | [LICENSE](licenses/d3-force@3.0.0__LICENSE) |
+| `d3-format` | 3.1.0 | ISC | [LICENSE](licenses/d3-format@3.1.0__LICENSE) |
+| `d3-geo` | 3.1.1 | ISC | [LICENSE](licenses/d3-geo@3.1.1__LICENSE) |
+| `d3-hierarchy` | 3.1.2 | ISC | [LICENSE](licenses/d3-hierarchy@3.1.2__LICENSE) |
+| `d3-interpolate` | 3.0.1 | ISC | [LICENSE](licenses/d3-interpolate@3.0.1__LICENSE) |
+| `d3-path` | 1.0.9 | BSD-3-Clause | [LICENSE](licenses/d3-path@1.0.9__LICENSE) |
+| `d3-path` | 3.1.0 | ISC | [LICENSE](licenses/d3-path@3.1.0__LICENSE) |
+| `d3-polygon` | 3.0.1 | ISC | [LICENSE](licenses/d3-polygon@3.0.1__LICENSE) |
+| `d3-quadtree` | 3.0.1 | ISC | [LICENSE](licenses/d3-quadtree@3.0.1__LICENSE) |
+| `d3-random` | 3.0.1 | ISC | [LICENSE](licenses/d3-random@3.0.1__LICENSE) |
+| `d3-sankey` | 0.12.3 | BSD-3-Clause | [LICENSE](licenses/d3-sankey@0.12.3__LICENSE) |
+| `d3-scale` | 4.0.2 | ISC | [LICENSE](licenses/d3-scale@4.0.2__LICENSE) |
+| `d3-scale-chromatic` | 3.1.0 | ISC | [LICENSE](licenses/d3-scale-chromatic@3.1.0__LICENSE) |
+| `d3-selection` | 3.0.0 | ISC | [LICENSE](licenses/d3-selection@3.0.0__LICENSE) |
+| `d3-shape` | 1.3.7 | BSD-3-Clause | [LICENSE](licenses/d3-shape@1.3.7__LICENSE) |
+| `d3-shape` | 3.2.0 | ISC | [LICENSE](licenses/d3-shape@3.2.0__LICENSE) |
+| `d3-time` | 3.1.0 | ISC | [LICENSE](licenses/d3-time@3.1.0__LICENSE) |
+| `d3-time-format` | 4.1.0 | ISC | [LICENSE](licenses/d3-time-format@4.1.0__LICENSE) |
+| `d3-timer` | 3.0.1 | ISC | [LICENSE](licenses/d3-timer@3.0.1__LICENSE) |
+| `d3-transition` | 3.0.1 | ISC | [LICENSE](licenses/d3-transition@3.0.1__LICENSE) |
+| `d3-zoom` | 3.0.0 | ISC | [LICENSE](licenses/d3-zoom@3.0.0__LICENSE) |
+| `dagre-d3-es` | 7.0.11 | MIT | [LICENSE.md](licenses/dagre-d3-es@7.0.11__LICENSE.md) |
+| `dayjs` | 1.11.13 | MIT | [LICENSE](licenses/dayjs@1.11.13__LICENSE) |
+| `debug` | 4.3.7 | MIT | [LICENSE](licenses/debug@4.3.7__LICENSE) |
+| `dompurify` | 3.2.1 | (MPL-2.0 OR Apache-2.0) | [LICENSE](licenses/dompurify@3.2.1__LICENSE) |
+| `internmap` | 2.0.3 | ISC | [LICENSE](licenses/internmap@2.0.3__LICENSE) |
+| `js-yaml` | 4.1.0 | MIT | [LICENSE](licenses/js-yaml@4.1.0__LICENSE) |
+| `katex` | 0.16.11 | MIT | [LICENSE](licenses/katex@0.16.11__LICENSE) |
+| `khroma` | 2.1.0 | MIT | [license](licenses/khroma@2.1.0__license) |
+| `langium` | 3.0.0 | MIT | [LICENSE](licenses/langium@3.0.0__LICENSE) |
+| `layout-base` | 1.0.2 | MIT | [LICENSE](licenses/layout-base@1.0.2__LICENSE) |
+| `layout-base` | 2.0.1 | MIT | [LICENSE](licenses/layout-base@2.0.1__LICENSE) |
+| `lodash-es` | 4.17.21 | MIT | [LICENSE](licenses/lodash-es@4.17.21__LICENSE) |
+| `marked` | 13.0.3 | MIT | [LICENSE.md](licenses/marked@13.0.3__LICENSE.md) |
+| `ms` | 2.1.3 | MIT | [license.md](licenses/ms@2.1.3__license.md) |
+| `roughjs` | 4.6.6 | MIT | [LICENSE](licenses/roughjs@4.6.6__LICENSE) |
+| `stylis` | 4.3.4 | MIT | [LICENSE](licenses/stylis@4.3.4__LICENSE) |
+| `ts-dedent` | 2.2.0 | MIT | [LICENSE](licenses/ts-dedent@2.2.0__LICENSE) |
+| `uuid` | 9.0.1 | MIT | [LICENSE.md](licenses/uuid@9.0.1__LICENSE.md) |
+| `vscode-jsonrpc` | 8.2.0 | MIT | [License.txt](licenses/vscode-jsonrpc@8.2.0__License.txt) |
+| `vscode-languageserver-textdocument` | 1.0.12 | MIT | [License.txt](licenses/vscode-languageserver-textdocument@1.0.12__License.txt) |
+| `vscode-languageserver-types` | 3.17.5 | MIT | [License.txt](licenses/vscode-languageserver-types@3.17.5__License.txt) |
+| `vscode-uri` | 3.0.8 | MIT | [LICENSE.md](licenses/vscode-uri@3.0.8__LICENSE.md) |
+
+## Notices retained in the bundle
 
 ```
 Bundled license information:
@@ -47,37 +123,3 @@ cytoscape/dist/cytoscape.esm.mjs:
   (*! Runge-Kutta spring physics function generator. Adapted from Framer.js, copyright Koen Bok. MIT License: http://en.wikipedia.org/wiki/MIT_License *)
 */
 ```
-
-## mermaid 声明的依赖（会被打入上述构建产物）
-
-许可类型逐项取自各组件上游包（`npm view <pkg> license`；`khroma` 以其包内 `license` 文件为准）。
-完整许可正文以各组件上游发布包内的许可文件为准。
-
-| 组件 | 声明范围 | 许可 |
-| --- | --- | --- |
-| `@braintree/sanitize-url` | `^7.0.1` | MIT |
-| `@iconify/utils` | `^2.1.32` | MIT |
-| `@mermaid-js/parser` | `^0.3.0` | MIT |
-| `cytoscape` | `^3.29.2` | MIT |
-| `cytoscape-cose-bilkent` | `^4.1.0` | MIT |
-| `cytoscape-fcose` | `^2.2.0` | MIT |
-| `d3` | `^7.9.0` | ISC |
-| `d3-sankey` | `^0.12.3` | BSD-3-Clause |
-| `dagre-d3-es` | `7.0.11` | MIT |
-| `dayjs` | `^1.11.10` | MIT |
-| `dompurify` | `^3.2.1` | MPL-2.0 OR Apache-2.0 |
-| `katex` | `^0.16.9` | MIT |
-| `khroma` | `^2.1.0` | MIT（以其包内 license 文件为准） |
-| `lodash-es` | `^4.17.21` | MIT |
-| `marked` | `^13.0.2` | MIT |
-| `roughjs` | `^4.6.6` | MIT |
-| `stylis` | `^4.3.1` | MIT |
-| `ts-dedent` | `^2.2.0` | MIT |
-| `uuid` | `^9.0.1` | MIT |
-
-另：产物内还可检出 `langium`、`chevrotain`、`cose-base`、`layout-base`、`js-yaml` 等间接依赖，其许可分别为 `langium` MIT、`chevrotain` Apache-2.0、`cose-base` MIT、`layout-base` MIT、`js-yaml` MIT。
-
-## 说明与边界
-
-- 浏览器包经压缩打包，其自述段落只覆盖部分组件；上表的许可类型逐项取自各组件上游包，未依据产物字符串推断。
-- 除 mermaid 外，各组件均未被本包声明为运行时依赖；包内不含 `node_modules/mermaid`（由 `npm run test:package` 断言）。

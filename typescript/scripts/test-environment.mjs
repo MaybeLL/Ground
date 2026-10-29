@@ -1,17 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync, mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import mysql from 'mysql2/promise';
 
 export const createWorkerHome = worker => {
-  // Colima shares the user's home. System temp on macOS can be outside that
-  // mount, so Docker-backed fixtures and their runtime must stay under it.
+  // Set GROUNDS_TEST_WORKER_ROOT to a Docker-shared directory when needed.
   // Spotlight workers spawned by test file writes are protected, reparented
   // processes: the native observer must retain unknown for them. Keep fixture
   // writes out of indexing rather than weaken that safety rule.
   // https://developer.apple.com/documentation/xcode/locating-a-missing-debug-symbol-file
-  const parent = join(homedir(), 'tmp', 'grounds-test-workers.noindex');
+  const parent = process.env.GROUNDS_TEST_WORKER_ROOT || join(tmpdir(), 'grounds-test-workers.noindex');
   mkdirSync(parent, { recursive: true });
   const home = realpathSync(mkdtempSync(join(parent, `grounds-test-home-${worker}-`)));
   mkdirSync(join(home, 'tmp'));

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installationStatus } from "../src/installation-status.js";
+import { installationStatus, releaseVersionFromResponse } from "../src/installation-status.js";
 import { bundledPluginRoot, installGroundsSkills, skillNames } from "../src/skill-installer.js";
 import { cliVersion } from "../src/runtime-version.js";
 import { assertContract } from "./schema-fixture.js";
@@ -92,4 +92,25 @@ test("doctor rejects an explicitly empty managed skills path", async () => {
   assert.equal(exit, 2);
   const envelope = JSON.parse(output[0]) as { error: { details: { field: string } } };
   assert.equal(envelope.error.details.field, "skills-path");
+});
+
+
+test("GitHub release lookup rejects drafts, prereleases and unsafe tag values", () => {
+  assert.equal(releaseVersionFromResponse({ draft: false, prerelease: false, tag_name: "v1.2.3" }), "1.2.3");
+  for (const value of [null, {}, { draft: true, prerelease: false, tag_name: "v1.2.3" },
+    { draft: false, prerelease: true, tag_name: "v1.2.3" },
+    { draft: false, prerelease: false, tag_name: "v1.2.3;echo bad" }]) {
+    assert.throws(() => releaseVersionFromResponse(value));
+  }
+});
+
+test("doctor upgrade uses GitHub assets and rejects unsafe injected versions", () => {
+  const directory = mkdtempSync(join(tmpdir(), "grounds-release-doctor-"));
+  try {
+    const result = installationStatus(directory, () => "999.0.0");
+    assert.equal(result.recommended_commands[0], "npm install --global https://github.com/MaybeLL/grounds-open/releases/download/v999.0.0/maybell-grounds-999.0.0.tgz");
+    const invalid = installationStatus(directory, () => "999.0.0; echo bad");
+    assert.equal(invalid.cli.status, "unknown");
+    assert.ok(invalid.recommended_commands.every(command => !command.includes("echo bad")));
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });

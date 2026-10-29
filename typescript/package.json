@@ -1,5 +1,5 @@
 {
-  "name": "@grounds-review/grounds",
+  "name": "@maybell/grounds",
   "version": "0.2.49",
   "description": "Grounds CLI for evidence-backed human and Agent work",
   "type": "module",
@@ -21,18 +21,11 @@
     "test:coverage": "node --import tsx --test --test-concurrency=1 --experimental-test-coverage test/*.test.ts",
     "test:brand": "node ../scripts/brand-audit.mjs",
     "test:package": "npm run build && node scripts/package-test.mjs",
-    "prepublishOnly": "npm run release:guard && npm run test:release-registry && npm run release:check && npm run build && npm test && npm run test:brand && node scripts/package-test.mjs",
-    "release:check": "node scripts/release-check.mjs",
-    "release:version": "node scripts/release-version.mjs",
-    "release:patch": "npm run release:version && npm run release:check && npm publish --registry=https://registry.invalid",
+    "prepublishOnly": "node -e \"throw new Error('Use the GitHub Releases workflow; npm registry publication is disabled')\"",
     "test:serial": "node scripts/test-parallel.mjs --workers 1",
-    "release:guard": "node ../scripts/release-registry.mjs guard",
-    "release:verify": "node ../scripts/release-registry.mjs verify",
-    "release:publish": "node ../scripts/release-registry.mjs publish",
-    "postpublish": "npm run release:verify",
-    "test:release-registry": "node --test ../scripts/release-registry.test.mjs",
     "test:code-workspace": "node scripts/test-code-workspace.mjs",
-    "test:workspace-compatibility": "node scripts/test-workspace-compatibility.mjs"
+    "test:workspace-compatibility": "node scripts/test-workspace-compatibility.mjs",
+    "release:check": "node ../scripts/github-release-check.mjs"
   },
   "engines": {
     "node": ">=22.13.0"
@@ -56,5 +49,15 @@
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   },
-  "private": true
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MaybeLL/grounds-open.git",
+    "directory": "typescript"
+  },
+  "homepage": "https://github.com/MaybeLL/grounds-open",
+  "bugs": {
+    "url": "https://github.com/MaybeLL/grounds-open/issues"
+  },
+  "license": "MIT"
 }

@@ -94,8 +94,8 @@ export function checkDocumentation(root, { writeIndex = false } = {}) {
     try { return action(); } catch (error) { errors.push(`${relative(root, path)}: ${error.message}`); }
   };
   const reference = (path, destination) => {
-    for (const name of ['README.md', 'GROUNDS_DESIGN.md']) {
-      const canonical = 'https://git.example.test/review-user/grounds/-/blob/main/' + name;
+    for (const name of ['README.md', 'GROUNDS_DESIGN.md', 'docs/README.md']) {
+      const canonical = 'https://github.com/MaybeLL/grounds-open/blob/main/' + name;
       if (destination === canonical || destination.startsWith(canonical + '#')) {
         destination = resolve(root, name) + destination.slice(canonical.length);
         break;
@@ -122,7 +122,7 @@ export function checkDocumentation(root, { writeIndex = false } = {}) {
     items.push({ path, metadata, title });
   });
   const indexDocument = resolve(root, 'GROUNDS_DESIGN.md');
-  if (items.length === designs.length) check(indexDocument, () => {
+  if ((designs.length || existsSync(indexDocument)) && items.length === designs.length) check(indexDocument, () => {
     const text = readFileSync(indexDocument, 'utf8');
     if (text.split(start).length !== 2 || text.split(end).length !== 2) throw Error('requires exactly one design index block');
     const from = text.indexOf(start), until = text.indexOf(end) + end.length;
@@ -133,7 +133,10 @@ export function checkDocumentation(root, { writeIndex = false } = {}) {
       else throw Error('stale design index; run node scripts/check-docs.mjs --write-index');
     }
   });
-  const entries = ['README.md', 'AGENTS.md', 'GROUNDS_DESIGN.md', 'TODO.md', 'docs/README.md', 'typescript/README.md', 'tui/README.md'].map(name => resolve(root, name));
+  const entries = ['README.md', 'AGENTS.md', 'docs/README.md', 'typescript/README.md', 'tui/README.md'].map(name => resolve(root, name));
+  for (const name of ['GROUNDS_DESIGN.md', 'TODO.md', 'CONTRIBUTING.md', 'SECURITY.md', 'THIRD_PARTY_NOTICES.md']) {
+    if (existsSync(resolve(root, name))) entries.push(resolve(root, name));
+  }
   const archiveDirectory = resolve(root, 'docs/validation/dogfooding');
   const archives = markdownFiles(archiveDirectory);
   const validations = markdownFiles(resolve(root, 'docs/validation'));
@@ -173,7 +176,7 @@ export function checkDocumentation(root, { writeIndex = false } = {}) {
     ...markdownFiles(resolve(root, 'plugins/grounds/references')),
     ...markdownFiles(resolve(root, 'plugins/grounds/skills')),
   ];
-  const checkedPaths = [...new Set([...entries, ...designs, ...legacy, ...validations, ...skillDocuments])];
+  const checkedPaths = [...new Set([...entries, ...markdownFiles(resolve(root, 'docs')), ...designs, ...legacy, ...validations, ...skillDocuments])];
   for (const path of checkedPaths) check(path, () => {
     const source = readFileSync(path, 'utf8');
     if (path === resolve(root, 'README.md') && (source.includes(start) || source.includes(end))) throw Error('design index belongs only in GROUNDS_DESIGN.md');
@@ -181,7 +184,7 @@ export function checkDocumentation(root, { writeIndex = false } = {}) {
     for (const match of text.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)) reference(path, match[1]);
     for (const match of text.matchAll(/^ {0,3}\[[^\]]+\]:\s+(\S+)/gm)) reference(path, match[1]);
     if (['typescript/README.md', 'tui/README.md'].includes(relative(root, path))) {
-      if (!text.includes('https://git.example.test/review-user/grounds/-/blob/main/GROUNDS_DESIGN.md')) throw Error('package entrance must link to the canonical manual');
+      if (!['GROUNDS_DESIGN.md', 'docs/README.md'].some(name => text.includes('https://github.com/MaybeLL/grounds-open/blob/main/' + name))) throw Error('package entrance must link to the canonical manual');
       for (const match of text.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)) {
         if (!/^[a-z][a-z0-9+.-]*:/i.test(match[1]) && !match[1].startsWith('#')) throw Error('package README links must work outside the repository');
       }

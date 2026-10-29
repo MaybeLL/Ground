@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://patchledger.dev/contracts/v1/repository-archive.schema.json",
-  "title": "Grounds GitLab项目归档接入 v1",
+  "title": "Grounds GitLab\u9879\u76ee\u5f52\u6863\u63a5\u5165 v1",
   "oneOf": [
     {
       "$ref": "#/$defs/showResult"
@@ -141,7 +141,7 @@
       "additionalProperties": false,
       "properties": {
         "name": {
-          "description": "GitLab保护规则名，仅*为通配符；合法字面字符如]保持字面语义。",
+          "description": "GitLab\u4fdd\u62a4\u89c4\u5219\u540d\uff0c\u4ec5*\u4e3a\u901a\u914d\u7b26\uff1b\u5408\u6cd5\u5b57\u9762\u5b57\u7b26\u5982]\u4fdd\u6301\u5b57\u9762\u8bed\u4e49\u3002",
           "type": "string",
           "minLength": 1,
           "maxLength": 255
@@ -261,7 +261,10 @@
           "type": "boolean"
         },
         "maintainer_delete": {
-          "const": "explicit_gitlab_ui_or_api"
+          "enum": [
+            "explicit_gitlab_ui_or_api",
+            "forbidden_by_ruleset"
+          ]
         },
         "matches": {
           "type": "array",
@@ -410,7 +413,10 @@
           "$ref": "common.schema.json#/$defs/timestamp"
         },
         "source": {
-          "const": "live_gitlab_api"
+          "enum": [
+            "live_gitlab_api",
+            "live_github_api"
+          ]
         },
         "state": {
           "enum": [
@@ -542,8 +548,7 @@
               "binding",
               "project_id",
               "actor",
-              "policy_digest",
-              "gitlab_version"
+              "policy_digest"
             ],
             "properties": {
               "binding_version": {
@@ -616,6 +621,27 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "ready"
+              },
+              "source": {
+                "const": "live_gitlab_api"
+              }
+            },
+            "required": [
+              "state",
+              "source"
+            ]
+          },
+          "then": {
+            "required": [
+              "gitlab_version"
+            ]
+          }
         }
       ]
     },
@@ -624,7 +650,10 @@
       "additionalProperties": false,
       "properties": {
         "format": {
-          "const": "grounds.gitlab-archive-template/v1"
+          "enum": [
+            "grounds.gitlab-archive-template/v1",
+            "grounds.github-archive-template/v1"
+          ]
         },
         "tag_patterns": {
           "const": [
@@ -642,7 +671,10 @@
           "const": "forbidden"
         },
         "maintainer_delete": {
-          "const": "explicit_gitlab_ui_or_api"
+          "enum": [
+            "explicit_gitlab_ui_or_api",
+            "forbidden_by_ruleset"
+          ]
         }
       },
       "required": [
@@ -740,22 +772,73 @@
                     "minLength": 1
                   },
                   "body": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "properties": {
-                      "name": {
-                        "enum": [
-                          "grounds/candidates/*",
-                          "grounds/deliveries/*"
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "name": {
+                            "enum": [
+                              "grounds/candidates/*",
+                              "grounds/deliveries/*"
+                            ]
+                          },
+                          "create_access_level": {
+                            "const": 30
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "create_access_level"
                         ]
                       },
-                      "create_access_level": {
-                        "const": 30
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "name": {
+                            "const": "Grounds immutable archives"
+                          },
+                          "target": {
+                            "const": "tag"
+                          },
+                          "enforcement": {
+                            "const": "active"
+                          },
+                          "bypass_actors": {
+                            "const": []
+                          },
+                          "conditions": {
+                            "const": {
+                              "ref_name": {
+                                "include": [
+                                  "refs/tags/grounds/candidates/*",
+                                  "refs/tags/grounds/deliveries/*"
+                                ],
+                                "exclude": []
+                              }
+                            }
+                          },
+                          "rules": {
+                            "const": [
+                              {
+                                "type": "update"
+                              },
+                              {
+                                "type": "deletion"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "target",
+                          "enforcement",
+                          "bypass_actors",
+                          "conditions",
+                          "rules"
+                        ]
                       }
-                    },
-                    "required": [
-                      "name",
-                      "create_access_level"
                     ]
                   },
                   "executed": {

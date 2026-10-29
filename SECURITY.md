@@ -1,0 +1,9 @@
+# Security reporting
+
+Do not disclose credentials, private customer content, or exploit details in a public issue.
+
+When enabled, use [GitHub private vulnerability reporting](https://github.com/MaybeLL/grounds-open/security/advisories/new). If the reporting form is unavailable, open an issue containing only a request for a private contact channel, with no vulnerability details, and wait for a maintainer response.
+
+Include the affected commit or version, operating system, a minimal sanitized reproduction, expected impact, and any suggested mitigation in the private report. Remove secrets and personal data from logs and screenshots.
+
+There is not yet a supported public release or an established security response SLA. Until a stable support policy is announced, fixes target the current development branch; no historical release line is promised security updates.

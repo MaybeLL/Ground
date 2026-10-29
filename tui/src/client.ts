@@ -71,7 +71,7 @@ export class Client implements Reader, EvalAccess {
   private async initialize(): Promise<void> {
     const version = await this.raw('version', []);
     // The TUI and core CLI ship together because their command surface is private integration API.
-    if (String(version.version) !== '0.2.49') throw new ClientError('CLI_INCOMPATIBLE', `尚未验证 CLI ${version.version}，请安装 @grounds-review/grounds@0.2.49`);
+    if (String(version.version) !== '0.2.49') throw new ClientError('CLI_INCOMPATIBLE', `尚未验证 CLI ${version.version}，请安装 Grounds CLI 0.2.49（https://github.com/MaybeLL/grounds-open/releases）`);
     for (const [argv, option] of [[['candidate', 'compare', '--help'], '--summary'], [['candidate', 'list', '--help'], '--issue-version']] as const) {
       const r = await invoke(this.cli, [...argv, '--json'], this.options.cwd, this.options.timeout, this.options.signal);
       if (!String(decode(r.stdout, r.exit, 'help').usage).includes(option)) throw new ClientError('CLI_INCOMPATIBLE', `核心 CLI 缺少 ${option}，需要包含 TUI 读取扩展的版本`);

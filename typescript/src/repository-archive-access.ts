@@ -1,3 +1,4 @@
+import { GitHubArchiveClient, githubArchiveNamespaces } from "./repository-archive-github.js";
 import { repositorySetting, repositorySettingID } from "./repository-settings.js";
 import { sha256 } from "./canonical-json.js";
 import { ArchiveProtectionUnavailable, type ArchivePolicyCheck, type ArchiveProtectionEvidence, type GitArchiveBinding } from "./candidate-git-archive.js";
@@ -32,7 +33,7 @@ export interface ArchiveAccessReport {
   project_id?: number;
   checked_at: string;
   valid_until: string;
-  source: "live_gitlab_api";
+  source: "live_gitlab_api" | "live_github_api";
   state: ArchiveAccessState;
   configuration: "ready" | "needs_configuration" | "unknown";
   binding_version: number;
@@ -124,7 +125,7 @@ function withAccessState(report: ArchiveAccessReport, changed = false): ArchiveA
  * or rewriting of Candidates, receipts, signatures or old contracts is needed.
  */
 export class RepositoryArchiveAccess {
-  constructor(private readonly store: Store, private readonly client: (instance: string) => GitLabAPI = instance => new GitLabClient(instance)) {}
+  constructor(private readonly store: Store, private readonly client: (instance: string) => GitLabAPI = instance => new GitLabClient(instance), private readonly githubClient: () => GitLabAPI = () => new GitHubArchiveClient()) {}
 
   private async repository(id: string): Promise<RepositoryRecord> {
     if (!isUUIDv7(id)) throw validation("repository", "UUIDv7 required");
@@ -142,14 +143,43 @@ export class RepositoryArchiveAccess {
     const repository = await this.repository(id), row = await this.store.read(tx => repositorySetting(tx, id, "archive-binding")), binding = bindingData(row, id);
     const remote = new URL(repository.canonical_remote);
     const instance = gitLabInstance(selectedInstance ?? binding?.instance ?? `https://${["http:", "https:"].includes(remote.protocol) ? remote.host : remote.hostname}`);
-    const path = projectPath(repository.canonical_remote, instance), client = this.client(instance);
+    const path = projectPath(repository.canonical_remote, instance);
+    const github = remote.hostname === "github.com";
+    if (github && (instance !== "https://github.com" || path.split("/").length !== 2)) throw validation("instance", "GitHub.com requires https://github.com and owner/repository");
+    const client = github ? this.githubClient() : this.client(instance);
     const at = new Date().toISOString();
     const report: ArchiveAccessReport = {
       format: "grounds.repository-archive-check/v1", repository_id: id, canonical_remote: repository.canonical_remote, instance, project_path: path,
-      checked_at: at, valid_until: new Date(Date.parse(at) + 60_000).toISOString(), source: "live_gitlab_api", state: "unknown", configuration: "unknown",
+      checked_at: at, valid_until: new Date(Date.parse(at) + 60_000).toISOString(), source: github ? "live_github_api" : "live_gitlab_api", state: "unknown", configuration: "unknown",
       binding_version: row?.version ?? 0, ...(binding ? { binding } : {}), namespaces: [], requests: client.observations, drift: "not_compared", unknowns: [], recovery: [],
     };
     try {
+      if (github) {
+        const user = apiRecord(await client.get("/user")), userID = apiID(user.id);
+        if (typeof user.login !== "string" || !/^[a-zA-Z0-9-]{1,39}$/.test(user.login)) throw new GitLabFailure("invalid_response");
+        const project = apiRecord(await client.get(`/repos/${path}`));
+        report.project_id = apiID(project.id);
+        if (typeof project.full_name !== "string" || project.full_name.toLowerCase() !== path.toLowerCase() || typeof project.html_url !== "string" || project.html_url.toLowerCase() !== `${instance}/${path}`.toLowerCase() || project.archived !== false || project.disabled !== false) throw new GitLabFailure("invalid_response");
+        const permissions = apiRecord(project.permissions);
+        if (typeof permissions.push !== "boolean" || permissions.pull !== true) throw new GitLabFailure("invalid_response");
+        report.actor = { id: userID, username: user.login, access_level: permissions.push ? 30 : 10 };
+        const listed = await client.list(`/repos/${path}/rulesets?includes_parents=true`);
+        const rules: unknown[] = [], ids = new Set<number>();
+        for (const value of listed) {
+          const item = apiRecord(value), ruleID = apiID(item.id);
+          if (ids.has(ruleID)) throw new GitLabFailure("invalid_response"); ids.add(ruleID);
+          const detail = apiRecord(await client.get(`/repos/${path}/rulesets/${ruleID}`));
+          if (detail.id !== ruleID || detail.target !== item.target || detail.enforcement !== item.enforcement || !["Repository", "Organization", "Enterprise"].includes(String(item.source_type)) || typeof item.source !== "string" || detail.source_type !== item.source_type || detail.source !== item.source) throw new GitLabFailure("invalid_response");
+          rules.push(detail);
+        }
+        report.namespaces = githubArchiveNamespaces(rules, permissions.push);
+        report.policy_digest = sha256({ instance, project_id: report.project_id, project_path: path, rules });
+        report.drift = binding ? binding.initial_policy_digest === report.policy_digest ? "unchanged" : "changed" : "not_compared";
+        report.configuration = report.namespaces.every(namespace => namespace.protection === "confirmed") ? "ready" : "needs_configuration";
+        const changed = !!binding && (binding.instance !== instance || binding.project_id !== report.project_id || binding.project_path !== path || binding.canonical_remote !== repository.canonical_remote);
+        Object.assign(report, withAccessState(report, changed));
+        report.recovery = report.recovery.map(message => message.replaceAll("GitLab", "GitHub").replaceAll("Maintainer/Owner", "repository administrator"));
+      } else {
       const version = apiRecord(await client.get("/version"));
       if (typeof version.version !== "string" || !/^(14\.(?:1[0-9]|[2-9][0-9])|1[5-8]\.\d+)\.\d+(?:[-+.][a-zA-Z0-9.-]+)?$/.test(version.version)) throw new GitLabFailure("unsupported_version");
       report.gitlab_version = version.version;
@@ -198,9 +228,10 @@ export class RepositoryArchiveAccess {
       report.drift = binding ? binding.initial_policy_digest === report.policy_digest ? "unchanged" : "changed" : "not_compared";
       report.configuration = report.namespaces.every(namespace => namespace.protection === "confirmed") ? "ready" : "needs_configuration";
       Object.assign(report, withAccessState(report, changed));
+      }
     } catch (error) {
       const reason = error instanceof GitLabFailure ? error.code : "invalid_response";
-      report.state = "unknown"; report.unknowns.push(reason); report.recovery.push(recoveryFor(reason));
+      report.state = "unknown"; report.unknowns.push(reason); report.recovery.push(github ? `GitHub archive check failed (${reason}). Authenticate using gh auth login --hostname github.com or GROUNDS_GITHUB_TOKEN. Check repository permissions and Settings > Rules. Private repository rulesets may require a paid GitHub plan. Missing API access and unsupported policies never authorize archives; re-run archive-check after resolving the issue.` : recoveryFor(reason));
     }
     // The check interval includes all reads; its short validity is informational.
     // Authorization is re-read on every pre/post archive policy callback.
@@ -219,7 +250,7 @@ export class RepositoryArchiveAccess {
       return JSON.parse(replay.result_json);
     }
     const report = await this.check(input.repository_id, input.instance);
-    if (!report.project_id || !report.policy_digest || !report.actor || report.state === "unknown") throw new DomainError("STATE_CONFLICT", "GitLab project identity could not be confirmed; binding unchanged", false, { report });
+    if (!report.project_id || !report.policy_digest || !report.actor || report.state === "unknown") throw new DomainError("STATE_CONFLICT", "Repository platform identity could not be confirmed; binding unchanged", false, { report });
     const binding: RepositoryArchiveBinding = {
       format: "grounds.repository-archive-binding/v1", repository_id: input.repository_id, canonical_remote: report.canonical_remote, instance: report.instance,
       project_id: report.project_id, project_path: report.project_path, ref_namespaces: ARCHIVE_NAMESPACES, initial_policy_digest: report.policy_digest,
@@ -229,7 +260,7 @@ export class RepositoryArchiveAccess {
       const replay = await tx.reserveOperation({ id: input.operation_id, command: "repository.archive-bind", request_hash: request });
       if (replay) return JSON.parse(replay.result_json);
       const repository = await tx.getRepository(input.repository_id);
-      if (repository.canonical_remote !== binding.canonical_remote) throw new DomainError("STATE_CONFLICT", "Repository changed during GitLab discovery; explicitly recheck");
+      if (repository.canonical_remote !== binding.canonical_remote) throw new DomainError("STATE_CONFLICT", "Repository changed during platform discovery; explicitly recheck");
       const old = await repositorySetting(tx, input.repository_id, "archive-binding");
       bindingData(old, input.repository_id);
       if (old) await tx.lockRuntimeRecord("runtime_operation", old.id);
@@ -253,7 +284,7 @@ export class RepositoryArchiveAccess {
       if (!namespace || !report.namespaces.every(item => item.protection === "confirmed" && item.current_user_can_create === true)) throw new DomainError("STATE_CONFLICT", "Both archive namespaces must be confirmed for the current user", false, { report });
       const evidence: ArchiveProtectionEvidence = {
         format: "grounds.archive-protection/v1", repository_id: binding.repository_id, canonical_remote: report.canonical_remote, ref_namespace: namespace.ref_namespace,
-        source: { kind: "platform-api", locator: `${report.instance}/api/v4/projects/${report.project_id}/protected_tags`, revision: report.policy_digest, verified_by: `gitlab-user:${report.actor.id}@${report.instance}` },
+        source: { kind: "platform-api", locator: report.source === "live_github_api" ? `https://api.github.com/repos/${report.project_path}/rulesets` : `${report.instance}/api/v4/projects/${report.project_id}/protected_tags`, revision: report.policy_digest, verified_by: `${report.source === "live_github_api" ? "github" : "gitlab"}-user:${report.actor.id}@${report.instance}` },
         observed_at: report.checked_at, valid_until: report.valid_until, currently_applicable: true,
         archive_identity_can_create: true, ordinary_identity_cannot_update: true, ordinary_identity_cannot_delete: true, team_can_read_by_ref: true,
         repository_backup: "unknown", database_backup: "unknown",
@@ -267,14 +298,14 @@ export class RepositoryArchiveAccess {
 export function archiveConfigurationGuide(report: ArchiveAccessReport) {
   return {
     instance: report.instance, project_id: report.project_id ?? null, project_path: report.project_path,
-    settings_url: `${report.instance}/${report.project_path}/-/settings/repository`,
-    template: { format: "grounds.gitlab-archive-template/v1", tag_patterns: ["grounds/candidates/*", "grounds/deliveries/*"], create_access_level: 30,
-      existing_tag_update: "forbidden", developer_delete: "forbidden", maintainer_delete: "explicit_gitlab_ui_or_api" },
+    settings_url: report.source === "live_github_api" ? `${report.instance}/${report.project_path}/settings/rules` : `${report.instance}/${report.project_path}/-/settings/repository`,
+    template: { format: report.source === "live_github_api" ? "grounds.github-archive-template/v1" : "grounds.gitlab-archive-template/v1", tag_patterns: ["grounds/candidates/*", "grounds/deliveries/*"], create_access_level: 30,
+      existing_tag_update: "forbidden", developer_delete: "forbidden", maintainer_delete: report.source === "live_github_api" ? "forbidden_by_ruleset" : "explicit_gitlab_ui_or_api" },
     namespaces: ARCHIVE_NAMESPACES.map(namespace => {
       const current = report.namespaces.find(item => item.ref_namespace === namespace);
       return { ref_namespace: namespace, existing_rules: current?.matches ?? [], action: current?.protection === "confirmed" ? "preserve_existing_rules" : "administrator_review_required",
-        suggestion: current?.protection === "confirmed" ? "保留已有规则；严格或自定义策略按实际用户权限使用。" : "由Maintainer/Owner在GitLab Settings > Repository > Protected tags核对已有规则后，为此完整模式配置Developer及以上创建；不要自动替换或放宽已有策略。",
-        recommended_request_preview: { method: "POST", path: `/projects/${report.project_id ?? ":project_id"}/protected_tags`, body: { name: namespace.slice("refs/tags/".length) + "*", create_access_level: 30 }, executed: false } };
+        suggestion: report.source === "live_github_api" ? "Administrator: configure active GitHub tag rulesets with no bypass actors, no exclusions, and update/deletion restrictions. Creation stays available to writers. Unsupported policies fail closed. Preserve stricter rules and recheck." : current?.protection === "confirmed" ? "保留已有规则；严格或自定义策略按实际用户权限使用。" : "由Maintainer/Owner在GitLab Settings > Repository > Protected tags核对已有规则后，为此完整模式配置Developer及以上创建；不要自动替换或放宽已有策略。",
+        recommended_request_preview: report.source === "live_github_api" ? { method: "POST", path: `/repos/${report.project_path}/rulesets`, body: { name: "Grounds immutable archives", target: "tag", enforcement: "active", bypass_actors: [], conditions: { ref_name: { include: ARCHIVE_NAMESPACES.map(n => n + "*"), exclude: [] } }, rules: [{ type: "update" }, { type: "deletion" }] }, executed: false } : { method: "POST", path: `/projects/${report.project_id ?? ":project_id"}/protected_tags`, body: { name: namespace.slice("refs/tags/".length) + "*", create_access_level: 30 }, executed: false } };
     }),
     confirmation: "配置预览不表示已配置；管理员操作后显式重新运行 repository archive-check，只以实时读取结果判定就绪。",
   };

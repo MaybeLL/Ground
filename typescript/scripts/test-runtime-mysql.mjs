@@ -3,11 +3,12 @@ import { promisify } from "node:util";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import mysql from "mysql2/promise";
 const exec = promisify(execFile),
   name = "grounds-mysql-test-" + randomUUID(),
   password = randomBytes(24).toString("hex");
-const temporary = mkdtempSync("/private/tmp/grounds-mysql-ca-");
+const temporary = mkdtempSync(join(tmpdir(), "grounds-mysql-ca-"));
 const env = {
   ...process.env,
   MYSQL_ROOT_PASSWORD: password,
@@ -19,7 +20,7 @@ const prefix = process.env.GROUNDS_TEST_DOCKER_SOCKET
 const docker = (args) =>
   exec("docker", [...prefix, ...args], {
     env,
-    timeout: 30000,
+    timeout: 180000,
     maxBuffer: 128 * 1024,
   });
 try {
@@ -68,10 +69,11 @@ try {
     (await docker(["exec", name, "cat", "/var/lib/mysql/ca.pem"])).stdout,
     { mode: 0o600 },
   );
+  const command = process.argv.slice(2);
   const code = await new Promise((yes, no) => {
     const child = spawn(
-      process.execPath,
-      [
+      command[0] ?? process.execPath,
+      command.length ? command.slice(1) : [
         "--import",
         "tsx",
         "--test",

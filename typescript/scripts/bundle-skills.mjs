@@ -11,3 +11,5 @@ mkdirSync(resolve(target, "skills"), { recursive: true });
 for (const name of skillNames) assembleSkillAssets(source, name, resolve(target, "skills", name));
 chmodSync(resolve(packageRoot, "dist/src/bin.js"), 0o755);
 copyFileSync(resolve(packageRoot, "assets/code-route-client.py"), resolve(packageRoot, "dist/assets/code-route-client.py"));
+
+for (const name of ["LICENSE", "THIRD_PARTY_NOTICES.md"]) copyFileSync(resolve(packageRoot, "..", name), resolve(packageRoot, "dist", name));

@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -10,7 +11,7 @@ const mysqlEnabled = ["HOST", "DATABASE", "USERNAME", "PASSWORD"].every(
   (k) => process.env["GROUNDS_TEST_MYSQL_" + k],
 );
 test("schema 17 migration preserves ledger identity and adds empty runtime storage", async () => {
-  const root = mkdtempSync("/private/tmp/grounds-runtime-migrate-"),
+  const root = mkdtempSync(join(tmpdir(), "grounds-runtime-migrate-")),
     path = join(root, "test.db");
   let store = SQLStore.sqlite(path);
   try {
@@ -38,7 +39,7 @@ test("schema 17 migration preserves ledger identity and adds empty runtime stora
 });
 
 test("retired rows are unread and unchanged; business runtime operations survive", async () => {
-  const root = mkdtempSync("/private/tmp/grounds-runtime-retired-"), path = join(root, "test.db");
+  const root = mkdtempSync(join(tmpdir(), "grounds-runtime-retired-")), path = join(root, "test.db");
   let store = SQLStore.sqlite(path);
   const retiredId = newUUIDv7(), operationId = newUUIDv7(), activeId = newUUIDv7();
   const active = { id: activeId, kind: "runtime_operation" as const, version: 1, data: { description: "business operation retained" } };

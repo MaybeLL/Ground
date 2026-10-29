@@ -1,0 +1,95 @@
+name: Validate
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: |
+            typescript/package-lock.json
+            tui/package-lock.json
+          registry-url: https://registry.npmjs.org
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Configure test Git identity
+        run: |
+          git config --global user.name 'Grounds CI'
+          git config --global user.email 'ci@example.invalid'
+          git config --global init.defaultBranch main
+      - run: npm ci --registry=https://registry.npmjs.org
+        working-directory: typescript
+      - run: npm ci --registry=https://registry.npmjs.org
+        working-directory: tui
+      - name: Install browser test runtime
+        run: npx playwright install --with-deps chromium
+        working-directory: typescript
+      - run: npm run build
+        working-directory: typescript
+      - run: npm run build
+        working-directory: tui
+      - run: npm test
+        working-directory: typescript
+      - run: npm test
+        working-directory: tui
+      - run: node --test scripts/*.test.mjs
+      - run: python3 -m unittest discover -s plugins/grounds/tests -p 'test_*.py' -q
+      - name: Validate packaged CLI and skills
+        run: node scripts/package-test.mjs
+        working-directory: typescript
+      - name: Validate packaged TUI
+        run: node scripts/package-test.mjs
+        working-directory: tui
+      - name: Install release tarballs as a user
+        run: node scripts/release-artifacts.mjs
+
+  integration:
+    name: Integration (MySQL, PostgreSQL, SQLite, PTY)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Configure test Git identity
+        run: |
+          git config --global user.name 'Grounds CI'
+          git config --global user.email 'ci@example.invalid'
+          git config --global init.defaultBranch main
+      - run: npm ci --registry=https://registry.npmjs.org && npm run build
+        working-directory: typescript
+      - run: npm ci --registry=https://registry.npmjs.org && npm run build
+        working-directory: tui
+      - name: Run TLS database conformance on all stores
+        run: node scripts/test-runtime-postgres.mjs node scripts/test-runtime-mysql.mjs node --import tsx --test --test-concurrency=1 test/runtime-store.test.ts test/mysql-conformance.test.ts test/postgres-conformance.test.ts
+        working-directory: typescript
+      - name: Run TUI scale and PTY against both stores
+        run: node scripts/test-runtime-mysql.mjs npm --prefix ../tui run test:release
+        working-directory: typescript
+        env:
+          GROUNDS_TUI_PTY: '1'

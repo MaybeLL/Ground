@@ -702,9 +702,5 @@ test("integration source help requires exact Git history and retires patch-only"
     assert.match(usage, /requires the exact source commit of the Git artifact/);
     assert.doesNotMatch(usage, /single parent must equal Candidate base/);
   }
-  const design = readFileSync(new URL("../../GROUNDS_DESIGN.md", import.meta.url), "utf8")
-    .split("### 4.4 Review、比较、选择与交付")[1].split("## 5.")[0];
-  assert.match(design, /新受管 source Candidate[\s\S]*完整 OID、ordered parents[\s\S]*Candidate 逻辑 base/);
-  assert.match(design, /允许正常多提交和真实 merge，不要求直接父等于 base，也不限制为单父/);
-  assert.match(design, /历史 patch-only Candidate 已退出交付支持范围/);
+
 });

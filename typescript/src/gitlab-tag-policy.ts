@@ -13,7 +13,7 @@ export interface NamespacePolicy {
   developer_can_create: boolean | "unknown";
   ordinary_developer_cannot_update: boolean;
   ordinary_developer_cannot_delete: boolean;
-  maintainer_delete: "explicit_gitlab_ui_or_api";
+  maintainer_delete: "explicit_gitlab_ui_or_api" | "forbidden_by_ruleset";
   matches: { rule: GitLabTagRule; coverage: "whole_namespace" | "partial_namespace" }[];
   default_difference: "recommended" | "stricter_or_custom" | "missing";
 }
