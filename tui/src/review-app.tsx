@@ -63,7 +63,8 @@ export function ReviewApp({ reader, writer, context, onExit, onEval, onHome, ini
   const width = widthOverride ?? size.width, height = heightOverride ?? size.height;
   const [screen, setScreen] = useState<Screen>(() => ({ ...initial(), searchKind: initialSearchKind })), [history, setHistory] = useState<Screen[]>([]), [overlay, setOverlay] = useState<Overlay>(), [legacy, setLegacy] = useState(false);
   const [savedCode, setSavedCode] = useState<Screen>();
-  const [busy, setBusy] = useState(false), [notice, setNotice] = useState(''), [, repaint] = useState(0);
+  // The first render precedes the initial read effect; advertise it as busy too.
+  const [busy, setBusy] = useState(true), [notice, setNotice] = useState(''), [, repaint] = useState(0);
   const [pendingSelection, setPendingSelection] = useState<{ overlay: Overlay; candidate: string; issue: string; version: number }>();
   const request = useRef<AbortController | undefined>(undefined), writing = useRef(false);
   const change = (part: Partial<Screen>) => setScreen(s => ({ ...s, ...part }));

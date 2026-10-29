@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { Data } from './protocol.js';
 import { array, record, verificationMode } from './pages.js';
+import { timestampOrderKey } from './timestamp-order.js';
 
 export const objects = (v: unknown): Data[] => array(v).map(record);
 export const text = (v: unknown): string => v == null ? '' : String(v);
@@ -198,5 +199,5 @@ export function operationId(): string {
   const h = b.toString('hex'); return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 export function recentIssues(resources: Data[]): Data[] {
-  return [...resources].sort((a, b) => text(record(b.last_activity).occurred_at).localeCompare(text(record(a.last_activity).occurred_at)) || text(a.resource_id).localeCompare(text(b.resource_id)));
+  return [...resources].sort((a, b) => timestampOrderKey(text(record(b.last_activity).occurred_at)).localeCompare(timestampOrderKey(text(record(a.last_activity).occurred_at))) || text(a.resource_id).localeCompare(text(b.resource_id)));
 }

@@ -92,6 +92,26 @@ test('recent issues uses facts rather than browsing, operation ID is UUIDv7', ()
   assert.equal(recentIssues(resources)[0].resource_id, 'b'); assert.equal(resources[0].resource_id, 'a');
   assert.match(operationId(), /^[a-f0-9]{8}-[a-f0-9]{4}-7[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
 });
+test('recent activity sorts timestamps at nanosecond precision and breaks equal-time ties by ID', () => {
+  const rows = [
+    ['z', '2026-01-01T00:00:00.1Z'],
+    ['a', '2026-01-01T00:00:00.100000000Z'],
+    ['n', '2026-01-01T00:00:00.100000001Z'],
+    ['b', '2026-01-01T00:00:00.11Z'],
+  ].map(([resource_id, occurred_at]) => ({ resource_id, last_activity: { occurred_at } }));
+  assert.deepEqual(recentIssues(rows).map(row => row.resource_id), ['b', 'n', 'a', 'z']);
+});
+test('report session sorts equivalent timestamps and nanoseconds before loading bodies', async () => {
+  const many = { ...trace, verification_set: { ...set, count: 4 } };
+  const dates: Record<string, string> = { a: '2026-01-01T00:00:00.1Z', z: '2026-01-01T00:00:00.100000000Z', n: '2026-01-01T00:00:00.100000001Z', b: '2026-01-01T00:00:00.11Z' };
+  const r = { async query(method: Method, args: string[] = []) {
+    if (method === 'verifications') return { candidate_id: 'c', verification_set: many.verification_set, verifications: Object.entries(dates).map(([verification_id, created_at]) => ({ ...entry, verification_id, created_at })) };
+    return { ...report, verification_id: args[0], created_at: dates[args[0]] };
+  } };
+  const session = new ReviewSession(many, r);
+  while (session.hasMore) await session.next();
+  assert.deepEqual(session.reports.map(row => row.verification_id), ['b', 'n', 'z', 'a']);
+});
 test('report session loads newest first across pages, bodies remain lazy', async () => {
   const calls: string[] = [];
   const many = { ...trace, verification_set: { ...set, count: 2 } };

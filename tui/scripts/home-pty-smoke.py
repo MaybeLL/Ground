@@ -68,6 +68,9 @@ for mode in ('home', '--eval', '--legacy', 'conflict'):
             press('\r')
             wait('查找需求')
             wait('Ctrl+G 返回首页')
+            # The hint is visible during the initial read, when Ctrl+G is
+            # intentionally disabled. Wait for the empty fixture to finish.
+            wait('可搜索 0 项 · 下方为可用记录')
             settle()
             press('\x07')
             wait('Tab 选择 · Enter 进入')

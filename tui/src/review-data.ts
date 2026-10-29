@@ -3,6 +3,7 @@ import { ClientError, type Data } from './protocol.js';
 import { record } from './pages.js';
 import { objects, text } from './review-model.js';
 import { loadCandidateArchiveStatus } from './candidate-history.js';
+import { timestampOrderKey } from './timestamp-order.js';
 
 /** A report session pins candidate/tree/set identities; new reports require an explicit refresh. */
 export class ReviewSession {
@@ -48,7 +49,7 @@ export class ReviewSession {
           if (collected.length > this.count || collected.length > 10000) throw new ClientError('OUTPUT_LIMIT', '报告目录超出固定集合或 10,000 项限制');
         } while (this.cursor);
         if (collected.length !== this.count) throw new ClientError('PROTOCOL_ERROR', '报告目录数量不完整');
-        this.entries = collected.sort((a, b) => text(b.created_at).localeCompare(text(a.created_at)) || text(b.verification_id).localeCompare(text(a.verification_id)));
+        this.entries = collected.sort((a, b) => timestampOrderKey(text(b.created_at)).localeCompare(timestampOrderKey(text(a.created_at))) || text(b.verification_id).localeCompare(text(a.verification_id)));
         this.started = true;
       }
       const entry = this.entries[0];
