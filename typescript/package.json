@@ -1,6 +1,6 @@
 {
   "name": "@maybell/grounds",
-  "version": "0.2.50",
+  "version": "0.2.51",
   "description": "Grounds CLI for evidence-backed human and Agent work",
   "type": "module",
   "files": [
@@ -21,7 +21,7 @@
     "test:coverage": "node --import tsx --test --test-concurrency=1 --experimental-test-coverage test/*.test.ts",
     "test:brand": "node ../scripts/brand-audit.mjs",
     "test:package": "npm run build && node scripts/package-test.mjs",
-    "prepublishOnly": "node -e \"throw new Error('Use the GitHub Releases workflow; npm registry publication is disabled')\"",
+    "prepublishOnly": "node -e \"throw new Error('Publish verified GitHub Release tarballs; see docs/releases.md')\"",
     "test:serial": "node scripts/test-parallel.mjs --workers 1",
     "test:code-workspace": "node scripts/test-code-workspace.mjs",
     "test:workspace-compatibility": "node scripts/test-workspace-compatibility.mjs",
@@ -49,15 +49,18 @@
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   },
-  "private": true,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/MaybeLL/grounds-open.git",
+    "url": "git+https://github.com/MaybeLL/Ground.git",
     "directory": "typescript"
   },
-  "homepage": "https://github.com/MaybeLL/grounds-open",
+  "homepage": "https://github.com/MaybeLL/Ground",
   "bugs": {
-    "url": "https://github.com/MaybeLL/grounds-open/issues"
+    "url": "https://github.com/MaybeLL/Ground/issues"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
 }

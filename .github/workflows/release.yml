@@ -67,3 +67,44 @@ jobs:
           remote_commit=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)
           test "$remote_commit" = "$RELEASE_COMMIT"
           gh release create "$RELEASE_TAG" ./*.tgz SHA256SUMS --verify-tag --generate-notes --title "Grounds $RELEASE_TAG"
+
+  npm:
+    name: Publish ${{ matrix.package }} to npm
+    needs: publish
+    # Bootstrap both packages with a manual tarball publish, configure their
+    # trusted publishers, then enable this repository variable.
+    if: vars.NPM_PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [maybell-grounds, maybell-grounds-tui]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org/
+      - name: Install npm with trusted publishing support
+        run: npm install --global npm@11.19.0 --registry=https://registry.npmjs.org/
+      - name: Verify release source and metadata
+        run: node scripts/github-release-check.mjs
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-assets
+          path: release-assets
+      - name: Publish verified tarball with OIDC
+        working-directory: release-assets
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          NPM_PACKAGE: ${{ matrix.package }}
+        run: |
+          sha256sum --check SHA256SUMS
+          npm publish "${NPM_PACKAGE}-${RELEASE_TAG#v}.tgz" --access public --provenance --registry=https://registry.npmjs.org/
