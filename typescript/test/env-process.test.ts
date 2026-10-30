@@ -34,6 +34,24 @@ async function completeObservation(scope: HostProcessScope): Promise<HostProcess
   }
   assert.fail("host process enumeration remained incomplete");
 }
+async function observedProcess(scope: HostProcessScope, child: ChildProcess): Promise<HostProcessIdentity> {
+  for (let i = 0; i < 100; i++) {
+    const found = inspectHostProcessScope(scope).processes.find(p => p.pid === child.pid);
+    if (found) return found;
+    await delay(20);
+  }
+  assert.fail("task process did not become observable in its own scope");
+}
+// Linux must finish PR_SET_DUMPABLE before its environment becomes unreadable.
+// A fixed startup delay races loaded runners; macOS only needs the empty-env exec.
+async function restrictedProcessReady(child: ChildProcess): Promise<void> {
+  if (process.platform === "darwin") { await once(child, "spawn"); return; }
+  const lines = createInterface({ input: child.stdout! });
+  try {
+    const [ready] = await once(lines, "line", { signal: AbortSignal.timeout(10_000) });
+    assert.equal(ready, "ready");
+  } finally { lines.close(); }
+}
 const task = (scope: HostProcessScope): ChildProcess => spawn("python3", ["-c", "import time;time.sleep(60)"], { detached: true, stdio: "ignore", env: { ...process.env, ...hostProcessEnvironment(scope) } });
 
 test("host completion includes a detached reparented Python descendant, and persisted scope cancels it", async () => {
@@ -66,14 +84,13 @@ test("host signals require both the correct random scope and process birth ident
   // incomplete. Empty macOS environments exercise the same fail-closed branch
   // without assuming that the runner enables SIP for /bin/sleep. Signal
   // authorization must still stop only the exact owned identities; their exit cannot certify a complete host-wide observation.
-  const restrictedArgv = process.platform === "darwin" ? ["/bin/sleep", "60"] : ["python3", "-c", "import ctypes,time;ctypes.CDLL(None).prctl(4,0,0,0,0);time.sleep(60)"];
-  const restricted = spawn(restrictedArgv[0], restrictedArgv.slice(1), { detached: true, stdio: "ignore", env: process.platform === "darwin" ? {} : { PATH: process.env.PATH } });
+  const restrictedArgv = process.platform === "darwin" ? ["/bin/sleep", "60"] : ["python3", "-c", "import ctypes,time;assert ctypes.CDLL(None).prctl(4,0,0,0,0)==0;print('ready',flush=True);time.sleep(60)"];
+  const restricted = spawn(restrictedArgv[0], restrictedArgv.slice(1), { detached: true, stdio: ["ignore", "pipe", "ignore"], env: process.platform === "darwin" ? {} : { PATH: process.env.PATH } });
+  const ready = restrictedProcessReady(restricted);
   const restrictedDone = exited(restricted), restrictedBirth = hostProcessIdentity(restricted.pid!);
   try {
     assert.ok(restrictedBirth);
-    await delay(100);
-    const found = inspectHostProcessScope(own).processes.find(p => p.pid === a.pid);
-    assert.ok(found);
+    const [found] = await Promise.all([observedProcess(own, a), observedProcess(other, b), ready]);
     const otherBirth = hostProcessIdentity(b.pid!); assert.ok(otherBirth);
     assert.equal(signalHostProcessIdentity(own, { ...found, identity: "0:0" }, "SIGKILL"), false);
     assert.equal(signalHostProcessIdentity(other, found, "SIGKILL"), false);
@@ -104,13 +121,14 @@ test("empty scopes can confirm and malformed or old absent scopes remain unknown
 
 test("absent or unreadable process environments retain unknown; a verified original leader can still be cancelled", async () => {
   const scope = createHostProcessScope();
-  const argv = process.platform === "darwin" ? ["/bin/sleep", "60"] : ["python3", "-c", "import ctypes,time;ctypes.CDLL(None).prctl(4,0,0,0,0);time.sleep(60)"];
-  const child = spawn(argv[0], argv.slice(1), { detached: true, stdio: "ignore", env: process.platform === "darwin" ? {} : { ...process.env, ...hostProcessEnvironment(scope) } });
+  const argv = process.platform === "darwin" ? ["/bin/sleep", "60"] : ["python3", "-c", "import ctypes,time;assert ctypes.CDLL(None).prctl(4,0,0,0,0)==0;print('ready',flush=True);time.sleep(60)"];
+  const child = spawn(argv[0], argv.slice(1), { detached: true, stdio: ["ignore", "pipe", "ignore"], env: process.platform === "darwin" ? {} : { ...process.env, ...hostProcessEnvironment(scope) } });
+  const ready = restrictedProcessReady(child);
   const done = exited(child);
   const birth = hostProcessIdentity(child.pid!);
   try {
     assert.ok(birth);
-    await delay(100);
+    await ready;
     const observed = inspectHostProcessScope(scope);
     assert.equal(observed.complete, false, "an absent or inaccessible environment is unknown even when the OS returns argv successfully");
     assert.equal(inspectHostProcessScope(scope, { pid: child.pid!, identity: birth }).complete, false, "the original restricted leader cannot be excluded through its old controller");
