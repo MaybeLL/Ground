@@ -1,6 +1,6 @@
 import { parseEvalEnvelope, fixedRecord, type EvalAccess, type EvalRead, type FrozenPublication, type HumanIdentity, type EvalRecord } from './eval-protocol.js';
 import { spawn } from 'node:child_process';
-import { access, writeFile, realpath } from 'node:fs/promises';
+import { access, readFile, writeFile, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
 import { ClientTemporaryFiles } from './client-temp.js';
@@ -71,7 +71,8 @@ export class Client implements Reader, EvalAccess {
   private async initialize(): Promise<void> {
     const version = await this.raw('version', []);
     // The TUI and core CLI ship together because their command surface is private integration API.
-    if (String(version.version) !== '0.2.50') throw new ClientError('CLI_INCOMPATIBLE', `尚未验证 CLI ${version.version}，请安装 Grounds CLI 0.2.50（https://github.com/MaybeLL/grounds-open/releases）`);
+    const expectedVersion = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
+    if (String(version.version) !== expectedVersion) throw new ClientError('CLI_INCOMPATIBLE', `尚未验证 CLI ${version.version}，请安装 Grounds CLI ${expectedVersion}（https://github.com/MaybeLL/Ground/releases）`);
     for (const [argv, option] of [[['candidate', 'compare', '--help'], '--summary'], [['candidate', 'list', '--help'], '--issue-version']] as const) {
       const r = await invoke(this.cli, [...argv, '--json'], this.options.cwd, this.options.timeout, this.options.signal);
       if (!String(decode(r.stdout, r.exit, 'help').usage).includes(option)) throw new ClientError('CLI_INCOMPATIBLE', `核心 CLI 缺少 ${option}，需要包含 TUI 读取扩展的版本`);

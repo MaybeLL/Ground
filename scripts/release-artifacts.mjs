@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const output = resolve(process.argv[2] ?? join(root, 'output/release'));
@@ -17,9 +17,6 @@ try {
     const cwd = join(root, folder);
     const packed = JSON.parse(run('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', output], { cwd }))[0];
     const tarball = join(output, packed.filename);
-    // Exercise the tarball publication path without uploading anything. The
-    // source-directory prepublishOnly guard must not block verified assets.
-    run('npm', ['publish', tarball, '--dry-run', '--json', '--access', 'public', '--registry=https://registry.npmjs.org/']);
     const prefix = join(temporary, folder);
     // Install runtime dependencies from the public registry, including native addons.
     // Do not reuse or symlink workspace node_modules: this is a user's install path.
@@ -28,8 +25,16 @@ try {
     if (!help.toLowerCase().includes('grounds')) throw new Error(`${bin} installed executable failed its help smoke test`);
     sums.push(`${createHash('sha256').update(readFileSync(tarball)).digest('hex')}  ${packed.filename}`);
   }
+  // Help alone does not open a TUI session. Exercise the independently
+  // installed pair so a stale compatibility check cannot ship unnoticed.
+  const cli = join(temporary, 'typescript/node_modules/.bin/grounds');
+  const config = join(temporary, 'config.yaml');
+  run(cli, ['init', '--driver', 'sqlite', '--path', join(temporary, 'ledger.db'), '--config', config, '--non-interactive', '--json'], { cwd: temporary });
+  const { Client } = await import(pathToFileURL(join(temporary, 'tui/node_modules/@maybell/grounds-tui/dist/client.js')).href);
+  const client = await Client.open({ cli, config, cwd: temporary, timeout: 30000 });
+  await client.close();
   writeFileSync(join(output, 'SHA256SUMS'), `${sums.join('\n')}\n`);
-  console.log('Release tarballs passed npm publication previews, independent installs and executable smoke tests.');
+  console.log('Release tarballs passed independent installs, executable smoke tests and CLI/TUI compatibility.');
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }

@@ -1,11 +1,26 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
+import { chmod, mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { invoke } from '../src/client.js';
+import { Client, invoke } from '../src/client.js';
 import { boundedArray, decode, methods } from '../src/protocol.js';
 import { z } from 'zod';
+
+test('client rejects a different CLI version and recommends its own package version', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'tui-version-'));
+  try {
+    const expected = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
+    const cli = join(root, 'cli.mjs');
+    await writeFile(cli, `#!/usr/bin/env node\nconsole.log(JSON.stringify({format:'patchledger.cli/v1',ok:true,warnings:[],data:{result_type:'patchledger.result.version/v1',command:'version',version:'0.0.0'}}));\n`);
+    await chmod(cli, 0o755);
+    await assert.rejects(Client.open({ cli, cwd: root, timeout: 5000 }), error => {
+      assert.equal((error as { code?: string }).code, 'CLI_INCOMPATIBLE');
+      assert.ok((error as Error).message.includes(`CLI ${expected}`));
+      return true;
+    });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 test('JSON protocol preserves warnings and rejects wrong commands or exit codes', () => {
   const e = { format: 'patchledger.cli/v1', ok: true, data: { result_type: 'patchledger.result.resource-list/v1', command: 'requirement.list', resources: [], extra: true }, warnings: [{ code: 'NOTICE', message: 'test' }] };
