@@ -1,6 +1,6 @@
 {
   "name": "@maybell/grounds-tui",
-  "version": "0.2.51",
+  "version": "0.2.52",
   "description": "Candidate review terminal workspace for Grounds",
   "type": "module",
   "bin": {
