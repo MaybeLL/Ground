@@ -18,10 +18,10 @@ Candidate Git artifacts are archived remotely under protected namespaces. GitHub
 
 ## Install a published version
 
-Version `0.2.51` prepares the npm installation channel. Once both packages have been published, install matching versions:
+Version `0.2.52` prepares the npm installation channel. Once both packages have been published, install matching versions:
 
 ```sh
-npm install -g @maybell/grounds@0.2.51 @maybell/grounds-tui@0.2.51
+npm install -g @maybell/grounds@0.2.52 @maybell/grounds-tui@0.2.52
 grounds --help
 grounds-tui --help
 ```

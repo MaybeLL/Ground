@@ -2,7 +2,9 @@
 
 GitHub is the canonical source, CI system, and release host for Grounds. No GitLab runner or mirrored repository is needed. CLI and TUI versions must match.
 
-Version `0.2.51` prepares public npm packages `@maybell/grounds` and `@maybell/grounds-tui`. Their initial publication and trusted publisher setup must be completed before npm installation or automatic npm releases are available. The GitHub release assets remain an installation option.
+Version `0.2.52` prepares public npm packages `@maybell/grounds` and `@maybell/grounds-tui`. Their initial publication and trusted publisher setup must be completed before npm installation or automatic npm releases are available. The GitHub release assets remain an installation option.
+
+The `v0.2.51` tag is retained for traceability. Its release workflow was canceled with macOS 14 jobs queued during GitHub's [announced retirement and brownout period](https://github.blog/changelog/2026-10-01-github-actions-macos-14-runner-image-retirement/); no release assets or npm packages were published for it. Version `0.2.52` moves the macOS validation matrix to `macos-15` and keeps both Node.js 22 and 24.
 
 ## Release gates
 
@@ -37,10 +39,10 @@ Keep the GitHub Actions repository variable `NPM_PUBLISH_ENABLED` unset during b
 Run the following from the repository root for the first npm release, substituting the release version if necessary. GitHub now resolves the former `MaybeLL/grounds-open` address to `MaybeLL/Ground`; use the actual repository name for npm metadata and trusted publishing.
 
 ```sh
-gh release download v0.2.51 --repo MaybeLL/Ground \
-  --dir output/npm-bootstrap/0.2.51 \
+gh release download v0.2.52 --repo MaybeLL/Ground \
+  --dir output/npm-bootstrap/0.2.52 \
   --pattern 'maybell-grounds-*.tgz' --pattern SHA256SUMS
-cd output/npm-bootstrap/0.2.51
+cd output/npm-bootstrap/0.2.52
 shasum -a 256 -c SHA256SUMS
 npm login --registry=https://registry.npmjs.org/
 npm whoami --registry=https://registry.npmjs.org/
@@ -49,8 +51,8 @@ npm whoami --registry=https://registry.npmjs.org/
 Confirm the authenticated account is `maybell`, both expected tarballs are present, and both checksums passed. Review their contents with `tar -tf` before publishing. Publish the exact GitHub-built tarballs, completing npm's interactive authentication prompts:
 
 ```sh
-npm publish ./maybell-grounds-0.2.51.tgz --access public --registry=https://registry.npmjs.org/
-npm publish ./maybell-grounds-tui-0.2.51.tgz --access public --registry=https://registry.npmjs.org/
+npm publish ./maybell-grounds-0.2.52.tgz --access public --registry=https://registry.npmjs.org/
+npm publish ./maybell-grounds-tui-0.2.52.tgz --access public --registry=https://registry.npmjs.org/
 ```
 
 Source-directory `npm publish` is intentionally blocked by `prepublishOnly`: build and validation run in GitHub Actions, and the tarballs are the release artifacts. `npm publish <tarball>` does not run that source-directory hook. Do not bypass it with `--ignore-scripts` or replace a released version with different bytes. Initial local publication does not provide GitHub OIDC provenance.
@@ -74,11 +76,11 @@ After both trusted publishers are configured, set the GitHub Actions repository 
 The CLI and TUI publish in separate matrix jobs. If only one fails, rerun **failed jobs only** after resolving the cause. Successful npm versions are immutable; rerunning an already successful publication will fail rather than overwrite it. A GitHub Release can exist while an npm publication is incomplete. Confirm both npm versions are present before announcing npm availability:
 
 ```sh
-npm view @maybell/grounds@0.2.51 version --registry=https://registry.npmjs.org/
-npm view @maybell/grounds-tui@0.2.51 version --registry=https://registry.npmjs.org/
-npm install -g @maybell/grounds@0.2.51 @maybell/grounds-tui@0.2.51 --registry=https://registry.npmjs.org/
+npm view @maybell/grounds@0.2.52 version --registry=https://registry.npmjs.org/
+npm view @maybell/grounds-tui@0.2.52 version --registry=https://registry.npmjs.org/
+npm install -g @maybell/grounds@0.2.52 @maybell/grounds-tui@0.2.52 --registry=https://registry.npmjs.org/
 grounds --help
 grounds-tui --help
 ```
 
-Replace `0.2.51` with the version being verified. Installation requires Node.js 22.13 or later; the CLI's native modules may require Python 3 and local C/C++ build tools. Test npm installation in a fresh prefix or environment so a source checkout's dependencies cannot hide missing package contents.
+Replace `0.2.52` with the version being verified. Installation requires Node.js 22.13 or later; the CLI's native modules may require Python 3 and local C/C++ build tools. Test npm installation in a fresh prefix or environment so a source checkout's dependencies cannot hide missing package contents.
