@@ -18,6 +18,8 @@ Database, container, PTY, and scale tests have additional prerequisites and must
 
 Use focused regression tests for behavior changes. Keep TypeScript indentation at two spaces and preserve ESM imports. Do not edit generated `dist/` contents. Update command help, contracts, and guides when changing user-visible behavior.
 
+Follow the [software design principles](docs/software-design.md) for substantive design changes and the [documentation maintenance rules](docs/documentation.md) when assessing documentation impact.
+
 ## Pull requests
 
 Explain the problem, resulting behavior, and validation performed. Disclose schema or configuration changes and any tests that were skipped. Use a focused Conventional Commit title such as `fix(cli): validate archive permissions`. Do not include credentials, personal paths, company data, or private acceptance materials in fixtures or logs. Confirm that you have permission to contribute the submitted material.

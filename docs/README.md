@@ -8,7 +8,10 @@ Grounds keeps a versioned ledger of requirements, issues, development runs, cand
 - [Vendored renderer security review](vendor-security.md): known advisories and integration boundaries.
 - [Machine-readable contracts](contracts/v1/README.md): versioned JSON interfaces and schemas.
 - [Contribution guide](../CONTRIBUTING.md): local checks and pull requests.
+- [Software design principles](software-design.md): design and review rules inspired by Ousterhout's published material.
+- [Documentation maintenance](documentation.md): responsibilities, reading routes, update triggers, and validation.
 - [Grounds workflow skill](../plugins/grounds/skills/grounds/SKILL.md): agent workflow entry point.
+- [Agent documentation research](research/agent-documentation.md): historical evidence and proposals; follow the maintenance rules above for adopted policy.
 
 ## Repository layout
 
