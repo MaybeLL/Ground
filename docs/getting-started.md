@@ -2,9 +2,15 @@
 
 ## Prerequisites
 
-Install Node.js 22.13 or later, npm, Git, Python 3, and native build tools. The CLI includes native dependencies, so a downloaded npm tarball still needs a compatible operating system and toolchain. The CI validation matrix targets Linux (Ubuntu 24.04) and macOS (macOS 14), each on Node.js 22 and 24. The first full matrix is still being validated; listing a target does not assert that its checks have passed. Windows is not validated.
+Install Node.js 22.13 or later, npm, Git, Python 3, and native build tools. The CLI includes native dependencies, so a downloaded npm tarball still needs a compatible operating system and toolchain. The CI validation matrix targets Linux (Ubuntu 24.04) and macOS (macOS 15), each on Node.js 22 and 24. Consult the release workflow for the exact tag to establish which checks passed. Windows is not validated.
 
-Follow the [source build](../README.md#build-from-source), then inspect the commands without opening a database:
+Follow [npm installation](../README.md#install-a-published-version) for a published version, or use the [source build](../README.md#build-from-source). Inspect installed commands without opening a database:
+
+```sh
+grounds help --json
+```
+
+From a source checkout, the equivalent command is:
 
 ```sh
 node typescript/dist/src/bin.js help --json

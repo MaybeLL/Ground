@@ -4,7 +4,7 @@ Grounds records requirements, candidate changes, verification evidence, and deli
 
 **Release status:** Grounds is a pre-1.0 project; commands and contracts may evolve. The project is licensed under [MIT](LICENSE); bundled third-party components retain their own licenses. See the [release process](docs/releases.md) for validation, npm publication setup and GitHub release downloads.
 
-The canonical source and automation are hosted at [MaybeLL/grounds-open on GitHub](https://github.com/MaybeLL/grounds-open). Development and releases use GitHub Actions; no GitLab mirror or GitLab runner is required.
+The canonical source and automation are hosted at [MaybeLL/Ground on GitHub](https://github.com/MaybeLL/Ground). Development and releases use GitHub Actions; no GitLab mirror or GitLab runner is required.
 
 ## How it works
 
@@ -18,15 +18,15 @@ Candidate Git artifacts are archived remotely under protected namespaces. GitHub
 
 ## Install a published version
 
-Version `0.2.52` prepares the npm installation channel. Once both packages have been published, install matching versions:
+Public npm packages are available beginning with version `0.2.52`. Install matching CLI and TUI versions:
 
 ```sh
-npm install -g @maybell/grounds@0.2.52 @maybell/grounds-tui@0.2.52
+npm install -g @maybell/grounds@0.2.53 @maybell/grounds-tui@0.2.53
 grounds --help
 grounds-tui --help
 ```
 
-Use Node.js 22.13 or later. The CLI's native dependencies may require Python 3 and a C/C++ build toolchain (Xcode Command Line Tools on macOS, or make and a C/C++ compiler on Linux). Until the first npm publication is complete, use the [GitHub release tarballs](docs/releases.md#install-a-github-release) or build from source. Stateful workflows require a configured SQL ledger; see the [getting started guide](docs/getting-started.md).
+Use Node.js 22.13 or later. The CLI's native dependencies may require Python 3 and a C/C++ build toolchain (Xcode Command Line Tools on macOS, or make and a C/C++ compiler on Linux). The same installation artifacts are also available as [GitHub release tarballs](docs/releases.md#install-a-github-release). Stateful workflows require a configured SQL ledger; see the [getting started guide](docs/getting-started.md).
 
 ## Build from source
 
