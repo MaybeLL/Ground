@@ -1,6 +1,6 @@
 {
   "name": "@maybell/grounds-tui",
-  "version": "0.2.50",
+  "version": "0.2.51",
   "description": "Candidate review terminal workspace for Grounds",
   "type": "module",
   "bin": {
@@ -24,7 +24,7 @@
     "test:scale": "GROUNDS_TUI_SCALE=1 npm run test:integration",
     "test:scale:cli": "GROUNDS_TUI_REPORT_SETUP=cli npm run test:scale",
     "test:release": "node scripts/require-mysql.mjs && npm run build && npm test && npm run test:scale",
-    "prepublishOnly": "node -e \"throw new Error('Use the GitHub Releases workflow; npm registry publication is disabled')\"",
+    "prepublishOnly": "node -e \"throw new Error('Publish verified GitHub Release tarballs; see docs/releases.md')\"",
     "release:check": "node ../scripts/github-release-check.mjs"
   },
   "dependencies": {
@@ -44,15 +44,18 @@
     "tsx": "^4.0.0",
     "typescript": "^5.8.3"
   },
-  "private": true,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/MaybeLL/grounds-open.git",
+    "url": "git+https://github.com/MaybeLL/Ground.git",
     "directory": "tui"
   },
-  "homepage": "https://github.com/MaybeLL/grounds-open",
+  "homepage": "https://github.com/MaybeLL/Ground",
   "bugs": {
-    "url": "https://github.com/MaybeLL/grounds-open/issues"
+    "url": "https://github.com/MaybeLL/Ground/issues"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
 }

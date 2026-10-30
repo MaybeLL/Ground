@@ -17,6 +17,9 @@ try {
     const cwd = join(root, folder);
     const packed = JSON.parse(run('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', output], { cwd }))[0];
     const tarball = join(output, packed.filename);
+    // Exercise the tarball publication path without uploading anything. The
+    // source-directory prepublishOnly guard must not block verified assets.
+    run('npm', ['publish', tarball, '--dry-run', '--json', '--access', 'public', '--registry=https://registry.npmjs.org/']);
     const prefix = join(temporary, folder);
     // Install runtime dependencies from the public registry, including native addons.
     // Do not reuse or symlink workspace node_modules: this is a user's install path.
@@ -26,7 +29,7 @@ try {
     sums.push(`${createHash('sha256').update(readFileSync(tarball)).digest('hex')}  ${packed.filename}`);
   }
   writeFileSync(join(output, 'SHA256SUMS'), `${sums.join('\n')}\n`);
-  console.log('Release tarballs installed independently and passed executable smoke tests.');
+  console.log('Release tarballs passed npm publication previews, independent installs and executable smoke tests.');
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }

@@ -15,6 +15,10 @@ for (const folder of ['typescript', 'tui']) {
   const manifest = json(`${folder}/package.json`), lock = json(`${folder}/package-lock.json`);
   if (lock.version !== manifest.version || lock.packages[''].version !== manifest.version || lock.name !== manifest.name || lock.packages[''].name !== manifest.name) throw new Error(`${folder}: lock identity differs from manifest`);
   if (!manifest.license || manifest.license === 'UNLICENSED') throw new Error('Maintainer must resolve project licensing before distributing release artifacts');
+  if (manifest.private === true || manifest.publishConfig?.access !== 'public'
+      || manifest.publishConfig?.registry !== 'https://registry.npmjs.org/') throw new Error(`${folder}: configure public npm publication explicitly`);
+  const repository = process.env.GITHUB_REPOSITORY ?? 'MaybeLL/Ground';
+  if (manifest.repository?.url !== `git+https://github.com/${repository}.git`) throw new Error(`${folder}: package repository must match the publishing GitHub repository`);
 }
 if (!existsSync(resolve(root, 'LICENSE')) || readFileSync(resolve(root, 'LICENSE'), 'utf8').trim().length < 100) throw new Error('A reviewed project LICENSE is required for distribution');
 const tag = process.env.GITHUB_REF_NAME ?? `v${cli.version}`;

@@ -2,7 +2,7 @@
 
 Grounds records requirements, candidate changes, verification evidence, and delivery decisions for work shared by people and coding agents. It provides a TypeScript CLI, a terminal review interface, and agent workflow skills.
 
-**Release status:** Grounds is a pre-1.0 project; commands and contracts may evolve. The project is licensed under [MIT](LICENSE); bundled third-party components retain their own licenses. See the [release process](docs/releases.md) for validation and distribution details. There is no public npm installation channel.
+**Release status:** Grounds is a pre-1.0 project; commands and contracts may evolve. The project is licensed under [MIT](LICENSE); bundled third-party components retain their own licenses. See the [release process](docs/releases.md) for validation, npm publication setup and GitHub release downloads.
 
 The canonical source and automation are hosted at [MaybeLL/grounds-open on GitHub](https://github.com/MaybeLL/grounds-open). Development and releases use GitHub Actions; no GitLab mirror or GitLab runner is required.
 
@@ -15,6 +15,18 @@ Grounds keeps a record of the path from a requirement to delivery: an issue vers
 - The **agent skills** guide development and delivery, evaluation, and documentation improvement workflows. Start with the [Grounds workflow skill](plugins/grounds/skills/grounds/SKILL.md).
 
 Candidate Git artifacts are archived remotely under protected namespaces. GitHub and GitLab repositories can be onboarded; archive protection and authorization must be verifiable when a candidate is submitted.
+
+## Install a published version
+
+Version `0.2.51` prepares the npm installation channel. Once both packages have been published, install matching versions:
+
+```sh
+npm install -g @maybell/grounds@0.2.51 @maybell/grounds-tui@0.2.51
+grounds --help
+grounds-tui --help
+```
+
+Use Node.js 22.13 or later. The CLI's native dependencies may require Python 3 and a C/C++ build toolchain (Xcode Command Line Tools on macOS, or make and a C/C++ compiler on Linux). Until the first npm publication is complete, use the [GitHub release tarballs](docs/releases.md#install-a-github-release) or build from source. Stateful workflows require a configured SQL ledger; see the [getting started guide](docs/getting-started.md).
 
 ## Build from source
 
