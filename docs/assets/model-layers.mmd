@@ -1,6 +1,6 @@
 flowchart TB
   IN["入口适配器<br/>CLI / TUI：提交、查询、等待、取消"] --> APP["应用层：业务编排<br/>ExperimentExecution · TaskExecution · Grading<br/>AgentExecutionService · SandboxProvisioning"]
-  APP --> DOM["领域层：8 个聚合<br/>TaskRun · Operation · Sandbox · Workspace · Candidate · Artifact<br/>GradingRecord · ExperimentRun · 版本化定义"]
+  APP --> DOM["领域层：8 个运行聚合 + 版本化定义<br/>TaskRun · Operation · Sandbox · Workspace · Candidate · Artifact<br/>GradingRecord · ExperimentRun"]
   APP --> PORT["出站端口（内侧定义）<br/>AgentProvider · Workspace 文件 · 运行资源<br/>交付与证据存取 · 业务仓储 · Agent 内部状态"]
   ADP["外侧适配器<br/>Pi Durable · Docker · Git / 文件 / 对象存储 · SQL"] -.->|实现| PORT
   DRV["应用基础设施：受理与驱动<br/>请求账本 · 意图 · 完成事件投递 · 核对循环 · 宿主监管"] -.->|持久推进与重启核对| APP

@@ -9,13 +9,17 @@ stateDiagram-v2
   [*] --> Prep: 归属者用例申请
   Prep --> Ready: 文件、运行资源、挂载均核实
   Prep --> Blocked: 失败，保留 Workspace
-  Blocked --> Prep: 接手者继续准备
+  Blocked --> Prep: 移交预留 → 改归属 → 继续准备
   Ready --> InUse: Operation 取得占用租约
   InUse --> Ready: 确认停止，归还租约
   Ready --> Paused: 归属者终结且保留，暂停执行容器
-  Paused --> Ready: 移交给 refinement，恢复并核对
-  Ready --> Rel: 归属者用例释放
-  Paused --> Rel: 结束工作或保留到期
-  Blocked --> Rel: 放弃
+  Paused --> Ready: 移交预留 → 改归属 → 恢复并核对
+  Ready --> Rel: 释放预留
+  Paused --> Rel: 释放预留（结束工作或保留到期）
+  Blocked --> Rel: 释放预留
   Rel --> Done: 卸载并回收自建资源，Workspace 按保留意图处理
   Done --> [*]
+  note right of Paused
+    移交、释放、到期清理须先以 CAS 取得生命周期预留，
+    先成功者生效，另一方失败并返回原因
+  end note
