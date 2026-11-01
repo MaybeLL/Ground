@@ -1,0 +1,28 @@
+sequenceDiagram
+  autonumber
+  participant U as CLI 调用方
+  participant TE as TaskExecution
+  participant SB as SandboxProvisioning
+  participant AE as AgentExecutionService
+  participant GR as Grading
+  U->>TE: 发起 TaskRun #1（保留意图=保留待细化）
+  TE->>SB: 申请任务沙箱
+  TE->>AE: 运行开发 Agent
+  AE-->>TE: 完成事件：交付声明已归档
+  TE->>TE: Manifest accepted，#1 已交付
+  TE->>SB: 确认无占用，暂停执行容器
+  U->>GR: gate（#1 的绑定）
+  GR->>SB: 申请评价者沙箱
+  GR->>AE: 运行独立验收评价者
+  Note over AE: 盲验 → 固定摘要 → 对照 → 提交
+  AE-->>GR: 完成事件：逐条报告已归档
+  GR-->>U: 工作结论 rejected：第 3 条未满足
+  U->>TE: 发起 TaskRun #2 refines #1，接手 Sandbox
+  TE->>SB: 移交：核对无占用、恢复、改归属
+  TE->>AE: 运行（输入含 #1 的交付与验收意见）
+  AE-->>TE: 完成事件：新交付声明已归档
+  TE->>TE: #2 已交付
+  U->>GR: gate（#2 的绑定，全部重验）
+  GR-->>U: 工作结论 accepted
+  U->>TE: 结束工作
+  TE->>SB: 释放（回收运行资源，保留 Workspace）

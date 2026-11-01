@@ -1,0 +1,23 @@
+flowchart TB
+  T[Task] -->|具有修订| TR[TaskRevision<br/>kind + schema 版本 · 输入 · 材料 · 验收条目]
+  TR -->|引用| ED[EnvironmentDefinition]
+  ED -->|具有修订| ENR[EnvironmentRevision]
+  RN[TaskRun<br/>5 态 · Manifest · 取消意图 · 失败类别] -->|固定| TR
+  RN -.->|refines| RN0[更早的 TaskRun]
+  RN -->|已解析环境 latest / specified / inherited| ENR
+  RN -->|至多一个 worker| OP[Operation kind=agent<br/>阶段 · 回执 · 交付声明 · Trajectory]
+  OP -->|固定| AR[AgentRevision]
+  RN -->|拥有，可移交给 refinement| SBX[Sandbox<br/>占用租约 · 挂载 · 运行资源 · 暂停 · 保留意图]
+  OP -->|占用租约 + fencing token| SBX
+  SBX -->|使用| WS[Workspace<br/>复用现有实现]
+  SBX -->|运行资源依据| ENR
+  RN -->|Manifest 引用| C[Candidate]
+  RN -->|Manifest 引用| A[Artifact]
+  C -.->|来源| OP
+  A -.->|来源| OP
+  classDef def fill:#eef2ff,stroke:#5b6abf,color:#1e2a6b;
+  classDef fact fill:#ecf7ee,stroke:#4c8a5a,color:#173d22;
+  classDef res fill:#fff4e0,stroke:#c08a2d,color:#5a3b06;
+  class T,TR,ED,ENR,AR def;
+  class RN,RN0,OP,C,A fact;
+  class SBX,WS res;

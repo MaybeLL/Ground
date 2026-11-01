@@ -1,0 +1,20 @@
+flowchart TB
+  CLI[CLI / TUI] --> TE[TaskExecution<br/>尝试、refinement、工作结论]
+  CLI --> GR[Grading<br/>gate / measure 评价]
+  CLI --> EE[ExperimentExecution<br/>批次、重复、汇总]
+  EE -->|发起样本：解析表中的环境| TE
+  EE -->|measure| GR
+  TE -->|任务沙箱：申请、接手、暂停、释放| SB[SandboxProvisioning<br/>沙箱供给与占用租约]
+  GR -->|评价者沙箱| SB
+  TE -->|worker| AE[AgentExecutionService<br/>agent Operation：运行、轨迹、归档、停止核对]
+  GR -->|agent 评分器| AE
+  GR -->|测试评分器：command Operation| SB
+  AE -->|占用租约与工具桥接| SB
+  SB --> W[Workspace 管理]
+  SB --> RT[运行资源端口 → Docker]
+  TE --> ST[交付与证据存取端口]
+  AE --> ST
+  GR --> ST
+  DRV[受理与驱动：请求账本 · 意图 · 完成事件投递 · 核对循环 · 宿主监管] -.->|子流程完成后唤醒父流程| TE
+  DRV -.-> EE
+  DRV -.-> GR

@@ -12,7 +12,7 @@ Grounds keeps a versioned ledger of requirements, issues, development runs, cand
 - [Documentation maintenance](documentation.md): responsibilities, reading routes, update triggers, and validation.
 - [Decisions](decisions/README.md): accepted directions, alternatives, and implementation status.
 - [通用 Agent 评测开发共识](decisions/0001-unified-agent-evaluation.md): living development guide for task, Agent, trajectory, artifact, grading, concurrency, and container boundaries; implementation pending.
-- [通用 Agent 执行与评测目标模型 R1](decisions/0001-target-model-r1.md): accepted consolidated target model (D129–D138) with aggregates, invariants, application modules and flows; read before the full decision record; implementation pending.
+- [通用 Agent 执行与评测目标模型（R2）](decisions/0001-target-model.md): accepted consolidated target model (D129–D140) with aggregates, invariants, application modules and flows; read before the full decision record; implementation pending.
 - [Grounds workflow skill](../plugins/grounds/skills/grounds/SKILL.md): agent workflow entry point.
 - [Agent documentation research](research/agent-documentation.md): historical evidence and proposals; follow the maintenance rules above for adopted policy.
 - [开源 Agent Artifact 源码调研](research/agent-artifact-design.md): pinned-source comparison of ADK, LangChain and smolagents; findings and proposals, not implemented policy.
