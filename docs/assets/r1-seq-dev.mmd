@@ -1,0 +1,25 @@
+sequenceDiagram
+  autonumber
+  participant U as CLI 调用方
+  participant TE as TaskExecution
+  participant SB as SandboxProvisioning
+  participant AE as AgentExecutionService
+  participant GR as Grading
+  U->>TE: 发起（interactive 策略）
+  TE->>SB: 申请任务沙箱
+  TE->>AE: 运行开发 Agent
+  AE-->>TE: 执行结束并归档
+  U->>TE: 提交完整交付清单
+  TE->>TE: 交付接收校验
+  TE->>GR: gate（内置独立验收评分器）
+  GR-->>TE: 逐条结论：第 3 条未满足
+  TE->>SB: 暂停执行容器
+  TE-->>U: 等待继续
+  U->>TE: 继续
+  TE->>SB: 恢复并核对
+  TE->>AE: 新一次执行（同一沙箱）
+  U->>TE: 提交新清单
+  TE->>GR: 新清单全部重验
+  GR-->>TE: 全部满足
+  TE->>SB: 释放（回收实例，保留 Workspace）
+  TE-->>U: 成功（已验收）

@@ -1,0 +1,13 @@
+flowchart TB
+  IN["入口适配器<br/>CLI / TUI：提交、查询、等待、取消"] --> APP["应用层：业务编排<br/>ExperimentExecution · TaskExecution · Grading<br/>AgentExecutionService · SandboxProvisioning"]
+  APP --> DOM["领域层：聚合守护不变量<br/>版本化定义 · TaskRun · AgentExecution · Sandbox · EnvironmentInstance<br/>GradingRecord · ExperimentRun · EvalRun · Candidate · Artifact"]
+  APP --> PORT["出站端口（内侧定义）<br/>AgentProvider · Workspace 文件 · EnvironmentRuntime<br/>交付与证据存取 · 业务仓储 · Agent 内部状态"]
+  ADP["外侧适配器<br/>Pi Durable · Docker · Git / 文件 / 对象存储 · SQL"] -.->|实现| PORT
+  DRV["应用基础设施：受理与驱动<br/>请求防重 · 意图记录 · 核对循环 · 宿主监管"] -.->|持久推进与重启核对| APP
+  classDef a fill:#eef2ff,stroke:#5b6abf,color:#1e2a6b;
+  classDef d fill:#ecf7ee,stroke:#4c8a5a,color:#173d22;
+  classDef o fill:#fff4e0,stroke:#c08a2d,color:#5a3b06;
+  class IN,ADP o;
+  class APP,DRV a;
+  class DOM d;
+  class PORT a;

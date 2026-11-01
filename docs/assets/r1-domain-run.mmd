@@ -1,0 +1,22 @@
+flowchart TB
+  TT[TaskType<br/>内置 coding / working] -->|约束| TR[TaskRevision<br/>输入、材料、验收条目、环境要求]
+  RN[TaskRun<br/>状态 · 完成策略 · 交付清单历史 · 采用的 gate] -->|固定| TR
+  RN -->|记录解析结果| ENR[EnvironmentRevision]
+  TR -.->|声明要求| ENR
+  RN -->|发起 1..n| AX[AgentExecution<br/>阶段 · 归档回执 · Trajectory]
+  AX -->|固定| AR[AgentRevision]
+  RN -->|拥有| SBX[Sandbox<br/>归属者 · 占用者 · 挂载 · 暂停]
+  AX -->|占用| SBX
+  SBX -->|使用| WS[Workspace<br/>复用现有实现]
+  SBX -->|使用| EI[EnvironmentInstance]
+  EI -->|依据| ENR
+  RN -->|当前清单引用| C[Candidate]
+  RN -->|当前清单引用| A[Artifact]
+  C -.->|来源| AX
+  A -.->|来源| AX
+  classDef def fill:#eef2ff,stroke:#5b6abf,color:#1e2a6b;
+  classDef fact fill:#ecf7ee,stroke:#4c8a5a,color:#173d22;
+  classDef res fill:#fff4e0,stroke:#c08a2d,color:#5a3b06;
+  class TT,TR,ENR,AR def;
+  class RN,AX,C,A fact;
+  class SBX,WS,EI res;

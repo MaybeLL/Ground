@@ -1,0 +1,21 @@
+stateDiagram-v2
+  state "准备中" as Prep
+  state "准备受阻" as Blocked
+  state "就绪" as Ready
+  state "使用中" as InUse
+  state "已暂停" as Paused
+  state "释放中" as Rel
+  state "已释放" as Done
+  [*] --> Prep: 归属者申请（TaskRun 或 GradingRecord）
+  Prep --> Ready: 文件、实例、挂载均核实
+  Prep --> Blocked: 失败，保留 Workspace
+  Blocked --> Prep: 归属者明确继续
+  Ready --> InUse: 一个执行取得占用
+  InUse --> Ready: 确认停止使用
+  Ready --> Paused: 暂停容器
+  Paused --> Ready: 恢复并核对
+  Ready --> Rel: 归属者释放
+  Paused --> Rel: 归属者释放
+  Blocked --> Rel: 归属者放弃
+  Rel --> Done: 卸载并回收自建资源
+  Done --> [*]

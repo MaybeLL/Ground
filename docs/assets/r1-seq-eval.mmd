@@ -1,0 +1,22 @@
+sequenceDiagram
+  autonumber
+  participant EE as ExperimentExecution
+  participant TE as TaskExecution
+  participant SB as SandboxProvisioning
+  participant AE as AgentExecutionService
+  participant GR as Grading
+  EE->>TE: 发起（TaskRevision、AgentRevision、eval 策略）
+  TE-->>EE: TaskRun 已受理
+  TE->>SB: 申请任务沙箱（归属 TaskRun）
+  SB-->>TE: 租约
+  TE->>AE: 运行（租约、执行输入）
+  AE-->>TE: 执行结束，输出与轨迹已归档
+  TE->>TE: 交付接收校验，冻结清单
+  TE->>TE: eval 策略：成功（已交付）或失败
+  TE->>SB: 释放（回收实例，保留 Workspace）
+  EE->>GR: measure（确切交付、GraderRevision）
+  GR->>SB: 申请评价者沙箱（归属 GradingRecord）
+  GR->>AE: 运行 Judge（评价者租约）
+  AE-->>GR: Judge 输出已归档
+  GR->>GR: 校验并形成 Grade
+  GR-->>EE: GradingRecord

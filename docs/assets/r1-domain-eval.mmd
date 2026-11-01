@@ -1,0 +1,24 @@
+flowchart TB
+  EXP[Experiment<br/>固定方案 + 环境解析表] -->|固定| SS[SuiteSnapshot]
+  SS -->|包含| CASE[EvaluationCase<br/>TaskRevision + 评分绑定]
+  EXP -->|被测配置| AR[AgentRevision]
+  CASE -->|引用| GV[GraderRevision<br/>标尺 · 材料 · 策略]
+  XR[ExperimentRun<br/>重复次数 · 任务并发] -->|依据| EXP
+  XR -->|包含| EVR[EvalRun<br/>完整性 · 采用的记录]
+  EVR -->|对应| CASE
+  EVR -->|一个被测| RN[TaskRun]
+  EVR -->|measure 0..n| GRD[GradingRecord<br/>用途 · 目标 · 材料 · Grade]
+  RN -->|gate 0..n，采用其一| GRD
+  GRD -->|固定| GV
+  GRD -->|目标| T[Candidate / Artifact / Trajectory]
+  GRD -->|Agent 型评分器| EAX[评价者 AgentExecution]
+  GRD -->|拥有| ESB[评价者 Sandbox]
+  EAX -->|占用| ESB
+  classDef def fill:#eef2ff,stroke:#5b6abf,color:#1e2a6b;
+  classDef fact fill:#ecf7ee,stroke:#4c8a5a,color:#173d22;
+  classDef res fill:#fff4e0,stroke:#c08a2d,color:#5a3b06;
+  classDef eva fill:#fdecef,stroke:#b5546a,color:#5a1424;
+  class EXP,SS,CASE,AR,GV def;
+  class XR,EVR,RN,T,EAX fact;
+  class ESB res;
+  class GRD eva;
