@@ -2,11 +2,12 @@ flowchart TB
   T[Task 稳定身份] -->|具有修订| TR[TaskRevision<br/>输入、材料、验收条目、环境要求]
   TT[TaskType<br/>内置 coding / working] -->|约束| TR
   RN[TaskRun<br/>状态 · 完成策略 · 清单历史 · 采用的 gate<br/>completion_basis / 失败类别] -->|固定| TR
+  TR -->|声明| REQ[环境要求<br/>定义 + pinned / follow]
   RN -->|已解析环境（带来源）| ENR[EnvironmentRevision]
-  TR -.->|声明要求| ENR
+  REQ -.->|受理时解析| ENR
   RN -->|发起 1..n| AX[AgentExecution<br/>阶段 · 归档回执 · 交付提案 · Trajectory]
   AX -->|固定| AR[AgentRevision]
-  RN -->|拥有 · 使用授权| SBX[Sandbox<br/>归属者 · 占用租约 · 挂载 · 暂停事实]
+  RN -->|拥有 · 沙箱句柄| SBX[Sandbox<br/>归属者 · 占用租约 · 挂载 · 暂停事实]
   AX -->|占用租约 + fencing token| SBX
   SBX -->|使用| WS[Workspace<br/>复用现有实现]
   SBX -->|唯一绑定| EI[EnvironmentInstance<br/>至多绑定一个未释放 Sandbox]
@@ -18,6 +19,6 @@ flowchart TB
   classDef def fill:#eef2ff,stroke:#5b6abf,color:#1e2a6b;
   classDef fact fill:#ecf7ee,stroke:#4c8a5a,color:#173d22;
   classDef res fill:#fff4e0,stroke:#c08a2d,color:#5a3b06;
-  class T,TT,TR,ENR,AR def;
+  class T,TT,TR,ENR,AR,REQ def;
   class RN,AX,C,A fact;
   class SBX,WS,EI res;

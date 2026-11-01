@@ -7,9 +7,10 @@ flowchart TB
   TE -->|策略要求验收时 gate| GR
   TE -->|任务沙箱：申请、暂停、释放| SB[SandboxProvisioning<br/>沙箱供给与占用租约]
   GR -->|评价者沙箱| SB
-  TE -->|带使用授权运行| AE[AgentExecutionService<br/>运行、轨迹、归档、停止核对]
+  TE -->|带沙箱句柄运行| AE[AgentExecutionService<br/>运行、轨迹、归档、停止核对]
   GR -->|Agent 型评分器| AE
-  GR -->|测试型：CommandRun| SB
+  GR -->|测试型：创建并运行| CR[CommandRun<br/>Grading 拥有的运行事实]
+  CR -->|占用租约与命令桥接| SB
   AE -->|占用租约与工具桥接| SB
   SB --> W[Workspace 管理]
   SB --> R[Environment 治理]

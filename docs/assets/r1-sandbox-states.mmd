@@ -6,7 +6,7 @@ stateDiagram-v2
   state "已暂停" as Paused
   state "释放中" as Rel
   state "已释放" as Done
-  [*] --> Prep: 归属者用例申请，签发使用授权
+  [*] --> Prep: 归属者用例申请，返回沙箱句柄
   Prep --> Ready: 文件、实例、挂载均核实
   Prep --> Blocked: 失败，保留 Workspace
   Blocked --> Prep: 归属者用例继续
