@@ -1,0 +1,9 @@
+flowchart TB
+  TR[TaskRevision] -->|固定引用| SPEC[EnvironmentRevision 不可变配置]
+  ED[EnvironmentDefinition] -->|拥有版本| SPEC
+  EI[EnvironmentInstance 实际资源] -->|依据| SPEC
+  EX[AgentExecution] -->|使用| EI
+  CV[已有 WorkspaceConfigurationVersion] -->|组装依据| WS[Workspace 文件空间 · 复用现有实现]
+  TR -->|固定引用| CV
+  WS -->|挂载 / 卸载| EI
+  EX -->|记录实际使用| WS

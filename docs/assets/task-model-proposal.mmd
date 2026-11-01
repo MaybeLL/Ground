@@ -1,0 +1,10 @@
+flowchart TD
+  R[Requirement：需求意图与预期成果] -->|由 Issue 承接| I[Issue：目标、约束、仓库基线]
+  I -->|固定版本引用| C[CodingTask：编码任务]
+  W[WorkingTask：问答、分析、报告等任务]
+  C -->|提供统一任务描述| T[Task：任务契约]
+  W -->|提供统一任务描述| T
+  J[Agent Judge：构造评分工作任务] --> W
+  T -->|作为输入| E[Execution 应用用例]
+  E --> X[AgentExecution：一次执行记录]
+  C -.->|保留编码流程与交付规则| B[DevRun / Candidate 等编码业务]

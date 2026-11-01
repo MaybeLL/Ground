@@ -1,0 +1,12 @@
+flowchart TD
+    E["实验方案<br/>题目版本 + Agent 配置 + 评分器"] --> X["执行任务"]
+    X --> O["保存轨迹与产物"]
+    O --> G["独立评分"]
+    G --> R["保存评分记录与报告"]
+    X -.-> U["记录可获得的耗时和用量<br/>一期不新增预算或额度控制"]
+    classDef definition fill:#eaf0ff,stroke:#235aca,color:#18283e
+    classDef process fill:#e8f6f3,stroke:#087c75,color:#18283e
+    classDef evidence fill:#f0f3f8,stroke:#8b9ab0,color:#18283e
+    class E definition
+    class X,O,G process
+    class R,U evidence

@@ -1,0 +1,12 @@
+flowchart TB
+    C["Coding Task"] --> CA["Candidate<br/>独立的候选抽象"]
+    W["Working Task"] --> A["Artifact<br/>独立的产物抽象"]
+    CA --> G["Grader：统一评分接口<br/>具体评分器声明支持的对象类型"]
+    A --> G
+    G --> R["Grading：一次评分记录<br/>关联被评对象，包含 Grade 结果"]
+    classDef coding fill:#e8f6f3,stroke:#087c75,color:#18283e
+    classDef working fill:#fff2dc,stroke:#af7918,color:#4a3512
+    classDef grading fill:#eaf0ff,stroke:#235aca,color:#18283e
+    class C,CA coding
+    class W,A working
+    class G,R grading

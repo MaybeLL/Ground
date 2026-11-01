@@ -1,0 +1,18 @@
+flowchart TB
+  CLI[CLI / 其他入口] --> T[任务执行]
+  CLI --> V[独立验收]
+  CLI --> G[评分 Grading]
+  CLI --> E[实验运行 ExperimentExecution]
+  E --> T
+  E --> G
+  T --> A[单次 Agent 执行]
+  T -->|所需独立验收| V
+  V --> A
+  G -->|仅 Agent Judge 的任务| T
+  A -->|准备与保护文件空间| W[Workspace 管理]
+  A -->|准备运行资源与协调挂载| R[Environment 治理]
+  A --> S[交付与证据存取]
+  T --> S
+  V --> S
+  G --> S
+  G -->|测试所需资源| R

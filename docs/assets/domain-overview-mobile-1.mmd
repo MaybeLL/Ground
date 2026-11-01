@@ -1,0 +1,10 @@
+%% 1 · 任务如何组成实验
+flowchart TB
+ E["实验方案<br/>Experiment"] -->|固定引用| SS["评测集快照<br/>SuiteSnapshot"]
+ SU["评测集<br/>Suite"] -->|冻结| SS
+ SS -->|包含| EC["评测项<br/>EvaluationCase"]
+ EC -->|任务版本| T["任务<br/>Task"]
+ EC -->|所选定义与评分输入| GS["评分定义<br/>GraderSpec"]
+ E -->|被测配置| AS["Agent 配置<br/>AgentSpec"]
+ T -->|声明所需环境| ES["环境定义<br/>EnvironmentSpec"]
+%% Task 与评分定义独立，由评测项组合。参考答案不是必需项。

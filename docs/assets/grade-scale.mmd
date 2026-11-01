@@ -1,0 +1,9 @@
+flowchart LR
+    S["GraderSpec 预先声明标尺"] --> N["数值型<br/>例如准确性：0 到 5 分"]
+    S --> C["分类型<br/>例如测试：通过或不通过"]
+    N --> G["Grade 保存实际结果与依据<br/>按声明的标尺校验"]
+    C --> G
+    classDef definition fill:#eaf0ff,stroke:#235aca,color:#18283e
+    classDef result fill:#e8f6f3,stroke:#087c75,color:#18283e
+    class S definition
+    class N,C,G result

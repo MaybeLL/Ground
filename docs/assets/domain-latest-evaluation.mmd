@@ -1,0 +1,10 @@
+flowchart TB
+  B[ExperimentRun 一次批次] -->|依据| EP[Experiment]
+  B -->|包含| E[EvalRun 一次评测]
+  E -->|对应| CASE[EvaluationCase]
+  E -->|关联一个被测尝试| RUN[TaskRun]
+  E -->|关联多次评分| REC[GradingRecord]
+  REC -->|固定评分定义| GR[GraderRevision]
+  REC -->|包含结果值| G[Grade]
+  REC -->|确切目标与材料引用| TARGET[Candidate / Artifact / Trajectory]
+  REC -.->|仅 Agent Judge 关联| JR[Judge 的 TaskRun 与 AgentExecution]

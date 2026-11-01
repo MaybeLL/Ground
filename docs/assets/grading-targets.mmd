@@ -1,0 +1,13 @@
+flowchart TB
+    R["规则评分器"] -.->|实现| G["Grader：评分接口"]
+    S["测试评分器"] -.->|实现| G
+    J["Agent Judge"] -.->|实现| G
+    G -->|评价| C["Candidate<br/>候选"]
+    G -->|评价| A["Artifact<br/>产物"]
+    G -->|评价| T["Trajectory<br/>执行轨迹"]
+    classDef implementation fill:#e8f6f3,stroke:#087c75,color:#18283e
+    classDef target fill:#fff2dc,stroke:#af7918,color:#4a3512
+    classDef interface fill:#eaf0ff,stroke:#235aca,color:#18283e
+    class R,S,J implementation
+    class C,A,T target
+    class G interface

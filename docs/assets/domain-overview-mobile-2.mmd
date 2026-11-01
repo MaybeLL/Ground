@@ -1,0 +1,10 @@
+%% 2 · 一次实验实际留下哪些记录
+flowchart TB
+ E["实验方案<br/>Experiment"] -->|可运行多批| B["实验批次<br/>ExperimentRun"]
+ B -->|包含多次任务尝试| R["单任务评测<br/>EvalRun"]
+ R -->|关联被测执行| X["执行记录<br/>AgentExecution"]
+ R -->|关联多次评分| G["评分记录<br/>GradingRecord"]
+ G -.->|若使用 Agent Judge| J["另一次独立执行<br/>AgentExecution"]
+ X -->|使用| I["环境实例<br/>EnvironmentInstance"]
+ I -->|依据版本| S["环境定义<br/>EnvironmentSpec"]
+%% 每个 EvalRun 对应一个评测项；每次执行固定 AgentSpec。Judge 使用自己的配置、轨迹和环境。

@@ -1,0 +1,28 @@
+flowchart LR
+  CLI[CLI / TUI 入口适配器] -->|调用| APP[应用用例与深模块]
+  APP -->|使用规则与事实| DOMAIN[领域模型]
+  APP -->|依赖内侧契约| PORTS
+  subgraph PORTS[内侧出站端口]
+    direction TB
+    P1[AgentProvider]
+    P2[Workspace 文件操作端口]
+    P3[EnvironmentRuntime]
+    P4[交付与证据存取端口]
+    P5[业务仓储与事务端口]
+    P6[Agent 内部状态存储端口]
+  end
+  subgraph ADAPTERS[外侧技术适配器]
+    direction TB
+    A1[Pi Durable]
+    A2[Git / 本地文件]
+    A3[Docker 运行与工具]
+    A4[Git / 本地文件 / S3 等]
+    A5[业务 SQL]
+    A6[Durable 状态存储桥接 / 数据库]
+  end
+  A1 -.->|实现| P1
+  A2 -.->|实现| P2
+  A3 -.->|实现| P3
+  A4 -.->|按类型实现| P4
+  A5 -.->|实现| P5
+  A6 -.->|实现| P6

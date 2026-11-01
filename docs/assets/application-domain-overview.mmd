@@ -1,0 +1,34 @@
+flowchart TB
+  subgraph APP[应用层：接口与用例实现，负责推进流程]
+    direction LR
+    EV[Evaluation 评测编排] -->|执行并归档| EX[Execution 执行用例]
+    EV -->|随后评分| GA[Grading 评分用例]
+    GA -.->|仅 Agent Judge 调用| EX
+  end
+
+  subgraph DOMAIN[领域层：定义、记录与业务规则]
+    direction TB
+    PLAN[Experiment 实验方案] -->|固定| SS[SuiteSnapshot 评测集快照]
+    SS -->|包含| CASE[EvaluationCase 评测项]
+    CASE -->|任务版本| TASK[Task]
+    CASE -->|评分定义| GS[GraderSpec]
+    PLAN -->|固定| CONFIG[AgentSpec]
+    TASK -->|声明所需环境| SPEC[EnvironmentSpec]
+    BATCH[ExperimentRun 实验批次] -->|依据| PLAN
+    BATCH -->|包含| RUN[EvalRun 单任务评测]
+    RUN -->|对应| CASE
+    RUN -->|关联被测执行| REC[AgentExecution 执行记录]
+    RUN -->|关联多次评分| GR[GradingRecord 评分记录]
+    REC -->|使用| ENV[EnvironmentInstance 环境实例]
+    WS[Workspace 独立文件空间] -->|挂载，可卸载| ENV
+    REC -->|记录交付与过程| OUT[Candidate · Artifact · Trajectory]
+    GR -->|引用评价目标及材料| OUT
+    GR -->|包含结果值| G[Grade]
+  end
+
+  APP -.->|用例协调，读取定义并更新记录| DOMAIN
+
+  classDef app fill:#dcecff,stroke:#3973ad,color:#143b63;
+  classDef domain fill:#edf4ed,stroke:#698667,color:#203c29;
+  class EV,EX,GA app;
+  class PLAN,SS,CASE,TASK,GS,SPEC,CONFIG,BATCH,RUN,REC,GR,ENV,WS,OUT,G domain;

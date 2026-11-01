@@ -1,0 +1,11 @@
+flowchart TB
+    T["Task：任务的共同概念"] --> C["Coding Task<br/>按需求开发流程修改代码"]
+    T --> W["Working Task（暂称）<br/>读资料、看仓库、调用工具"]
+    C --> CA["代码产物<br/>Candidate / 代码变更"]
+    W --> WA["内容产物<br/>例如答案与引用<br/>不产生代码提交或 Candidate"]
+    classDef definition fill:#eaf0ff,stroke:#235aca,color:#18283e
+    classDef coding fill:#e8f6f3,stroke:#087c75,color:#18283e
+    classDef working fill:#fff2dc,stroke:#af7918,color:#4a3512
+    class T definition
+    class C,CA coding
+    class W,WA working

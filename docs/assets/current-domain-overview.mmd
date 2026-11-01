@@ -1,0 +1,35 @@
+flowchart TB
+  subgraph DEF[定义与固定方案]
+    SU[Suite 评测集] -->|冻结版本| SS[SuiteSnapshot 评测集快照]
+    SS -->|包含评测项| EC[EvaluationCase 评测项]
+    EC -->|引用任务版本| T[Task 任务定义]
+    EC -->|选择评分器并绑定评分输入| GS[GraderSpec 评分定义]
+    EP[Experiment 实验方案] -->|固定引用| SS
+    EP -->|固定被测配置| AS[AgentSpec Agent配置]
+    EP -->|固定各阶段环境选择| ES[EnvironmentSpec 环境定义]
+    GS -.->|Agent Judge策略引用其配置| AS
+  end
+  subgraph RUN[运行事实]
+    BR[ExperimentRun 一次实验批次] -->|依据| EP
+    BR -->|包含多次任务尝试| ER[EvalRun 单任务评测运行]
+    ER -->|对应| EC
+    ER -->|关联被测执行| AE[AgentExecution 一次逻辑执行]
+    ER -->|关联评分记录| GR[GradingRecord 一次评分记录]
+    GR -.->|Agent Judge时关联独立执行| AE
+    AE -->|固定引用| AS
+    GR -->|依据确切版本| GS
+    GR -->|正常评价所得结果值| G[Grade 评分结果]
+  end
+  subgraph OUT[交付与过程证据]
+    C[Candidate 代码候选]
+    A[Artifact 答案、报告等产物]
+    TR[Trajectory 执行轨迹]
+  end
+  AE -->|Coding可交付| C
+  AE -->|任务可交付多个| A
+  AE -->|记录自身过程| TR
+  GR -->|可评价| C
+  GR -->|可评价一个或多个| A
+  GR -->|可评价过程| TR
+  AE -->|关联所用环境| EI[EnvironmentInstance 环境实例]
+  EI -->|依据定义版本| ES

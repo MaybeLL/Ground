@@ -10,8 +10,12 @@ Grounds keeps a versioned ledger of requirements, issues, development runs, cand
 - [Contribution guide](../CONTRIBUTING.md): local checks and pull requests.
 - [Software design principles](software-design.md): design and review rules inspired by Ousterhout's published material.
 - [Documentation maintenance](documentation.md): responsibilities, reading routes, update triggers, and validation.
+- [Decisions](decisions/README.md): accepted directions, alternatives, and implementation status.
+- [通用 Agent 评测开发共识](decisions/0001-unified-agent-evaluation.md): living development guide for task, Agent, trajectory, artifact, grading, concurrency, and container boundaries; implementation pending.
 - [Grounds workflow skill](../plugins/grounds/skills/grounds/SKILL.md): agent workflow entry point.
 - [Agent documentation research](research/agent-documentation.md): historical evidence and proposals; follow the maintenance rules above for adopted policy.
+- [开源 Agent Artifact 源码调研](research/agent-artifact-design.md): pinned-source comparison of ADK, LangChain and smolagents; findings and proposals, not implemented policy.
+- [多 Agent 内核接入源码调研](research/multi-agent-kernel-adapters.md): Harbor、Vibe Kanban、ACP 与 Pi 的固定源码证据、接入难点和 Grounds 适配建议；尚未进行运行验收。
 
 ## Repository layout
 

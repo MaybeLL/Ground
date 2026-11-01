@@ -1,0 +1,8 @@
+flowchart TD
+  T[Task 任务：声明材料与写入范围] -->|准备为| W[Workspace 工作空间]
+  X[AgentExecution 一次执行] -->|使用| W
+  X -->|运行于| E[EnvironmentInstance 环境实例]
+  E -->|绑定文件空间| W
+  W --> R[只读资料：文档、仓库基线、数据]
+  W --> M[可写区域：工作文件、临时文件、待交付文件]
+  S[EnvironmentSpec：运行软件、依赖与服务] -->|实例化| E

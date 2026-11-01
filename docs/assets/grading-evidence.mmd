@@ -1,0 +1,11 @@
+flowchart LR
+    S["评分器定义 GraderSpec<br/>声明需要哪些评分材料"] --> C["本次 Grading 的材料<br/>固定具体内容与版本"]
+    T["题目、标准、产物<br/>及指定参考材料"] --> C
+    P["指定执行轨迹<br/>仅在标准需要时加入"] --> C
+    C --> J["Judge 独立评分<br/>结果只依据约定材料"]
+    classDef definition fill:#eaf0ff,stroke:#235aca,color:#18283e
+    classDef evidence fill:#e8f6f3,stroke:#087c75,color:#18283e
+    classDef optional fill:#fff2dc,stroke:#af7918,color:#4a3512
+    class S,C definition
+    class T,J evidence
+    class P optional
