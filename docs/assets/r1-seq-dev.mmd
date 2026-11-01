@@ -5,21 +5,26 @@ sequenceDiagram
   participant SB as SandboxProvisioning
   participant AE as AgentExecutionService
   participant GR as Grading
-  U->>TE: 发起（interactive 策略）
+  U->>TE: 发起（interactive 策略，冻结验收评分器版本）
   TE->>SB: 申请任务沙箱
   TE->>AE: 运行开发 Agent
-  AE-->>TE: 执行结束并归档
-  U->>TE: 提交完整交付清单
-  TE->>TE: 交付接收校验
-  TE->>GR: gate（内置独立验收评分器）
-  GR-->>TE: 逐条结论：第 3 条未满足
-  TE->>SB: 暂停执行容器
+  AE-->>TE: 完成事件：交付提案已归档
+  TE->>TE: 自动提交提案为清单，接收校验 valid，冻结
+  TE->>GR: gate（绑定 TaskRevision、条目摘要、清单摘要）
+  GR->>SB: 申请评价者沙箱
+  GR->>AE: 运行独立验收评价者
+  Note over AE: 盲验 → 固定摘要 → 对照 → 提交
+  AE-->>GR: 完成事件：逐条报告已归档
+  GR->>GR: 校验逐条结论，释放评价者沙箱
+  GR-->>TE: 完成事件：第 3 条未满足
+  TE->>SB: 确认无活动操作后暂停执行容器
   TE-->>U: 等待继续
   U->>TE: 继续
   TE->>SB: 恢复并核对
   TE->>AE: 新一次执行（同一沙箱）
-  U->>TE: 提交新清单
-  TE->>GR: 新清单全部重验
-  GR-->>TE: 全部满足
+  AE-->>TE: 完成事件：新的交付提案已归档
+  TE->>TE: 提交新清单，冻结
+  TE->>GR: gate（新清单，全部重验）
+  GR-->>TE: 完成事件：最近一条完整记录全部满足
   TE->>SB: 释放（回收实例，保留 Workspace）
-  TE-->>U: 成功（已验收）
+  TE-->>U: 成功（accepted）

@@ -5,4 +5,4 @@ Decision status describes an accepted direction, not implementation completion. 
 | Decision | Status | Implementation |
 | --- | --- | --- |
 | [0001 — 通用 Agent 评测：开发共识与实施依据](0001-unified-agent-evaluation.md) | Accepted direction; maintained as discussion evolves | Pending; see gaps and acceptance targets in the record |
-| [0001 R1 — 通用 Agent 执行与评测：目标模型](0001-target-model-r1.md) | Accepted (D129–D137); current target model | Pending |
+| [0001 R1 — 通用 Agent 执行与评测：目标模型](0001-target-model-r1.md) | Accepted (D129–D138); current target model | Pending |

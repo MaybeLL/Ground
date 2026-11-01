@@ -5,18 +5,31 @@ sequenceDiagram
   participant SB as SandboxProvisioning
   participant AE as AgentExecutionService
   participant GR as Grading
-  EE->>TE: 发起（TaskRevision、AgentRevision、eval 策略）
+  EE->>EE: 登记批次成员（评测项键 × 重复序号）
+  EE->>TE: 发起（成员派生的请求身份、TaskRevision、AgentRevision、eval 策略、解析表中的环境）
   TE-->>EE: TaskRun 已受理
   TE->>SB: 申请任务沙箱（归属 TaskRun）
-  SB-->>TE: 租约
-  TE->>AE: 运行（租约、执行输入）
-  AE-->>TE: 执行结束，输出与轨迹已归档
-  TE->>TE: 交付接收校验，冻结清单
-  TE->>TE: eval 策略：成功（已交付）或失败
+  SB-->>TE: 使用授权
+  TE->>AE: 运行（使用授权、执行输入）
+  AE->>SB: 取得占用租约
+  AE-->>TE: 完成事件：输出、轨迹、交付提案已归档
+  alt 有交付提案且接收校验 valid
+    TE->>TE: 冻结清单，成功（delivered）
+  else 没有提案或被拒收
+    TE->>TE: 失败（agent-output）
+  else 准备受阻或宿主故障
+    TE->>TE: 失败（infrastructure）
+  end
   TE->>SB: 释放（回收实例，保留 Workspace）
-  EE->>GR: measure（确切交付、GraderRevision）
-  GR->>SB: 申请评价者沙箱（归属 GradingRecord）
-  GR->>AE: 运行 Judge（评价者租约）
-  AE-->>GR: Judge 输出已归档
-  GR->>GR: 校验并形成 Grade
-  GR-->>EE: GradingRecord
+  TE-->>EE: 完成事件：TaskRun 终结
+  alt 成功且有冻结清单
+    EE->>GR: measure（清单中的确切交付、GraderRevision）
+    GR->>GR: 解析评分器环境（默认 pinned）
+    GR->>SB: 申请评价者沙箱（归属 GradingRecord）
+    GR->>AE: 运行 Judge
+    AE-->>GR: 完成事件：Judge 输出已归档
+    GR->>GR: 校验并形成 Grade，释放评价者沙箱
+    GR-->>EE: 完成事件：GradingRecord
+  else 失败
+    EE->>EE: 记录评分未开展；infrastructure 显示为执行错误
+  end

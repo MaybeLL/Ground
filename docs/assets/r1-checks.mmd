@@ -1,14 +1,18 @@
 flowchart TB
-  SUB[提交完整交付清单] --> L1["① 交付接收校验<br/>TaskType 确定性规则<br/>结构 · 必需项 · 引用可读 · 归属一致"]
-  L1 -->|不通过：拒收该清单| REJ[保留历史，等待新的清单]
-  L1 -->|通过：冻结清单| OK[清单成为当前交付]
-  OK --> L2["② 验收 gate<br/>GradingRecord · 用途 gate<br/>内置独立验收评分器，逐条全部满足"]
-  OK --> L3["③ 评分 measure<br/>GradingRecord · 用途 measure<br/>规则 / 测试 / Agent Judge"]
-  L2 -->|仅当完成策略要求| S[决定 TaskRun 能否成功]
+  SUB[交付提案自动提交，或调用方提交完整清单] --> FACT[TaskExecution 取得归档回执与元数据]
+  FACT -->|读取暂时失败| UNA[unavailable：保留提交意图，阻塞重试]
+  FACT --> L1["① 交付接收校验<br/>TaskType 纯规则<br/>结构 · 必需项 · 归属一致"]
+  L1 -->|invalid| REJ[拒收该清单，保留历史]
+  L1 -->|valid| OK[冻结为当前清单]
+  OK --> L2["② 验收 gate<br/>完整覆盖全部条目<br/>绑定 TaskRevision · 条目摘要 · 清单摘要 · 评分器"]
+  OK --> L3["③ 评分 measure<br/>规则 / 测试 / Agent Judge"]
+  L2 -->|仅当策略要求，采用最近一条完整记录| S[决定 TaskRun 能否成功]
   L3 --> Q[只进入 EvalRun 等质量结果<br/>不改变 TaskRun 状态]
   classDef a fill:#eef2ff,stroke:#5b6abf,color:#1e2a6b;
   classDef b fill:#fdecef,stroke:#b5546a,color:#5a1424;
   classDef c fill:#ecf7ee,stroke:#4c8a5a,color:#173d22;
-  class L1 a;
+  classDef w fill:#fff4e0,stroke:#c08a2d,color:#5a3b06;
+  class L1,FACT a;
   class L2,L3 b;
   class S,Q,OK,REJ c;
+  class UNA w;

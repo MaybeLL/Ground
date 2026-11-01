@@ -6,16 +6,16 @@ stateDiagram-v2
   state "已暂停" as Paused
   state "释放中" as Rel
   state "已释放" as Done
-  [*] --> Prep: 归属者申请（TaskRun 或 GradingRecord）
+  [*] --> Prep: 归属者用例申请，签发使用授权
   Prep --> Ready: 文件、实例、挂载均核实
   Prep --> Blocked: 失败，保留 Workspace
-  Blocked --> Prep: 归属者明确继续
-  Ready --> InUse: 一个执行取得占用
-  InUse --> Ready: 确认停止使用
-  Ready --> Paused: 暂停容器
+  Blocked --> Prep: 归属者用例继续
+  Ready --> InUse: 受管操作取得占用租约
+  InUse --> Ready: 确认停止，归还租约
+  Ready --> Paused: 暂停执行容器
   Paused --> Ready: 恢复并核对
-  Ready --> Rel: 归属者释放
-  Paused --> Rel: 归属者释放
-  Blocked --> Rel: 归属者放弃
-  Rel --> Done: 卸载并回收自建资源
+  Ready --> Rel: 归属者用例释放
+  Paused --> Rel: 归属者用例释放
+  Blocked --> Rel: 归属者用例放弃
+  Rel --> Done: 卸载、回收自建资源、解除实例绑定
   Done --> [*]
