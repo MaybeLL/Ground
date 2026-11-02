@@ -9,7 +9,7 @@
 | `VALIDATION_ERROR` | 2 | 否 | 可选 `field`, `reason`；修正输入并使用新 operation ID |
 | `NOT_FOUND` | 3 | 否 | `resource_type`, 可选 `resource_id` |
 | `VERIFICATION_SET_CHANGED` | 4 | 是 | 可选 `resource_id`；丢弃旧游标，从摘要和目录首页重新读取；最多自动重启两次 |
-| `LIST_CHANGED` | 4 | 是 | 只读；游标分页的资源列表和 Eval 摘要列表在读取期间账本发生了写入。丢弃旧 `next_cursor`，从首页重新读取 |
+| `LIST_CHANGED` | 4 | 是 | 只读；游标分页的资源列表在读取期间账本发生了写入。丢弃旧 `next_cursor`，从首页重新读取 |
 | `STATE_CONFLICT` | 4 | 否 | `resource_type`, `resource_id`, 可选 `reason`；重新读取 |
 | `AUTH_FAILED` | 4 | 否 | `auth_mode`、`auth_reason`，可选 `exit_status`；历史记录解析用，当前命令面不再产生 |
 | `VERSION_CONFLICT` | 4 | 否 | `resource_type`, `resource_id`, `expected_version`, `actual_version`；重新读取并用新 operation ID 决策 |

@@ -57,7 +57,7 @@ Requirement/Issue 的默认公开 authoring interface 是 `<数据根>/drafts/<�
 ## 解码与规范表示
 
 - JSON 是规范数据模型；允许 YAML 的输入命令先解码为相同 JSON 类型再校验。
-- `config.yaml` 最大 64 KiB；其余 UTF-8 输入文件默认最大 2 MiB；使用现场 candidate／source-package JSON 单独有 32 MiB 有界上限，严格 UTF-8／重复 key 校验及来源期限核验；Candidate patch 不属于 CandidateSubmission，使用独立的 32 MiB artifact 限制。
+- `config.yaml` 最大 64 KiB；其余 UTF-8 输入文件默认最大 2 MiB；Candidate patch 不属于 CandidateSubmission，使用独立的 32 MiB artifact 限制。
 - JSON/YAML 的重复 object key、YAML anchor/alias、merge key、自定义 tag、非字符串 object key，以及非有限数值在进入 Schema 前拒绝。
 - 除 Schema 明示外，未知字段和 `null` 都非法。optional 字段以缺省表达，不用 `null`。
 - Local config 的 SQLite path 与 MySQL/PostgreSQL optional CA file 必须在 Schema 校验后通过平台路径语义检查；CLI 写出的路径是解析后的绝对路径。密码值不属于 config 数据模型，Keychain locator 由连接身份确定（带引擎 scheme），environment source 对 MySQL 只能引用 `GROUNDS_MYSQL_PASSWORD`、对 PostgreSQL 只能引用 `GROUNDS_POSTGRES_PASSWORD`。
@@ -254,8 +254,6 @@ Git 是新工件的代码真源，DB 保存工件绑定及业务事实；固定 
 采用绑定可带 `target_predecessor` 完整 OID；字段对旧数据可缺省，新 FF 确认 P 需显式采用来源证据并进行对象/历史/祖先核对。`integration.landing.target_predecessor` 的 state 为 confirmed/unknown/conflict，confirmed 带 commit 和 source（adoption_binding/landing_first_parent）。P 是目标引用更新前驱，FF 多提交时可能不同于 L 的 Git 首父。旧字段缺失按 unknown 解释，不改写旧事件 digest。采用事实与 P 证据、L 归档分开；P 未知/冲突分别返回 landing_archive pending/unknown 和 `actual_target_predecessor_unknown` / `actual_target_predecessor_conflict`，landing diff 为 STATE_CONFLICT。只有 confirmed P 可用于归档 base、retained端点和 landing diff 左端。
 
 统一环境 `up` 可显式绑定 `--input-commit`、`--branch`、`--material-scope development|blind`、`--fixed-inputs-file`；`run` 接收 `--argv-file`、`--timeout-seconds`、`--requires-network` 和重复 `--artifact`。固定输入 `/inputs` 只读；显式产物仅来自 `/output` 的单个常规文件，每个至多 16 MiB，缺失或超限阻止回收。`down` 后 receipt 的 `directory` 保留摘要、日志和收集产物。`handoff` 只保活固定 Git 对象，协调者另行更新业务分支/提交账本。
-
-QA/Coding 新执行适配标识为 `grounds-env/1/docker`；旧 macOS 定义与验证结构可历史读取，新执行需 `backend: docker` 与空 `network_hosts`。QA runner 仅有声明、recipe和显式非敏感build inputs，材料按角色作为固定输入；host 不提供隐藏 Grader 所需隔离。
 
 Docker 实例记录可包含 `engine_id`，运行/停止时按实例核对 以防引擎身份改变后误清理。凭据绑定仅保存 `source_version` 与 `identity_digest` 等摘要，不把账号/token身份原值放入运行记录；`env credential-occupancy` 返回未释放实例对来源文件的占用，供认证侧核对。
 
