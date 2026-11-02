@@ -48,6 +48,7 @@ export type ExecutionEvent =
   | { readonly type: "runner-released"; readonly executionId: Id; readonly at: Timestamp }
   | { readonly type: "receipt-recorded"; readonly executionId: Id; readonly kind: ReceiptKind; readonly at: Timestamp }
   | { readonly type: "stop"; readonly executionId: Id; readonly state: StopState; readonly at: Timestamp }
+  | { readonly type: "cancel-requested"; readonly executionId: Id; readonly at: Timestamp }
   | { readonly type: "protocol-stage"; readonly executionId: Id; readonly stage: ProtocolStage; readonly at: Timestamp }
   | { readonly type: "late-record"; readonly executionId: Id; readonly kind: ExecutionLate["kind"]; readonly at: Timestamp };
 
@@ -215,7 +216,7 @@ export function requestExecutionCancel(e: AgentExecution, command: { at: Timesta
   if (isExecutionTerminal(e)) return advance(e, {}, [], "already-terminal");
   if (e.cancelIntent) return advance(e, {}, [], "applied");
   const stopping: Partial<AgentExecution> = e.stop === "active" ? { stop: "requested" } : {};
-  const events: ExecutionEvent[] = e.stop === "active" ? [{ type: "stop", executionId: e.id, state: "requested", at: command.at }] : [];
+  const events: ExecutionEvent[] = [{ type: "cancel-requested", executionId: e.id, at: command.at }, ...(e.stop === "active" ? [{ type: "stop" as const, executionId: e.id, state: "requested" as const, at: command.at }] : [])];
   return settle(e, { cancelIntent: { at: command.at }, ...stopping }, events, command.at);
 }
 

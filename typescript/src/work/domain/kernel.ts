@@ -28,7 +28,16 @@ export interface Versioned { readonly version: number }
 
 /** Apply `changes` and advance the version when something happened; otherwise return `state` untouched. An undefined value in `changes` removes the field. */
 export function advance<S extends Versioned, E, O>(state: S, changes: Partial<S>, events: readonly E[], outcome: O): Result<Decision<S, E, O>> {
-  if (events.length === 0) return ok({ state, events, outcome });
+  if (events.length === 0) {
+    // No event means no change. A decision that asks for one anyway is a programming error, not a rejection:
+    // letting it pass would silently drop the change.
+    const current = state as unknown as Record<string, unknown>;
+    for (const key of Object.keys(changes)) {
+      const wanted = (changes as Record<string, unknown>)[key];
+      if (JSON.stringify(current[key]) !== JSON.stringify(wanted)) throw new Error(`decision changed "${key}" without recording an event`);
+    }
+    return ok({ state, events, outcome });
+  }
   const merged: Record<string, unknown> = { ...state, ...changes, version: state.version + 1 };
   // A change whose value is undefined removes that field; leaving it out keeps the old value.
   for (const key of Object.keys(merged)) if (merged[key] === undefined) delete merged[key];
