@@ -3,7 +3,7 @@
 - 版本：R2，日期 2026-11-02。
 - 状态：**已确认，待实现**。由助手按用户授权，依据设计评审与独立复审对 [0001 决策记录](0001-unified-agent-evaluation.md) 作出的结构修订：
   - R1：D129–D137，并经两轮复审补齐（D138、D139）。
-  - R2：D140，按“领域层挑战”合并概念，并把“继续修改”改为 refinement 尝试链；D141 补齐 R2 复审发现的缺口。
+  - R2：D140，按“领域层挑战”合并概念，并把“继续修改”改为 refinement 尝试链；D141 补齐 R2 复审发现的缺口；D142 增加“当前工作头”（Work 聚合）。
 
   均已获用户确认，生产代码尚未实现。
 - 用途：一份可单独阅读的当前目标模型，与 0001 中的旧决策冲突时以本文为准。0001 记录讨论历史与理由；开发时先读本文，再按需回查对应决策。
@@ -15,7 +15,8 @@
 | # | 设计要点 | 决策 |
 | --- | --- | --- |
 | 1 | **TaskRun 只回答“这一轮交付了没有”**：五个状态，没有完成策略，没有“等待继续”。验收不通过时，发起一次 refine 上一轮的新 TaskRun，并接手上一轮保留的 Sandbox | D140 |
-| 2 | **交付与验收是两件独立的事**：TaskRun 的“已交付”与工作结论（这份交付是否通过验收）分开记录；工作结论针对单个 TaskRun，由验收记录查询得出 | D130、D140、D141 |
+| 2 | **交付与验收是两件独立的事**：TaskRun 的“已交付”与验收结论分开记录。验收结论针对单个 TaskRun，由验收记录查询得出；一项开发工作的**工作结论**取其当前工作头的验收结论 | D130、D140、D141、D142 |
+| 2a | **当前工作头**：开发工作由一个 Work 记录，它指向当前选中的 TaskRun；“继续”会 refine 工作头并原子地移动它，也可以把工作头显式切到树上的任意节点 | D142 |
 | 3 | **验收与评分统一为 GradingRecord**（用途分 gate / measure）。gate 记录完整绑定任务、条目、清单、评分器和材料，采用“最近一条完整记录” | D130、D138、D139 |
 | 4 | **执行统一为 Operation**（kind 为 agent 或 command）。评价者执行不产生 TaskRun | D131、D140 |
 | 5 | **资源统一为 Sandbox**：Workspace、运行资源、挂载、占用和暂停都在一个聚合里。归属者是 TaskRun 或 GradingRecord，可以移交给 refine 它的下一轮 | D132、D140 |
@@ -63,15 +64,18 @@
 | Operation | 可以占用 Sandbox、并能持久核对是否已停止的工作单元。`kind = agent`：一次 Agent 执行，带会话、轨迹和交付声明。`kind = command`：测试评分器的一次命令运行，带退出结果 |
 | 占用租约 | Operation 使用 Sandbox 时取得的互斥租约，带单调递增的 fencing token；确认停止后才归还 |
 | 已解析环境 | TaskRun 实际使用的 EnvironmentRevision，并记录来源：`latest`（受理时取最新发布修订）、`specified`（调用方显式指定）或 `inherited`（从移交来的 Sandbox 继承） |
-| 工作结论 | 针对**一个**已交付的 TaskRun：在与其 Manifest 和验收契约一致的完整 gate 记录中，按稳定的请求顺序取最近一条，得出 accepted、rejected 或 pending。这是查询结果，不另存状态。整棵 refinement 树没有“总结论”，由调用方查看具体节点 |
+| 验收结论 | 针对**一个**已交付的 TaskRun：在与其 Manifest 和验收契约一致的完整 gate 记录中，按稳定的请求顺序取最近一条，得出 accepted、rejected 或 pending。这是查询结果，不另存状态 |
+| Work（工作） | 一项开发工作：同一 Task 下的一棵 refinement 树，加一个**当前工作头**（当前选中的 TaskRun）。评测样本不属于任何 Work |
+| 工作结论 | Work 当前工作头的验收结论；工作头尚未交付时，显示为进行中或失败。查询结果，不另存状态 |
 
 ### 3.4 聚合与不变量
 
-共 8 个运行聚合，外加一组版本化定义。每个聚合都有版本号，状态转换按版本比较后提交（CAS）。跨聚合规则见第 3.5 节。
+共 9 个运行聚合，外加一组版本化定义。每个聚合都有版本号，状态转换按版本比较后提交（CAS）。跨聚合规则见第 3.5 节。
 
 | 聚合 | 拥有的状态 | 必须守护的不变量 |
 | --- | --- | --- |
-| **TaskRun** | 五个状态；TaskRevision；refines（可空，必须指向同一 Task 下已终结的 TaskRun）；已解析环境；至多一个 worker Operation；Manifest；取消意图；阻塞原因；失败类别；任务 Sandbox | **已交付**需同时满足：没有取消意图；Manifest 已被接收（accepted），且所列交付与要求的轨迹都有归档回执；名下没有运行中或停止状态未知的 Operation。worker Operation 本身失败不影响已交付的判定。**失败**必须附失败类别。取消意图登记后，不再启动 Operation，也不再接收 Manifest。终态不可重开，晚到的回执只记为历史。一个 TaskRun 至多一个 worker Operation；恢复执行时沿用原 Operation 身份 |
+| **Work** | Task；当前工作头（一个 TaskRun）；工作头变更历史（只追加，记录原因：发起、继续、手动选择）；状态（进行中 / 已结束） | 工作头必须是本 Work 下的 TaskRun。移动工作头时按版本比较，并带上期望的旧工作头：两个“继续”同时到达时只有一个成功，另一个返回冲突与当前工作头。已结束的 Work 不再接受新的 TaskRun 或工作头变更 |
+| **TaskRun** | 五个状态；TaskRevision；所属 Work（可空，创建时固定，评测样本为空）；refines（可空，必须指向同一 Task、同一 Work 下已终结的 TaskRun）；已解析环境；至多一个 worker Operation；Manifest；取消意图；阻塞原因；失败类别；任务 Sandbox | **已交付**需同时满足：没有取消意图；Manifest 已被接收（accepted），且所列交付与要求的轨迹都有归档回执；名下没有运行中或停止状态未知的 Operation。worker Operation 本身失败不影响已交付的判定。**失败**必须附失败类别。取消意图登记后，不再启动 Operation，也不再接收 Manifest。终态不可重开，晚到的回执只记为历史。一个 TaskRun 至多一个 worker Operation；恢复执行时沿用原 Operation 身份 |
 | **Operation** | kind（agent / command）；归属（TaskRun 或 GradingRecord）；角色（worker / evaluator）；AgentRevision 或命令规格；Sandbox；占用租约；阶段；回执（agent 为输出、轨迹和交付声明，command 为退出结果）；停止观测；评价协议阶段 | 合法组合只有三种：TaskRun 的 worker 必须是 agent；GradingRecord 的 evaluator 可以是 agent 或 command。agent 必须带 AgentRevision、会话与轨迹，不得带命令规格；command 必须带命令规格与退出结果，不得带 AgentRevision。成功需要约定的回执全部到齐。归档受阻时只补做归档，不重跑模型。同一时刻只有一个运行拥有者。command 类：确认已停止、却没有可信退出结果时，以“退出结果未知”终结，不自动重跑 |
 | **Sandbox** | 归属者；Workspace 及其来源（自建或借用）；运行资源（依据的 EnvironmentRevision、资源身份、阶段）；挂载；当前占用租约；执行容器的暂停事实；保留意图；生命周期操作预留（移交 / 释放 / 暂停 / 恢复，带操作身份）；移交记录 | 同一时刻至多一个占用租约，桥接只接受当前 fencing token。同一时刻至多一个生命周期操作预留：任何会做外部 I/O 的生命周期操作，都必须先以 CAS 登记预留，再执行 I/O，最后核对并完成；崩溃后沿原预留核对，不重新竞争。存在占用、或停止状态未知时，不得卸载、暂停、移交或释放。只回收自建资源。准备失败时保留已就绪的 Workspace。只能移交给 refine 当前归属者的 TaskRun，且需满足：原归属者已终结、没有占用、保留意图为“保留待细化”。每次移交只有一个接收方 |
 | **Workspace** | 复用现有的 CodeWorkspaceInstance / Route | 沿用 D109 以及现有的清理保护 |
@@ -88,6 +92,7 @@
 | --- | --- |
 | 子流程结束后，父流程一定会被推进 | 子流程在终结的同一事务里写入完成事件，由受理与驱动可靠投递（第 7.3 节） |
 | 已解析环境必须属于任务引用的环境定义 | TaskExecution 受理时校验 |
+| 在 Work 中发起 TaskRun 并移动工作头 | TaskRun 受理与 Work 工作头更新在同一个账本事务中提交（两者都是业务记录，不涉及外部 I/O） |
 | refinement 接手 Sandbox 时，接收 TaskRun 与 Sandbox 的归属变更要一致 | 先在 Sandbox 上登记以接收 TaskRun 请求身份为键的移交预留，再受理 TaskRun；移交失败时 TaskRun 改用新 Sandbox 或受理失败，不会出现“记录了 inherited 环境却没有 Sandbox”的状态 |
 
 ## 4. TaskRun 与 refinement
@@ -98,7 +103,7 @@
 
 ### 4.1 五个状态与失败类别
 
-状态：待开始、进行中、已交付、失败、已取消。“已交付”是唯一的成功终态，只表示交付有效且已归档；是否通过验收看工作结论（第 5.3 节）。
+状态：待开始、进行中、已交付、失败、已取消。“已交付”是唯一的成功终态，只表示交付有效且已归档；是否通过验收看验收结论（第 5.3 节）。
 
 | 失败类别 | 触发条件 |
 | --- | --- |
@@ -124,7 +129,18 @@
 3. **接收校验**：先取得归档回执与元数据，再交给任务类型的纯规则判定。结果有三种：`accepted`（冻结 Manifest）、`rejected`（失败，类别 agent-output）、`unavailable`（阻塞核对，不判失败）。
 4. 不按创建时间去猜“最新产物”（D43）。一个 TaskRun 只有一份 Manifest；想换一份清单，就发起一个新的 refinement。
 
-### 4.3 refinement：验收不通过后继续修改
+### 4.3 Work 与 refinement：验收不通过后继续修改
+
+开发入口有三种：
+
+| 操作 | 效果 |
+| --- | --- |
+| 开始工作 | 创建 Work 和第一个 TaskRun，工作头指向它 |
+| 继续 | 发起一个 refine 当前工作头的 TaskRun，并把工作头移到它（期望旧工作头 = 当前工作头）；默认接手工作头保留的 Sandbox |
+| 选择工作头 | 把工作头显式切到同一 Work 中的另一个 TaskRun，例如回到之前那份更好的交付；不发起新的执行 |
+
+也可以 refine 树上的任意节点而不移动工作头（形成分支），但必须显式选择；这时默认不接手 Sandbox。
+
 
 - 调用方发起新的 TaskRun，并指明 `refines`：被 refine 的 TaskRun 必须已终结，且属于同一个 Task；尚未终结（例如停止状态仍未确认）时，受理直接拒绝并返回原因。新的 TaskRun 可以使用更新的 TaskRevision；验收契约变化时按 D111 全部重验。
 - 如果被 refine 的 TaskRun 保留了 Sandbox（保留意图为“保留待细化”），新 TaskRun 可以申请接手。移交分三步：
@@ -157,7 +173,7 @@
 
 数值、分类、**逐条结论**。逐条结论的每一项包含：条目 ID、独立判断、对照结论、最终结论（满足 / 未满足 / 无法判定），以及理由和证据引用。评分器故障与合法的“无法判定”分开记录（D13）。
 
-### 5.3 验收 gate 与工作结论
+### 5.3 验收 gate、验收结论与工作结论
 
 - **由谁发起**：gate 由调用方针对一个已交付的 TaskRun 显式发起，与现有的独立验收工作流一致。TaskRun 本身不触发验收。
 - **绑定**：一条 gate 记录绑定以下内容，并且必须覆盖全部预期条目，否则不能被采用：
@@ -167,10 +183,10 @@
   - GraderRevision；
   - GraderRevision 声明的全部目标与材料的确切身份，包括 Manifest 之外的材料，例如被验收的 Trajectory。
 - **补验（D111）**：清单和契约都没变时，也写一条新的完整记录。这次没有重新核验的条目，引用旧记录中已满足的条目结论，但只能引用绑定完全相同的旧记录。
-- **工作结论**：查询某个已交付 TaskRun 的工作结论时，在 Manifest 摘要和验收条目摘要都与它一致的完整 gate 记录中，按稳定的请求顺序取**最近一条**，不论评分器版本。该记录全部条目最终满足即为 accepted，有任何条目未满足或无法判定即为 rejected，还没有完整记录则为 pending。更早的、结论相反的记录保留为历史，在查询中显示为 disputed。
+- **验收结论**：查询某个已交付 TaskRun 的验收结论时，在 Manifest 摘要和验收条目摘要都与它一致的完整 gate 记录中，按稳定的请求顺序取**最近一条**，不论评分器版本。该记录全部条目最终满足即为 accepted，有任何条目未满足或无法判定即为 rejected，还没有完整记录则为 pending。更早的、结论相反的记录保留为历史，在查询中显示为 disputed。
 - **单一性**：同一 TaskRun、同一组绑定上，同时只允许一个未终结的 gate 请求（请求账本防重）。宿主重启后的重新驱动沿用原请求身份。
 - **评分器版本**：调用方未指定时，使用当时的内置独立验收评分器版本。评分器版本或材料不同就是不同的完整绑定，补验时旧结论不能被引用；但采用时只看请求顺序。
-- **refinement 树**：工作结论只对单个 TaskRun 有定义，不对整棵树下结论，也不按创建时间推断“当前分支”。CLI 展示整棵树及每个已交付节点的结论，由用户选择要看或要继续的节点。
+- **工作结论**：取 Work 当前工作头的验收结论。工作头只能由“继续”或“手动选择”显式移动，绝不按创建时间或验收结果自动推断。例如 #1 后来的 gate 通过、#2 的 gate 不通过，而工作头在 #2 上，那么工作结论就是 rejected；用户若认可 #1，就把工作头切回 #1，工作结论随之变为 accepted。CLI 同时展示整棵树和各节点的验收结论，并标出工作头。
 
 ### 5.4 内置独立验收评分器
 
@@ -192,7 +208,7 @@
 - **归属**：
   - 任务 Sandbox 归 TaskRun。TaskRun 终结后，按保留意图处理：
     - 评测样本默认“释放”：卸载、回收自建运行资源，按 D96 保留 Workspace 文件。
-    - 开发任务默认“保留待细化”：确认没有占用后，暂停执行容器，依赖服务不动（D113）。之后的去向有三种：被 refinement 接手；被调用方结束工作时释放；或保留到期后由现有清理机制处理。移交、释放和到期清理都必须先取得生命周期预留（第 3.4 节），先成功的一方生效，另一方失败并返回原因。这与现有 Workspace 清理的 `cleanup_operation_id` 预留方式一致。
+    - 开发任务默认“保留待细化”：确认没有占用后，暂停执行容器，依赖服务不动（D113）。之后的去向有三种：被 refinement 接手；结束 Work 时释放该 Work 下所有保留的 Sandbox；或保留到期后由现有清理机制处理。移交、释放和到期清理都必须先取得生命周期预留（第 3.4 节），先成功的一方生效，另一方失败并返回原因。这与现有 Workspace 清理的 `cleanup_operation_id` 预留方式一致。
   - 评价者 Sandbox 归 GradingRecord，评分结束即释放。
 - **生命周期操作**：暂停、恢复、移交、释放，都必须由负责归属者的应用用例（TaskExecution 或 Grading）发起，并携带匹配的归属者身份；SandboxProvisioning 还会校验资源所有权。Operation 只能申请占用租约。
 - **占用**：取得占用租约时拿到新的 fencing token，文件桥接和命令桥接只接受当前 token。宿主崩溃后，由核对循环确认实际已停止，再归还或接管租约。
@@ -215,7 +231,7 @@ Git 之外的材料（文件、S3 等）推迟到有真实需求时再扩展。
 
 | 模块 | 调用方表达的意图 | 内部承担 | 明确不做 |
 | --- | --- | --- | --- |
-| **TaskExecution** | 发起（可指定 refines、是否接手 Sandbox、显式环境版本、保留意图、Agent，或直接提供清单）；取消；查询 TaskRun、单个 TaskRun 的工作结论与 refinement 树；结束工作（释放保留的 Sandbox） | 推进 TaskRun；解析并校验环境；申请、接手、暂停、释放任务 Sandbox；调用 AgentExecutionService；形成 Manifest 并做接收校验 | 不自动发起验收，不解析 Durable 事件，不执行挂载，不解释质量分数 |
+| **TaskExecution** | 开始工作、继续、选择工作头、结束工作；发起独立 TaskRun（可指定 refines、是否接手 Sandbox、显式环境版本、保留意图、Agent，或直接提供清单）；取消；查询 TaskRun、验收结论、Work 与工作结论 | 维护 Work 的工作头（与 TaskRun 受理同一事务）；推进 TaskRun；解析并校验环境；申请、接手、暂停、释放任务 Sandbox；调用 AgentExecutionService；形成 Manifest 并做接收校验 | 不自动发起验收，不解析 Durable 事件，不执行挂载，不解释质量分数 |
 | **AgentExecutionService** | 运行、查询、请求停止、核对、恢复一个 agent Operation | 取得占用租约并建立工具桥接；驱动 Durable；归档轨迹、输出、交付声明和协议阶段；确认停止；管理宿主级的 Agent 名额 | 不创建或回收资源，不判断任务成败 |
 | **Grading** | 按 GraderRevision 以 gate 或 measure 用途评价确切目标；取消一条评分 | 准备材料。规则评分器直接计算；测试评分器申请评价者 Sandbox，并运行 command Operation；agent 评分器通过 AgentExecutionService 运行。校验 Grade 后保存 | 不修改 TaskRun，不依赖实验 |
 | **ExperimentExecution** | 运行批次、补评、取消、查询 | 发起批次时登记成员；用环境解析表中的版本发起 TaskRun（保留意图为“释放”）；已交付后发起 measure；“评分未开展”由查询推导；采用规则（D64）与完整性按查询得出；管理任务名额 | 不复制执行或评分流程 |
@@ -287,7 +303,7 @@ D79 的准确含义：实验不接受用户另选或覆盖环境，但可以保�
 | D70、D94、D117、D125、D127 中 AgentExecution、同一 TaskRun 多次执行、六态 TaskRun 与 Verification 模块 | 改为 Operation；一个 TaskRun 至多一个 worker，继续工作走 refinement；Verification 并入 Grading |
 | D84、D85 中独立版本化的 TaskType | 降为 TaskRevision 上的 `kind` 与 schema 版本 |
 | D102 | `failed` 表示“本轮不再继续”，失败类别为 agent-output、agent-execution、infrastructure |
-| D103、D104、D110、D115 | 统一为 gate GradingRecord；“全部条件必须满足”作为工作结论 accepted 的规则 |
+| D103、D104、D110、D115 | 统一为 gate GradingRecord；“全部条件必须满足”作为验收结论 accepted 的规则 |
 | D119–D121、D125、D127、D133 中的资源与环境 | 资源准备交给 SandboxProvisioning；任务引用环境定义并解析，评分器固定环境版本 |
 
 其余已确认的决策不变。
@@ -300,5 +316,5 @@ D79 的准确含义：实验不接受用户另选或覆盖环境，但可以保�
 - 占用租约与 fencing token 的持久化字段和续期方式，以及桥接端口的签名。
 - 完成事件的表结构与投递重试策略。
 - 开发场景中保留待细化的 Sandbox 的默认保留期，以及生命周期预留与现有清理机制的衔接。
-- CLI 的 refinement 树视图与“继续”命令的交互形式。
+- CLI 的 Work 视图、“继续”与“选择工作头”命令的交互形式。
 - 旧 Verification、VerificationRun、DevRun 的逐字段迁移，以及环境解析表与历史实验的兼容读取。

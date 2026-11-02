@@ -13,7 +13,7 @@ flowchart TB
   GRD -->|评价者| EOP[Operation kind=agent / command]
   GRD -->|拥有| ESB[评价者 Sandbox]
   EOP -->|占用租约| ESB
-  Q1[(工作结论：最近一条完整 gate)] -.->|查询| GRD
+  Q1[(验收结论：最近一条完整 gate<br/>工作结论 = 工作头的验收结论)] -.->|查询| GRD
   Q2[(批次结果：采用规则与完整性)] -.->|查询| GRD
   classDef def fill:#eef2ff,stroke:#5b6abf,color:#1e2a6b;
   classDef fact fill:#ecf7ee,stroke:#4c8a5a,color:#173d22;

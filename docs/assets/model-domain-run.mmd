@@ -2,7 +2,9 @@ flowchart TB
   T[Task] -->|具有修订| TR[TaskRevision<br/>kind + schema 版本 · 输入 · 材料 · 验收条目]
   TR -->|引用| ED[EnvironmentDefinition]
   ED -->|具有修订| ENR[EnvironmentRevision]
+  W[Work<br/>当前工作头 · 工作头历史 · 进行中 / 已结束] -->|工作头| RN
   RN[TaskRun<br/>5 态 · Manifest · 取消意图 · 失败类别] -->|固定| TR
+  RN -.->|所属，评测样本为空| W
   RN -.->|refines| RN0[更早的 TaskRun]
   RN -->|已解析环境 latest / specified / inherited| ENR
   RN -->|至多一个 worker| OP[Operation kind=agent<br/>阶段 · 回执 · 交付声明 · Trajectory]
@@ -19,5 +21,5 @@ flowchart TB
   classDef fact fill:#ecf7ee,stroke:#4c8a5a,color:#173d22;
   classDef res fill:#fff4e0,stroke:#c08a2d,color:#5a3b06;
   class T,TR,ED,ENR,AR def;
-  class RN,RN0,OP,C,A fact;
+  class W,RN,RN0,OP,C,A fact;
   class SBX,WS res;
