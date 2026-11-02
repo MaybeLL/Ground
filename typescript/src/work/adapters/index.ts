@@ -3,3 +3,4 @@
 // existing modules under src/ and Node, but never application, driver or entry.
 export * from "./sql/repositories.js";
 export * from "./sql/legacy-reader.js";
+export * from "./git/tag-archive.js";

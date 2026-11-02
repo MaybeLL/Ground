@@ -1,4 +1,4 @@
-import type { AgentExecution, Definition, ExperimentRun, GradingRecord, Id, JsonValue, Revision, Sandbox, TaskRun, Timestamp, Versioned, Work } from "../domain/index.js";
+import type { AgentExecution, Definition, DefinitionKind, ExperimentRun, GradingRecord, Id, JsonValue, Revision, Sandbox, TaskRun, Timestamp, Versioned, Work } from "../domain/index.js";
 
 // ---- errors ---------------------------------------------------------------
 
@@ -38,6 +38,8 @@ export interface AggregateRepository<S extends Versioned & { readonly id: Id }> 
 }
 
 export interface DefinitionRepository extends AggregateRepository<Definition> {
+  /** Every definition of a kind, in identity order. */
+  list(kind: DefinitionKind): Promise<Definition[]>;
   /** Revisions are immutable: they are added, never changed. */
   addRevision(revision: Revision): Promise<void>;
   getRevision(definitionId: Id, revisionId: Id): Promise<Revision | undefined>;

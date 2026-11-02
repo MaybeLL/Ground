@@ -1,6 +1,6 @@
 import {
   definitionViolations, executionViolations, experimentViolations, gradingViolations, revisionViolations, sandboxViolations, taskRunViolations, workViolations,
-  type AgentExecution, type Definition, type ExperimentRun, type GradingRecord, type Id, type JsonValue, type Member, type Revision, type Sandbox, type TaskRun, type Work,
+  type AgentExecution, type Definition, type DefinitionKind, type ExperimentRun, type GradingRecord, type Id, type JsonValue, type Member, type Revision, type Sandbox, type TaskRun, type Work,
 } from "../../domain/index.js";
 import {
   RequestConflict, StorageFailure,
@@ -60,6 +60,8 @@ class SqlRepository<S extends { readonly id: Id; readonly version: number }> {
 
 class SqlDefinitions extends SqlRepository<Definition> implements DefinitionRepository {
   constructor(table: AggregateTable<Definition>, private readonly client: SQLClient, private readonly writable: boolean) { super(table); }
+
+  list(kind: DefinitionKind) { return this.table.select("kind = ?", [kind], "id"); }
 
   async addRevision(revision: Revision): Promise<void> {
     if (!this.writable) throw new StorageFailure("read-only", "revisions cannot be added in a read unit");
