@@ -33,7 +33,7 @@ const createIssueWith = (module: Module, requirementId: string, requirementRevis
 for (const backend of backends) test(`${backend}: current schema retains the schema 21 plan field and stores the non-normative plan and reads it back`, { skip: backendSkip(backend) }, async () => {
   const fixture = await openLedger(backend);
   try {
-    assert.equal(SCHEMA_VERSION, 23);
+    assert.equal(SCHEMA_VERSION, 24);
     const created = await createIssueWith(fixture.module, fixture.requirement.requirement_id, fixture.requirement.requirement_revision_id, fixture.repository.repository_id, PLAN);
     const show = await fixture.module.showIssue(created.result.issue_id);
     assert.equal(show.issue.plan, PLAN);
