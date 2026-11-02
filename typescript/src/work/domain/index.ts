@@ -6,3 +6,4 @@ export * from "./kernel.js";
 export * from "./definitions.js";
 export * from "./task-run.js";
 export * from "./work.js";
+export * from "./sandbox.js";
