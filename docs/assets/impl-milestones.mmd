@@ -1,9 +1,11 @@
 flowchart LR
-  M0["M0 技术验证<br/>Durable 锁版与容器桥接<br/>Docker 暂停恢复<br/>单执行 SQLite 存储"] --> M1["M1 领域核心<br/>9 个聚合的纯规则<br/>不变量测试"]
-  M1 --> M2["M2 存储与驱动<br/>schema v24 · 仓储<br/>意图 · 完成事件 · 核对 · 宿主"]
-  M2 --> M3["M3 Sandbox<br/>复用 Workspace 与 Docker<br/>预留 · 移交 · 占用契约"]
-  M3 --> M4["M4 Agent 执行<br/>Durable 适配器<br/>轨迹与交付归档"]
-  M4 --> M5["M5 开发闭环与切换<br/>Work · TaskRun · gate<br/>迁移 Issue / DevRun / Verification"]
-  M5 --> M6["M6 评测闭环<br/>measure 评分 · 实验批次<br/>迁移评测记录"]
-  M6 --> M7["M7 退役<br/>旧写入路径 · Python 协调器<br/>Codex 采集"]
-  M0 -.->|不通过则回到选型| X[(重新评估 D69)]
+  P0["P0 领域与存储<br/>9 个聚合 · 外部执行登记<br/>schema v24 · 迁移演练"] --> P1["P1 契约开发闭环<br/>自带 Agent · Work · gate<br/>外部评价者 · 切换"]
+  P0 --> P2["P2 本地低摩擦<br/>默认 SQLite · 本地归档模式<br/>一步初始化"]
+  P1 --> P3["P3 评测资产<br/>历史沉淀评测项 · 补充评分依据<br/>规则与测试评分"]
+  P3 --> P4["P4 托管执行与沙箱<br/>devcontainer · 命令行 Agent 适配器<br/>宿主与驱动"]
+  P4 --> P5["P5 实验与对比<br/>批次 · 重复 · 汇总<br/>迁移旧评测"]
+  P5 --> P6["P6 退役<br/>旧写入路径 · Python 协调器<br/>Codex 采集"]
+  classDef v1 fill:#ecf7ee,stroke:#4c8a5a,color:#173d22;
+  classDef v2 fill:#eef2ff,stroke:#5b6abf,color:#1e2a6b;
+  class P1,P2 v1;
+  class P3,P4,P5 v2;

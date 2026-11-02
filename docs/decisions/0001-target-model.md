@@ -3,10 +3,10 @@
 - 版本：R2，日期 2026-11-02。
 - 状态：**已确认，待实现**。由助手按用户授权，依据设计评审与独立复审对 [0001 决策记录](0001-unified-agent-evaluation.md) 作出的结构修订：
   - R1：D129–D137，并经两轮复审补齐（D138、D139）。
-  - R2：D140，按“领域层挑战”合并概念，并把“继续修改”改为 refinement 尝试链；D141 补齐 R2 复审发现的缺口；D142 增加“当前工作头”（Work 聚合）；D143 把执行模型改为 AgentExecution 聚合加 GradingRecord 内的命令步骤，两者共同实现 Sandbox 的占用者契约；D144 补齐 Work 结束协议、评分终态竞争与迁移原则。
+  - R2：D140，按“领域层挑战”合并概念，并把“继续修改”改为 refinement 尝试链；D141 补齐 R2 复审发现的缺口；D142 增加“当前工作头”（Work 聚合）；D143 把执行模型改为 AgentExecution 聚合加 GradingRecord 内的命令步骤，两者共同实现 Sandbox 的占用者契约；D144 补齐 Work 结束协议、评分终态竞争与迁移原则；D146 依据项目愿景加入外部执行（自带 Agent）、Provider 能力声明与 devcontainer 环境定义。
 
   均已获用户确认，生产代码尚未实现。
-- 前提：本文以[项目愿景与核心原则](../vision.md)为前提。愿景第 7 节列出的差距（自带 Agent 的开发路径、沙箱集成优先、本地低摩擦）将在后续修订中补入本文。
+- 前提：本文以[项目愿景与核心原则](../vision.md)为前提。**D146 的内容（第 4.7 节外部执行、Provider 能力、第 8 节 devcontainer 环境定义）仍是提议，待用户确认**；其余内容已确认。D146 按愿景补入“外部执行”（自带 Agent）与“环境定义采用 devcontainer.json”；本地低摩擦属于实现层面，见 [0002](0002-implementation-plan.md)。
 - 用途：一份可单独阅读的当前目标模型，与 0001 中的旧决策冲突时以本文为准。0001 记录讨论历史与理由；开发时先读本文，再按需回查对应决策。
 
 ## 1. 一页结论
@@ -61,10 +61,13 @@
 | 版本化定义 | 稳定的定义身份，加不可变的修订：Task / TaskRevision、Agent / AgentRevision、Grader / GraderRevision、Environment / EnvironmentRevision、Suite / SuiteSnapshot。SuiteSnapshot 就是 Suite 的修订 |
 | 任务类型 | TaskRevision 上的 `kind`（一期为 coding、working）加 schema 版本。类型规则随 Grounds 发布，不单独建实体 |
 | refinement 链 | 一个 TaskRun 可以 refine 一个更早的 TaskRun（同一 Task，引用其交付）。由此形成一棵尝试树，用来表达“验收不通过后继续修改” |
-| Manifest（交付清单） | 一轮尝试正式交付的 Candidate / Artifact 引用清单。来源（origin）有三种：`tool`（Agent 用交付工具声明）、`contract`（按输出契约从归档输出中提取）、`caller`（调用方提供）。状态有 pending-receipt、accepted、rejected、unavailable 四种 |
-| AgentExecution | 一次确定配置的 Agent 执行：会话、轨迹、输出与交付声明的归档、恢复、Agent 名额。被测 worker 与评价者共用这一概念，只是归属与角色不同 |
+| Manifest（交付清单） | 一轮尝试正式交付的 Candidate / Artifact 引用清单。来源（origin）有四种：`tool`（托管 Agent 用交付工具声明）、`contract`（按输出契约从托管执行的归档输出中提取）、`external`（外部执行的 Agent 通过 CLI 提交）、`caller`（人直接提供）。状态有 pending-receipt、accepted、rejected、unavailable 四种 |
+| 执行方式 | worker 与评价者都有两种执行方式。**托管执行**：由 Grounds 启动、停止并归档的 AgentExecution，主要用于评测时换 Agent 重跑。**外部执行**：用户自带的 Agent（Claude Code、Codex 等）在 Grounds 准备的 Workspace 中工作，通过 CLI 或 skill 登记与提交；Grounds 记录身份、提交与证据，但不控制它的进程。日常开发以外部执行为主（愿景原则 1） |
+| AgentExecution | 一次托管执行：会话、轨迹、输出与交付声明的归档、Agent 名额；能否恢复取决于 Provider 声明的能力。被测 worker 与评价者共用这一概念，只是归属与角色不同 |
+| 外部执行登记 | TaskRun 或 GradingRecord 内部的实体，表示一次外部执行：执行者身份（Agent 标识与名称，可选模型）、登记时间、提交时间、可选的会话记录（作为证据导入，覆盖说明为“外部提供、未受管”）、停止声明 |
+| Provider 能力 | 托管执行的 Provider 声明自己支持什么，例如能否恢复原会话、能采集哪些事件。应用层使用前先核对，不支持就明确返回，不悄悄降级（D68） |
 | 命令步骤 | 测试评分器在 Sandbox 内的一次命令运行，属于 GradingRecord 内部的实体：命令规格、退出结果、停止观测。不能恢复，也没有独立于这条评分记录的生命 |
-| 占用者契约 | Sandbox 对占用者的要求：使用桥接时出示当前 fencing token；报告“已确认停止”的事实；能被核对循环核对。AgentExecution 与命令步骤各自实现，不共享父类 |
+| 占用者契约 | Sandbox 对占用者的要求：使用桥接时出示当前 fencing token；报告停止事实；能被核对。AgentExecution 与命令步骤报告的是**核实的**停止；外部执行登记只能报告**声明的**停止（由外部 Agent 提交或放弃时声明，或由人声明），记录时注明“声明，未核实” |
 | 占用租约 | 占用者使用 Sandbox 时取得的互斥租约，带单调递增的 fencing token；确认停止后才归还。租约记录带类型的占用者引用：一个 AgentExecution，或“某条 GradingRecord 的某个命令步骤” |
 | 已解析环境 | TaskRun 实际使用的 EnvironmentRevision，并记录来源：`latest`（受理时取最新发布修订）、`specified`（调用方显式指定）或 `inherited`（从移交来的 Sandbox 继承） |
 | 验收结论 | 针对**一个**已交付的 TaskRun：在与其 Manifest 和验收契约一致的完整 gate 记录中，按稳定的请求顺序取最近一条，得出 accepted、rejected 或 pending。这是查询结果，不另存状态 |
@@ -78,12 +81,12 @@
 | 聚合 | 拥有的状态 | 必须守护的不变量 |
 | --- | --- | --- |
 | **Work** | Task；当前工作头（一个 TaskRun；仅迁移而来的 Work 可以暂时为空）；工作头变更历史（只追加，原因为：发起、继续、手动选择、迁移默认）；状态（进行中 / 结束中 / 已结束）；结束事实（结束时的工作头与当时观察到的工作结论） | 同一 Task 可以有多个 Work，各自的工作头与可变 Sandbox 互不共享。工作头必须是本 Work 下的 TaskRun。移动工作头时按版本比较，并带上期望的旧工作头：两个“继续”同时到达时只有一个成功，另一个返回冲突与当前工作头。进入“结束中”后不再接受新的 TaskRun 或工作头变更。结束协议见第 4.5 节 |
-| **TaskRun** | 五个状态；TaskRevision；所属 Work（可空，创建时固定，评测样本为空）；refines（可空，必须指向同一 Task、同一 Work 下已终结的 TaskRun）；已解析环境；至多一个 worker AgentExecution；Manifest；取消意图；阻塞原因；失败类别；任务 Sandbox | **已交付**需同时满足：没有取消意图；Manifest 已被接收（accepted），且所列交付与要求的轨迹都有归档回执；名下没有运行中或停止状态未知的 AgentExecution。worker 本身失败不影响已交付的判定。**失败**必须附失败类别。取消意图登记后，不再启动执行，也不再接收 Manifest。终态不可重开，晚到的回执只记为历史。一个 TaskRun 至多一个 worker AgentExecution；恢复执行时沿用原身份 |
-| **AgentExecution** | 归属（TaskRun 或 GradingRecord）；角色（worker / evaluator）；AgentRevision；Sandbox；占用租约；阶段；Durable 会话映射；回执（输出、轨迹、交付声明）；停止观测；评价协议阶段与只追加的协议命令观测（评价者用，承接旧 VerificationRun 的 `RunCommand`） | 成功需要输出与轨迹的归档回执全部到齐。归档受阻时只补做归档，不重跑模型。恢复沿用原身份。同一时刻只有一个运行拥有者 |
+| **TaskRun** | 五个状态；TaskRevision；所属 Work（可空，创建时固定，评测样本为空）；refines（可空，必须指向同一 Task、同一 Work 下已终结的 TaskRun）；已解析环境；至多一个 worker（托管的 AgentExecution，或外部执行登记）；Manifest；取消意图；阻塞原因；失败类别；任务 Sandbox | **已交付**需同时满足：没有取消意图；Manifest 已被接收（accepted），且所列交付与要求的轨迹都有归档回执；名下没有运行中或停止状态未知的 AgentExecution；外部执行登记已有停止声明（提交 Manifest 即视为声明）。worker 本身失败不影响已交付的判定。**失败**必须附失败类别。取消意图登记后，不再启动执行，也不再接收 Manifest。终态不可重开，晚到的回执只记为历史。一个 TaskRun 至多一个 worker；托管执行恢复时沿用原身份 |
+| **AgentExecution** | 归属（TaskRun 或 GradingRecord）；角色（worker / evaluator）；AgentRevision；Sandbox；占用租约；阶段；Durable 会话映射；回执（输出、轨迹、交付声明）；停止观测；评价协议阶段与只追加的协议命令观测（评价者用，承接旧 VerificationRun 的 `RunCommand`） | 成功需要输出与轨迹的归档回执全部到齐。归档受阻时只补做归档，不重跑模型。只有 Provider 声明支持恢复时才能恢复，并沿用原身份；不支持时，宿主中断后经核对确认已停止，即以“中断”终结，所属 TaskRun 记为 infrastructure 失败。同一时刻只有一个运行拥有者 |
 | **Sandbox** | 归属者；Workspace 及其来源（自建或借用）；运行资源（依据的 EnvironmentRevision、资源身份、阶段）；挂载；当前占用租约；执行容器的暂停事实；保留意图；生命周期操作预留（移交 / 释放 / 暂停 / 恢复，带操作身份）；移交记录 | 同一时刻至多一个占用租约，桥接只接受当前 fencing token。同一时刻至多一个生命周期操作预留：任何会做外部 I/O 的生命周期操作，都必须先以 CAS 登记预留，再执行 I/O，最后核对并完成；崩溃后沿原预留核对，不重新竞争。存在占用、或停止状态未知时，不得卸载、暂停、移交或释放。只回收自建资源。准备失败时保留已就绪的 Workspace。只能移交给 refine 当前归属者的 TaskRun，且需满足：原归属者已终结、没有占用、保留意图为“保留待细化”。每次移交只有一个接收方 |
 | **Workspace** | 复用现有的 CodeWorkspaceInstance / Route | 沿用 D109 以及现有的清理保护 |
 | **Candidate / Artifact** | 身份、类型、冻结内容、来源 AgentExecution | 提交后不可变；保存重试返回同一个引用（D47） |
-| **GradingRecord** | 用途（gate / measure）；来源；目标集合；GraderRevision；实际材料的确切身份；评价者 AgentExecution（Agent 型）或命令步骤（测试型，内部实体，0..n）；评价者 Sandbox；评分状态（进行中 / 已完成 / 评分器故障 / 已取消）；取消意图；Grade；gate 用途另有绑定（第 5.3 节） | 命令步骤的状态：启动意图 → 运行中 → 停止请求 → 停止未知 / 已停止有结果 / 已停止结果未知；只有确认已停止才归还占用租约。终态按“先提交者生效”唯一确定（第 4.6 节）：未登记取消意图时，命令确认已停止却没有可信退出结果，整条评分记为评分器故障，不自动重跑；所有命令步骤都已停止并取得结果后，评分才能完成。登记取消意图后，不再启动评价者执行或命令步骤，主状态只能走向已取消，退出结果未知仅作为诊断保留；之后到达的 Grade 只记为历史。对已终结的评分发取消请求，返回现有终态。Grade 必须符合 GraderRevision 声明的形式与标尺。评分器故障与合法的“无法判定”分开记录。完成后不可修改，重评只能新增记录。gate 记录必须覆盖全部预期条目 |
+| **GradingRecord** | 用途（gate / measure）；来源；目标集合；GraderRevision；实际材料的确切身份；评价者：托管的 AgentExecution 或外部执行登记（Agent 型），或命令步骤（测试型，内部实体，0..n）；评价者 Sandbox；评分状态（进行中 / 已完成 / 评分器故障 / 已取消）；取消意图；Grade；gate 用途另有绑定（第 5.3 节） | 命令步骤的状态：启动意图 → 运行中 → 停止请求 → 停止未知 / 已停止有结果 / 已停止结果未知；只有确认已停止才归还占用租约。终态按“先提交者生效”唯一确定（第 4.6 节）：未登记取消意图时，命令确认已停止却没有可信退出结果，整条评分记为评分器故障，不自动重跑；所有命令步骤都已停止并取得结果后，评分才能完成。登记取消意图后，不再启动评价者执行或命令步骤，主状态只能走向已取消，退出结果未知仅作为诊断保留；之后到达的 Grade 只记为历史。对已终结的评分发取消请求，返回现有终态。Grade 必须符合 GraderRevision 声明的形式与标尺。评分器故障与合法的“无法判定”分开记录。完成后不可修改，重评只能新增记录。gate 记录必须覆盖全部预期条目 |
 | **ExperimentRun** | 计划成员（评测项键 × 重复序号，以及由成员键派生的 TaskRun 请求身份）；重复次数；任务并发数；取消意图 | 成员在批次发起时一次性登记，键唯一，记录不可变。“评分未开展”及其原因（TaskRun 失败、批次取消、尚未调度）由成员 TaskRun 状态、取消意图和评分记录的缺失推导，不另写事实。恢复时不新增成员。登记取消意图后，不再为任何成员发起 TaskRun 或评分 |
 | **版本化定义** | 定义身份与修订 | 发布后不可修改；引用必须指向确切的修订 |
 
@@ -111,7 +114,7 @@
 | 失败类别 | 触发条件 |
 | --- | --- |
 | `agent-output` | 本轮结束时没有可接收的 Manifest，或 Manifest 被拒收（rejected） |
-| `agent-execution` | worker AgentExecution 确认失败，且本轮没有可接收的 Manifest |
+| `agent-execution` | 托管 worker 确认失败，或外部 worker 声明放弃，且本轮没有可接收的 Manifest |
 | `infrastructure` | Sandbox 确认无法准备，或宿主、存储故障导致本轮无法继续 |
 
 判定顺序（互斥，自上而下取第一条）：
@@ -177,6 +180,18 @@ GradingRecord 和 TaskRun 一样，所有转换都按版本比较后提交，**�
 - 取消意图先提交时，主状态只能走向已取消；之后核对出的“退出结果未知”或晚到的 Grade 只作为诊断和历史保留。
 - CAS 冲突时，必须重读整条 GradingRecord，再按上述规则重新判定，不能盲目重试旧的变更。命令的流式输出写入外部证据存取，聚合内只保存摘要与最终回执，避免频繁更新同一个版本。
 
+### 4.7 外部执行（自带 Agent）
+
+日常开发的主要路径（愿景原则 1）。
+
+1. **登记**：发起或继续 TaskRun 时选择外部执行，Grounds 准备 Workspace（复用现有的开发 worktree），并登记外部执行者的身份。外部 Agent 在自己的会话里工作，例如由 Grounds skill 引导的 Claude Code 或 Codex。
+2. **提交**：外部 Agent 通过 CLI 提交完整清单（origin = `external`），同时声明停止。接收校验与托管执行相同（第 4.2 节）。外部 Agent 也可以声明放弃，此时 TaskRun 以 `agent-execution` 失败。
+3. **会话记录**：可以选择导入外部 Agent 的会话记录作为证据，覆盖说明为“外部提供、未受管”。它可以作为评分材料，但不保证完整。
+4. **取消**：登记取消意图后，Grounds 关闭提交入口，但无法停止外部进程。收到停止声明（来自外部 Agent，或由人声明）后，TaskRun 才转为已取消；在此之前保持进行中，并显示“等待外部停止声明”。
+5. **资源**：外部 Agent 运行在宿主上，Sandbox 通常只包含 Workspace；如果任务需要运行时环境，命令通过 Sandbox 的运行资源执行，这部分的停止可以核实。
+6. **外部评价者**：独立验收可以由外部 Agent 完成，例如由协调 skill 拉起的全新会话。GradingRecord 登记外部评价者的身份，并要求它与 worker 的身份不同；评价者只获得盲验材料（以材料摘要绑定），按协议阶段提交逐条报告。独立性由身份校验加协议约束保证，记录中注明“外部评价者”。
+7. **与评测的关系**：外部执行适合日常开发与验收；评测时换 Agent 重跑由托管执行完成（第 7 节），一期的实验样本只使用托管执行。
+
 ## 5. 三级检查：接收校验、验收、评分
 
 ![三级检查](../assets/model-checks.jpg)
@@ -208,7 +223,7 @@ GradingRecord 和 TaskRun 一样，所有转换都按版本比较后提交，**�
 
 ### 5.4 内置独立验收评分器
 
-这是一个 agent 型 GraderRevision：一个评价者一次核验全部条目。盲验、固定、对照、交接、提交等阶段，记录在评价者 AgentExecution 的协议阶段里；盲验结果在“固定”阶段记下摘要，之后的对照阶段不能改写它。
+这是一个 agent 型 GraderRevision：一个评价者一次核验全部条目，评价者可以是托管执行，也可以是外部执行（第 4.7 节）。盲验、固定、对照、交接、提交等阶段，记录在评价者的执行记录（AgentExecution 或外部执行登记）的协议阶段里；盲验结果在“固定”阶段记下摘要，之后的对照阶段不能改写它。
 
 | 现有 | 目标 |
 | --- | --- |
@@ -250,7 +265,7 @@ Git 之外的材料（文件、S3 等）推迟到有真实需求时再扩展。
 | 模块 | 调用方表达的意图 | 内部承担 | 明确不做 |
 | --- | --- | --- | --- |
 | **TaskExecution** | 开始工作、继续、选择工作头、结束工作；发起独立 TaskRun（可指定 refines、是否接手 Sandbox、显式环境版本、保留意图、Agent，或直接提供清单）；取消；查询 TaskRun、验收结论、Work 与工作结论 | 维护 Work 的工作头（与 TaskRun 受理同一事务）；推进 TaskRun；解析并校验环境；申请、接手、暂停、释放任务 Sandbox；调用 AgentExecutionService；形成 Manifest 并做接收校验 | 不自动发起验收，不解析 Durable 事件，不执行挂载，不解释质量分数 |
-| **AgentExecutionService** | 运行、查询、请求停止、核对、恢复一个 AgentExecution | 取得占用租约并建立工具桥接；驱动 Durable；归档轨迹、输出、交付声明和协议阶段；确认停止；管理宿主级的 Agent 名额 | 不创建或回收资源，不判断任务成败 |
+| **AgentExecutionService** | 运行、查询、请求停止、核对、恢复（Provider 支持时）一个 AgentExecution | 取得占用租约并建立工具桥接；通过 AgentProvider 驱动 Agent（一期为命令行 Agent 适配器，见 0002）；归档轨迹、输出、交付声明和协议阶段；确认停止；管理宿主级的 Agent 名额 | 不创建或回收资源，不判断任务成败 |
 | **Grading** | 按 GraderRevision 以 gate 或 measure 用途评价确切目标；取消一条评分 | 准备材料。规则评分器直接计算；测试评分器申请评价者 Sandbox，在 GradingRecord 内登记命令步骤并经 Sandbox 的命令桥接运行，自行核对命令步骤的停止事实；Agent 评分器通过 AgentExecutionService 运行。校验 Grade 后保存 | 不修改 TaskRun，不依赖实验 |
 | **ExperimentExecution** | 运行批次、补评、取消、查询 | 发起批次时登记成员；用环境解析表中的版本发起 TaskRun（保留意图为“释放”）；已交付后发起 measure；“评分未开展”由查询推导；采用规则（D64）与完整性按查询得出；管理任务名额 | 不复制执行或评分流程 |
 | **SandboxProvisioning** | 申请、暂停、恢复、移交、释放、核对 Sandbox；签发与回收占用租约 | 协调 Workspace 管理与运行资源端口，封装挂载顺序与失败补偿，提供带 fencing 校验的桥接 | 不决定何时保留、何时释放 |
@@ -265,7 +280,7 @@ Git 之外的材料（文件、S3 等）推迟到有真实需求时再扩展。
 
 [Mermaid 源](../assets/model-seq-eval.mmd)
 
-### 7.2 开发流程（验收不通过后 refinement）
+### 7.2 开发流程（外部执行；验收不通过后 refinement）
 
 ![开发流程](../assets/model-seq-dev.jpg)
 
@@ -289,6 +304,8 @@ TaskExecution、AgentExecutionService、ExperimentExecution 和异步评分都�
 
 **共享版本机制。** 第 3.3 节列出的五组定义共用一套仓储与发布逻辑：修订序号、前一修订、内容摘要，以及乐观并发发布；每组只需定义自己的内容 schema。现有的 WorkspaceConfigurationVersion 保持原样（D109）。
 
+**环境定义的内容（D146）：** EnvironmentRevision 的内容采用 [devcontainer.json](https://containers.dev/) 标准，并附带其 lockfile 摘要和构建出的镜像摘要。用户仓库里已有的 devcontainer 配置可以直接使用；环境的构建与启动交给成熟的开源实现（见 0002），Grounds 不再维护自定义的镜像配方格式。现有的仓库环境配置作为兼容格式继续可读。
+
 **环境：**
 
 | 引用方 | 引用方式 | 解析 |
@@ -302,7 +319,8 @@ D79 的准确含义：实验不接受用户另选或覆盖环境，但可以保�
 ## 9. 一期范围
 
 - 内置任务类型 coding 与 working；working 只支持第 6 节所述的 Workspace 形态。
-- Durable 的内部状态先只实现 SQLite，保留 D72 定义的存储端口。
+- 日常开发以外部执行为主；托管执行的 Provider 一期先实现命令行 Agent 适配器（无恢复能力），Pi Durable 作为后续可选的、带恢复能力的 Provider（D146）。
+- 环境定义采用 devcontainer.json（第 8 节）。
 - 不做任务类型扩展机制，不做 D68 的通用 Provider 能力矩阵，也不做跨 Sandbox 借用运行资源。
 
 ## 10. 受影响的旧决策

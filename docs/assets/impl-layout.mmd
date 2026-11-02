@@ -3,12 +3,12 @@ flowchart TB
     direction TB
     CLIW["entry/：CLI 命令与 TUI 视图<br/>work · task · grade · experiment · host"]
     APPW["application/：用例与编排<br/>TaskExecution · AgentExecutionService · Grading<br/>ExperimentExecution · SandboxProvisioning · 查询"]
-    DRVW["driver/：受理与驱动<br/>请求账本 · 意图 · 完成事件 · 核对循环 · 宿主"]
+    DRVW["driver/：受理与驱动<br/>请求账本 · 意图 · 完成事件 · 核对循环<br/>宿主（P4 起）"]
     DOMW["domain/：纯领域<br/>9 个聚合 · 值对象 · 不变量 · 版本化定义"]
     PORTW["ports/：内侧定义的出站端口"]
-    ADPW["adapters/：外侧实现<br/>sql · durable · docker · workspace · artifact"]
+    ADPW["adapters/：外侧实现<br/>sql · workspace · devcontainer + docker<br/>命令行 Agent · 交付与证据"]
   end
-  LEG["现有模块（逐步收敛）<br/>code-workspace* · code-route-docker · candidate-* · sql-* · git-*"]
+  LEG["现有模块（复用并逐步收敛）<br/>code-workspace* · candidate-* · verification-run · sql-* · git-*"]
   CLIW --> APPW
   APPW --> DOMW
   APPW --> PORTW
@@ -16,6 +16,8 @@ flowchart TB
   DRVW --> PORTW
   ADPW -.->|实现| PORTW
   ADPW -->|复用| LEG
+  OSS["开源依赖<br/>devcontainers CLI · Docker CLI<br/>（后续）microsandbox"]
+  ADPW -->|集成| OSS
   CHK{{"依赖规则检查（测试）：<br/>domain 不 import 其他层与 node:*；<br/>application 不 import adapters"}}
   CHK -.-> WORK
   classDef a fill:#eef2ff,stroke:#5b6abf,color:#1e2a6b;
@@ -23,4 +25,4 @@ flowchart TB
   classDef o fill:#fff4e0,stroke:#c08a2d,color:#5a3b06;
   class APPW,DRVW,PORTW a;
   class DOMW d;
-  class CLIW,ADPW,LEG o;
+  class CLIW,ADPW,LEG,OSS o;
