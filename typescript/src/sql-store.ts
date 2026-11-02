@@ -467,6 +467,15 @@ export class SQLStore implements Store {
     return this.exclusive(() => this.businessTransaction(false, (client) => callback(new SqlTx(client, true, true, this.gitArtifactResolver))));
   }
 
+  /**
+   * One business transaction with direct access to the SQL client, for adapters
+   * that own their tables (the work model). It shares the store's retry,
+   * compatibility check and error mapping; the callback may run more than once.
+   */
+  async transaction<T>(write: boolean, callback: (client: SQLClient) => Promise<T>): Promise<T> {
+    return this.exclusive(() => this.businessTransaction(write, callback));
+  }
+
   private async businessTransaction<T>(write: boolean, callback: (client: SQLClient) => Promise<T>): Promise<T> {
     for (let attempt = 0; ; attempt += 1) {
       let client: SQLClient | undefined;

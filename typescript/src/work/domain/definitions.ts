@@ -154,3 +154,20 @@ export function resolveEnvironment(task: TaskContent, revision: RevisionRef, sou
   if (revision.definitionId !== task.environmentDefinitionId) return conflict("the revision does not belong to the environment definition the task requires");
   return ok({ revision, source });
 }
+
+export function definitionViolations(definition: Definition): string[] {
+  const problems: string[] = [];
+  const head = definition.head;
+  if (!Number.isSafeInteger(head.seq) || head.seq < 0) problems.push("the head revision number is not negative");
+  if ((head.seq === 0) !== (head.revisionId === undefined && head.digest === undefined)) problems.push("a definition has a head revision exactly when something was published");
+  if (head.seq > 0 && (head.revisionId === undefined || head.digest === undefined)) problems.push("the head names its revision and digest");
+  return problems;
+}
+
+export function revisionViolations(revision: Revision): string[] {
+  const problems: string[] = [];
+  if (!Number.isSafeInteger(revision.seq) || revision.seq < 1) problems.push("revision numbers start at 1");
+  if ((revision.seq === 1) !== (revision.predecessorId === undefined)) problems.push("every revision but the first names its predecessor");
+  if (!isDigest(revision.digest)) problems.push("a revision carries its content digest");
+  return problems;
+}

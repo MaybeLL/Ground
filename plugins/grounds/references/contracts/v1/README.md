@@ -4,7 +4,7 @@
 
 CandidateSubmission v1/v2 的 Criterion Claim 支持可选 `self_verification`（自我验证）：`status` 为 satisfied / partially_satisfied / not_satisfied / inconclusive / not_verified，必须填写结论说明 `explanation`；实际检查还须有 `method` 和同条标准的非空 `evidence`，not_verified 不含 method。缺字段表示未记录，不自动补成功。ClaimRecord 的可选 `self_verification_summary` 为逐状态计数，不是独立验证结论。存储需要 schema 15；只读命令不会自动迁移。
 
-本目录是版本化机器契约真源。当前源码要求 SQL schema 23；历史 CLI 0.2.29 要求 schema 20（追加目标分支和 DevRun/Candidate 基础提交）；历史 0.2.26 引入 schema 19 的 ultra 质量评审存储，更早受管执行版本使用 schema 18；新库使用当前 schema，旧库只在获得明确授权后通过 `grounds db migrate` 升级至已安装 CLI 要求的版本。下文 schema 12、14、15 等数字表示相应能力引入的历史版本，不表示当前 CLI 能直接打开这些旧库；只读命令不会自动迁移。
+本目录是版本化机器契约真源。当前源码要求 SQL schema 24（新增 work 模型的表）；schema 23 为此前版本；历史 CLI 0.2.29 要求 schema 20（追加目标分支和 DevRun/Candidate 基础提交）；历史 0.2.26 引入 schema 19 的 ultra 质量评审存储，更早受管执行版本使用 schema 18；新库使用当前 schema，旧库只在获得明确授权后通过 `grounds db migrate` 升级至已安装 CLI 要求的版本。下文 schema 12、14、15 等数字表示相应能力引入的历史版本，不表示当前 CLI 能直接打开这些旧库；只读命令不会自动迁移。
 
 Requirement/Issue 的默认公开 authoring interface 是 `<数据根>/drafts/<账本身份>/` 下的 JSON 契约草稿（`grounds.authoring-workspace/v2`）；人通过 `contract render --workspace NAME` 的统一 HTML 阅读、区块编辑并保存（`workspace edit` 为兼容入口），Agent 通过 `draft read/save` 读写 draft。manifest、base snapshot、pending journal 和回执属于 CLI 管理的本地协议，不直接手改。旧 Markdown 工作区保持兼容，新建时仅由显式 `--format markdown` 选择，迁移使用 `draft migrate`。下列 Requirement/Issue Schema 定义 JSON draft 或旧 Markdown 解析后交给 Work Module 的规范输入，不是独立的公开写命令；JSON 发布须绑定已审阅的 `source.workspace_version` 为 `--expected-version`。
 

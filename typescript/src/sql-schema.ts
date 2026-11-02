@@ -10,8 +10,9 @@
 import { DomainError, schemaDetails } from "./errors.js";
 import type { SQLClient } from "./sql-client.js";
 import type { SqlDialect } from "./sql-dialect.js";
+import { workSchemaStatements } from "./work/adapters/sql/schema.js";
 
-export const SCHEMA_VERSION = 23;
+export const SCHEMA_VERSION = 24;
 export const PROTOCOL_VERSION = 1;
 export const REMOTE_NORMALIZATION_VERSION = 1;
 export const MINIMUM_CLI_VERSION = "0.1.0";
@@ -89,7 +90,8 @@ export const schemaStatements = (dialect: SqlDialect): string[] => {
     `CREATE TABLE IF NOT EXISTS idempotency_records (operation_id ${id} PRIMARY KEY, command ${text} NOT NULL, request_hash ${type.digest} NOT NULL, status VARCHAR(16) NOT NULL CHECK (status IN ('pending', 'completed')), result_json ${blob}, created_at ${text} NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS ledger_events (event_seq ${type.eventSeq}, event_id ${id} NOT NULL UNIQUE, event_type ${text} NOT NULL, event_version INTEGER NOT NULL, operation_id ${id} NOT NULL, repository_id ${id}, subject_type VARCHAR(64) NOT NULL, subject_id ${id} NOT NULL, subject_version INTEGER, occurred_at ${text} NOT NULL, attribution_json ${text} NOT NULL, facts_json ${text} NOT NULL, FOREIGN KEY(operation_id) REFERENCES idempotency_records(operation_id), FOREIGN KEY(repository_id) REFERENCES repositories(id))`,
   ];
-  return statements;
+  // Schema 24: the work model (task runs, works, sandboxes, executions, gradings, experiments, intents).
+  return [...statements, ...workSchemaStatements(dialect)];
 };
 
 /** Create every table (idempotent) and, for engines that cannot declare the
