@@ -6,7 +6,7 @@ export type AcceptanceConclusion = "pending" | "accepted" | "rejected";
 /** What the work as a whole currently shows; derived from the head, never stored. */
 export type WorkConclusion = "in-progress" | "failed" | "cancelled" | AcceptanceConclusion | "head-unselected";
 
-export type HeadReason = "start" | "continue" | "select" | "migration-default";
+export type HeadReason = "start" | "continue" | "select" | "migration-default" | "migration-selection";
 export interface HeadChange { readonly runId: Id; readonly reason: HeadReason; readonly at: Timestamp }
 export type WorkStatus = "active" | "closing" | "closed";
 
@@ -42,12 +42,16 @@ export function startWork(command: { id: Id; taskDefinitionId: Id; firstRunId: I
 }
 
 /** A work rebuilt from legacy development runs. Without a single obvious leaf it has no head until someone selects one. */
-export function migrateWork(command: { id: Id; taskDefinitionId: Id; runIds: readonly Id[]; defaultHead?: Id; at: Timestamp }): Step {
+export function migrateWork(command: { id: Id; taskDefinitionId: Id; runIds: readonly Id[]; defaultHead?: Id; selected?: { runId: Id; at: Timestamp }; at: Timestamp }): Step {
   const bad = firstInvalid([["id", isId(command.id)], ["taskDefinitionId", isId(command.taskDefinitionId)], ["runIds", command.runIds.length > 0 && command.runIds.every(isId) && unique(command.runIds)],
-    ["defaultHead", command.defaultHead === undefined || command.runIds.includes(command.defaultHead)], ["at", isTimestamp(command.at)]]);
+    ["defaultHead", command.defaultHead === undefined || command.runIds.includes(command.defaultHead)],
+    ["selected", command.selected === undefined || (command.runIds.includes(command.selected.runId) && isTimestamp(command.selected.at))], ["at", isTimestamp(command.at)]]);
   if (bad) return bad;
-  const history: HeadChange[] = command.defaultHead ? [{ runId: command.defaultHead, reason: "migration-default", at: command.at }] : [];
-  const work: Work = { id: command.id, taskDefinitionId: command.taskDefinitionId, status: "active", ...(command.defaultHead ? { head: command.defaultHead } : {}), migrated: true,
+  // A choice the user actually made in the old ledger stands over a default the migration would pick.
+  const head: HeadChange | undefined = command.selected ? { runId: command.selected.runId, reason: "migration-selection", at: command.selected.at }
+    : command.defaultHead ? { runId: command.defaultHead, reason: "migration-default", at: command.at } : undefined;
+  const history: HeadChange[] = head ? [head] : [];
+  const work: Work = { id: command.id, taskDefinitionId: command.taskDefinitionId, status: "active", ...(head ? { head: head.runId } : {}), migrated: true,
     headHistory: history, runIds: [...command.runIds], createdAt: command.at, version: 1 };
   return ok({ state: work, events: [{ type: "work-started", workId: work.id, runId: command.runIds[0], at: command.at }], outcome: undefined });
 }

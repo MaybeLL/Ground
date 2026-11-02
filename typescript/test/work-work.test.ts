@@ -130,3 +130,12 @@ test("random operations keep the head inside the work and never reopen a closed 
     }
   }
 });
+
+test("a migrated work may take a selected run as its head, which must be one of its runs", () => {
+  const at = "2026-01-01T00:00:00.000Z";
+  const { state } = accept(migrateWork({ id: "w", taskDefinitionId: "t", runIds: ["a", "b"], defaultHead: "b", selected: { runId: "a", at }, at: "2026-02-01T00:00:00.000Z" }));
+  assert.equal(state.head, "a");
+  assert.deepEqual(state.headHistory, [{ runId: "a", reason: "migration-selection", at }]);
+  assert.deepEqual(workViolations(state), []);
+  rejected(migrateWork({ id: "w", taskDefinitionId: "t", runIds: ["a"], selected: { runId: "zzz", at }, at }), "invalid", /selected/);
+});

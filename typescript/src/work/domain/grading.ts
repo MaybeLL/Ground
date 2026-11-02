@@ -1,6 +1,7 @@
 import { advance, conflict, digestOf, firstInvalid, invalid, isDigest, isId, isNonNegativeInteger, isText, isTimestamp, ok, reject, unique, type Decision, type Digest, type Hasher, type Id, type Result, type Timestamp, type Versioned } from "./kernel.js";
 import { isRevisionRef, type GraderContent, type RevisionRef, type Scale } from "./definitions.js";
 import type { AcceptanceConclusion } from "./work.js";
+import { protocolStages, type CommandObservation, type ProtocolRecord } from "./agent-execution.js";
 
 export type Purpose = "gate" | "measure";
 export type TargetRef = { readonly type: "candidate" | "artifact" | "trajectory"; readonly id: Id; readonly digest: Digest };
@@ -45,7 +46,17 @@ export type Evaluator =
   | { readonly kind: "rule" }
   | { readonly kind: "test" }
   | { readonly kind: "agent"; readonly executionId: Id }
-  | { readonly kind: "external"; readonly sessionId: Id; readonly agentId: string; readonly stopDeclared?: Timestamp };
+  | {
+    readonly kind: "external";
+    /** Issued by Grounds at registration. Absent only on a migrated registration whose session identity the previous ledger did not keep. */
+    readonly sessionId?: Id;
+    readonly agentId?: string;
+    readonly stopDeclared?: Timestamp;
+    /** Taken over from the previous model: the independence guarantee of a fresh session issued after the freeze was never established by this one. */
+    readonly migrated?: true;
+    readonly protocol?: readonly ProtocolRecord[];
+    readonly commandObservations?: readonly CommandObservation[];
+  };
 
 export type StepState = "running" | "stop_requested" | "stop_unknown" | "stopped_result" | "stopped_no_result";
 export interface CommandStep { readonly ordinal: number; readonly specDigest: Digest; readonly state: StepState; readonly exitCode?: number; readonly startedAt: Timestamp; readonly stoppedAt?: Timestamp }
@@ -327,6 +338,36 @@ export function submitGrade(g: GradingRecord, command: { grade: Grade; sessionId
   return advance(g, { ...base, status: "completed", grade: command.grade, terminalAt: command.at }, [...declared, { type: "completed", gradingId: g.id, at: command.at }], "applied");
 }
 
+/**
+ * A gate of the previous model, taken over in its final state: an external
+ * evaluator that is marked as migrated, with the protocol facts the old
+ * ledger kept and no invented trajectory. When the old ledger did not keep
+ * the session, none is made up and the independence guarantee stays unknown.
+ */
+export function importLegacyGate(command: {
+  id: Id; requestSeq: number; taskRunId: Id; target: TargetRef; graderRevision: RevisionRef; binding: GateBinding; materials: readonly { id: Id; digest: Digest }[];
+  evaluator: { sessionId?: Id; agentId?: string; protocol: readonly ProtocolRecord[]; commandObservations: readonly CommandObservation[] };
+  grade: Grade; createdAt: Timestamp; completedAt: Timestamp;
+}): Result<Decision<GradingRecord, GradingEvent>> {
+  const bad = firstInvalid([["completedAt", isTimestamp(command.completedAt)], ["sessionId", command.evaluator.sessionId === undefined || isId(command.evaluator.sessionId)],
+    ["agentId", command.evaluator.agentId === undefined || isText(command.evaluator.agentId, 256)],
+    ["protocol", command.evaluator.protocol.every(r => protocolStages.includes(r.stage) && isTimestamp(r.at) && (r.blindDigest === undefined || isDigest(r.blindDigest)))],
+    ["commandObservations", command.evaluator.commandObservations.every(o => protocolStages.includes(o.stage) && isText(o.entry, 256) && isDigest(o.argvDigest) && isTimestamp(o.at))]]);
+  if (bad) return bad;
+  if (command.grade.form !== "criteria") return invalid("a legacy gate carries criterion verdicts");
+  const created = createGrading({ id: command.id, purpose: "gate", origin: { type: "gate", taskRunId: command.taskRunId }, requestSeq: command.requestSeq, targets: [command.target], graderRevision: command.graderRevision,
+    grader: { strategy: "agent", scale: { form: "criteria" } }, materials: command.materials, binding: command.binding, at: command.createdAt });
+  if (!created.ok) return created;
+  const valid = validateGrade(command.grade, { form: "criteria" }, command.binding);
+  if (!valid.ok) return valid;
+  const evaluator: Evaluator = { kind: "external", ...(command.evaluator.sessionId ? { sessionId: command.evaluator.sessionId } : {}), ...(command.evaluator.agentId ? { agentId: command.evaluator.agentId } : {}),
+    stopDeclared: command.completedAt, migrated: true, protocol: command.evaluator.protocol, commandObservations: command.evaluator.commandObservations };
+  const state: GradingRecord = { ...created.value.state, evaluator, status: "completed", grade: command.grade, terminalAt: command.completedAt };
+  const problems = gradingViolations(state);
+  if (problems.length > 0) return invalid(`the imported gate is inconsistent: ${problems.join("; ")}`);
+  return ok({ state, events: [...created.value.events, { type: "evaluator-registered", gradingId: state.id, kind: "external", at: command.createdAt }, { type: "completed", gradingId: state.id, at: command.completedAt }], outcome: undefined });
+}
+
 /** The grader itself broke (not the thing being graded): never a score, never a quality verdict. */
 export function faultGrader(g: GradingRecord, command: { detail: string; at: Timestamp }): Step {
   if (!isText(command.detail, 1024) || !isTimestamp(command.at)) return invalid("detail and at are required");
@@ -385,6 +426,7 @@ export function gradingViolations(g: GradingRecord): string[] {
   }
   if (g.purpose === "gate" && (!g.binding || g.scale.form !== "criteria")) problems.push("a gate has a binding and a criteria scale");
   if (g.purpose === "measure" && g.binding) problems.push("a measure has no binding");
+  if (g.evaluator?.kind === "external" && !g.evaluator.migrated && (g.evaluator.sessionId === undefined || g.evaluator.agentId === undefined)) problems.push("an external evaluator that was not migrated has a session and an agent identity");
   if (g.commandSteps.some((s, i) => s.ordinal !== i)) problems.push("command steps are numbered in sequence");
   if (g.commandSteps.filter(s => s.state === "running" || s.state === "stop_requested" || s.state === "stop_unknown").length > 1) problems.push("one command runs at a time");
   if (g.strategy !== "test" && g.commandSteps.length > 0) problems.push("only a test grader has command steps");

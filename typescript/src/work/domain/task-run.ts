@@ -50,15 +50,18 @@ export interface TaskRun extends Versioned {
   readonly worker?: Worker;
   readonly manifest?: Manifest;
   readonly pendingManifest?: { readonly operationId: Id; readonly origin: ManifestOrigin };
-  readonly cancelIntent?: { readonly at: Timestamp };
+  readonly cancelIntent?: { readonly at: Timestamp; readonly reason?: string };
   readonly blocked?: { readonly reason: BlockReason; readonly at: Timestamp };
   readonly failure?: { readonly class: FailureClass; readonly detail: string; readonly at: Timestamp };
   readonly lateRecords: readonly LateRecord[];
+  /** Present when the run was taken over from the previous ledger model; it was never driven by this one. */
+  readonly migrated?: { readonly source: "dev-run"; readonly at: Timestamp };
   readonly createdAt: Timestamp;
   readonly terminalAt?: Timestamp;
 }
 
 export type TaskRunEvent =
+  | { readonly type: "migrated"; readonly runId: Id; readonly source: "dev-run"; readonly at: Timestamp }
   | { readonly type: "created"; readonly runId: Id; readonly refines?: Id; readonly at: Timestamp }
   | { readonly type: "started"; readonly runId: Id; readonly at: Timestamp }
   | { readonly type: "sandbox-attached"; readonly runId: Id; readonly sandboxId: Id }
@@ -337,11 +340,54 @@ export function failInfrastructure(run: TaskRun, command: { detail: string; at: 
   return failNow(run, "infrastructure", command.detail, command.at);
 }
 
-export function requestCancel(run: TaskRun, command: { at: Timestamp }): Step {
+export function requestCancel(run: TaskRun, command: { at: Timestamp; reason?: string }): Step {
   if (!isTimestamp(command.at)) return invalid("at is missing or malformed");
+  if (command.reason !== undefined && !isText(command.reason, 1024)) return invalid("reason is malformed");
   if (isTerminal(run)) return advance(run, {}, [], "already-terminal");
   if (run.cancelIntent) return advance(run, {}, [], "already-requested");
-  return settleCancel(run, { cancelIntent: { at: command.at } }, [{ type: "cancel-requested", runId: run.id, at: command.at }], command.at, "applied");
+  return settleCancel(run, { cancelIntent: { at: command.at, ...(command.reason !== undefined ? { reason: command.reason } : {}) } }, [{ type: "cancel-requested", runId: run.id, at: command.at }], command.at, "applied");
+}
+
+/**
+ * A run of the previous model, taken over in its final state. Nobody worked on
+ * it under this model, so it has no worker; a submitted run was delivered by
+ * its caller, anything else ended as cancelled with the reason recorded.
+ * Timestamps are the historical ones, so the record reads as it happened.
+ */
+export function importLegacyTaskRun(
+  command: {
+    id: Id; taskRevision: RevisionRef; workId?: Id; refines?: Id; createdAt: Timestamp; migratedAt: Timestamp;
+    outcome:
+      | { type: "delivered"; items: readonly DeliveryItem[]; digest: Digest; operationId: Id; at: Timestamp }
+      | { type: "cancelled"; reason: string; at: Timestamp };
+  },
+  facts?: { refines?: RefinesFacts },
+): Result<Decision<TaskRun, TaskRunEvent>> {
+  const bad = firstInvalid([["migratedAt", isTimestamp(command.migratedAt)], ["outcome", !!command.outcome && (command.outcome.type === "delivered" || command.outcome.type === "cancelled")]]);
+  if (bad) return bad;
+  const created = createTaskRun({ id: command.id, taskRevision: command.taskRevision, ...(command.workId ? { workId: command.workId } : {}), ...(command.refines ? { refines: command.refines } : {}), workerMode: "none", retention: "keep", at: command.createdAt }, facts);
+  if (!created.ok) return created;
+  let step: Step = ok({ state: created.value.state, events: created.value.events as readonly TaskRunEvent[], outcome: "applied" as Outcome });
+  const chain = (next: (run: TaskRun) => Step) => {
+    if (!step.ok) return;
+    const previous = step.value;
+    const result = next(previous.state);
+    step = result.ok ? ok({ state: result.value.state, events: [...previous.events, ...result.value.events], outcome: result.value.outcome }) : result;
+  };
+  if (command.outcome.type === "delivered") {
+    const outcome = command.outcome;
+    chain(run => start(run, { at: command.createdAt }));
+    chain(run => submitManifest(run, { origin: "caller", operationId: outcome.operationId, check: "accepted", at: outcome.at, items: outcome.items, digest: outcome.digest }));
+  } else {
+    const outcome = command.outcome;
+    chain(run => requestCancel(run, { at: outcome.at, reason: outcome.reason }));
+  }
+  if (!step.ok) return step;
+  const done = step.value;
+  const state = { ...done.state, migrated: { source: "dev-run" as const, at: command.migratedAt }, version: 1 } as TaskRun;
+  const problems = taskRunViolations(state);
+  if (problems.length > 0) return invalid(`the imported run is inconsistent: ${problems.join("; ")}`);
+  return ok({ state, events: [...done.events, { type: "migrated", runId: state.id, source: "dev-run", at: command.migratedAt }], outcome: undefined });
 }
 
 /** Invariants every stored TaskRun must satisfy; empty when it is consistent. */

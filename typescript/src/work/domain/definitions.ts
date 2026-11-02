@@ -52,6 +52,11 @@ export type TaskKind = "coding" | "working";
 export interface Criterion { readonly id: Id; readonly statement: string }
 export interface TaskContent { readonly kind: TaskKind; readonly schemaVersion: number; readonly summary: string; readonly criteria: readonly Criterion[]; readonly environmentDefinitionId?: Id }
 
+/** What an acceptance verdict is a verdict about on the task side: the criteria and their wording, independent of their order. */
+export function criteriaDigest(task: Pick<TaskContent, "criteria">, hash: Hasher): Result<Digest> {
+  return digestOf([...task.criteria].sort((a, b) => a.id.localeCompare(b.id)).map(c => ({ id: c.id, statement: c.statement })), hash);
+}
+
 export type Scale =
   | { readonly form: "numeric"; readonly min: number; readonly max: number }
   | { readonly form: "category"; readonly categories: readonly string[] }
