@@ -63,13 +63,15 @@ Crash safety needs no intent log here: every use case is one transaction, and th
 
 Three groups, each action one use case: `task` (create, revise, show, list), `work` (start, continue, branch, select, close, show, run, register, transcript, workspace, deliver, stop, cancel) and `grade` (request, register, stage, command, submit, stop, cancel, show, list); `grounds work help` lists the options. The operation id every write prints is its request identity: repeating a call with `--operation-id` is safe. `composition.ts` is the only place that wires the SQL repositories, git and the real clock together; the entry layer calls application classes and never adapters. Task text is passed as `--title` (`--summary` is an existing boolean option). A grade is a JSON file of criterion verdicts (`criterion_id`, `independent`, `reconciliation`, `final`, `rationale`, `evidence`).
 
-Not yet covered: JSON schemas for the new result types under `docs/contracts/v1` (with the skill rewrite, P1d).
+Not yet covered: JSON schemas for the new result types under `docs/contracts/v1` (P1d). The development skill now uses these commands directly.
 
 ## Retirement boundary (P1d, in progress)
 
 D149 cancels data migration. The `migrate data` and `migrate patchledger` commands, their filesystem relocation and binding repair modules, old configuration readers, old-location discovery and migration-only command lock are removed. Ordinary commands no longer inspect historical directories or migration journals; they resolve only the current configuration and data root. Configuration version 1 is rejected rather than converted. Existing files are **not** moved, rewritten or deleted automatically.
 
-This is a bounded first deletion, not the completed model cutover. Old business commands, their SQL tables, `db migrate` and draft-format conversion still exist until their consumers retire together. Schema 24 and its SQL transaction/initialization safeguards are unchanged in this batch. The final schema reset and removal of old business services remain P1d work; no compatibility layer will replace them.
+The Python command wrapper, legacy experiment coordinator, Codex capture, managed preparation proxy and repository snapshot adapter are also removed, together with their dedicated tests and skill/package callers. `skill-assets.ts` distributes no execution scripts for development or evaluation; only the independent, file-only `grounds_knowledge.py` utility remains. The development skill describes direct task/work/grade calls and requires the main agent to launch a fresh, non-inherited verifier session after delivery freeze. The eval and knowledge skills explicitly report automated experiments as unavailable; no replacement runner or compatibility shim is introduced.
+
+These are bounded deletions, not the completed model cutover. Old business commands, their SQL tables, `db migrate` and draft-format conversion still exist until their consumers retire together. Schema 24 and its SQL transaction/initialization safeguards are unchanged in this batch. The final schema reset and removal of old business services remain P1d work; no compatibility layer will replace them.
 
 `test/retired-migration.test.ts` checks rejected command/help forms, untouched historical bytes, initialization and new-model queries despite historical markers, rejection of old config/credential names, and removal of migration result schemas. The original CLI concurrency/identity tests and work-model end-to-end tests remain.
 

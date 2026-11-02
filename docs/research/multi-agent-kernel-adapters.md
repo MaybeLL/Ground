@@ -75,9 +75,9 @@ SDK 提供会话持久化、事件订阅、abort / waitForIdle 等；会话切�
 
 ## 首轮对 Grounds 的建议与迁移落点（一期范围已由 D69 修订）
 
-现有 [grounds_eval_capture.py](../../plugins/grounds/scripts/grounds_eval_capture.py) 将 Codex 配置校验、版本锁定、临时 home、启动参数和任务 / 评分 prompt 组织在同一条路径中。它要求 `codex_command` / `codex_version` 并调用 `codex exec --json --ephemeral`。因此增加 Pi 不能只改一条可执行文件路径；要把 Provider 专属配置、启动和事件解析从任务材料、评分输入及业务归档中拆出。
+研究时的 [grounds_eval_capture.py（已按 D149 退役）](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_capture.py) 将 Codex 配置校验、版本锁定、临时 home、启动参数和任务 / 评分 prompt 组织在同一条路径中。它要求 `codex_command` / `codex_version` 并调用 `codex exec --json --ephemeral`。因此增加 Pi 不能只改一条可执行文件路径；要把 Provider 专属配置、启动和事件解析从任务材料、评分输入及业务归档中拆出。
 
-[grounds_eval_runtime.py](../../plugins/grounds/scripts/grounds_eval_runtime.py) 已封装共享 `env up/run/down` 与输出收集，可作为提取公共执行底座的现有基础；仍须遵循已确认的统一环境治理迁移要求，不能再引入第三套独立环境状态。
+研究时的 [grounds_eval_runtime.py（已按 D149 退役）](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_runtime.py) 曾封装共享 `env up/run/down` 与输出收集，可作为提取公共执行底座的现有基础；仍须遵循已确认的统一环境治理迁移要求，不能再引入第三套独立环境状态。
 
 建议保持现有六边形边界，避免新增一套领域模型：
 

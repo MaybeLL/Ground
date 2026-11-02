@@ -85,7 +85,7 @@ test("install skill creates self-contained skills at an explicit path and can up
     for (const skill of result.skills) {
       assert.equal(existsSync(join(skill.path, "SKILL.md")), true);
       assert.equal(existsSync(join(skill.path, "agents", "openai.yaml")), true);
-      assert.equal(existsSync(join(skill.path, "scripts", "grounds_agent.py")), true);
+      assert.equal(existsSync(join(skill.path, "scripts", "grounds_agent.py")), false);
       assert.equal(existsSync(join(skill.path, "scripts", "grounds_knowledge.py")), skill.name === "grounds-knowledge-improve");
       for (const script of [
         "grounds_eval_capture.py",
@@ -95,28 +95,27 @@ test("install skill creates self-contained skills at an explicit path and can up
         "grounds_eval_repositories.py",
         "grounds_eval_prepare_proxy.py",
         "grounds_eval_managed.py",
-      ]) assert.equal(existsSync(join(skill.path, "scripts", script)), skill.name === "grounds-eval");
+        "grounds_eval_runtime.py",
+      ]) assert.equal(existsSync(join(skill.path, "scripts", script)), false);
       assert.equal(existsSync(join(skill.path, "references", "contracts", "v1", "cli-envelope.schema.json")), true);
-      assert.match(readFileSync(join(skill.path, "SKILL.md"), "utf8"), /\$\{GROUNDS_SKILL_ROOT:-\$PLUGIN_ROOT\}/);
+      assert.deepEqual(readdirSync(join(skill.path, "scripts")).sort(), skill.name === "grounds-knowledge-improve" ? ["grounds_knowledge.py"] : []);
+      for (const file of markdownFiles(skill.path)) {
+        assert.doesNotMatch(readFileSync(file, "utf8"), /grounds_agent\.py|grounds_eval_\w+\.py/, `retired caller in ${file}`);
+      }
       const marker = JSON.parse(readFileSync(join(skill.path, ".grounds-managed.json"), "utf8")) as { package_version?: string };
       assert.match(marker.package_version ?? "", /^\d+\.\d+\.\d+/);
     }
     const evalSkill = result.skills.find(skill => skill.name === "grounds-eval")!;
-    for (const script of [
-      "grounds_eval_capture.py",
-      "grounds_eval_import.py",
-      "grounds_eval_run.py",
-      "grounds_eval_environment.py",
-      "grounds_eval_repositories.py",
-    ]) {
-      const help = execFileSync("python3", [join(evalSkill.path, "scripts", script), "--help"], { cwd: directory, encoding: "utf8" });
-      assert.match(help, /usage:/);
-    }
     const knowledge = result.skills.find(skill => skill.name === "grounds-knowledge-improve")!;
     const knowledgeHelp = execFileSync("python3", [join(knowledge.path, "scripts", "grounds_knowledge.py"), "--help"], { cwd: directory, encoding: "utf8" });
     assert.match(knowledgeHelp, /inputs.*budget.*subject.*handoff.*compare/);
     const development = result.skills.find((skill) => skill.name === "grounds")!;
-    for (const name of ["self-contained-contracts.md", "confluence.md", "document-template.md", "review-conversation.md", "rationale-quality.md", "preparation.md"]) {
+    const verification = readFileSync(join(development.path, "references/workflows/verify.md"), "utf8");
+    assert.match(verification, /全新上下文，不 fork 主会话、不 resume worker/);
+    assert.match(verification, /时间必须在交付冻结后，且不同于 worker session/);
+    assert.match(verification, /--stage freeze --blind-digest/);
+    assert.match(readFileSync(join(evalSkill.path, "SKILL.md"), "utf8"), /not available now/);
+    for (const name of ["github-archive-onboarding.md", "gitlab-archive-onboarding.md", "preparation.md"]) {
       assert.equal(existsSync(join(development.path, "references", name)), true);
     }
     assert.equal(existsSync(join(development.path, "evals")), false);
