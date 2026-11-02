@@ -3,7 +3,6 @@
   "$id": "https://patchledger.dev/contracts/v1/command-results.schema.json",
   "title": "Grounds CLI 命令结果 v1",
   "oneOf": [
-    { "$ref": "data-migration.schema.json" },
     { "$ref": "#/$defs/developmentDefaultResult" },
     { "$ref": "development-image.schema.json" },
     { "$ref": "service-cleanup.schema.json" },
@@ -52,9 +51,6 @@
     },
     {
       "$ref": "#/$defs/doctorResult"
-    },
-    {
-      "$ref": "#/$defs/brandMigrationResult"
     },
     {
       "$ref": "#/$defs/candidateTemplateResult"
@@ -269,29 +265,6 @@
             }
           }
         }
-      }
-    },
-    "brandMigrationResult": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["result_type", "command", "dry_run", "config", "repository"],
-      "properties": {
-        "result_type": { "const": "patchledger.result.brand-migration/v1" },
-        "command": { "const": "migrate.patchledger" },
-        "dry_run": { "type": "boolean" },
-        "config": { "$ref": "#/$defs/brandMigrationPart" },
-        "repository": { "$ref": "#/$defs/brandMigrationPart" }
-      }
-    },
-    "brandMigrationPart": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["status"],
-      "properties": {
-        "status": { "enum": ["not_found", "planned", "migrated"] },
-        "source": { "type": "string", "minLength": 1, "maxLength": 32768 },
-        "target": { "type": "string", "minLength": 1, "maxLength": 32768 },
-        "moved_worktrees": { "type": "integer", "minimum": 0 }
       }
     },
     "selectionMaterialize": {

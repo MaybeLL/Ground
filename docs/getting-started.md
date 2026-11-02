@@ -32,6 +32,8 @@ SQLite is available for a local ledger. MySQL and PostgreSQL provide networked l
 
 Run `grounds init --help` before configuring a database. `grounds init` validates the selected SQL connection and pins the database identity before writing canonical local configuration. An empty database requires explicit initialization authorization; an existing database may require a separately authorized schema migration. See the [configuration contract](contracts/v1/README.md#local-config) for credential sources and safety rules.
 
+The development refactor does not provide brand or data-directory migration (`migrate patchledger` / `migrate data`); historical directories are ignored and never moved or deleted automatically. Use a fresh configuration and data root for this refactor. Old business tables and SQL schema migration remain temporarily while the model cutover is completed; see the [retirement boundary](architecture.md#retirement-boundary-p1d-in-progress).
+
 Keep credentials outside the repository. Do not reuse production credentials for development or CI. A GitHub checkout and a SQL ledger are separate resources: copying code is not a database migration.
 
 ## Start a workflow

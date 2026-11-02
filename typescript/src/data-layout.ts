@@ -36,33 +36,12 @@ export function dataLayout(root = dataRoot()): DataLayout {
   };
 }
 
-/** Legacy locations are discovery inputs for migration, never fallback writes. */
-export function previousDataLocations(
-  system = process.platform,
-  home = homedir(),
-  env: NodeJS.ProcessEnv = process.env,
-): { config: string; data: string; runtime: string; directoryRegistry: string } {
-  const data = system === "darwin" ? join(home, "Library", "Application Support", "Grounds")
-    : system === "win32" ? join(env.APPDATA ?? join(home, "AppData", "Roaming"), "Grounds")
-    : join(env.XDG_DATA_HOME ?? join(home, ".local", "share"), "grounds");
-  const config = system === "darwin" || system === "win32" ? join(data, "config.yaml")
-    : join(env.XDG_CONFIG_HOME ?? join(home, ".config"), "grounds", "config.yaml");
-  return { config, data, runtime: env.GROUNDS_RUNTIME_HOME ?? join(home, ".local", "share", "grounds-runtime"),
-    directoryRegistry: join(home, ".local", "share", "grounds-directory-registry") };
-}
-
 /** Different clones retain separate local state; linked worktrees share their Git owner. */
 export function repositoryDataRoot(repository: string, root = dataRoot()): string {
   const common = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
     cwd: repository, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
   }).trim();
-  return repositoryDataRootForCommon(realpathSync(common), root);
-}
-
-/** Migration can calculate an owner after relocation before that directory exists. */
-export function repositoryDataRootForCommon(common: string, root = dataRoot()): string {
-  if (!isAbsolute(common)) throw validation("repository", "common directory must be absolute");
-  const key = createHash("sha256").update(resolve(common)).digest("hex");
+  const key = createHash("sha256").update(realpathSync(common)).digest("hex");
   return join(root, "repositories", key);
 }
 

@@ -22,7 +22,6 @@
         "IDEMPOTENCY_CONFLICT",
         "SCHEMA_INCOMPATIBLE",
         "MIGRATION_DIRTY",
-        "BRAND_MIGRATION_REQUIRED",
         "DATABASE_ID_MISMATCH",
         "REPOSITORY_NOT_RESOLVED",
         "REPOSITORY_AMBIGUOUS",
@@ -57,14 +56,6 @@
           "maxLength": 32768
         },
         "inspect_argv": {
-          "type": "array",
-          "maxItems": 20,
-          "items": {
-            "type": "string",
-            "maxLength": 32768
-          }
-        },
-        "migrate_argv": {
           "type": "array",
           "maxItems": 20,
           "items": {
