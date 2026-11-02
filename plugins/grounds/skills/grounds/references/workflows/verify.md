@@ -10,7 +10,33 @@ grounds grade request --run "$RUN_ID" --json
 
 保存 `gradingId` 与返回的完整 `criteria`。`--material ID=DIGEST` 只登记已存在、已固定的材料身份，不上传文件、不创建隔离环境。不得虚构材料引用。
 
-从交付回执的远端/标签/commit 准备**另一份**检出：使用单独目录 fetch 确切归档标签，核对远端标签和取回 commit 均等于冻结值，再 detached checkout。不要把 worker worktree、未提交改动或作者日志交给评价者。不要对已 delivered 的 run 再调用 `work workspace`；它是开发入口，不是验收物化入口。网络不可达或标签变化时停止，不能改用本地 HEAD。
+从公共交付结果和[本轮保存的调用参数](develop.md)准备**另一份**检出，无需解码 receipt：
+
+- `DELIVERY_ID` 与 `DELIVERY_COMMIT` 分别取成功交付结果的 `data.delivery.id`、`data.delivery.commit`（完整 commit），并核对 `data.delivery.receipt` 与该 run 冻结 manifest 中同 ID 的 receipt 完全一致；迟到提交的回执不能作为本轮冻结交付。
+- `DELIVERY_REMOTE` 必须取本轮 `work deliver --remote` 实际使用并保存的完整 URL 或绝对路径。它可能覆盖 Task 默认值，不能从 Task 猜测，也不能在新目录使用 `origin` 别名。缺少原调用记录时停止交接，先索取确切远端。
+- 公开归档 ref 固定为 `refs/tags/grounds/deliveries/$DELIVERY_ID`。`REVIEW_DIR` 是父目录已存在、当前路径尚不存在的绝对路径，与 worker worktree 分开。
+
+在 Bash 中执行下列步骤；任一步失败都停止，留下的目录仅供排障，不作为验收输入：
+
+```bash
+# Frozen delivery checkout
+(
+  set -eu
+  : "${DELIVERY_REMOTE:?}" "${DELIVERY_ID:?}" "${DELIVERY_COMMIT:?}" "${REVIEW_DIR:?}"
+  DELIVERY_REF="refs/tags/grounds/deliveries/$DELIVERY_ID"
+  EXPECTED_LINE="$(printf '%s\t%s' "$DELIVERY_COMMIT" "$DELIVERY_REF")"
+  mkdir "$REVIEW_DIR"
+  git init -q "$REVIEW_DIR"
+  test "$(git -C "$REVIEW_DIR" ls-remote --exit-code --refs -- "$DELIVERY_REMOTE" "$DELIVERY_REF")" = "$EXPECTED_LINE"
+  git -C "$REVIEW_DIR" fetch --no-tags --quiet -- "$DELIVERY_REMOTE" "$DELIVERY_REF"
+  test "$(git -C "$REVIEW_DIR" rev-parse --verify 'FETCH_HEAD^{commit}')" = "$DELIVERY_COMMIT"
+  git -C "$REVIEW_DIR" checkout --quiet --detach "$DELIVERY_COMMIT"
+  test "$(git -C "$REVIEW_DIR" rev-parse HEAD)" = "$DELIVERY_COMMIT"
+  test -z "$(git -C "$REVIEW_DIR" status --porcelain)"
+)
+```
+
+只有整个命令成功后才创建评价者。它核对远端读回与实际 fetch 的 commit，不承诺标签此后永不变化。不要把 worker 未提交改动或作者日志交给评价者；不要对已 delivered 的 run 再调用 `work workspace`，它是开发入口。网络不可达、标签缺失/变化或原目录已存在时停止，不能改用本地 HEAD，也不能清空旧目录强行继续。
 
 在交付冻结后，使用宿主提供的子 agent 功能创建全新上下文，不 fork 主会话、不 resume worker。最小交接：
 

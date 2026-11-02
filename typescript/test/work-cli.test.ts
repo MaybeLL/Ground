@@ -104,6 +104,51 @@ test("the caller's own agent works a task end to end through the command line: d
   });
 });
 
+test("the skill checks out the public delivery in a fresh directory using the actual overridden remote before evaluator registration", async () => {
+  await withHarness(async h => {
+    const actualRemote = join(h.directory, "delivery-remote.git");
+    execFileSync("git", ["init", "-q", "--bare", actualRemote]);
+    const task = ok(await h.cli("task", "create", "--title", "Export", "--criterion", "exports CSV", "--repo-remote", h.remote, "--baseline", h.baseline));
+    const started = ok(await h.cli("work", "start", "--task", task.taskId, "--mode", "external"));
+    const worker = ok(await h.cli("work", "register", "--run", started.runId, "--agent", "worker"));
+    const space = ok(await h.cli("work", "workspace", "--run", started.runId));
+    writeFileSync(join(space.path, "app.txt"), "frozen delivery\n");
+    git(space.path, "commit", "-qam", "deliver");
+    const delivered = ok(await h.cli("work", "deliver", "--run", started.runId, "--session", worker.sessionId,
+      "--repo", space.path, "--remote", actualRemote, "--commit", git(space.path, "rev-parse", "HEAD"), "--declare-stop"));
+    const run = ok(await h.cli("work", "run", "--run", started.runId)).run;
+    assert.equal(delivered.submitted.status, "delivered");
+    assert.equal(run.manifest.items.find((item: { id: string }) => item.id === delivered.delivery.id)?.receipt, delivered.delivery.receipt);
+    writeFileSync(join(space.path, "app.txt"), "uncommitted worker changes\n");
+
+    // Execute the distributed instructions, not an internal receipt decoder or
+    // archive adapter. Installation tests prove source/bundle Markdown parity.
+    const guide = readFileSync(new URL("../../plugins/grounds/skills/grounds/references/workflows/verify.md", import.meta.url), "utf8");
+    const checkout = /```bash\n(# Frozen delivery checkout\n[\s\S]*?)\n```/.exec(guide)?.[1];
+    assert.ok(checkout, "the skill contains an executable checkout recipe");
+    const materialize = (directory: string, remote = actualRemote) => execFileSync("bash", ["-c", checkout], {
+      cwd: h.directory, encoding: "utf8", stdio: "pipe", env: { ...process.env,
+        DELIVERY_REMOTE: remote, DELIVERY_ID: delivered.delivery.id, DELIVERY_COMMIT: delivered.delivery.commit, REVIEW_DIR: directory },
+    });
+    const review = join(h.directory, "independent-review");
+    materialize(review);
+    assert.equal(git(review, "rev-parse", "HEAD"), delivered.delivery.commit);
+    assert.throws(() => git(review, "symbolic-ref", "-q", "HEAD"), "checkout must be detached");
+    assert.equal(git(review, "status", "--porcelain"), "");
+    assert.equal(readFileSync(join(review, "app.txt"), "utf8"), "frozen delivery\n");
+    assert.throws(() => materialize(join(h.directory, "wrong-remote"), h.remote), "never fall back to the task remote");
+    assert.throws(() => materialize(review), "never overwrite an existing review directory");
+    assert.equal(readFileSync(join(review, "app.txt"), "utf8"), "frozen delivery\n");
+
+    const gate = ok(await h.cli("grade", "request", "--run", started.runId));
+    const evaluator = ok(await h.cli("grade", "register", "--grading", gate.gradingId, "--agent", "fresh-reviewer"));
+    assert.notEqual(evaluator.sessionId, worker.sessionId);
+    // A moved tag must fail closed even though its old commit remains available.
+    git(actualRemote, "update-ref", `refs/tags/grounds/deliveries/${delivered.delivery.id}`, h.baseline);
+    assert.throws(() => materialize(join(h.directory, "moved-tag")));
+  });
+});
+
 test("a call is safe to repeat with its operation id, and a delivery interrupted after the archive is simply run again", async () => {
   await withHarness(async h => {
     const created = ok(await h.cli("task", "create", "--title", "Add export", "--criterion", "exports CSV", "--repo-remote", h.remote, "--baseline", h.baseline));
