@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { addBranch, completeClose, continueWork, migrateWork, requestClose, selectHead, startWork, workConclusion, workViolations, type Id, type TaskRunStatus, type Work } from "../src/work/domain/index.js";
+import { addBranch, completeClose, continueWork, requestClose, selectHead, startWork, workConclusion, workViolations, type Id, type TaskRunStatus, type Work } from "../src/work/domain/index.js";
 import { accept, clock, random, rejected } from "./work-fixtures.js";
 
 const at = clock();
@@ -46,18 +46,10 @@ test("the head moves only by an explicit selection among this work's runs", () =
   check(selected);
 });
 
-test("a migrated work may lack a head until one is chosen, and is never given one by inference", () => {
-  const ambiguous = accept(migrateWork({ id: "work-m", taskDefinitionId: "task-1", runIds: ["a", "b"], at: at() })).state;
-  assert.equal(ambiguous.head, undefined);
-  assert.deepEqual(workViolations(ambiguous), []);
-  rejected(continueWork(ambiguous, { newRunId: "c", expectedHead: "a", at: at() }), "conflict", /no head yet/);
-  const chosen = accept(selectHead(ambiguous, { runId: "b", at: at() })).state;
-  assert.equal(chosen.head, "b");
-  const single = accept(migrateWork({ id: "work-m2", taskDefinitionId: "task-1", runIds: ["a"], defaultHead: "a", at: at() })).state;
-  assert.equal(single.headHistory[0].reason, "migration-default");
-  rejected(migrateWork({ id: "w", taskDefinitionId: "t", runIds: ["a"], defaultHead: "z", at: at() }), "invalid");
-  rejected(migrateWork({ id: "w", taskDefinitionId: "t", runIds: ["a", "a"], at: at() }), "invalid");
-  assert.ok(workViolations({ ...started(), head: undefined, headHistory: [] }).length > 0, "a work that was not migrated must have a head");
+test("a work always stands on one of its runs, and a state that does not is refused", () => {
+  const work = started();
+  assert.deepEqual(workViolations(work), []);
+  assert.ok(workViolations({ ...work, head: "run-elsewhere" }).length > 0, "the head must be a run of this work");
 });
 
 test("closing closes the entrances first and finishes only when every run ended", () => {
@@ -84,22 +76,21 @@ test("closing closes the entrances first and finishes only when every run ended"
 
 test("the conclusion is derived from the head run and covers every state", () => {
   const work = started();
-  assert.equal(workConclusion({ head: undefined }, undefined, undefined), "head-unselected");
-  assert.equal(workConclusion(work, "pending", undefined), "in-progress");
-  assert.equal(workConclusion(work, "running", "accepted"), "in-progress");
-  assert.equal(workConclusion(work, "failed", undefined), "failed");
-  assert.equal(workConclusion(work, "cancelled", undefined), "cancelled");
-  assert.equal(workConclusion(work, "delivered", undefined), "pending");
-  assert.equal(workConclusion(work, "delivered", "rejected"), "rejected");
-  assert.equal(workConclusion(work, "delivered", "accepted"), "accepted");
+  assert.equal(workConclusion("pending", undefined), "in-progress");
+  assert.equal(workConclusion("running", "accepted"), "in-progress");
+  assert.equal(workConclusion("failed", undefined), "failed");
+  assert.equal(workConclusion("cancelled", undefined), "cancelled");
+  assert.equal(workConclusion("delivered", undefined), "pending");
+  assert.equal(workConclusion("delivered", "rejected"), "rejected");
+  assert.equal(workConclusion("delivered", "accepted"), "accepted");
 });
 
 test("moving the head back to an accepted run changes the conclusion without touching any run", () => {
   let work = accept(continueWork(started(), { newRunId: "run-2", expectedHead: "run-1", at: at() })).state;
   const acceptance: Record<string, "accepted" | "rejected"> = { "run-1": "accepted", "run-2": "rejected" };
-  assert.equal(workConclusion(work, "delivered", acceptance[work.head!]), "rejected");
+  assert.equal(workConclusion("delivered", acceptance[work.head]), "rejected");
   work = accept(selectHead(work, { runId: "run-1", at: at() })).state;
-  assert.equal(workConclusion(work, "delivered", acceptance[work.head!]), "accepted");
+  assert.equal(workConclusion("delivered", acceptance[work.head]), "accepted");
 });
 
 test("random operations keep the head inside the work and never reopen a closed work", () => {
@@ -129,13 +120,4 @@ test("random operations keep the head inside the work and never reopen a closed 
       if (wasClosed) assert.equal(work.status, "closed", `seed ${seed}: closed stays closed`);
     }
   }
-});
-
-test("a migrated work may take a selected run as its head, which must be one of its runs", () => {
-  const at = "2026-01-01T00:00:00.000Z";
-  const { state } = accept(migrateWork({ id: "w", taskDefinitionId: "t", runIds: ["a", "b"], defaultHead: "b", selected: { runId: "a", at }, at: "2026-02-01T00:00:00.000Z" }));
-  assert.equal(state.head, "a");
-  assert.deepEqual(state.headHistory, [{ runId: "a", reason: "migration-selection", at }]);
-  assert.deepEqual(workViolations(state), []);
-  rejected(migrateWork({ id: "w", taskDefinitionId: "t", runIds: ["a"], selected: { runId: "zzz", at }, at }), "invalid", /selected/);
 });

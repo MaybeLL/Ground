@@ -138,8 +138,7 @@ export class TaskExecution {
         if (state !== work) await r.works.save(state, work.version);
         return succeed({ workId: work.id, status: "closing", blockedBy, conclusion: null });
       }
-      const head = work.head ? runs.find(run => run.id === work.head) : undefined;
-      const conclusion = workConclusion(work, head?.status, head ? await this.acceptance(r, head) : undefined);
+      const conclusion = await this.conclusionOf(r, work, runs);
       const closed = completeClose(state, { at, conclusion, releasesReserved: true }, statuses);
       if (!closed.ok) return fromRejection(closed.error);
       if (state !== work) { await r.works.save(state, work.version); }
@@ -275,8 +274,7 @@ export class TaskExecution {
         const work = await r.works.get(workId);
         if (!work) return fail("not-found", `work ${workId} does not exist`);
         const runs = await r.taskRuns.listByWork(workId);
-        const head = work.head ? runs.find(run => run.id === work.head) : undefined;
-        const conclusion = work.closedFact?.conclusion ?? workConclusion(work, head?.status, head ? await this.acceptance(r, head) : undefined);
+        const conclusion = work.closedFact?.conclusion ?? await this.conclusionOf(r, work, runs);
         return succeed({ work, runs, conclusion });
       });
     } catch (error) { const failure = failureOf(error); if (failure) return { ok: false, error: failure }; throw error; }
@@ -300,6 +298,13 @@ export class TaskExecution {
     const criteria = task?.ok ? criteriaDigest(task.value, this.deps.hash) : undefined;
     if (!criteria?.ok) return "pending";
     return acceptanceOf(await r.gradings.listForTaskRun(run.id), { taskRevisionId: run.taskRevision.revisionId, criteriaDigest: criteria.value, manifestDigest: run.manifest.digest }).conclusion;
+  }
+
+  /** What the work shows now: its head run's state and that run's acceptance. A head that is not among the work's runs is damaged data. */
+  private async conclusionOf(r: WorkRepositories, work: Work, runs: readonly TaskRun[]): Promise<WorkConclusion> {
+    const head = runs.find(run => run.id === work.head);
+    if (!head) throw new Error(`work ${work.id} stands on run ${work.head}, which does not belong to it`);
+    return workConclusion(head.status, await this.acceptance(r, head));
   }
 
   private async saveChain(r: WorkRepositories, original: TaskRun, states: readonly TaskRun[]): Promise<void> {

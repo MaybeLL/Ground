@@ -147,7 +147,6 @@ export class LedgerFixture {
     patchOverride?: Buffer,
     issue: IssueWriteResult = this.issue,
     selfVerification?: SelfVerification,
-    refinesCandidateId?: string,
   ): Promise<CandidateFixture> {
     const run = await this.module.startDevRun({
       operation_id: newUUIDv7(),
@@ -156,7 +155,6 @@ export class LedgerFixture {
       issue_revision_id: issue.issue_revision_id,
       issue_revision_explicit: false,
       repository_remote_snapshot: this.repository.canonical_remote,
-      ...(refinesCandidateId ? { refines_candidate_id: refinesCandidateId } : {}),
     });
     const goal = run.result.context.issue.goals[0];
     const criterion = goal.criteria[0];
