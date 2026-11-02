@@ -10,7 +10,7 @@ stateDiagram-v2
   Prep --> Ready: 文件、运行资源、挂载均核实
   Prep --> Blocked: 失败，保留 Workspace
   Blocked --> Prep: 移交预留 → 改归属 → 继续准备
-  Ready --> InUse: Operation 取得占用租约
+  Ready --> InUse: 占用者（AgentExecution 或命令步骤）取得租约
   InUse --> Ready: 确认停止，归还租约
   Ready --> Paused: 归属者终结且保留，暂停执行容器
   Paused --> Ready: 移交预留 → 改归属 → 恢复并核对

@@ -10,9 +10,11 @@ flowchart TB
   GRD -->|measure 来源：成员键 + 评分要求键| XR
   GRD -->|目标| T[Candidate / Artifact / Trajectory]
   GRD -->|gate：针对已交付的 TaskRun| RN
-  GRD -->|评价者| EOP[Operation kind=agent / command]
+  GRD -->|Agent 型评价者| EOP[评价者 AgentExecution]
+  GRD -->|包含，测试型| CS[命令步骤<br/>命令规格 · 退出结果 · 停止观测]
   GRD -->|拥有| ESB[评价者 Sandbox]
-  EOP -->|占用租约| ESB
+  EOP -->|占用者契约：租约| ESB
+  CS -->|占用者契约：租约| ESB
   Q1[(验收结论：最近一条完整 gate<br/>工作结论 = 工作头的验收结论)] -.->|查询| GRD
   Q2[(批次结果：采用规则与完整性)] -.->|查询| GRD
   classDef def fill:#eef2ff,stroke:#5b6abf,color:#1e2a6b;
@@ -22,6 +24,7 @@ flowchart TB
   classDef q fill:#f2f2f2,stroke:#888,color:#333;
   class SU,EXP,SS,CASE,AR,GV def;
   class XR,RN,T,EOP fact;
+  class CS eva;
   class ESB res;
   class GRD eva;
   class Q1,Q2 q;

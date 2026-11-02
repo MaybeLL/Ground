@@ -12,7 +12,7 @@ sequenceDiagram
   alt 确认无法准备
     TE->>TE: 失败（infrastructure）
   else 沙箱就绪
-    TE->>AE: 运行 worker Operation
+    TE->>AE: 运行 worker AgentExecution
     AE->>SB: 取得占用租约
     AE-->>TE: 完成事件：输出、轨迹、交付声明已归档
     TE->>TE: 形成 Manifest（tool 优先，否则 contract）
@@ -30,7 +30,7 @@ sequenceDiagram
   alt 已交付
     EE->>GR: measure（来源：成员键 + 评分要求键）
     GR->>SB: 申请评价者沙箱（固定环境版本）
-    GR->>AE: 运行 Judge Operation
+    GR->>AE: 运行 Judge AgentExecution
     AE-->>GR: 完成事件：Judge 输出已归档
     GR->>GR: 校验 Grade，释放评价者沙箱
     GR-->>EE: 完成事件：GradingRecord

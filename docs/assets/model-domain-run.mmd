@@ -7,10 +7,10 @@ flowchart TB
   RN -.->|所属，评测样本为空| W
   RN -.->|refines| RN0[更早的 TaskRun]
   RN -->|已解析环境 latest / specified / inherited| ENR
-  RN -->|至多一个 worker| OP[Operation kind=agent<br/>阶段 · 回执 · 交付声明 · Trajectory]
+  RN -->|至多一个 worker| OP[AgentExecution<br/>阶段 · 归档回执 · 交付声明 · Trajectory · 恢复]
   OP -->|固定| AR[AgentRevision]
   RN -->|拥有，可移交给 refinement| SBX[Sandbox<br/>占用租约 · 挂载 · 运行资源 · 暂停 · 保留意图]
-  OP -->|占用租约 + fencing token| SBX
+  OP -->|占用者契约：租约 + fencing token| SBX
   SBX -->|使用| WS[Workspace<br/>复用现有实现]
   SBX -->|运行资源依据| ENR
   RN -->|Manifest 引用| C[Candidate]
