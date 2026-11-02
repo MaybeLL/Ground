@@ -4,3 +4,4 @@
 // test/work-architecture.test.ts.
 export * from "./kernel.js";
 export * from "./definitions.js";
+export * from "./task-run.js";

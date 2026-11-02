@@ -26,10 +26,13 @@ export interface Decision<S, E, O = void> { readonly state: S; readonly events: 
 /** Aggregates carry a version; a decision that changes anything advances it by one. */
 export interface Versioned { readonly version: number }
 
-/** Apply `changes` and advance the version when something happened; otherwise return `state` untouched. */
+/** Apply `changes` and advance the version when something happened; otherwise return `state` untouched. An undefined value in `changes` removes the field. */
 export function advance<S extends Versioned, E, O>(state: S, changes: Partial<S>, events: readonly E[], outcome: O): Result<Decision<S, E, O>> {
-  const next = events.length === 0 ? state : { ...state, ...changes, version: state.version + 1 };
-  return ok({ state: next, events, outcome });
+  if (events.length === 0) return ok({ state, events, outcome });
+  const merged: Record<string, unknown> = { ...state, ...changes, version: state.version + 1 };
+  // A change whose value is undefined removes that field; leaving it out keeps the old value.
+  for (const key of Object.keys(merged)) if (merged[key] === undefined) delete merged[key];
+  return ok({ state: merged as unknown as S, events, outcome });
 }
 
 const controlCharacters = /[\u0000-\u001f\u007f]/;
