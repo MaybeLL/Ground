@@ -2,7 +2,7 @@ import { asText, parseDate } from "../../../sql-shared.js";
 import type { SQLClient } from "../../../sql-client.js";
 import type { SQLStore } from "../../../sql-store.js";
 import type {
-  LedgerIntegrityProbe, LegacyAssessment, LegacyCandidate, LegacyDevRun, LegacyIssue, LegacyIssueRevision, LegacyLedgerReader, LegacyRunStage, LegacySnapshot, LegacyStageAttempt,
+  LedgerIntegrityProbe, LegacyAssessment, LegacyCandidate, LegacyDevRun, LegacyIssue, LegacyIssueRevision, LegacyLedgerReader, LegacyRunStage, LegacySelection, LegacySnapshot, LegacyStageAttempt,
   LegacyVerification, LegacyVerificationRun, LegacyVerdict,
 } from "../../ports/index.js";
 
@@ -46,6 +46,7 @@ async function readSnapshot(client: SQLClient): Promise<LegacySnapshot> {
   const assessments = await all("SELECT verification_id, criterion_id, independent_verdict, independent_explanation, reconciliation_relation, reconciliation_explanation, final_verdict, final_explanation FROM verification_assessments ORDER BY verification_id, target_type, target_id, criterion_id");
   const evidence = await all("SELECT verification_id, criterion_id, ordinal, command, exit_code, output_digest FROM verification_evidence ORDER BY verification_id, criterion_id, ordinal");
   const records = await all("SELECT record_json FROM runtime_records WHERE kind = 'runtime_operation' AND parent_id IS NOT NULL ORDER BY id");
+  const selections = await all("SELECT issue_revision_id, candidate_id, updated_at FROM selections WHERE candidate_id IS NOT NULL ORDER BY issue_revision_id");
   const quality = await client.get<Row>("SELECT COUNT(*) AS n FROM verification_quality_reviews");
 
   const criteriaByTarget = group(criteria, "target_id", r => ({ id: text(r.id), statement: text(r.statement) }));
@@ -99,5 +100,6 @@ async function readSnapshot(client: SQLClient): Promise<LegacySnapshot> {
       ...(runsByVerification.has(text(r.id)) ? { run: runsByVerification.get(text(r.id))! } : {}),
     };
   });
-  return { issues: issueList, devRuns, verifications: verificationList, qualityReviewCount: Number(quality?.n ?? 0) };
+  const selectionList: LegacySelection[] = selections.map(r => ({ issueRevisionId: text(r.issue_revision_id), candidateId: text(r.candidate_id), updatedAt: parseDate(r.updated_at) }));
+  return { issues: issueList, selections: selectionList, devRuns, verifications: verificationList, qualityReviewCount: Number(quality?.n ?? 0) };
 }

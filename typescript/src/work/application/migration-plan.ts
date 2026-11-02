@@ -16,8 +16,10 @@ export interface MigrationReport {
   readonly taskRevisions: number;
   readonly taskRuns: { readonly delivered: number; readonly abandoned: number; readonly stillOpen: number };
   readonly works: number;
-  /** Works with several leaves: no head until someone selects one. */
+  /** Works with several leaves and no choice made in the old ledger: no head until someone selects one. */
   readonly worksWithoutHead: readonly Id[];
+  /** Works whose head is a choice the user made in the old ledger. */
+  readonly worksWithSelectedHead: number;
   readonly gradings: number;
   /** Gates whose old ledger did not keep the review session: independence is unknown. */
   readonly gradingsWithoutSession: number;
@@ -87,6 +89,7 @@ class Planner {
       issues: issues.length, taskRevisions: issues.reduce((n, i) => n + i.revisions.length, 0),
       taskRuns: { delivered: devRuns.filter(r => r.state === "submitted").length, abandoned: devRuns.filter(r => r.state === "abandoned").length, stillOpen: devRuns.filter(r => r.state === "open").length },
       works: migrated.works.length, worksWithoutHead: migrated.works.filter(w => w.head === undefined).map(w => w.id),
+      worksWithSelectedHead: migrated.works.filter(w => w.headHistory.some(h => h.reason === "migration-selection")).length,
       gradings: gradings.length, gradingsWithoutSession: gradings.filter(g => g.evaluator?.kind === "external" && g.evaluator.sessionId === undefined).length,
       skippedVerifications: this.skipped, clippedTexts: this.clipped, observationsOutsideProtocol: this.outsideProtocol, qualityReviewsLeftInPlace: this.snapshot.qualityReviewCount,
     };
@@ -184,7 +187,11 @@ class Planner {
       walk(root.id);
       const leaves = tree.filter(id => (children.get(id) ?? []).length === 0);
       const workId = `work:${root.id}`;
-      const work = this.take(`work ${workId}`, migrateWork({ id: workId, taskDefinitionId: root.issueId, runIds: tree, ...(leaves.length === 1 ? { defaultHead: leaves[0] } : {}), at: this.at }))?.state;
+      const inTree = new Set(tree);
+      // The latest choice among the candidates this work produced; an unselected issue revision contributes none.
+      const selected = this.snapshot.selections.map(s => ({ runId: producer.get(s.candidateId), at: s.updatedAt })).filter((s): s is { runId: Id; at: string } => s.runId !== undefined && inTree.has(s.runId))
+        .sort((a, b) => b.at.localeCompare(a.at))[0];
+      const work = this.take(`work ${workId}`, migrateWork({ id: workId, taskDefinitionId: root.issueId, runIds: tree, ...(leaves.length === 1 ? { defaultHead: leaves[0] } : {}), ...(selected ? { selected } : {}), at: this.at }))?.state;
       if (!work) continue;
       works.push(work);
       for (const id of tree) {

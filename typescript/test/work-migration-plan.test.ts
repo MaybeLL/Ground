@@ -29,7 +29,7 @@ const verification = (id: string, candidateId: string, over: Partial<LegacyVerif
   id, candidateId, blindContextDigest: d("d"), createdAt: T(300), agent: { kind: "agent", id: "reviewer-1" },
   assessments: [assessment("issue-1-r1-c1"), assessment("issue-1-r1-c2")], ...over,
 });
-const snapshot = (over: Partial<LegacySnapshot> = {}): LegacySnapshot => ({ issues: [issue("issue-1")], devRuns: [], verifications: [], qualityReviewCount: 0, ...over });
+const snapshot = (over: Partial<LegacySnapshot> = {}): LegacySnapshot => ({ issues: [issue("issue-1")], devRuns: [], selections: [], verifications: [], qualityReviewCount: 0, ...over });
 const plan = (s: LegacySnapshot): MigrationPlan => {
   const outcome = planMigration(s, { migratedAt: MIGRATED_AT, hash });
   assert.ok(outcome.ok, outcome.ok ? "" : outcome.problems.join("\n"));
@@ -95,6 +95,25 @@ test("a tree with several leaves has no head until someone selects one; the migr
   assert.deepEqual(work.runIds, ["r1", "r2", "r3"]);
   assert.deepEqual(workViolations(work), []);
   assert.deepEqual(p.report.worksWithoutHead, ["work:r1"]);
+});
+
+test("a choice the user made in the old ledger becomes the head, over the single-leaf default and over an unselected tree", () => {
+  const tree = [run("r1"), run("r2", { createdAt: T(400), refinesCandidateId: "cand-r1" }), run("r3", { createdAt: T(900), refinesCandidateId: "cand-r1" })];
+  const branching = plan(snapshot({ devRuns: tree, selections: [{ issueRevisionId: "issue-1-rev-1", candidateId: "cand-r2", updatedAt: T(1000) }] })).works[0];
+  assert.equal(branching.head, "r2", "the user's choice, not the newest leaf");
+  assert.deepEqual(branching.headHistory, [{ runId: "r2", reason: "migration-selection", at: T(1000) }]);
+  assert.deepEqual(workViolations(branching), []);
+  const chain = [run("r1"), run("r2", { createdAt: T(400), refinesCandidateId: "cand-r1" })];
+  const chosenRoot = plan(snapshot({ devRuns: chain, selections: [{ issueRevisionId: "issue-1-rev-1", candidateId: "cand-r1", updatedAt: T(500) }] }));
+  assert.equal(chosenRoot.works[0].head, "r1", "a non-leaf choice stands over the only leaf");
+  assert.equal(chosenRoot.report.worksWithSelectedHead, 1);
+  assert.equal(chosenRoot.report.worksWithoutHead.length, 0);
+  // Several choices in one tree (one per issue revision): the latest wins; a choice of another tree does not leak in.
+  const two = plan(snapshot({ issues: [issue("issue-1", 2)], devRuns: [...tree, run("r9", { createdAt: T(120) })], selections: [
+    { issueRevisionId: "issue-1-rev-1", candidateId: "cand-r2", updatedAt: T(1000) }, { issueRevisionId: "issue-1-rev-2", candidateId: "cand-r3", updatedAt: T(2000) } ] }));
+  assert.equal(two.works.find(w => w.id === "work:r1")!.head, "r3");
+  assert.equal(two.works.find(w => w.id === "work:r9")!.head, "r9", "an unselected tree keeps its single-leaf default");
+  assert.equal(two.works.find(w => w.id === "work:r9")!.headHistory[0].reason, "migration-default");
 });
 
 test("runs that refine nothing each start their own work, even under one issue", () => {

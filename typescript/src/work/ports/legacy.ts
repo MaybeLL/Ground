@@ -72,8 +72,12 @@ export interface LegacyVerification {
   readonly run?: LegacyVerificationRun;
 }
 
+/** A choice the user made in the old ledger: which candidate of an issue revision to deliver. */
+export interface LegacySelection { readonly issueRevisionId: string; readonly candidateId: string; readonly updatedAt: string }
+
 export interface LegacySnapshot {
   readonly issues: readonly LegacyIssue[];
+  readonly selections: readonly LegacySelection[];
   readonly devRuns: readonly LegacyDevRun[];
   readonly verifications: readonly LegacyVerification[];
   /** Quality reviews are not part of this migration; they stay readable in the old tables. */

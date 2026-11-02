@@ -29,6 +29,7 @@ async function legacyLedger(fixture: LedgerFixture) {
   const abandoned = await start();
   await fixture.module.abandonDevRun({ operation_id: newUUIDv7(), dev_run_id: abandoned.result.context.dev_run.id, expected_version: 1, reason: "wrong direction", attribution: testAgent });
   const open = await start();
+  await fixture.module.setSelection({ operation_id: newUUIDv7(), issue_id: issue.issue_id, issue_version: 1, candidate_id: b.candidate.candidate_id, expected_version: 0, attribution: testAgent, reason: "B reads best" });
   return { a, b, c, d, verificationA, verificationB, abandonedId: abandoned.result.context.dev_run.id, openId: open.result.context.dev_run.id };
 }
 
@@ -55,7 +56,8 @@ for (const backend of backends) {
     assert.equal(r.issues, 1);
     assert.deepEqual(r.taskRuns, { delivered: 4, abandoned: 1, stillOpen: 1 });
     assert.equal(r.works, 4, "the tree of A, B and C; D; the abandoned run; the open run");
-    assert.equal(r.worksWithoutHead.length, 1, "A has two refinements, so its tree has two leaves");
+    assert.equal(r.worksWithoutHead.length, 0, "A has two refinements, but the user chose B in the old ledger");
+    assert.equal(r.worksWithSelectedHead, 1);
     assert.equal(r.gradings, 2);
     assert.equal(r.gradingsWithoutSession, 2, "the service-level verification keeps no review session");
     assert.deepEqual(r.skippedVerifications, []);
@@ -68,7 +70,8 @@ for (const backend of backends) {
       assert.equal(runB.refines, runA.id);
       assert.equal(runB.workId, runA.workId);
       const tree = (await repositories.works.get(runA.workId!))!;
-      assert.equal(tree.head, undefined, "no leaf is picked for the user");
+      assert.equal(tree.head, legacy.b.run.context.dev_run.id, "the user's choice in the old ledger is the head");
+      assert.equal(tree.headHistory[0].reason, "migration-selection");
       assert.deepEqual([...tree.runIds].sort(), [runA.id, runB.id, (await repositories.taskRuns.get(legacy.c.run.context.dev_run.id))!.id].sort());
       const solo = (await repositories.works.get((await repositories.taskRuns.get(legacy.d.run.context.dev_run.id))!.workId!))!;
       assert.equal(solo.head, legacy.d.run.context.dev_run.id);
