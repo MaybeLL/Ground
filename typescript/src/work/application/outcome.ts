@@ -2,7 +2,7 @@ import { RequestConflict, StorageFailure } from "../ports/index.js";
 import type { Rejection } from "../domain/index.js";
 
 /** What a caller can do something about. Anything else is a bug or damaged data and is thrown. */
-export type FailureCode = "invalid" | "conflict" | "forbidden" | "unsupported" | "not-found" | "stale" | "request-conflict";
+export type FailureCode = "invalid" | "conflict" | "forbidden" | "unsupported" | "not-found" | "stale" | "request-conflict" | "unavailable";
 export interface Failure { readonly code: FailureCode; readonly message: string }
 export type Outcome<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: Failure };
 

@@ -5,7 +5,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { DeliveryItem, ReceiptCheck } from "../../domain/index.js";
-import type { DeliveryReceiptPort } from "../../ports/index.js";
+import type { CodeArchivePort, CodeFetchResult, DeliveryReceiptPort } from "../../ports/index.js";
 
 const run = promisify(execFile);
 const RECEIPT_PREFIX = "git-delivery:v1:";
@@ -45,7 +45,7 @@ export type ArchiveResult =
 
 type Observed = { readonly state: "present"; readonly commit: string } | { readonly state: "absent" } | { readonly state: "unreachable"; readonly reason: string };
 
-export class GitTagArchive implements DeliveryReceiptPort {
+export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
   constructor(private readonly options: { timeoutMs?: number } = {}) {}
 
   private git(cwd: string | undefined, args: string[]): Promise<string> {
@@ -59,6 +59,22 @@ export class GitTagArchive implements DeliveryReceiptPort {
       const [commit, name] = out.split(/\s+/);
       return name === ref && OID.test(commit ?? "") ? { state: "present", commit: commit! } : { state: "unreachable", reason: "the remote answered with something unexpected" };
     } catch (error) { return { state: "unreachable", reason: (error as Error).message.split("\n")[0] ?? "the remote could not be read" }; }
+  }
+
+  async resolveCommit(repositoryPath: string, commitish: string): Promise<string | undefined> {
+    try { return (await this.git(repositoryPath, ["rev-parse", "--verify", `${commitish}^{commit}`])).trim(); } catch { return undefined; }
+  }
+
+  /** Bring the delivered commit into the repository so the next worker can start from it. The remote is asked now, and must show the commit the receipt names. */
+  async fetch(input: { repositoryPath: string; receipt: string }): Promise<CodeFetchResult> {
+    const receipt = decodeReceipt(input.receipt);
+    if (!receipt) return { status: "missing", reason: "the receipt cannot be read" };
+    const seen = await this.observe(receipt.remote, receipt.ref, input.repositoryPath);
+    if (seen.state === "unreachable") return { status: "unavailable", reason: seen.reason };
+    if (seen.state === "absent" || seen.commit !== receipt.commit) return { status: "missing", reason: "the remote no longer shows the delivered commit under its tag" };
+    try { await this.git(input.repositoryPath, ["fetch", "--no-tags", "--quiet", "--", receipt.remote, receipt.ref]); }
+    catch (error) { return { status: "unavailable", reason: (error as Error).message.split("\n")[0] ?? "the commit could not be fetched" }; }
+    return await this.resolveCommit(input.repositoryPath, receipt.commit) === receipt.commit ? { status: "fetched", commit: receipt.commit } : { status: "unavailable", reason: "the fetched objects do not contain the delivered commit" };
   }
 
   /** Archive a commit of the repository at `repositoryPath` under the delivery identity. Repeating it for the same commit is harmless. */

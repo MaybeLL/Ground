@@ -1,0 +1,134 @@
+// The `task`, `work` and `grade` command groups. Each action maps to one use
+// case; results are plain objects the outer envelope wraps. The operation id of
+// a call is the request identity, so repeating a call with the same
+// `--operation-id` is safe.
+import { DomainError, validation } from "../../errors.js";
+import type { ParsedArgs } from "../../cli.js";
+import type { CriterionVerdict, Grade, ProtocolStage } from "../domain/index.js";
+import type { Outcome, WorkApplication } from "../application/index.js";
+
+export const WORK_GROUPS = ["task", "work", "grade"] as const;
+export const WORK_WRITE_ACTIONS = new Set([
+  "task:create", "task:revise",
+  "work:start", "work:continue", "work:branch", "work:select", "work:close", "work:register", "work:transcript", "work:deliver", "work:stop", "work:cancel",
+  "grade:request", "grade:register", "grade:stage", "grade:command", "grade:submit", "grade:stop", "grade:cancel",
+]);
+
+const CODES: Record<string, ConstructorParameters<typeof DomainError>[0]> = {
+  invalid: "VALIDATION_ERROR", conflict: "STATE_CONFLICT", forbidden: "AUTH_FAILED", unsupported: "VALIDATION_ERROR", "not-found": "NOT_FOUND",
+  stale: "VERSION_CONFLICT", "request-conflict": "IDEMPOTENCY_CONFLICT", unavailable: "STORAGE_TRANSIENT",
+};
+const unwrap = <T>(outcome: Outcome<T>): T => {
+  if (outcome.ok) return outcome.value;
+  throw new DomainError(CODES[outcome.error.code] ?? "VALIDATION_ERROR", outcome.error.message, outcome.error.code === "unavailable");
+};
+
+const raw = (args: ParsedArgs, name: string): string | boolean | string[] | undefined => args.values[name];
+const text = (args: ParsedArgs, name: string): string | undefined => { const v = raw(args, name); return typeof v === "string" ? v : Array.isArray(v) ? v[v.length - 1] : undefined; };
+const need = (args: ParsedArgs, name: string): string => { const v = text(args, name); if (v === undefined || v === "") throw validation(name, "is required"); return v; };
+const many = (args: ParsedArgs, name: string): string[] => { const v = raw(args, name); return Array.isArray(v) ? v : typeof v === "string" ? [v] : []; };
+const flag = (args: ParsedArgs, name: string): boolean => raw(args, name) === true || raw(args, name) === "true";
+const integer = (args: ParsedArgs, name: string): number => { const n = Number(need(args, name)); if (!Number.isSafeInteger(n) || n < 0) throw validation(name, "must be a non-negative integer"); return n; };
+const requestId = (args: ParsedArgs): string => need(args, "operation-id");
+const mode = (args: ParsedArgs): "external" | "none" => { const m = need(args, "mode"); if (m !== "external" && m !== "none") throw validation("mode", "must be external or none"); return m; };
+const result = (group: string, action: string, data: object) => ({ result_type: `grounds.result.${group}.${action}/v1`, command: `${group}.${action}`, ...data });
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** `--criterion "text"` is a new criterion; `--criterion "<id>: text"` keeps the identity of one from the previous revision. */
+const criteria = (args: ParsedArgs) => many(args, "criterion").map(entry => {
+  const head = /^(\S+): (.+)$/s.exec(entry);
+  return head && UUID.test(head[1]!) ? { id: head[1]!, statement: head[2]! } : { statement: entry };
+});
+const repository = (args: ParsedArgs) => text(args, "repo-remote") || text(args, "baseline") ? { remote: need(args, "repo-remote"), baseline: need(args, "baseline") } : undefined;
+
+const verdicts = ["satisfied", "unsatisfied", "indeterminate"] as const;
+const relations = ["corroborated", "contradicted", "not_determined"] as const;
+/** Snake-case verdicts as written in a grade file, turned into the domain's shape. */
+export function parseGrade(json: unknown): Grade {
+  const body = json as { criteria?: unknown };
+  if (!body || typeof body !== "object" || !Array.isArray(body.criteria)) throw validation("grade", 'must be {"criteria": [...]}');
+  const items: CriterionVerdict[] = body.criteria.map((entry: Record<string, unknown>) => {
+    const { criterion_id, independent, reconciliation, final, rationale, evidence } = entry as { criterion_id?: string; independent?: string; reconciliation?: string; final?: string; rationale?: string; evidence?: unknown };
+    if (typeof criterion_id !== "string" || !verdicts.includes(independent as never) || !verdicts.includes(final as never) || !relations.includes(reconciliation as never) || typeof rationale !== "string")
+      throw validation("grade", "each criterion needs criterion_id, independent, reconciliation, final and rationale");
+    if (evidence !== undefined && !(Array.isArray(evidence) && evidence.every(e => typeof e === "string"))) throw validation("grade", "evidence is a list of text");
+    return { criterionId: criterion_id, independent: independent as CriterionVerdict["independent"], reconciliation: reconciliation as CriterionVerdict["reconciliation"], final: final as CriterionVerdict["final"], rationale, evidence: (evidence as string[] | undefined) ?? [] };
+  });
+  return { form: "criteria", items };
+}
+
+export interface WorkEntryDependencies { readonly app: WorkApplication; readonly cwd: string; readonly readFile: (path: string) => string }
+
+export async function executeWorkCommand(args: ParsedArgs, deps: WorkEntryDependencies): Promise<unknown> {
+  const [group, action] = [args.positionals[0] ?? "", args.positionals[1] ?? ""];
+  const { app } = deps;
+  const r = group === "task" ? await task(args, action, app) : group === "work" ? await work(args, action, app, deps) : await grade(args, action, app, deps);
+  return result(group, action, r);
+}
+
+async function task(args: ParsedArgs, action: string, app: WorkApplication): Promise<object> {
+  switch (action) {
+    case "create": return unwrap(await app.tasks.createTask({ requestId: requestId(args), summary: need(args, "title"), criteria: criteria(args), ...(text(args, "name") ? { name: text(args, "name")! } : {}), ...(text(args, "context") ? { context: text(args, "context")! } : {}), ...(repository(args) ? { repository: repository(args)! } : {}) }));
+    case "revise": return unwrap(await app.tasks.reviseTask({ requestId: requestId(args), taskId: need(args, "task"), expectedSeq: integer(args, "expected-seq"), summary: need(args, "title"), criteria: criteria(args), ...(text(args, "context") ? { context: text(args, "context")! } : {}), ...(repository(args) ? { repository: repository(args)! } : {}) }));
+    case "show": return unwrap(await app.tasks.getTask(need(args, "task"), text(args, "revision") !== undefined ? integer(args, "revision") : undefined));
+    case "list": return { tasks: unwrap(await app.tasks.listTasks()) };
+    default: throw validation("action", `unknown task action: ${action}`);
+  }
+}
+
+async function work(args: ParsedArgs, action: string, app: WorkApplication, deps: WorkEntryDependencies): Promise<object> {
+  switch (action) {
+    case "start": return unwrap(await app.exec.startWork({ requestId: requestId(args), taskDefinitionId: need(args, "task"), workerMode: mode(args), ...(text(args, "revision-id") ? { taskRevisionId: text(args, "revision-id")! } : {}) }));
+    case "continue": return unwrap(await app.exec.continueWork({ requestId: requestId(args), workId: need(args, "work"), expectedHead: need(args, "expected-head"), workerMode: mode(args), ...(text(args, "revision-id") ? { taskRevisionId: text(args, "revision-id")! } : {}) }));
+    case "branch": return unwrap(await app.exec.addBranch({ requestId: requestId(args), workId: need(args, "work"), refines: need(args, "refines"), workerMode: mode(args), ...(text(args, "revision-id") ? { taskRevisionId: text(args, "revision-id")! } : {}) }));
+    case "select": return unwrap(await app.exec.selectHead({ requestId: requestId(args), workId: need(args, "work"), runId: need(args, "run"), ...(text(args, "expected-head") ? { expectedHead: text(args, "expected-head")! } : {}) }));
+    case "close": return unwrap(await app.exec.closeWork({ requestId: requestId(args), workId: need(args, "work") }));
+    case "show": return unwrap(await app.exec.getWork(need(args, "work")));
+    case "run": return unwrap(await app.exec.getRun(need(args, "run")));
+    case "register": return unwrap(await app.exec.registerExternalWorker({ requestId: requestId(args), runId: need(args, "run"), agent: { id: need(args, "agent"), ...(text(args, "agent-name") ? { name: text(args, "agent-name")! } : {}), ...(text(args, "model") ? { model: text(args, "model")! } : {}) } }));
+    case "transcript": return unwrap(await app.exec.importTranscript({ requestId: requestId(args), runId: need(args, "run"), sessionId: need(args, "session"), ref: need(args, "ref"), digest: need(args, "digest"), coverage: need(args, "coverage") as "full" | "partial" | "unknown" }));
+    case "workspace": return unwrap(await app.delivery.prepareWorkspace({ runId: need(args, "run"), repositoryPath: text(args, "repo") ?? deps.cwd }));
+    case "deliver": return unwrap(await app.delivery.deliver({ requestId: requestId(args), runId: need(args, "run"), repositoryPath: text(args, "repo") ?? deps.cwd, commit: text(args, "commit") ?? "HEAD",
+      ...(text(args, "session") ? { sessionId: text(args, "session")! } : {}), ...(text(args, "remote") ? { remote: text(args, "remote")! } : {}), ...(flag(args, "declare-stop") ? { declaresStop: true } : {}) }));
+    case "stop": return unwrap(await app.exec.declareStop({ requestId: requestId(args), runId: need(args, "run"), reason: need(args, "reason") as "human" | "abandoned", ...(text(args, "session") ? { sessionId: text(args, "session")! } : {}) }));
+    case "cancel": return unwrap(await app.exec.cancel({ requestId: requestId(args), runId: need(args, "run"), ...(text(args, "reason") ? { reason: text(args, "reason")! } : {}) }));
+    default: throw validation("action", `unknown work action: ${action}`);
+  }
+}
+
+async function grade(args: ParsedArgs, action: string, app: WorkApplication, deps: WorkEntryDependencies): Promise<object> {
+  const grading = need.bind(null, args, "grading");
+  switch (action) {
+    case "request": return unwrap(await app.grading.requestGate({ requestId: requestId(args), taskRunId: need(args, "run"), materials: many(args, "material").map(entry => { const [id, digest] = entry.split("="); if (!id || !digest) throw validation("material", "is id=digest"); return { id, digest }; }) }));
+    case "register": return unwrap(await app.grading.registerExternalEvaluator({ requestId: requestId(args), gradingId: grading(), agent: { id: need(args, "agent") } }));
+    case "stage": return unwrap(await app.grading.recordStage({ requestId: requestId(args), gradingId: grading(), sessionId: need(args, "session"), stage: need(args, "stage") as ProtocolStage, ...(text(args, "blind-digest") ? { blindDigest: text(args, "blind-digest")! } : {}) }));
+    case "command": return unwrap(await app.grading.recordCommand({ requestId: requestId(args), gradingId: grading(), sessionId: need(args, "session"), observation: {
+      stage: need(args, "stage") as ProtocolStage, entry: need(args, "entry"), argvDigest: need(args, "argv-digest"), state: need(args, "state") as "succeeded" | "failed" | "unknown", ...(text(args, "exit-code") !== undefined ? { exitCode: integer(args, "exit-code") } : {}), at: new Date().toISOString() } }));
+    case "submit": {
+      let json: unknown;
+      try { json = JSON.parse(deps.readFile(need(args, "grade-file"))); } catch (error) { if (error instanceof DomainError) throw error; throw validation("grade-file", "must be a readable JSON file"); }
+      return unwrap(await app.grading.submitGrade({ requestId: requestId(args), gradingId: grading(), sessionId: need(args, "session"), grade: parseGrade(json) }));
+    }
+    case "stop": return unwrap(await app.grading.declareEvaluatorStop({ requestId: requestId(args), gradingId: grading(), ...(text(args, "session") ? { sessionId: text(args, "session")! } : {}) }));
+    case "cancel": return unwrap(await app.grading.cancel({ requestId: requestId(args), gradingId: grading() }));
+    case "show": return unwrap(await app.grading.getGrading(grading()));
+    case "list": return { gates: unwrap(await app.grading.listGates(need(args, "run"))) };
+    default: throw validation("action", `unknown grade action: ${action}`);
+  }
+}
+
+export const workHelp = (): string => [
+  "grounds task create --title TEXT --criterion TEXT... [--context TEXT] [--repo-remote URL --baseline REF]",
+  "grounds task revise --task ID --expected-seq N --title TEXT --criterion [ID: ]TEXT... | task show --task ID [--revision N] | task list",
+  "grounds work start --task ID --mode external|none | work continue --work ID --expected-head RUN --mode M | work branch --work ID --refines RUN --mode M",
+  "grounds work select --work ID --run RUN [--expected-head RUN] | work close --work ID | work show --work ID | work run --run RUN",
+  "grounds work register --run RUN --agent NAME   (prints the session to present when delivering)",
+  "grounds work workspace --run RUN [--repo PATH]   (a private worktree: the baseline, or what the refined run delivered)",
+  "grounds work deliver --run RUN [--session S] [--repo PATH] [--commit REF] [--remote URL] [--declare-stop]",
+  "grounds work stop --run RUN --reason human|abandoned [--session S] | work cancel --run RUN [--reason TEXT] | work transcript --run RUN --session S --ref REF --digest D --coverage full|partial|unknown",
+  "grounds grade request --run RUN [--material ID=DIGEST...] | grade register --grading ID --agent NAME | grade stage --grading ID --session S --stage blind|freeze|reconcile|handoff|submit [--blind-digest D]",
+  "grounds grade command --grading ID --session S --stage STAGE --entry NAME --argv-digest D --state succeeded|failed|unknown [--exit-code N]",
+  "grounds grade submit --grading ID --session S --grade-file FILE   ({\"criteria\":[{criterion_id,independent,reconciliation,final,rationale,evidence}]})",
+  "grounds grade stop|cancel --grading ID | grade show --grading ID | grade list --run RUN",
+  "Every write prints an operation_id; repeat the call with --operation-id to retry it safely.",
+].join("\n");

@@ -57,6 +57,14 @@ A code delivery is a commit archived as a tag on the repository's remote (`adapt
 
 Crash safety needs no intent log here: every use case is one transaction, and the only external effect, pushing the tag, is idempotent. If a command stops after the push and before `submit`, running it again finds the tag already in place and submits.
 
+`CodeDelivery` ties the archive to the ledger. `deliver` resolves the commit, archives it under a delivery identity that follows the run and the commit (so running it again archives the same tag and submits the same manifest), then submits. `prepareWorkspace` gives a run a private git worktree under the repository's data directory: a first run starts at the task's baseline, a refinement at the commit the run it refines delivered, fetched back from its archive and checked against its receipt, never from what the earlier worker left on disk.
+
+## Command line (`work/entry/`, `work/composition.ts`)
+
+Three groups, each action one use case: `task` (create, revise, show, list), `work` (start, continue, branch, select, close, show, run, register, transcript, workspace, deliver, stop, cancel) and `grade` (request, register, stage, command, submit, stop, cancel, show, list); `grounds work help` lists the options. The operation id every write prints is its request identity: repeating a call with `--operation-id` is safe. `composition.ts` is the only place that wires the SQL repositories, git and the real clock together; the entry layer calls application classes and never adapters. Task text is passed as `--title` (`--summary` is an existing boolean option). A grade is a JSON file of criterion verdicts (`criterion_id`, `independent`, `reconciliation`, `final`, `rationale`, `evidence`).
+
+Not yet covered: JSON schemas for the new result types under `docs/contracts/v1` (with the skill rewrite, P1d).
+
 ## Taking over the previous model
 
 `work/application/migration-plan.ts` is a pure mapping from a snapshot of the old tables (`ports/legacy.ts`) to work-model aggregates in their final state; `migrate-legacy.ts` runs it; `adapters/sql/legacy-reader.ts` reads the old tables and runs the ledger's own integrity check. Nothing calls it from the CLI yet; the cutover command arrives with plan phase P1.

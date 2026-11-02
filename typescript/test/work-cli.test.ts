@@ -1,0 +1,159 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+import { execute, runCLI } from "../src/cli.js";
+import { withRuntimeDirectories } from "../src/runtime-files.js";
+import { newUUIDv7 } from "../src/identity.js";
+import { parseGrade } from "../src/work/entry/index.js";
+
+const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "T", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "T", GIT_COMMITTER_EMAIL: "t@t" } }).trim();
+
+interface Harness { cli(...args: string[]): Promise<{ code: number; ok: boolean; data: any; error: any; stderr: string[] }>; repo: string; remote: string; directory: string; baseline: string }
+
+async function withHarness(run: (h: Harness) => Promise<void>): Promise<void> {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), "grounds-work-cli-")));
+  try {
+    const repo = join(directory, "repo"), remote = join(directory, "remote.git");
+    execFileSync("git", ["init", "-q", "--bare", remote]);
+    execFileSync("git", ["init", "-q", "-b", "main", repo]);
+    writeFileSync(join(repo, "app.txt"), "v0\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-qm", "base");
+    const baseline = git(repo, "rev-parse", "HEAD");
+    const config = join(directory, "config.yaml"), db = join(directory, "ledger.db");
+    await withRuntimeDirectories({ runtimeHome: join(directory, "runtime"), directoryRegistryHome: join(directory, "registry") }, async () => {
+      await execute(["init", "--driver", "sqlite", "--non-interactive", "--config", config, "--path", db]);
+      const cli: Harness["cli"] = async (...args) => {
+        const lines: string[] = [], errors: string[] = [];
+        const code = await runCLI([...args, "--json", "--config", config, "--cwd", repo], { stdout: l => lines.push(l), stderr: l => errors.push(l) });
+        const envelope = JSON.parse(lines[lines.length - 1]!);
+        return { code, ok: envelope.ok, data: envelope.data, error: envelope.error, stderr: errors };
+      };
+      await run({ cli, repo, remote, directory, baseline });
+    });
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+}
+
+const gradeFile = (directory: string, name: string, criteria: Array<{ criterion_id: string; final: string }>) => {
+  const path = join(directory, name);
+  writeFileSync(path, JSON.stringify({ criteria: criteria.map(c => ({ criterion_id: c.criterion_id, independent: c.final, reconciliation: "corroborated", final: c.final, rationale: "checked", evidence: ["ran the tests"] })) }));
+  return path;
+};
+const ok = (r: { ok: boolean; data: any; error: any }) => { assert.ok(r.ok, JSON.stringify(r.error)); return r.data; };
+
+test("the caller's own agent works a task end to end through the command line: deliver, be rejected, refine from the delivery, be accepted", async () => {
+  await withHarness(async h => {
+    const created = ok(await h.cli("task", "create", "--title", "Add export", "--criterion", "exports CSV", "--criterion", "keeps headers", "--repo-remote", h.remote, "--baseline", h.baseline));
+    const criteria = created.criteria as { id: string }[];
+    const started = ok(await h.cli("work", "start", "--task", created.taskId, "--mode", "external"));
+
+    // First round: a worktree at the baseline, work, deliver.
+    const space = ok(await h.cli("work", "workspace", "--run", started.runId));
+    assert.equal(space.base.from, "baseline");
+    assert.equal(git(space.path, "rev-parse", "HEAD"), h.baseline);
+    const worker = ok(await h.cli("work", "register", "--run", started.runId, "--agent", "claude-code"));
+    writeFileSync(join(space.path, "app.txt"), "v1\n"); git(space.path, "commit", "-qam", "export csv");
+    const first = ok(await h.cli("work", "deliver", "--run", started.runId, "--session", worker.sessionId, "--repo", space.path, "--declare-stop"));
+    assert.equal(first.submitted.status, "delivered");
+    assert.equal(git(h.remote.replace(/\/$/, ""), "rev-parse", `refs/tags/grounds/deliveries/${first.delivery.id}`), git(space.path, "rev-parse", "HEAD"), "the commit is archived on the remote");
+
+    // An independent evaluator rejects it.
+    const gate = ok(await h.cli("grade", "request", "--run", started.runId));
+    assert.deepEqual(gate.criteria.map((c: { id: string }) => c.id).sort(), criteria.map(c => c.id).sort());
+    const evaluator = ok(await h.cli("grade", "register", "--grading", gate.gradingId, "--agent", "reviewer"));
+    assert.notEqual(evaluator.sessionId, worker.sessionId);
+    ok(await h.cli("grade", "stage", "--grading", gate.gradingId, "--session", evaluator.sessionId, "--stage", "blind"));
+    ok(await h.cli("grade", "stage", "--grading", gate.gradingId, "--session", evaluator.sessionId, "--stage", "freeze", "--blind-digest", `sha256:${"a".repeat(64)}`));
+    const verdict = gradeFile(h.directory, "g1.json", [{ criterion_id: criteria[0]!.id, final: "satisfied" }, { criterion_id: criteria[1]!.id, final: "unsatisfied" }]);
+    assert.equal(ok(await h.cli("grade", "submit", "--grading", gate.gradingId, "--session", evaluator.sessionId, "--grade-file", verdict)).status, "completed");
+    assert.equal(ok(await h.cli("work", "show", "--work", started.workId)).conclusion, "rejected");
+
+    // Refinement starts from what was delivered, in a new worktree.
+    const next = ok(await h.cli("work", "continue", "--work", started.workId, "--expected-head", started.runId, "--mode", "external"));
+    const space2 = ok(await h.cli("work", "workspace", "--run", next.runId));
+    assert.equal(space2.base.from, "delivery");
+    assert.notEqual(space2.path, space.path, "a new worktree, not the old one");
+    assert.equal(git(space2.path, "rev-parse", "HEAD"), first.delivery.commit);
+    assert.equal(readFileSync(join(space2.path, "app.txt"), "utf8"), "v1\n");
+    const worker2 = ok(await h.cli("work", "register", "--run", next.runId, "--agent", "claude-code"));
+    writeFileSync(join(space2.path, "app.txt"), "v2\n"); git(space2.path, "commit", "-qam", "keep headers");
+    ok(await h.cli("work", "deliver", "--run", next.runId, "--session", worker2.sessionId, "--repo", space2.path, "--declare-stop"));
+    const gate2 = ok(await h.cli("grade", "request", "--run", next.runId));
+    const evaluator2 = ok(await h.cli("grade", "register", "--grading", gate2.gradingId, "--agent", "reviewer"));
+    for (const [stage, extra] of [["blind", []], ["freeze", ["--blind-digest", `sha256:${"b".repeat(64)}`]]] as const) ok(await h.cli("grade", "stage", "--grading", gate2.gradingId, "--session", evaluator2.sessionId, "--stage", stage, ...extra));
+    ok(await h.cli("grade", "submit", "--grading", gate2.gradingId, "--session", evaluator2.sessionId, "--grade-file", gradeFile(h.directory, "g2.json", criteria.map(c => ({ criterion_id: c.id, final: "satisfied" })))));
+    const view = ok(await h.cli("work", "show", "--work", started.workId));
+    assert.equal(view.conclusion, "accepted");
+    assert.equal(view.work.head, next.runId);
+    assert.equal(ok(await h.cli("work", "run", "--run", started.runId)).acceptance, "rejected", "the first delivery keeps its own verdict");
+    assert.deepEqual(ok(await h.cli("grade", "list", "--run", started.runId)).gates.map((g: { id: string }) => g.id), [gate.gradingId]);
+    const closed = ok(await h.cli("work", "close", "--work", started.workId));
+    assert.deepEqual([closed.status, closed.conclusion], ["closed", "accepted"]);
+  });
+});
+
+test("a call is safe to repeat with its operation id, and a delivery interrupted after the archive is simply run again", async () => {
+  await withHarness(async h => {
+    const created = ok(await h.cli("task", "create", "--title", "Add export", "--criterion", "exports CSV", "--repo-remote", h.remote, "--baseline", h.baseline));
+    const operation = newUUIDv7();
+    const started = ok(await h.cli("work", "start", "--task", created.taskId, "--mode", "none", "--operation-id", operation));
+    assert.deepEqual(ok(await h.cli("work", "start", "--task", created.taskId, "--mode", "none", "--operation-id", operation)), started);
+    const conflict = await h.cli("work", "start", "--task", created.taskId, "--mode", "external", "--operation-id", operation);
+    assert.equal(conflict.ok, false);
+    assert.equal(conflict.error.code, "IDEMPOTENCY_CONFLICT");
+
+    const space = ok(await h.cli("work", "workspace", "--run", started.runId));
+    writeFileSync(join(space.path, "app.txt"), "v1\n"); git(space.path, "commit", "-qam", "change");
+    // The interruption: the archive was written, the delivery was never submitted.
+    const commit = git(space.path, "rev-parse", "HEAD");
+    git(space.path, "push", "-q", h.remote, `${commit}:refs/tags/grounds/deliveries/d-${started.runId}-${commit.slice(0, 12)}`);
+    const delivered = ok(await h.cli("work", "deliver", "--run", started.runId, "--repo", space.path));
+    assert.equal(delivered.submitted.status, "delivered", "running it again found the tag in place and submitted");
+    assert.equal(delivered.delivery.commit, commit);
+    // Delivering again changes nothing: the round is over, and the late submission is only recorded.
+    const again = ok(await h.cli("work", "deliver", "--run", started.runId, "--repo", space.path));
+    assert.deepEqual([again.submitted.status, again.submitted.outcome], ["delivered", "late"]);
+    const run = ok(await h.cli("work", "run", "--run", started.runId)).run;
+    assert.equal(run.manifest.items[0].id, delivered.delivery.id);
+    assert.equal(run.lateRecords.length, 1);
+  });
+});
+
+test("refusals are structured, and nothing is written for them", async () => {
+  await withHarness(async h => {
+    const missing = await h.cli("work", "start", "--task", "no-such-task", "--mode", "external");
+    assert.deepEqual([missing.ok, missing.error.code, missing.code], [false, "NOT_FOUND", 3]);
+    const noCriteria = await h.cli("task", "create", "--title", "x");
+    assert.equal(noCriteria.error.code, "VALIDATION_ERROR");
+    const noMode = await h.cli("work", "start", "--task", "t");
+    assert.equal(noMode.error.code, "VALIDATION_ERROR");
+    assert.deepEqual(ok(await h.cli("task", "list")).tasks, []);
+    const unknown = await h.cli("work", "dance");
+    assert.equal(unknown.error.code, "VALIDATION_ERROR");
+    assert.match(ok(await h.cli("work", "help")).usage, /grounds work deliver/);
+  });
+});
+
+test("a task revision keeps the criteria it names and the work started before keeps its wording", async () => {
+  await withHarness(async h => {
+    const first = ok(await h.cli("task", "create", "--title", "Add export", "--criterion", "exports CSV", "--criterion", "keeps headers"));
+    const keep = first.criteria[0];
+    const revised = ok(await h.cli("task", "revise", "--task", first.taskId, "--expected-seq", "1", "--title", "Add export", "--criterion", `${keep.id}: exports CSV with a BOM`, "--criterion", "streams large files"));
+    assert.equal(revised.seq, 2);
+    assert.equal(revised.criteria[0].id, keep.id);
+    assert.equal(ok(await h.cli("task", "show", "--task", first.taskId, "--revision", "1")).revision.id, first.revisionId);
+    const stale = await h.cli("task", "revise", "--task", first.taskId, "--expected-seq", "1", "--title", "x", "--criterion", "y");
+    assert.equal(stale.error.code, "STATE_CONFLICT");
+  });
+});
+
+test("a grade file is checked before anything is sent", () => {
+  const reason = (value: unknown) => { try { parseGrade(value); } catch (error) { return (error as { details?: { reason?: string } }).details?.reason ?? ""; } return "accepted"; };
+  assert.match(reason({}), /criteria/);
+  assert.match(reason({ criteria: [{ criterion_id: "c", independent: "maybe", reconciliation: "corroborated", final: "satisfied", rationale: "r" }] }), /each criterion/);
+  assert.match(reason({ criteria: [{ criterion_id: "c", independent: "satisfied", reconciliation: "corroborated", final: "satisfied", rationale: "r", evidence: [1] }] }), /evidence/);
+  const grade = parseGrade({ criteria: [{ criterion_id: "c", independent: "satisfied", reconciliation: "corroborated", final: "satisfied", rationale: "r" }] });
+  assert.deepEqual(grade.form === "criteria" && grade.items[0]!.evidence, []);
+});

@@ -8,3 +8,5 @@ export * from "./task-execution.js";
 export * from "./builtin-grader.js";
 export * from "./grading.js";
 export * from "./task-definitions.js";
+export * from "./code-delivery.js";
+export * from "./work-application.js";

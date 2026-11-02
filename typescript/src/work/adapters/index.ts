@@ -4,3 +4,4 @@
 export * from "./sql/repositories.js";
 export * from "./sql/legacy-reader.js";
 export * from "./git/tag-archive.js";
+export * from "./git/worktrees.js";
