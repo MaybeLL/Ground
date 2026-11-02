@@ -9,3 +9,5 @@ export * from "./work.js";
 export * from "./sandbox.js";
 export * from "./agent-execution.js";
 export * from "./grading.js";
+export * from "./experiment.js";
+export * from "./queries.js";
