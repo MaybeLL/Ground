@@ -9,7 +9,7 @@ GitHub is the canonical remote; builds and releases run in GitHub Actions.
 - Use ESM TypeScript, focused regression tests for behavior changes, and Conventional Commits.
 - Never commit credentials, local configuration, private evaluation cases or internal acceptance records.
 - Preserve third-party license notices. Run `node scripts/check-docs.mjs` and relevant tests after changes.
-- GitHub archive checks must fail closed when protection or authorization cannot be established.
+- Candidate archiving must fail closed when the archive tag cannot be pushed or read back at the exact commit. Under current code, GitHub archive checks also fail closed when ruleset protection cannot be established; [D147](docs/decisions/0001-unified-agent-evaluation.md#d147归档只要求推送远端标签并读回核对保护等级只作记录已确认待实现) changes the target so that protection is recorded, not required. Follow D147 when implementing that change.
 - Follow the workspace's shared progress-record instructions when present. Do not create a project-local `PROCESS.md`.
 - `CLAUDE.md` is a relative symlink to this file; maintain instructions here only.
 
