@@ -5,21 +5,10 @@ import { validation } from "./errors.js";
 export const skillNames = ["grounds", "grounds-eval", "grounds-knowledge-improve"] as const;
 export type SkillName = typeof skillNames[number];
 
-const evalScripts = [
-  "grounds_eval_capture.py",
-  "grounds_eval_import.py",
-  "grounds_eval_run.py",
-  "grounds_eval_environment.py",
-  "grounds_eval_runtime.py",
-  "grounds_eval_repositories.py",
-  "grounds_eval_prepare_proxy.py",
-  "grounds_eval_managed.py",
-] as const;
-
+// Development and evaluation use the CLI directly. The remaining Python
+// utility only transforms local knowledge files; it never executes agents.
 export const scriptsForSkill = (name: SkillName): readonly string[] =>
-  name === "grounds-eval" ? ["grounds_agent.py", ...evalScripts]
-    : name === "grounds-knowledge-improve" ? ["grounds_agent.py", "grounds_knowledge.py"]
-    : ["grounds_agent.py"];
+  name === "grounds-knowledge-improve" ? ["grounds_knowledge.py"] : [];
 
 const included = (path: string): boolean =>
   !["__pycache__", ".pytest_cache", ".DS_Store"].includes(basename(path)) && !path.endsWith(".pyc");
@@ -36,13 +25,12 @@ const within = (root: string, path: string): boolean => {
 };
 
 const sourceLayout = (root: string): boolean =>
-  existsSync(join(root, "scripts", "grounds_agent.py"))
-  && existsSync(join(root, "references", "preparation.md"))
+  existsSync(join(root, "references", "preparation.md"))
   && existsSync(join(root, "references", "contracts", "v1"));
 
 export const isSkillAssetsRoot = (root: string): boolean =>
   skillNames.every((name) => existsSync(join(root, "skills", name, "SKILL.md")))
-  && (sourceLayout(root) || skillNames.every((name) =>
+  && (sourceLayout(root) ? skillNames.every(name => scriptsForSkill(name).every(script => existsSync(join(root, "scripts", script)))) : skillNames.every((name) =>
     existsSync(join(root, "skills", name, "references", "preparation.md"))
     && existsSync(join(root, "skills", name, "references", "contracts", "v1"))
     && scriptsForSkill(name).every((script) => existsSync(join(root, "skills", name, "scripts", script)))));

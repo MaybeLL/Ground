@@ -5,7 +5,7 @@ Grounds keeps a versioned ledger of requirements, issues, development runs, cand
 - [Vision and core principles](vision.md): highest-level product positioning, core values, and design principles; every design builds on it.
 - [Architecture](architecture.md): current structure of the work model and its SQL storage, with how to verify a storage change.
 - [Getting started](getting-started.md): requirements, source build, and configuration.
-- [GitHub archive onboarding](../plugins/grounds/skills/grounds/references/github-archive-onboarding.md): authentication, rulesets, and repository binding.
+- [GitHub archive onboarding](../plugins/grounds/skills/grounds/references/github-archive-onboarding.md): authentication and remote tag/readback requirements for `work deliver`.
 - [Release process](releases.md): GitHub automation and distribution gates.
 - [Vendored renderer security review](vendor-security.md): known advisories and integration boundaries.
 - [Machine-readable contracts](contracts/v1/README.md): versioned JSON interfaces and schemas.

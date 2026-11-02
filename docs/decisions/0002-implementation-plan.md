@@ -26,7 +26,7 @@
 | `code-workspace*.ts`（配置、缓存、基线、worktree、清理） | Workspace 适配器直接复用；绑定从 Issue / DevRun 改为 Sandbox 归属者 |
 | `code-route-docker.ts`、`repository-environment.ts`、`development-image-*.ts` | 第一阶段继续可用；托管执行阶段由 devcontainer 方案逐步替代，旧配置作为兼容格式保留只读 |
 | `verification-run.ts`、`submitVerification` 的身份与盲验校验 | 外部评价者的协议阶段与独立性校验直接复用 |
-| `evaluation.ts`、`eval-*.ts`、`grounds_eval_*.py` | 评测资产阶段迁移到新结构；Python 协调器与 Codex 采集在退役阶段移除 |
+| `evaluation.ts`、`eval-*.ts` | 旧评测资产/查询尚存，随依赖退役；新评测资产按 P3 实现。Python 协调器、Codex 采集及其分发入口已在 P1d 删除 |
 
 ## 3. 交付阶段
 
@@ -42,7 +42,7 @@
 | **P3 评测资产** | 从历史 TaskRun 沉淀评测项；补充评分依据（从被采纳的 Candidate 派生隐藏测试、参考答案，先作为材料保存）；规则评分；评测集与快照 | 价值 2 | 见第 10 节 P3 验收清单 |
 | **P4 托管执行与沙箱集成** | devcontainer 环境定义与 SandboxProvisioning；测试评分（命令步骤，需要 Sandbox）；命令行 Agent 适配器；AgentExecutionService；后台宿主 | 价值 2、4 | 见第 10 节 P4 验收清单 |
 | **P5 实验与对比** | ExperimentExecution、重复次数、批次结果查询与按标尺汇总 | 价值 2 | 见第 10 节 P5 验收清单 |
-| **P6 退役** | 删除旧写入路径、Python 协调器与 Codex 采集；旧表只读 | — | 没有新代码引用旧写接口；文档与 skill 同步更新 |
+| **旧 P6 退役（D149 已提前到 P1d）** | 删除被替代的旧路径及表；不保留只读兼容层 | — | 没有新代码引用旧接口；文档与 skill 同步更新 |
 
 P0 结束后，P1 与 P2 可以并行；P3 只依赖 P1（测试评分需要 Sandbox，放在 P4）；P4 是第一个需要容器与后台宿主的阶段。每个阶段单独提交 PR，可以独立发布和回退。
 
@@ -132,7 +132,7 @@ Provider 用能力声明表达差异（D68），应用层只依赖声明，不�
 
 **按依赖划边界：** 用户确认“只删新模型已替代的”，而 eval 的编码评测直接用 `tx.getCandidate`、`startDevRunInTransaction`，`code-workspace` 全部、部分 `code-route` 与 `repository-*` 依赖 DevRun / Candidate，删除这些表之后无法原样保留。它们对应的新实现分别在 P3（评测资产）、P4（托管执行与沙箱）、P5（实验）；在那之前，依赖旧表的部分随旧表一起删除，不做临时兼容。`env-*`（环境定义）这类不依赖旧模型核心的部分保留，到 P4 由 devcontainer 环境取代时再处理。
 
-**P1d 当前删除进度：** 已先删除无业务调用方的旧品牌/数据目录迁移工具（`migrate patchledger`、`migrate data`）、路径搬运与绑定修复、旧配置读取和迁移门禁。命令不会搬动、转换或清理历史文件。一次删除全部旧 CLI 会同时破坏仍在使用它构造数据的 eval、容器路线及验收测试；因此业务入口、调用方及对应表按依赖一起退役，而不是先删表或批量跳过测试。本批尚未删除旧业务命令/表，也未重编号 schema；SQL 层 `db migrate` 和 draft 格式转换在其所属模块退役时删除。
+**P1d 当前删除进度：** 已先删除无业务调用方的旧品牌/数据目录迁移工具（`migrate patchledger`、`migrate data`）、路径搬运与绑定修复、旧配置读取和迁移门禁。命令不会搬动、转换或清理历史文件。一次删除全部旧 CLI 会同时破坏仍在使用它构造数据的 eval、容器路线及验收测试；因此业务入口、调用方及对应表按依赖一起退役，而不是先删表或批量跳过测试。随后删除了 Python 包装器、实验协调器、Codex 采集器、容器准备代理和仓库快照适配，以及专用测试；分发清单与安装/包测试同步收敛。开发 skill 改为直接调用 task/work/grade，并要求主 agent 在交付冻结后启动全新子 agent 盲验；eval/知识改进入口明确自动实验暂不可用，不保留临时 runner。纯文件知识材料工具及共享 env 保留。尚未删除旧业务命令/表，也未重编号 schema；SQL 层 `db migrate` 和 draft 格式转换在其所属模块退役时删除。新结果 schema 与真实 Claude Code/Codex 冒烟仍待完成。
 
 P1 按下面四步切分，每步一个 PR，可独立评审和回退：
 

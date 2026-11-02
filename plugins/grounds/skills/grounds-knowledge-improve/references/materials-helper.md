@@ -1,8 +1,8 @@
 # 本地材料助手与角色预检
 
-`scripts/grounds_knowledge.py` 随知识完善 Skill 分发，只有 Python 标准库依赖。它读取本地文件并生成可丢弃的工作单、原生 subject 输入、限定交接和派生对照；不运行模型、Git、Grounds 或 GraphKB，不初始化配置或账本，不处理凭据。实际答题、评分、恢复、历史记录仍归 [grounds-eval](../../grounds-eval/SKILL.md)。
+`scripts/grounds_knowledge.py` 随知识完善 Skill 分发，只有 Python 标准库依赖。它读取本地文件并生成可丢弃的工作单、原生 subject 输入、限定交接和派生对照；不运行模型、Git、Grounds 或 GraphKB，不初始化配置或账本，不处理凭据。历史记录查询与当前执行能力边界见 [grounds-eval](../../grounds-eval/SKILL.md)。自动运行入口已退役；下文 subject/handoff/compare 仅处理真实已有回执和文件，不授权启动新实验。
 
-在切换到 eval 入口前，从共享准备协议解析的 helper 根保存 `GROUNDS_KNOWLEDGE_ROOT`；eval 入口另存 `GROUNDS_EVAL_ROOT`。源码布局与已安装布局都使用各自解析结果，不从当前目录猜路径。
+把确实包含 `scripts/grounds_knowledge.py` 的目录设为 `GROUNDS_KNOWLEDGE_ROOT`：源码中是 plugin 根，独立安装后是本 skill 根。先检查文件存在，不从当前目录猜路径；不再解析任何 eval runner 根。
 
 ## 1. 固定输入与总预算
 
@@ -23,7 +23,7 @@ python3 "$GROUNDS_KNOWLEDGE_ROOT/scripts/grounds_knowledge.py" budget \
   --inputs "$KNOWLEDGE_RUN_DIR/inputs.json" --minimum-seconds "$NEXT_ATTEMPT_SECONDS"
 ```
 
-输出 `remaining_seconds` 可作为原生 runner 的 `--budget-seconds`；最低预算由本轮固定答题和评分上限计算，不能缩短单次上限以伪造可比性。工作单只记上限，实际已运行题数/轮数从原生 run/journal 回读，由协调者约束。它不自动调度下一轮。
+输出 `remaining_seconds` 只用于约束本轮剩余分析时间；它不会调度下一轮。若检查历史运行，实际已执行数量和耗时从真实记录读取，不用工作单上限冒充执行事实。
 
 ## 2. 从成功原生回执生成 subject
 
@@ -34,9 +34,9 @@ python3 "$GROUNDS_KNOWLEDGE_ROOT/scripts/grounds_knowledge.py" subject \
   --name "$EXPERIMENT_NAME" --out "$PHASE-subject.json"
 ```
 
-接受 `eval envcheck submit/show` 成功 JSON envelope 或其原生记录。要求原生验证字段完整（含 adapter 与 files 的结构/摘要/大小）、success/failure/protocol/isolation 全部显式通过、参数完全一致、环境 ID/版本/digest 齐全。两角色配置必须显式禁用 KB 和被测 Skills；GraphKB 字段与未知配置拒绝。宿主路径及凭据环境变量名不进入 subject；不接受实际密钥。API 模型地址必须是无用户/密码、查询参数和片段的纯 HTTPS 端点，与现有 capture 边界一致。grade binding 必须已按原生环境协议验证。subject 的宿主 API 输入仍须提供凭据环境变量名；已冻结 capture 按原生规则去掉了该字段，条件检查不再要求它，仍校验其余声明与纯 HTTPS 地址。
+接受 `eval envcheck submit/show` 成功 JSON envelope 或其原生记录。要求原生验证字段完整（含 adapter 与 files 的结构/摘要/大小）、success/failure/protocol/isolation 全部显式通过、参数完全一致、环境 ID/版本/digest 齐全。两角色配置必须显式禁用 KB 和被测 Skills；GraphKB 字段与未知配置拒绝。宿主路径及凭据环境变量名不进入 subject；不接受实际密钥。API 模型地址必须是无用户/密码、查询参数和片段的纯 HTTPS 端点，与历史 capture 输入结构一致。grade binding 必须已按原生环境协议验证。subject 的宿主 API 输入仍须提供凭据环境变量名；已冻结 capture 按原生规则去掉了该字段，条件检查不再要求它，仍校验其余声明与纯 HTTPS 地址。
 
-此助手验证回执结构与绑定，不代替 Grounds 对回执真伪、模型执行或环境定义的核验。协调者仍须使用原生 `doc-only` 定义，检查实际被问者权限。输出是 `eval experiment create --file` 原生输入；首次用 `--suite`，复测用原 `--snapshot`。
+此助手只验证回执结构与绑定，不证明回执真伪、模型实际执行或环境隔离。输出沿用历史 experiment subject 结构，可供检查；当前不要以此创建待运行实验或伪造验证回执。
 
 ## 3. 只交接主问题
 
@@ -67,7 +67,7 @@ python3 "$GROUNDS_KNOWLEDGE_ROOT/scripts/grounds_knowledge.py" handoff \
 
 修复角色若需要自己核对 Git，应在**同一沙箱**执行只读 Git 预检。宿主 Git 正常不代表角色内正常；例如工具启动依赖的 `xcrun` 路径可能被拒绝。不要通过扩大目录权限或继承协调者会话修复此问题。
 
-Git 不是文档阅读/补丁建议的必需工具：协调者可把已核验的 repo 身份、完整 HEAD、修改状态、工作树内容摘要和核验时点，作为仅针对授权仓库的来源说明交接；优先沿用[仓库快照](repository-materials.md)的 `sources`，不传私有 binding 或整个实验目录。管理员只声明这些是协调者提供的版本依据，不冒称角色自行验证。若缺少必须的版本依据，输出待核验建议并暂停相关结论/应用。应用前协调者再次核验源版本、内容与文档 diff；漂移时重新核对依据。
+Git 不是文档阅读/补丁建议的必需工具：协调者可把已核验的 repo 身份、完整 HEAD、修改状态、工作树内容摘要和核验时点，作为仅针对授权仓库的来源说明交接；如有已保存且可核验的历史快照，可沿用其 `sources`（[材料边界](repository-materials.md)），不传私有 binding 或整个实验目录。管理员只声明这些是协调者提供的版本依据，不冒称角色自行验证。若缺少必须的版本依据，输出待核验建议并暂停相关结论/应用。应用前协调者再次核验源版本、内容与文档 diff；漂移时重新核对依据。
 
 ## 5. 保留原生报告，再做条件对照
 

@@ -1,4 +1,4 @@
 interface:
   display_name: "Grounds Eval"
-  short_description: "Author and run Grounds Coding and QA evaluations"
-  default_prompt: "Use $grounds-eval to complete this evaluation task using the appropriate authoring or execution workflow."
+  short_description: "Prepare evaluation assets and inspect recorded evidence"
+  default_prompt: "Use $grounds-eval to prepare assets or inspect recorded evaluations; report automated execution as unavailable during the model cutover."

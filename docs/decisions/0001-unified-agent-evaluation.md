@@ -896,7 +896,7 @@ flowchart LR
 | --- | --- |
 | 编码工作区 | [CodeWorkspaceInstance / WorkspaceConfiguration](../../typescript/src/code-workspace.ts) 固定多仓库配置、commit/tree 基线，并关联 Issue、目标仓库及回收/恢复信息；当前不是通用 Working 工作区。 |
 | 独立可写开发目录 | [CodeWorkspaceRoutes](../../typescript/src/code-workspace-route.ts) 准备独立开发 worktree；准备代码不等于授予执行权限。[DockerRouteEngine](../../typescript/src/code-route-docker.ts) 在开发模式挂载可写 `/workspace`，基线与 Git 元数据只读。 |
-| 问答材料空间 | [评测环境脚本](../../plugins/grounds/scripts/grounds_eval_environment.py) 校验 workspace/materials，保存文件清单并将准备后的材料设为只读；包含 code/doc/fixture 材料角色。 |
+| 问答材料空间 | [当时的评测环境脚本（已退役）](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_environment.py) 校验 workspace/materials，保存文件清单并将准备后的材料设为只读；包含 code/doc/fixture 材料角色。 |
 | 运行条件独立定义 | [RepositoryEnvironmentConfiguration](../../typescript/src/repository-environment.ts) 描述镜像和依赖服务；[RouteExecution](../../typescript/src/code-route-execution.ts) 组合代码路径、基线和运行环境。当前两条路径尚未统一治理。 |
 | 其他同名概念 | [WorkspaceModule](../../typescript/src/workspace.ts) 用于需求与 Issue 的 Markdown 编辑发布，不能直接当作 Agent 文件空间；[WorkspaceLease](../../typescript/src/workspace-provider.ts) 区分 managed/external 目录归属，统一时应保留这种所有权差异。 |
 
@@ -1999,6 +1999,7 @@ flowchart LR
 | --- | --- |
 | 目标模型第 12 节与 0002 第 9 节的迁移规则（DevRun 树分 Work、历史工作头、迁移标记、会话身份缺失等） | **废止。** 没有需要保留的账本，迁移只会增加领域里的特例（迁移标记、可空的工作头与会话）。P0 第 4 步写的迁移代码（映射、读取器、写入编排、`importLegacy*`、`migrateWork`、`migrated` 标记）已删除，Work 始终有工作头，外部评价者始终有会话身份 |
 | 旧品牌和数据目录迁移工具 | 已删除 `migrate patchledger` / `migrate data`、专用搬运/绑定修复、旧配置读取与迁移门禁；只读取当前配置与目录，不自动搬动或清理历史文件。业务命令及其表、SQL schema 重编号仍待后续删除批次，不将本批标为完整切换 |
+| Python 协调器及分发调用方 | 已删除命令包装器、旧实验 runner、Codex 采集、容器准备代理及仓库快照适配和专用测试；skill 分发与包测试同步移除入口。开发 skill 直接调用 task/work/grade，主 agent 创建全新子 agent 独立验收；eval/知识改进 skill 明确自动实验暂不可用。保留独立的纯文件知识材料工具、旧 eval 资产/查询 CLI 与共享 env；它们不构成旧 runner 的兼容层。新结果 schema、真实 agent 冒烟、旧业务服务及表仍待后续完成 |
 | 旧模型何时删除 | 被新模型替代的部分（Requirement / Issue / DevRun / Candidate / Verification / 选择 / 完成 / 交付链接 / 预检的写入与读取、Python 协调器、Codex 采集），连同它们的表一起从 schema 删除，不留只读兼容；新账本只有新模型的表 |
 | 评测、环境、容器路线 | 用户确认“只删新模型已替代的”。但依赖分析显示 eval 的编码评测、`code-workspace`、部分 `code-route` 与 `repository-*` 直接依赖 DevRun / Candidate，无法在删除这些表之后原样保留；边界按依赖划定，见 0002 第 9 节 |
 
@@ -2418,7 +2419,7 @@ flowchart TB
 
 **图的表达限制：** 当前两层图为阅读省略了 AgentExecution 对 Task / AgentSpec / 当次 Workspace 视图的准确引用，以及 EnvironmentInstance 到 EnvironmentSpec 的依据关系。Review 和实现契约中必须补回；尤其不能从“执行记录 → 环境实例 → 当前挂载”动态反查历史文件视图，因为挂载会改变。没有画出的连线不应被解释为不需要保存关联。
 
-源码佐证仅限现有基础：[DockerRouteEngine](../../typescript/src/code-route-docker.ts) 已区分可写代码目录与只读基线；[问答环境脚本](../../plugins/grounds/scripts/grounds_eval_environment.py) 已保存 workspace manifest 并校验材料。这些可复用为输入固定和访问控制机制，不证明通用 Workspace 的写入互斥、历史视图或所有权契约已经实现。本轮仅做设计与源码审阅，未运行容器或真实 Agent。
+源码佐证仅限现有基础：[DockerRouteEngine](../../typescript/src/code-route-docker.ts) 已区分可写代码目录与只读基线；[当时的问答环境脚本（已退役）](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_environment.py) 已保存 workspace manifest 并校验材料。这些可复用为输入固定和访问控制机制，不证明通用 Workspace 的写入互斥、历史视图或所有权契约已经实现。本轮仅做设计与源码审阅，未运行容器或真实 Agent。
 
 建议先讨论第 1 项，让被测任务和 Judge 都能经同一通用执行契约运行，再定第 2、3 项的文件身份与隔离；资源释放依据这些身份和占用规则进一步细化。所有建议保留待确认，不直接修改当前运行代码。
 
@@ -2592,7 +2593,7 @@ Artifact 来源在新受管执行中关联 AgentExecution；历史或已有外�
 
 回答阶段生成包含这些文件的摘要与大小清单。调用产物提交后，文件内容随答案对应的产物一起持久化到 SQL 的内容寻址附件表；产物记录保存引用，后续可以按产物身份读取原文件。因此保存的是实际轨迹字节，不只是临时日志路径。评分 Agent 也复用采集器，但通过独立的评分证据提交路径保存，关联评分执行而非复用回答会话。
 
-未知事件、非法 JSONL、缺少终止事件、超时或捕获超限等情况会写入采集限制，覆盖状态相应标为部分；这里的“完整”表示当前采集契约满足，不代表拿到了模型全部内部状态。接下来的重构是把已有采集与保存能力放到共同接口后，并补齐编程任务和其他 Provider，而不是从零创造日志存储。实现入口为 [capture 与 Broker](../../plugins/grounds/scripts/grounds_eval_capture.py)、[产物及评分证据提交](../../typescript/src/eval-module.ts)。
+未知事件、非法 JSONL、缺少终止事件、超时或捕获超限等情况会写入采集限制，覆盖状态相应标为部分；这里的“完整”表示当前采集契约满足，不代表拿到了模型全部内部状态。接下来的重构是把已有采集与保存能力放到共同接口后，并补齐编程任务和其他 Provider，而不是从零创造日志存储。实现入口为 [当时的 capture 与 Broker（已退役）](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_capture.py)、[产物及评分证据提交](../../typescript/src/eval-module.ts)。
 
 ## 4. 已确认的流程与分工
 
@@ -2636,8 +2637,8 @@ Artifact 来源在新受管执行中关联 AgentExecution；历史或已有外�
 
 - [领域模型与验证](../../typescript/src/evaluation.ts)、[评测业务流程](../../typescript/src/eval-module.ts)、[CLI](../../typescript/src/eval-cli.ts)。
 - [问答产物与证据](../../typescript/src/eval-qa.ts)、[环境契约](../../typescript/src/eval-environment.ts)。
-- [批次协调器](../../plugins/grounds/scripts/grounds_eval_run.py)、[当前 Codex 采集器](../../plugins/grounds/scripts/grounds_eval_capture.py)、[受管协调](../../plugins/grounds/scripts/grounds_eval_managed.py)。
-- [容器调度适配](../../plugins/grounds/scripts/grounds_eval_runtime.py)、[评分进程执行](../../typescript/src/eval-process.ts)。
+- [当时的批次协调器](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_run.py)、[Codex 采集器](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_capture.py)、[受管协调](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_managed.py)（均已按 D149 退役）。
+- [当时的容器调度适配（已退役）](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_runtime.py)、[评分进程执行](../../typescript/src/eval-process.ts)。
 - [Code Workspace 执行](../../typescript/src/code-route-execution.ts)、[Docker 实现](../../typescript/src/code-route-docker.ts)、[路由租约边界](../../typescript/src/env-route-lease.ts)。
 
 ### D109 Workspace 复用核验（2026-11-01）
@@ -2716,7 +2717,7 @@ Pi Durable 是独立的 Agent harness，不等同于 Pi Coding Agent SDK。两�
 - `decodeGrader` 对 QA 明确要求 Agent、diagnostic 和 `qa_decision`。因此即使公共类型中有数值分数，QA 仍不能直接使用任意数值标尺或规则评分；是否扩展、怎样兼容应作为具体开发项确认。
 - 受管问答已有配置冻结和独立环境校验，Coordinator 也会对未知启动阻塞；需要的是公共化与验证衔接，不是移除这些机制来简化接口。
 
-源码依据：[类型与评分器验证](../../typescript/src/evaluation.ts)、[运行创建、预留评分与结果关闭](../../typescript/src/eval-module.ts)、[冻结执行配置核对](../../plugins/grounds/scripts/grounds_eval_managed.py)、[启动意图与恢复](../../plugins/grounds/scripts/grounds_eval_run.py)。
+源码依据：[类型与评分器验证](../../typescript/src/evaluation.ts)、[运行创建、预留评分与结果关闭](../../typescript/src/eval-module.ts)、[当时的冻结执行配置核对](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_managed.py)、[启动意图与恢复](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_run.py)（均已按 D149 退役）。
 
 建议用四个具体用例评审这些边界：同题新作答与原产物重评；一个产物同时交给多个独立 Judge；Agent 完成但提交回执丢失；混合编程与问答并发且其中一个任务中断。逐项确定身份、状态、允许重试的操作和证据归属之后，再据此落具体字段和测试。当前图可以继续作为概念导览，不应直接当作完整的状态机、聚合设计或事务设计。
 

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -65,8 +66,17 @@ test("the caller's own agent works a task end to end through the command line: d
     const evaluator = ok(await h.cli("grade", "register", "--grading", gate.gradingId, "--agent", "reviewer"));
     assert.notEqual(evaluator.sessionId, worker.sessionId);
     ok(await h.cli("grade", "stage", "--grading", gate.gradingId, "--session", evaluator.sessionId, "--stage", "blind"));
-    ok(await h.cli("grade", "stage", "--grading", gate.gradingId, "--session", evaluator.sessionId, "--stage", "freeze", "--blind-digest", `sha256:${"a".repeat(64)}`));
     const verdict = gradeFile(h.directory, "g1.json", [{ criterion_id: criteria[0]!.id, final: "satisfied" }, { criterion_id: criteria[1]!.id, final: "unsatisfied" }]);
+    const blindDigest = `sha256:${createHash("sha256").update(readFileSync(verdict)).digest("hex")}`;
+    ok(await h.cli("grade", "stage", "--grading", gate.gradingId, "--session", evaluator.sessionId, "--stage", "freeze", "--blind-digest", blindDigest));
+    // Exercise every stage documented by the direct-CLI skill. These are fake
+    // external sessions, not evidence that a real host isolated an evaluator.
+    for (const stage of ["reconcile", "handoff", "submit"]) {
+      ok(await h.cli("grade", "stage", "--grading", gate.gradingId, "--session", evaluator.sessionId, "--stage", stage));
+    }
+    const recorded = ok(await h.cli("grade", "show", "--grading", gate.gradingId));
+    assert.deepEqual(recorded.evaluator.protocol.map((s: { stage: string }) => s.stage), ["blind", "freeze", "reconcile", "handoff", "submit"]);
+    assert.equal(recorded.evaluator.protocol[1].blindDigest, blindDigest);
     assert.equal(ok(await h.cli("grade", "submit", "--grading", gate.gradingId, "--session", evaluator.sessionId, "--grade-file", verdict)).status, "completed");
     assert.equal(ok(await h.cli("work", "show", "--work", started.workId)).conclusion, "rejected");
 

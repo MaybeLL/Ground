@@ -64,22 +64,20 @@ test("offline verifier handoff checks Chinese prose before signing", async () =>
 });
 
 
-test("Agent helper signs offline handoff with environment attribution and reads business help without a ledger", () => {
+test("direct CLI signs offline handoff with explicit attribution and reads business help without a ledger", () => {
   const directory = mkdtempSync(join(tmpdir(), "grounds-helper-offline-"));
   try {
-    const binary = join(directory, "grounds-cli"), file = join(directory, "report.json");
+    const file = join(directory, "report.json");
     const entry = fileURLToPath(new URL("../src/main.ts", import.meta.url));
-    const helper = fileURLToPath(new URL("../../plugins/grounds/scripts/grounds_agent.py", import.meta.url));
-    writeFileSync(binary, `#!${process.execPath}\nconst {spawnSync}=require('node:child_process');const r=spawnSync(${JSON.stringify(process.execPath)},["--import",${JSON.stringify(import.meta.resolve("tsx"))},${JSON.stringify(entry)},...process.argv.slice(2)],{stdio:"inherit"});process.exit(r.status??1);\n`, { mode: 0o700 });
     const input = structuredClone(report), criterion = input.assessments[0].criteria[0];
     criterion.independent.explanation = "独立检查结果通过";
     criterion.reconciliation.explanation = "声明与检查结果一致";
     criterion.final.explanation = "验收结果通过";
     writeFileSync(file, JSON.stringify(input));
     const invoke = (args: string[], identity: boolean) => {
-      const env = { ...process.env, HOME: directory, GROUNDS_BIN: binary, GROUNDS_CONFIG: join(directory, "missing.yaml"),
-        GROUNDS_AGENT_ID: identity ? "offline-agent" : "", GROUNDS_AGENT_NAME: identity ? "Offline Agent" : "" };
-      const result = spawnSync("python3", [helper, "invoke", "--cwd", directory, "--", ...args], { env, encoding: "utf8" });
+      const env = { ...process.env, HOME: directory, GROUNDS_CONFIG: join(directory, "missing.yaml") };
+      const result = spawnSync(process.execPath, ["--import", import.meta.resolve("tsx"), entry, ...args, "--json",
+        ...(identity ? ["--agent-id", "offline-agent", "--agent-name", "Offline Agent"] : [])], { cwd: directory, env, encoding: "utf8" });
       assert.equal(result.status, 0, result.stderr + result.stdout);
       return JSON.parse(result.stdout);
     };
