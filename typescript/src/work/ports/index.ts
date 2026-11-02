@@ -2,6 +2,5 @@
 // sandbox runtime, delivery and evidence stores, clock and identifiers).
 // May import only the domain and this directory.
 export * from "./repositories.js";
-export * from "./legacy.js";
 export * from "./runtime.js";
 export * from "./code.js";

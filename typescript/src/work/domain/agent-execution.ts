@@ -13,7 +13,7 @@ export type ReceiptKind = "output" | "trajectory" | "delivery-claim";
 export const protocolStages = ["blind", "freeze", "reconcile", "handoff", "submit"] as const;
 export type ProtocolStage = (typeof protocolStages)[number];
 export interface ProtocolRecord { readonly stage: ProtocolStage; readonly at: Timestamp; readonly blindDigest?: Digest }
-/** Legacy verification runs recorded the commands they observed; kept append-only. */
+/** A command the evaluator ran through a supported entry; kept append-only beside the protocol stages. */
 export interface CommandObservation { readonly stage: ProtocolStage; readonly entry: string; readonly argvDigest: Digest; readonly state: "succeeded" | "failed" | "unknown"; readonly exitCode?: number; readonly at: Timestamp }
 export interface ExecutionLate { readonly kind: "receipt" | "stop" | "outcome"; readonly at: Timestamp; readonly detail: string }
 

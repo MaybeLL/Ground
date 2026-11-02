@@ -45,7 +45,7 @@ test("development with the user's own agent: reject, refine from the frozen deli
   const subject1 = { taskRevisionId: "task-rev-1", criteriaDigest: d("5"), manifestDigest: manifestDigest("a") };
   const acceptance1 = acceptanceOf([gate1], subject1).conclusion;
   assert.equal(acceptance1, "rejected");
-  assert.equal(workConclusion(work, run1.status, acceptance1), "rejected");
+  assert.equal(workConclusion(run1.status, acceptance1), "rejected");
 
   // Refining: a new run, and the first worktree is NOT handed over because an external agent worked in it.
   const second = accept(createTaskRun({ id: "run-2", taskRevision, workId: "work-1", refines: "run-1", workerMode: "external", retention: "keep", at: at() }, { refines: { id: "run-1", status: run1.status, taskDefinitionId: "task-1", workId: "work-1" } })).state;
@@ -60,15 +60,15 @@ test("development with the user's own agent: reject, refine from the frozen deli
   assert.equal(acceptance2, "accepted");
   const acceptances: Record<string, AcceptanceConclusion> = { "run-1": acceptance1, "run-2": acceptance2 };
   const statuses = new Map<Id, TaskRunStatus>([["run-1", run1.status], ["run-2", run2.status]]);
-  assert.equal(workConclusion(work, statuses.get(work.head!), acceptances[work.head!]), "accepted");
+  assert.equal(workConclusion(statuses.get(work.head), acceptances[work.head]), "accepted");
   work = accept(selectHead(work, { runId: "run-1", at: at() })).state;
-  assert.equal(workConclusion(work, statuses.get(work.head!), acceptances[work.head!]), "rejected", "moving the head back changes what the work shows, and nothing else");
+  assert.equal(workConclusion(statuses.get(work.head), acceptances[work.head]), "rejected", "moving the head back changes what the work shows, and nothing else");
   work = accept(selectHead(work, { runId: "run-2", at: at() })).state;
 
   // Closing: nothing is active, so it finishes and records what it saw.
   const closing = accept(requestClose(work, { at: at() }, statuses));
   assert.deepEqual(closing.outcome.blockedBy, []);
-  const closed = accept(completeClose(closing.state, { at: at(), conclusion: workConclusion(work, statuses.get("run-2"), acceptance2), releasesReserved: true }, statuses)).state;
+  const closed = accept(completeClose(closing.state, { at: at(), conclusion: workConclusion(statuses.get("run-2"), acceptance2), releasesReserved: true }, statuses)).state;
   assert.equal(closed.closedFact?.conclusion, "accepted");
   for (const run of [run1, run2]) assert.deepEqual(taskRunViolations(run), []);
   assert.deepEqual(sandboxViolations(sandbox1), []);

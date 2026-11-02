@@ -114,7 +114,7 @@ export class Grading {
       const grading = await r.gradings.get(input.gradingId, { lock: true });
       if (!grading) return fail("not-found", `grading ${input.gradingId} does not exist`);
       const evaluator = grading.evaluator;
-      if (grading.status === "running" && grading.purpose === "gate" && evaluator?.kind === "external" && !evaluator.migrated && evaluator.sessionId === input.sessionId
+      if (grading.status === "running" && grading.purpose === "gate" && evaluator?.kind === "external" && evaluator.sessionId === input.sessionId
         && !(evaluator.protocol ?? []).some(p => p.stage === "freeze")) return fail("conflict", "freeze the blind assessment before submitting the verdict");
       const prior = grading.origin.type === "gate" ? await r.gradings.listForTaskRun(grading.origin.taskRunId) : [];
       const next = submitGrade(grading, { grade: input.grade, sessionId: input.sessionId, at: this.deps.clock.now() }, { priorGates: prior.filter(g => g.id !== grading.id) });

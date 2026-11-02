@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { DeliveryItem, Grade } from "../src/work/domain/index.js";
-import { BUILTIN_VERIFICATION_GRADER, ensureVerificationGrader, migrateLegacyLedger } from "../src/work/application/index.js";
+import { BUILTIN_VERIFICATION_GRADER, ensureVerificationGrader } from "../src/work/application/index.js";
 import { SqlWorkUnitOfWork } from "../src/work/adapters/index.js";
 import { backends, backendSkip, openLedger } from "./backends.js";
 import { application, refused, value, type Application } from "./work-application-harness.js";
 import { hash } from "./work-fixtures.js";
-import { newUUIDv7 } from "../src/identity.js";
 
 const d = (c: string) => `sha256:${c.repeat(64)}`;
 const items: DeliveryItem[] = [{ type: "candidate", id: "cand-1", receipt: "tag:grounds/cand-1" }];
@@ -154,13 +153,14 @@ for (const backend of backends) {
     assert.equal(outcomes.filter(o => o.ok).length, 1, outcomes.map(o => (o.ok ? "ok" : o.error.code)).join(","));
   });
 
-  scenario("a built-in grader created by a gate does not stand in the way of taking over an old ledger", async app => {
+  scenario("the built-in grader is created once, and asking for it again changes nothing", async app => {
     const run = await delivered(app);
-    value(await app.grading.requestGate({ requestId: "g-1", taskRunId: run.runId }));
-    await app.units.run("write", async r => { assert.ok((await ensureVerificationGrader(r, hash, "2026-02-01T00:00:00.000Z")).ok, "ensuring it again changes nothing"); });
-    // The ledger under test has no old data; what matters is that planning and writing the built-in grader again is not a conflict.
-    const deps = { reader: { read: async () => ({ issues: [], selections: [], devRuns: [], verifications: [], qualityReviewCount: 0 }) }, units: app.units, integrity: { check: async () => ({ valid: true, findings: [] }) }, hash, now: () => "2026-03-01T00:00:00.000Z", newId: newUUIDv7 };
-    const result = await migrateLegacyLedger(deps);
-    assert.equal(result.status, "migrated", JSON.stringify(result));
+    const gate = value(await app.grading.requestGate({ requestId: "g-1", taskRunId: run.runId }));
+    const before = value(await app.grading.getGrading(gate.gradingId)).graderRevision;
+    await app.units.run("write", async r => {
+      const again = await ensureVerificationGrader(r, hash, "2026-02-01T00:00:00.000Z");
+      assert.ok(again.ok && again.value.revisionId === before.revisionId && again.value.digest === before.digest);
+    });
   });
+
 }

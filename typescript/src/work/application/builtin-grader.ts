@@ -8,7 +8,6 @@ export const GRADING_REQUEST_COUNTER = "grading-request";
 /**
  * The one grader behind independent acceptance: an evaluator that judges every
  * criterion of the task, blind first and then against the delivery's claims.
- * Migrated ledgers carry the same definition and revision under these ids.
  */
 export const BUILTIN_VERIFICATION_GRADER = { definitionId: "builtin.independent-verification", revisionId: "builtin.independent-verification.r1" } as const;
 export const BUILTIN_VERIFICATION_GRADER_CONTENT = { strategy: "agent", scale: { form: "criteria" } } as const;

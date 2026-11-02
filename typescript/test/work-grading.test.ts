@@ -289,7 +289,7 @@ test("an external evaluator follows blind, freeze, reconcile, handoff, submit in
   assert.equal(evaluator?.protocol?.[1].blindDigest, d("a"));
 });
 
-test("only the registered session records protocol facts, and a migrated registration keeps what it was taken over with", () => {
+test("only the registered session records protocol facts, and only for a grading that has an external evaluator", () => {
   const g = withExternalEvaluator();
   rejected(stageAt(g, "blind", { sessionId: "someone-else" }), "forbidden");
   rejected(recordEvaluatorCommand(g, { sessionId: "someone-else", observation: { stage: "blind", entry: "x", argvDigest: d("1"), state: "succeeded", at: at() } }), "forbidden");
