@@ -4,3 +4,4 @@
 export * from "./repositories.js";
 export * from "./legacy.js";
 export * from "./runtime.js";
+export * from "./code.js";

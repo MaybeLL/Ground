@@ -66,6 +66,8 @@ import { installationStatus } from "./installation-status.js";
 import { cliVersion } from "./runtime-version.js";
 import { JsonWorkspaceStore, JSON_FORMAT as JSON_WORKSPACE_FORMAT } from "./workspace-json.js";
 import { startWorkspaceEditor } from "./workspace-editor.js";
+import { composeWork } from "./work/composition.js";
+import { executeWorkCommand, WORK_GROUPS, WORK_WRITE_ACTIONS, workHelp } from "./work/entry/index.js";
 import { WorkspaceModule } from "./workspace.js";
 import { previewExternalWorkspace, captureWorkspaceArtifact } from "./workspace-provider.js";
 import { DevWorktreeModule, commonRepositoryRoot } from "./dev-worktree.js";
@@ -87,7 +89,7 @@ export interface CLIIO {
 const stdout = (io: CLIIO, line: string): void => (io.stdout ?? ((value) => process.stdout.write(value + "\n")))(line);
 const stderr = (io: CLIIO, line: string): void => (io.stderr ?? ((value) => process.stderr.write(value + "\n")))(line);
 
-const booleanOptionKeys = new Set(["early", "pinned", "allow-cached", "legacy-fixed","allow-unverified","preview","parallel-route","tty", "summary", "paged", "json", "markdown", "reconfigure", "allow-submitted", "allow-unpublished-baseline", "allow-second-issue-per-repository", "non-interactive", "confirm-initialize", "help", "link", "dry-run", "discard-changes", "include-diff", "refresh"]);
+const booleanOptionKeys = new Set(["early", "pinned", "allow-cached", "legacy-fixed","allow-unverified","preview","parallel-route","tty", "summary", "paged", "json", "markdown", "reconfigure", "allow-submitted", "allow-unpublished-baseline", "allow-second-issue-per-repository", "non-interactive", "confirm-initialize", "help", "link", "dry-run", "discard-changes", "include-diff", "refresh", "declare-stop"]);
 
 export const parseArgs = (argv: string[]): ParsedArgs => {
   const positionals: string[] = []; const values: Record<string, string | boolean | string[]> = {};
@@ -1109,6 +1111,13 @@ const executeCommand = async (argv: string[], io: CLIIO = {}, initObservedAbsent
     // materialized through its local fixed objects.
     opened.store.setGitArtifactResolver(ref => { if (!ref.git_artifact) throw validation("artifact", "Git artifact metadata required"); return deriveLocalGitArtifact(cwd, ref.git_artifact.binding); });
     try { return await executeVerificationRun(args, { store: opened.store, cwd, databaseId: opened.config.database.expected_database_id, attribution: () => attribution(args, cwd), validateClone: (path, repositoryId) => validateRepositoryClone(new Module(opened.store), path, repositoryId) }); }
+    finally { await opened.store.close(); }
+  }
+  if ((WORK_GROUPS as readonly string[]).includes(group)) {
+    if (bool(args, "help") || !action || action === "help") return { result_type: "patchledger.result.help/v1", command: "help", usage: workHelp() };
+    requireNoLegacyBrandState(cwd, value(args, "config"));
+    const opened = await openStore(value(args, "config"));
+    try { return await executeWorkCommand(args, { app: composeWork(opened.store), cwd, readFile: path => readFileSync(resolve(cwd, path), "utf8") }); }
     finally { await opened.store.close(); }
   }
   if (group === "eval") {
@@ -2289,7 +2298,7 @@ const assessmentView = (record: RuntimeRecord): Record<string, unknown> => {
 };
 
 export const commandNeedsOperationID = (args: ParsedArgs): boolean =>
-  !(args.positionals[0] === "candidate" && args.positionals[1] === "archive" && bool(args, "dry-run")) && (args.positionals[0] === "selection" && args.positionals[1] === "materialize" && bool(args, "allow-unverified")) || evalNeedsOperation(args) || qaDraftNeedsOperation(args) || writeCommands.has(`${args.positionals[0] ?? "help"}:${args.positionals[1] ?? ""}`);
+  !(args.positionals[0] === "candidate" && args.positionals[1] === "archive" && bool(args, "dry-run")) && (args.positionals[0] === "selection" && args.positionals[1] === "materialize" && bool(args, "allow-unverified")) || evalNeedsOperation(args) || qaDraftNeedsOperation(args) || writeCommands.has(`${args.positionals[0] ?? "help"}:${args.positionals[1] ?? ""}`) || WORK_WRITE_ACTIONS.has(`${args.positionals[0] ?? ""}:${args.positionals[1] ?? ""}`);
 
 export const runCLI = async (argv: string[], io: CLIIO = {}): Promise<number> => {
   const args = parseArgs(argv);
