@@ -209,11 +209,14 @@ class Planner {
   private protocolOf(run: LegacyVerificationRun | undefined): { protocol: ProtocolRecord[]; observations: CommandObservation[] } {
     if (!run) return { protocol: [], observations: [] };
     const protocol: ProtocolRecord[] = [];
+    // A stage counts as done when its last attempt succeeded or when the run recorded the fact the stage produces.
+    const facts: Partial<Record<ProtocolStage, string | undefined>> = { freeze: run.freeze?.at, handoff: run.handoff?.at, submit: run.submit?.at };
     for (const stage of protocolStages) {
       const done = [...(run.stages[stage] ?? [])].reverse().find(a => a.state === "succeeded");
-      if (!done) continue;
-      const blindDigest = stage === "freeze" && run.freezeDigest && /^sha256:[0-9a-f]{64}$/.test(run.freezeDigest) ? run.freezeDigest : undefined;
-      protocol.push({ stage, at: done.endedAt ?? done.startedAt, ...(blindDigest ? { blindDigest } : {}) });
+      const at = done ? (done.endedAt ?? done.startedAt) : facts[stage];
+      if (!at) continue;
+      const blindDigest = stage === "freeze" && run.freeze && /^sha256:[0-9a-f]{64}$/.test(run.freeze.digest) ? run.freeze.digest : undefined;
+      protocol.push({ stage, at, ...(blindDigest ? { blindDigest } : {}) });
     }
     const observations: CommandObservation[] = [];
     for (const command of run.commands) {

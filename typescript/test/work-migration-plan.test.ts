@@ -113,7 +113,7 @@ test("a refinement may sit on a later revision of the same task", () => {
 
 test("a verification becomes a completed gate bound to its run, with a migrated external evaluator and its protocol facts", () => {
   const withRun = verification("ver-1", "cand-r1", { run: {
-    reviewSessionId: "session-1", freezeDigest: d("e"),
+    reviewSessionId: "session-1", freeze: { digest: d("e"), at: T(322) }, handoff: { at: T(325) },
     stages: { blind: [{ state: "failed", startedAt: T(310) }, { state: "succeeded", startedAt: T(311), endedAt: T(320) }], freeze: [{ state: "succeeded", startedAt: T(321), endedAt: T(322) }], submit: [{ state: "succeeded", startedAt: T(330), endedAt: T(331) }], prepare: [{ state: "succeeded", startedAt: T(305), endedAt: T(306) }] },
     commands: [{ stage: "blind", entry: "candidate-context", argvDigest: d("f"), state: "succeeded", exitCode: 0, endedAt: T(312) }, { stage: "prepare", entry: "worktree", argvDigest: d("9"), state: "succeeded", endedAt: T(307) }],
   } });
@@ -130,7 +130,7 @@ test("a verification becomes a completed gate bound to its run, with a migrated 
   assert.equal(gate.evaluator?.kind === "external" && gate.evaluator.sessionId, "session-1");
   assert.equal(gate.evaluator?.kind === "external" && gate.evaluator.agentId, "reviewer-1");
   const evaluator = gate.evaluator?.kind === "external" ? gate.evaluator : undefined;
-  assert.deepEqual(evaluator?.protocol?.map(r => [r.stage, r.at]), [["blind", T(320)], ["freeze", T(322)], ["submit", T(331)]], "the last successful attempt of each stage");
+  assert.deepEqual(evaluator?.protocol?.map(r => [r.stage, r.at]), [["blind", T(320)], ["freeze", T(322)], ["handoff", T(325)], ["submit", T(331)]], "the last successful attempt of a stage, or the fact the run recorded for it");
   assert.equal(evaluator?.protocol?.[1].blindDigest, d("e"));
   assert.equal(evaluator?.commandObservations?.length, 1, "a prepare command has no place in the protocol");
   assert.equal(p.report.observationsOutsideProtocol, 1);
@@ -138,6 +138,12 @@ test("a verification becomes a completed gate bound to its run, with a migrated 
   const grade = gate.grade!;
   assert.equal(grade.form === "criteria" && grade.items[0].final, "satisfied");
   assert.equal(p.report.gradingsWithoutSession, 0);
+});
+
+test("a stage that has no attempt but left its recorded fact still counts as done", () => {
+  const onlyFacts = verification("ver-1", "cand-r1", { run: { reviewSessionId: "session-1", stages: {}, freeze: { digest: d("e"), at: T(322) }, submit: { at: T(331) }, commands: [] } });
+  const evaluator = plan(snapshot({ devRuns: [run("r1")], verifications: [onlyFacts] })).gradings[0].evaluator;
+  assert.deepEqual(evaluator?.kind === "external" && evaluator.protocol?.map(r => r.stage), ["freeze", "submit"]);
 });
 
 test("a verification whose session the old ledger did not keep is migrated without one, and says so", () => {

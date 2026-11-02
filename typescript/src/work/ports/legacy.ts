@@ -55,7 +55,10 @@ export interface LegacyStageAttempt { readonly state: string; readonly startedAt
 export interface LegacyVerificationRun {
   readonly reviewSessionId: string;
   readonly stages: Readonly<Partial<Record<LegacyRunStage, readonly LegacyStageAttempt[]>>>;
-  readonly freezeDigest?: string;
+  /** Facts the run recorded beside its stage log: when the blind result was fixed and with which digest, the handoff, the confirmed submission. */
+  readonly freeze?: { readonly digest: string; readonly at: string };
+  readonly handoff?: { readonly at: string };
+  readonly submit?: { readonly at: string };
   readonly commands: readonly { readonly stage: LegacyRunStage; readonly entry: string; readonly argvDigest: string; readonly state: "succeeded" | "failed" | "unknown"; readonly exitCode?: number; readonly endedAt: string }[];
 }
 export interface LegacyVerification {
@@ -80,4 +83,9 @@ export interface LegacySnapshot {
 export interface LegacyLedgerReader {
   /** One consistent read of everything the migration maps. */
   read(): Promise<LegacySnapshot>;
+}
+
+/** The ledger's own consistency check, run before and after a migration. */
+export interface LedgerIntegrityProbe {
+  check(): Promise<{ readonly valid: boolean; readonly findings: readonly string[] }>;
 }
