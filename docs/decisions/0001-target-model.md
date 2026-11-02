@@ -64,7 +64,7 @@
 | Manifest（交付清单） | 一轮尝试正式交付的 Candidate / Artifact 引用清单。来源（origin）有四种：`tool`（托管 Agent 用交付工具声明）、`contract`（按输出契约从托管执行的归档输出中提取）、`external`（外部执行的 Agent 通过 CLI 提交）、`caller`（人直接提供）。状态有 pending-receipt、accepted、rejected、unavailable 四种 |
 | 执行方式 | worker 与评价者都有两种执行方式。**托管执行**：由 Grounds 启动、停止并归档的 AgentExecution，主要用于评测时换 Agent 重跑。**外部执行**：用户自带的 Agent（Claude Code、Codex 等）在 Grounds 准备的 Workspace 中工作，通过 CLI 或 skill 登记与提交；Grounds 记录身份、提交与证据，但不控制它的进程。日常开发以外部执行为主（愿景原则 1） |
 | AgentExecution | 一次托管执行：会话、轨迹、输出与交付声明的归档、Agent 名额；能否恢复取决于 Provider 声明的能力。被测 worker 与评价者共用这一概念，只是归属与角色不同 |
-| 外部执行登记 | TaskRun 或 GradingRecord 内部的实体，表示一次外部执行：Grounds 签发的会话身份（登记时创建，提交须出示）、自报的 Agent 身份（标识、名称、可选模型）、登记时间、提交时间、已导入的会话记录引用、停止声明 |
+| 外部执行登记 | TaskRun 或 GradingRecord 内部的实体，表示一次外部执行：Grounds 签发的会话身份（登记时创建，提交须出示）、自报的 Agent 身份（标识、名称、可选模型）、登记时间、提交时间、已导入的会话记录引用、停止声明；作为评价者时另有评价协议阶段与只追加的协议命令观测。迁移而来的登记带有“迁移”标记，会话身份可能缺失（第 12 节） |
 | Provider 能力 | 托管执行的 Provider 声明自己支持什么，例如能否恢复原会话、能采集哪些事件。应用层使用前先核对，不支持就明确返回，不悄悄降级（D68） |
 | 命令步骤 | 测试评分器在 Sandbox 内的一次命令运行，属于 GradingRecord 内部的实体：命令规格、退出结果、停止观测。不能恢复，也没有独立于这条评分记录的生命 |
 | 占用者契约 | Sandbox 对占用者的要求：使用桥接时出示当前 fencing token；报告停止事实；能被核对。AgentExecution 与命令步骤报告的是**核实的**停止；外部执行登记只能报告**声明的**停止（由外部 Agent 提交或放弃时声明，或由人声明），记录时注明“声明，未核实”。因为声明不可核实，外部执行使用过的可写 worktree 不能移交给其他执行（第 4.3、4.7 节） |
@@ -82,7 +82,7 @@
 | --- | --- | --- |
 | **Work** | Task；当前工作头（一个 TaskRun；仅迁移而来的 Work 可以暂时为空）；工作头变更历史（只追加，原因为：发起、继续、手动选择、迁移默认）；状态（进行中 / 结束中 / 已结束）；结束事实（结束时的工作头与当时观察到的工作结论） | 同一 Task 可以有多个 Work，各自的工作头与可变 Sandbox 互不共享。工作头必须是本 Work 下的 TaskRun。移动工作头时按版本比较，并带上期望的旧工作头：两个“继续”同时到达时只有一个成功，另一个返回冲突与当前工作头。进入“结束中”后不再接受新的 TaskRun 或工作头变更。结束协议见第 4.5 节 |
 | **TaskRun** | 五个状态；TaskRevision；所属 Work（可空，创建时固定，评测样本为空）；refines（可空，必须指向同一 Task、同一 Work 下已终结的 TaskRun）；已解析环境；至多一个 worker（托管的 AgentExecution，或外部执行登记）；Manifest；取消意图；阻塞原因；失败类别；任务 Sandbox | **已交付**需同时满足：没有取消意图；Manifest 已被接收（accepted），且所列交付与要求的轨迹都有归档回执；名下没有运行中或停止状态未知的 AgentExecution；外部执行登记已有停止声明（提交 Manifest 即视为声明）。worker 本身失败不影响已交付的判定。**失败**必须附失败类别。取消意图登记后，不再启动执行，也不再接收 Manifest。终态不可重开，晚到的回执只记为历史。一个 TaskRun 至多一个 worker；托管执行恢复时沿用原身份 |
-| **AgentExecution** | 归属（TaskRun 或 GradingRecord）；角色（worker / evaluator）；AgentRevision；Sandbox；占用租约；阶段；Durable 会话映射；回执（输出、轨迹、交付声明）；停止观测；评价协议阶段与只追加的协议命令观测（评价者用，承接旧 VerificationRun 的 `RunCommand`） | 成功需要输出与轨迹的归档回执全部到齐。归档受阻时只补做归档，不重跑模型。只有 Provider 声明支持恢复时才能恢复，并沿用原身份；不支持时，宿主中断后经核对确认已停止，即以“中断”终结，所属 TaskRun 记为 infrastructure 失败。同一时刻只有一个运行拥有者 |
+| **AgentExecution** | 归属（TaskRun 或 GradingRecord）；角色（worker / evaluator）；AgentRevision；Sandbox；占用租约；阶段；Durable 会话映射；回执（输出、轨迹、交付声明）；停止观测；评价协议阶段与只追加的协议命令观测（评价者用） | 成功需要输出与轨迹的归档回执全部到齐。归档受阻时只补做归档，不重跑模型。只有 Provider 声明支持恢复时才能恢复，并沿用原身份；不支持时，宿主中断后经核对确认已停止，即以“中断”终结，所属 TaskRun 记为 infrastructure 失败。同一时刻只有一个运行拥有者 |
 | **Sandbox** | 归属者；Workspace 及其来源（自建或借用）；运行资源（依据的 EnvironmentRevision、资源身份、阶段）；挂载；当前占用租约；执行容器的暂停事实；保留意图；生命周期操作预留（移交 / 释放 / 暂停 / 恢复，带操作身份）；移交记录 | 同一时刻至多一个占用租约，桥接只接受当前 fencing token。同一时刻至多一个生命周期操作预留：任何会做外部 I/O 的生命周期操作，都必须先以 CAS 登记预留，再执行 I/O，最后核对并完成；崩溃后沿原预留核对，不重新竞争。存在占用、或停止状态未知时，不得卸载、暂停、移交或释放。只回收自建资源。准备失败时保留已就绪的 Workspace。只能移交给 refine 当前归属者的 TaskRun，且需满足：原归属者已终结、没有占用、保留意图为“保留待细化”。每次移交只有一个接收方 |
 | **Workspace** | 复用现有的 CodeWorkspaceInstance / Route | 沿用 D109 以及现有的清理保护 |
 | **Candidate / Artifact** | 身份、类型、冻结内容、来源 AgentExecution | 提交后不可变；保存重试返回同一个引用（D47） |
@@ -170,7 +170,7 @@
 
 1. 登记结束意图：Work 进入“结束中”，关闭新 TaskRun 和工作头变更的入口。
 2. 如果 Work 下还有待开始或进行中的 TaskRun，结束请求返回冲突并列出这些 TaskRun。调用方需要先取消它们（并等待停止确认），或等它们自然终结后再重试。系统不会自动取消。
-3. 对该 Work 下所有“保留待细化”的 Sandbox 登记释放预留，然后提交“已结束”，同时记录结束事实：结束时的工作头，以及当时观察到的工作结论。释放 I/O 按预留在后台完成。
+3. 对该 Work 下所有“保留待细化”的 Sandbox 登记释放预留，然后提交“已结束”，同时记录结束事实：结束时的工作头，以及当时观察到的工作结论。释放 I/O 按预留在同一次 CLI 调用中同步执行（第 7.3 节）；如果中途崩溃，由下一次相关命令或 `grounds reconcile` 按原预留续接。
 4. 尚未终结的 gate 不受影响，它们属于 GradingRecord。结束后，工作结论仍是查询结果，后续重验可能改变它；结束事实保留结束那一刻的观察，两者并列展示。
 
 ### 4.6 评分的取消与终态竞争
@@ -260,7 +260,7 @@ GradingRecord 和 TaskRun 一样，所有转换都按版本比较后提交，**�
 | 现有 | 目标 |
 | --- | --- |
 | VerificationReport 逐条的 independent / reconciliation / final | gate GradingRecord 逐条结论中的三段 |
-| VerificationRun 的 blind / freeze / reconcile / handoff / submit | 评价者 AgentExecution 的协议阶段；旧记录没有轨迹，标注为缺失，不补造。旧记录中的 `RunCommand` 对应为协议阶段中的命令记录 |
+| VerificationRun 的 blind / freeze / reconcile / handoff / submit | 外部评价者登记的协议阶段，`RunCommand` 对应协议命令观测；按第 12 节的迁移规则处理会话身份，轨迹标注为缺失，不补造 |
 | 候选 standing 中的 disputed 汇总 | 由同一组绑定下的多条 gate 记录派生的查询结果 |
 | DevRun.refines_candidate_id | TaskRun.refines 加上一轮的交付输入 |
 
@@ -322,7 +322,7 @@ Git 之外的材料（文件、S3 等）推迟到有真实需求时再扩展。
 
 托管执行相关的工作（AgentExecutionService、ExperimentExecution、测试评分与 Agent 型评分）都遵循同一模式：持久化请求与意图，立即返回身份，在后台推进；宿主重启后先核对（D53、D73、D74）。
 
-**同步驱动（D148）**：只涉及外部执行与规则评分的工作，在 CLI 调用内同步推进。包括：外部执行的登记与提交（含归档与接收校验）、外部评价者的 gate、规则评分、Work 操作。它们同样使用请求账本与意图记录；子流程的完成事件在同一次调用中同步消费。如果 CLI 在外部 I/O 之后崩溃，留下的“意图已登记、结果未知”由下一次相关命令或 `grounds reconcile` 核对并续接。因此，只使用本地模式时不需要后台宿主。
+**同步驱动（D148）**：只涉及外部执行与规则评分的工作，在 CLI 调用内同步推进。包括：外部执行的登记与提交（含归档与接收校验）、外部评价者的 gate、规则评分、Work 操作。它们同样使用请求账本与意图记录。一次 CLI 调用的顺序是：入口调用 application 完成受理，组合根随即调用同步驱动，把本次请求能推进的步骤（外部 I/O、释放、完成事件的消费）推进到结束或阻塞为止，然后才返回。如果 CLI 在外部 I/O 之后崩溃，留下的“意图已登记、结果未知”由下一次相关命令或 `grounds reconcile` 核对并续接。因此，只使用本地模式时不需要后台宿主。
 
 共用的基础设施包括：
 
@@ -403,4 +403,7 @@ D79 的准确含义：实验不接受用户另选或覆盖环境，但可以保�
 - **Work 的划分**：同一 Issue 下，不 refine 任何 Candidate 的 DevRun 各自作为一棵树的根；`refines_candidate_id` 指向的 Candidate 由哪个 DevRun 产生，该 DevRun 就是父节点。每棵树形成一个 Work。
 - **历史工作头**：树只有一个叶子时，以“迁移默认”为原因把工作头设为该叶子；有多个叶子时，工作头暂时为空，工作结论显示 `head-unselected`，等用户首次显式选择。迁移不伪装成用户选择，也不按创建时间推断。
 - **状态映射**：submitted 且有冻结 Candidate 的 DevRun → 已交付，Manifest 的 origin 为 `caller`，并标注迁移来源；abandoned → 已取消；切换时仍为 open 的 DevRun → 已取消，原因记为迁移（D114 已规定切换时不存在运行中的 DevRun）。
-- **验收记录**：Verification → gate GradingRecord；VerificationRun 的阶段与 `RunCommand` → 评价者 AgentExecution 的协议阶段与协议命令观测，并标注轨迹缺失。测试型评分器的 `ProcessResult` → 命令步骤。
+- **验收记录**：Verification → gate GradingRecord，评价者一律迁为**外部评价者登记**（旧验收都由外部会话完成，不迁为托管的 AgentExecution），并带“迁移”标记。
+  - 有可关联的 VerificationRun 时：保留原 `review_session_id`、创建时点与协议阶段，`RunCommand` 迁为协议命令观测，标注为“迁移来的旧会话事实”。
+  - 没有可关联的 VerificationRun 时：记录“会话身份缺失，独立性保证未知”。迁移不生成新的会话身份，也不声称满足 D148 的“交付冻结之后、与 worker 不同的会话”保证。
+  - 两种情况的轨迹都标注为缺失，不补造。测试型评分器的 `ProcessResult` → 命令步骤。

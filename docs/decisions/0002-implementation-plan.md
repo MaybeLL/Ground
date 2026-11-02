@@ -60,7 +60,7 @@ P0 结束后，P1 与 P2 可以并行；P3 只依赖 P1（测试评分需要 San
 | `application/` | 用例、编排、查询，以及供驱动调用的事件处理入口 | 只依赖 domain 与 ports；请求账本、意图、完成事件的存储接口也定义在 ports |
 | `driver/` | 入站驱动：同步驱动、完成事件投递、核对循环、宿主（P4 起） | 调用 application，依赖 ports |
 | `adapters/` | SQL、Workspace、devcontainer 与 Docker、命令行 Agent、交付与证据存取 | 实现 ports，可以复用现有模块 |
-| `entry/` | CLI 命令组：work、task、grade、experiment、host | 只调用 application |
+| `entry/` | CLI 命令组：work、task、grade、experiment、host | 调用 application；组合根在受理之后调用同步驱动，排空本次请求能推进的步骤再返回 |
 
 领域代码写成纯函数 `decide(state, command) → { state, events }`；`test/work-architecture.test.ts` 静态检查依赖方向。
 
@@ -116,7 +116,7 @@ Provider 用能力声明表达差异（D68），应用层只依赖声明，不�
 
 ## 9. 迁移与切换
 
-保持第一版的规则：Issue → Task（kind = coding），DevRun → TaskRun，并沿用原 ID；DevRun 树 → Work（按目标模型第 12 节）；Verification → gate GradingRecord，评价者记为外部执行登记；QA 与评测记录在 P3、P5 迁移。迁移离线进行，前后各跑一次完整性检查；旧表保留只读，到 P6 为止。现有的 Workspace 实例与路线记录保持原格式。
+保持第一版的规则：Issue → Task（kind = coding），DevRun → TaskRun，并沿用原 ID；DevRun 树 → Work（按目标模型第 12 节）；Verification → gate GradingRecord，评价者迁为带“迁移”标记的外部评价者登记，缺少 VerificationRun 时记“会话身份缺失，独立性保证未知”（目标模型第 12 节）；QA 与评测记录在 P3、P5 迁移。迁移离线进行，前后各跑一次完整性检查；旧表保留只读，到 P6 为止。现有的 Workspace 实例与路线记录保持原格式。
 
 切换分两次：P1 切换开发闭环（旧的 `devrun` 与 `verification` 写命令停用，读命令保留）；P5 切换评测。
 
@@ -144,7 +144,7 @@ Provider 用能力声明表达差异（D68），应用层只依赖声明，不�
 | --- | --- |
 | P0 | 9 个聚合的不变量与竞态测试（取消先后、移交预留、工作头 CAS、失败类别优先级、外部提交与取消的线性化）；三后端一致性；依赖方向检查 |
 | P1 | 伪外部 Agent 走完“开始工作 → 提交 → gate rejected → refine（新 worktree）→ 提交 → gate accepted → 结束工作”；取消与迟到提交的竞态；同步驱动在每次外部 I/O 之后崩溃，下一次命令能核对续接；固定的迁移 fixture 迁移前后完整性检查通过，旧 Candidate、验收与选择记录可读；用 Claude Code 或 Codex 各做一次人工冒烟 |
-| P2 | 在 macOS（arm64）与 Linux（x64、arm64）的干净环境中，只装 Node 与 Git，从安装到完成首个任务的提交与验收；记录实际耗时 |
+| P2 | 在 macOS（arm64）与 Linux（x64、arm64）的干净环境中，只装 Node 与 Git，从安装到完成首个任务的提交与验收；记录实际耗时。前提与断言：自动化测试使用临时的本地裸仓库作为远端（`file://`），断言归档标签已推送并读回指向确切提交；另做一次人工验收，使用专用的 GitHub 测试仓库，凭据通过环境变量注入，需要网络。耗时从安装开始计到验收完成，测试远端的预先配置时间单独记录，不从总时间中扣除 |
 | P3 | 用固定 fixture 中至少 20 个历史 TaskRun 生成评测集；每个评测项可追溯到 TaskRevision、交付与评分依据；规则评分的结果可重算一致 |
 | P4 | 3 个托管任务在 devcontainer 中并发且互不干扰；测试评分在评价者 Sandbox 中运行；宿主在每个外部动作前后崩溃，重启后只核对、不重复执行；命令行 Agent 的轨迹转换有契约测试 |
 | P5 | 同一评测集分别用两个 Agent 跑一个批次，D63–D66 的查询与汇总结果与预先计算的期望一致；`unavailable` 的交付不进入新的批次 |
