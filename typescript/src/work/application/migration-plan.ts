@@ -8,7 +8,7 @@ import {
 } from "../domain/index.js";
 import type { LegacyCriterion, LegacyDevRun, LegacyIssue, LegacyIssueRevision, LegacySnapshot, LegacyVerification, LegacyVerificationRun } from "../ports/legacy.js";
 
-export const BUILTIN_VERIFICATION_GRADER = { definitionId: "builtin.independent-verification", revisionId: "builtin.independent-verification.r1" } as const;
+import { BUILTIN_VERIFICATION_GRADER, BUILTIN_VERIFICATION_GRADER_CONTENT } from "./builtin-grader.js";
 
 export interface PlannedDefinition { readonly definition: Definition; readonly revisions: readonly Revision[] }
 export interface MigrationReport {
@@ -144,7 +144,7 @@ class Planner {
   private graderDefinition(): { planned: PlannedDefinition; ref: RevisionRef } | undefined {
     const created = this.take("the verification grader", createDefinition({ id: BUILTIN_VERIFICATION_GRADER.definitionId, kind: "grader", name: "Independent verification (migrated)", at: this.at }));
     if (!created) return undefined;
-    const published = this.take("the verification grader", publishRevision(created.state, { revisionId: BUILTIN_VERIFICATION_GRADER.revisionId, expectedSeq: 0, content: { strategy: "agent", scale: { form: "criteria" } }, at: this.at }, this.hash));
+    const published = this.take("the verification grader", publishRevision(created.state, { revisionId: BUILTIN_VERIFICATION_GRADER.revisionId, expectedSeq: 0, content: BUILTIN_VERIFICATION_GRADER_CONTENT, at: this.at }, this.hash));
     if (!published) return undefined;
     return { planned: { definition: published.state, revisions: [published.outcome] }, ref: refOf(published.outcome) };
   }

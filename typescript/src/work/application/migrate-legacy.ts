@@ -4,10 +4,10 @@
 // refused instead of mixing two states.
 import { canonicalJson, type Hasher, type Id, type JsonValue, type Timestamp } from "../domain/index.js";
 import { RequestConflict, type IntentRecord, type LedgerIntegrityProbe, type LegacyLedgerReader, type WorkRepositories, type WorkUnitOfWork } from "../ports/index.js";
+import { BUILTIN_VERIFICATION_GRADER, GRADING_REQUEST_COUNTER } from "./builtin-grader.js";
 import { planMigration, type MigrationPlan, type MigrationReport } from "./migration-plan.js";
 
 export const MIGRATION_REQUEST_ID = "migrate-legacy-ledger/v1";
-export const GRADING_REQUEST_COUNTER = "grading-request";
 
 export interface MigrationDependencies {
   readonly reader: LegacyLedgerReader;
@@ -75,6 +75,11 @@ function intentFor(plan: MigrationPlan, deps: MigrationDependencies): IntentReco
 
 async function write(r: WorkRepositories, plan: MigrationPlan): Promise<void> {
   for (const planned of plan.definitions) {
+    // The built-in grader may already exist because a gate was requested before the old ledger was taken over; the same content is not a conflict.
+    if (planned.definition.id === BUILTIN_VERIFICATION_GRADER.definitionId) {
+      const existing = await r.definitions.getRevision(planned.definition.id, BUILTIN_VERIFICATION_GRADER.revisionId);
+      if (existing) { if (existing.digest !== planned.revisions[0].digest) throw new Error("the built-in verification grader exists with other content"); continue; }
+    }
     // A definition is stored at version 1 and then advanced once per revision, as publication would.
     const first = { ...planned.definition, version: 1, head: { seq: 0 } } as typeof planned.definition;
     await r.definitions.create(first);
@@ -102,6 +107,12 @@ async function verify(r: WorkRepositories, plan: MigrationPlan): Promise<number>
     count++;
   };
   for (const planned of plan.definitions) {
+    if (planned.definition.id === BUILTIN_VERIFICATION_GRADER.definitionId) {
+      // It may have been created earlier, at another time: what must hold is its content.
+      same(`definition ${planned.definition.id}`, (await r.definitions.get(planned.definition.id))?.head.digest, planned.definition.head.digest);
+      same(`revision ${planned.revisions[0].id}`, (await r.definitions.getRevision(planned.definition.id, planned.revisions[0].id))?.digest, planned.revisions[0].digest);
+      continue;
+    }
     same(`definition ${planned.definition.id}`, await r.definitions.get(planned.definition.id), planned.definition);
     for (const revision of planned.revisions) same(`revision ${revision.id}`, await r.definitions.getRevision(planned.definition.id, revision.id), revision);
   }

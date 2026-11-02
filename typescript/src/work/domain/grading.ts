@@ -1,7 +1,7 @@
 import { advance, conflict, digestOf, firstInvalid, invalid, isDigest, isId, isNonNegativeInteger, isText, isTimestamp, ok, reject, unique, type Decision, type Digest, type Hasher, type Id, type Result, type Timestamp, type Versioned } from "./kernel.js";
 import { isRevisionRef, type GraderContent, type RevisionRef, type Scale } from "./definitions.js";
 import type { AcceptanceConclusion } from "./work.js";
-import { protocolStages, type CommandObservation, type ProtocolRecord } from "./agent-execution.js";
+import { protocolStages, type CommandObservation, type ProtocolRecord, type ProtocolStage } from "./agent-execution.js";
 
 export type Purpose = "gate" | "measure";
 export type TargetRef = { readonly type: "candidate" | "artifact" | "trajectory"; readonly id: Id; readonly digest: Digest };
@@ -95,6 +95,7 @@ export type GradingEvent =
   | { readonly type: "created"; readonly gradingId: Id; readonly purpose: Purpose; readonly at: Timestamp }
   | { readonly type: "evaluator-registered"; readonly gradingId: Id; readonly kind: Evaluator["kind"]; readonly at: Timestamp }
   | { readonly type: "sandbox-attached"; readonly gradingId: Id; readonly sandboxId: Id }
+  | { readonly type: "protocol-stage"; readonly gradingId: Id; readonly stage: ProtocolStage; readonly at: Timestamp }
   | { readonly type: "evaluator-stopped"; readonly gradingId: Id; readonly verified: boolean; readonly at: Timestamp }
   | { readonly type: "command-step"; readonly gradingId: Id; readonly ordinal: number; readonly state: StepState; readonly at: Timestamp }
   | { readonly type: "completed"; readonly gradingId: Id; readonly at: Timestamp }
@@ -204,6 +205,43 @@ export function declareExternalEvaluatorStop(g: GradingRecord, command: { sessio
   if (command.sessionId !== undefined && command.sessionId !== g.evaluator.sessionId) return reject("forbidden", "the session identity does not match the evaluator");
   if (g.evaluator.stopDeclared) return advance(g, {}, [], "applied");
   return settleCancel(g, { evaluator: { ...g.evaluator, stopDeclared: command.at } }, [{ type: "evaluator-stopped", gradingId: g.id, verified: false, at: command.at }], command.at, "applied");
+}
+
+function externalEvaluatorOf(g: GradingRecord, sessionId: Id | undefined): { ok: true; evaluator: Extract<Evaluator, { kind: "external" }> } | { ok: false; error: { code: "conflict" | "forbidden"; message: string } } {
+  const evaluator = g.evaluator;
+  if (evaluator?.kind !== "external") return { ok: false, error: { code: "conflict", message: "the grading has no external evaluator" } };
+  if (evaluator.migrated) return { ok: false, error: { code: "conflict", message: "a migrated registration keeps the facts it was taken over with" } };
+  if (sessionId !== evaluator.sessionId) return { ok: false, error: { code: "forbidden", message: "the session identity does not match the evaluator" } };
+  return { ok: true, evaluator };
+}
+
+/** Blind, freeze, reconcile, hand off, submit: in order, append-only, and the blind result never changes after the freeze. */
+export function recordEvaluatorStage(g: GradingRecord, command: { sessionId: Id; stage: ProtocolStage; blindDigest?: Digest; at: Timestamp }): Step {
+  const bad = firstInvalid([["stage", protocolStages.includes(command.stage)], ["blindDigest", command.blindDigest === undefined || isDigest(command.blindDigest)], ["at", isTimestamp(command.at)]]);
+  if (bad) return bad;
+  const owner = externalEvaluatorOf(g, command.sessionId);
+  if (!owner.ok) return reject(owner.error.code, owner.error.message);
+  if (isGradingTerminal(g)) return late(g, "step", command.at, `protocol stage ${command.stage} after the grading was ${g.status}`);
+  const protocol = owner.evaluator.protocol ?? [];
+  const last = protocol[protocol.length - 1];
+  if (last && last.stage === command.stage) return conflict(`the ${command.stage} stage was already recorded`);
+  if (protocolStages.indexOf(command.stage) !== (last ? protocolStages.indexOf(last.stage) + 1 : 0)) return conflict(`the ${command.stage} stage does not follow ${last?.stage ?? "the start"}`);
+  const frozen = protocol.find(r => r.stage === "freeze")?.blindDigest;
+  if (command.stage === "freeze" && !command.blindDigest) return invalid("the freeze records the digest of the blind result");
+  if (command.stage !== "freeze" && command.blindDigest !== undefined && command.blindDigest !== frozen) return conflict("the blind result was frozen and cannot change");
+  const record: ProtocolRecord = { stage: command.stage, at: command.at, ...(command.stage === "freeze" ? { blindDigest: command.blindDigest } : {}) };
+  return advance(g, { evaluator: { ...owner.evaluator, protocol: [...protocol, record] } }, [{ type: "protocol-stage", gradingId: g.id, stage: command.stage, at: command.at }], "applied");
+}
+
+/** A command the evaluator ran through a supported entry; kept append-only beside the stages. */
+export function recordEvaluatorCommand(g: GradingRecord, command: { sessionId: Id; observation: CommandObservation }): Step {
+  const o = command.observation;
+  const bad = firstInvalid([["stage", protocolStages.includes(o.stage)], ["entry", isText(o.entry, 256)], ["argvDigest", isDigest(o.argvDigest)], ["state", ["succeeded", "failed", "unknown"].includes(o.state)], ["at", isTimestamp(o.at)]]);
+  if (bad) return bad;
+  const owner = externalEvaluatorOf(g, command.sessionId);
+  if (!owner.ok) return reject(owner.error.code, owner.error.message);
+  if (isGradingTerminal(g)) return late(g, "step", o.at, `command observed after the grading was ${g.status}`);
+  return advance(g, { evaluator: { ...owner.evaluator, commandObservations: [...(owner.evaluator.commandObservations ?? []), o] } }, [{ type: "protocol-stage", gradingId: g.id, stage: o.stage, at: o.at }], "applied");
 }
 
 export function attachGradingSandbox(g: GradingRecord, command: { sandboxId: Id }): Step {
