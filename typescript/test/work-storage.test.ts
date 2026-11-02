@@ -81,6 +81,10 @@ for (const backend of backends) {
     assert.deepEqual(stored.byId, second.value.outcome);
     assert.equal(stored.none, undefined);
     assert.equal((await failure(write(uow, r => r.definitions.addRevision({ ...second.value.outcome, id: "rev-dup" })))).reason, "duplicate", "a revision number is used once");
+    const other: Definition = ok(createDefinition({ id: "def-0", kind: "agent", name: "Agent", at: at() }));
+    await write(uow, r => r.definitions.create(other));
+    assert.deepEqual((await read(uow, r => r.definitions.list("task"))).map(x => x.id), ["def-1"], "only definitions of the asked kind");
+    assert.deepEqual((await read(uow, r => r.definitions.list("agent"))).map(x => x.id), ["def-0"]);
     assert.equal((await failure(write(uow, r => r.definitions.addRevision({ ...second.value.outcome, definitionId: "unknown-definition", id: "rev-orphan", seq: 9 })))).reason, "missing", "a revision cannot exist without its definition");
   });
 

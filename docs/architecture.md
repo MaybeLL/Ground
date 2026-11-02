@@ -49,6 +49,14 @@ The work tables live in the same SQL ledger as the older tables and work on SQLi
 - The protocol is blind, freeze, reconcile, handoff, submit, in order. The freeze records the digest of the blind result and nothing afterwards may change it; a verdict is refused until the blind result was frozen. A verdict must judge exactly the task's criteria.
 - A cancelled grading ends once the evaluator declares it stopped; a verdict that arrives after cancellation is only recorded.
 
+`TaskDefinitions` creates and revises tasks (a coding task: summary, criteria with stable identities, optional context and the repository and baseline the work starts from). A revision never edits an earlier one: a run stays tied to the wording it was done against, and a refinement starts from the latest revision unless the caller pins one.
+
+## Deliveries and archive receipts
+
+A code delivery is a commit archived as a tag on the repository's remote (`adapters/git/tag-archive.ts`, D147). `archive` pushes `refs/tags/grounds/deliveries/<id>` without force and reads it back; the same commit again is harmless, another commit under the same identity is a conflict. The receipt is self-describing (remote, tag, commit, tree, parents) and is a delivery item's `receipt`; nothing is written to the old `candidates` table. `check` implements `DeliveryReceiptPort` by asking the remote now: a moved or removed tag or a receipt for another identity is `rejected`, an unreachable remote is `unavailable` and proves nothing.
+
+Crash safety needs no intent log here: every use case is one transaction, and the only external effect, pushing the tag, is idempotent. If a command stops after the push and before `submit`, running it again finds the tag already in place and submits.
+
 ## Taking over the previous model
 
 `work/application/migration-plan.ts` is a pure mapping from a snapshot of the old tables (`ports/legacy.ts`) to work-model aggregates in their final state; `migrate-legacy.ts` runs it; `adapters/sql/legacy-reader.ts` reads the old tables and runs the ledger's own integrity check. Nothing calls it from the CLI yet; the cutover command arrives with plan phase P1.
