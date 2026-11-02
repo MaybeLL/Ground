@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -14,12 +14,12 @@ const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd,
 
 interface Harness { cli(...args: string[]): Promise<{ code: number; ok: boolean; data: any; error: any; stderr: string[] }>; repo: string; remote: string; directory: string; baseline: string }
 
-async function withHarness(run: (h: Harness) => Promise<void>): Promise<void> {
+async function withHarness(run: (h: Harness) => Promise<void>, objectFormat: "sha1" | "sha256" = "sha1"): Promise<void> {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), "grounds-work-cli-")));
   try {
     const repo = join(directory, "repo"), remote = join(directory, "remote.git");
-    execFileSync("git", ["init", "-q", "--bare", remote]);
-    execFileSync("git", ["init", "-q", "-b", "main", repo]);
+    execFileSync("git", ["init", "-q", `--object-format=${objectFormat}`, "--bare", remote]);
+    execFileSync("git", ["init", "-q", `--object-format=${objectFormat}`, "-b", "main", repo]);
     writeFileSync(join(repo, "app.txt"), "v0\n");
     git(repo, "add", "-A"); git(repo, "commit", "-qm", "base");
     const baseline = git(repo, "rev-parse", "HEAD");
@@ -104,10 +104,10 @@ test("the caller's own agent works a task end to end through the command line: d
   });
 });
 
-test("the skill checks out the public delivery in a fresh directory using the actual overridden remote before evaluator registration", async () => {
+for (const objectFormat of ["sha1", "sha256"] as const) test(`the skill checks out a ${objectFormat} delivery using the actual overridden remote despite the opposite Git default`, async () => {
   await withHarness(async h => {
     const actualRemote = join(h.directory, "delivery-remote.git");
-    execFileSync("git", ["init", "-q", "--bare", actualRemote]);
+    execFileSync("git", ["init", "-q", `--object-format=${objectFormat}`, "--bare", actualRemote]);
     const task = ok(await h.cli("task", "create", "--title", "Export", "--criterion", "exports CSV", "--repo-remote", h.remote, "--baseline", h.baseline));
     const started = ok(await h.cli("work", "start", "--task", task.taskId, "--mode", "external"));
     const worker = ok(await h.cli("work", "register", "--run", started.runId, "--agent", "worker"));
@@ -126,13 +126,20 @@ test("the skill checks out the public delivery in a fresh directory using the ac
     const guide = readFileSync(new URL("../../plugins/grounds/skills/grounds/references/workflows/verify.md", import.meta.url), "utf8");
     const checkout = /```bash\n(# Frozen delivery checkout\n[\s\S]*?)\n```/.exec(guide)?.[1];
     assert.ok(checkout, "the skill contains an executable checkout recipe");
-    const materialize = (directory: string, remote = actualRemote) => execFileSync("bash", ["-c", checkout], {
+    const materialize = (directory: string, remote = actualRemote, commit = delivered.delivery.commit) => execFileSync("bash", ["-c", checkout], {
       cwd: h.directory, encoding: "utf8", stdio: "pipe", env: { ...process.env,
-        DELIVERY_REMOTE: remote, DELIVERY_ID: delivered.delivery.id, DELIVERY_COMMIT: delivered.delivery.commit, REVIEW_DIR: directory },
+        GIT_DEFAULT_HASH: objectFormat === "sha1" ? "sha256" : "sha1",
+        DELIVERY_REMOTE: remote, DELIVERY_ID: delivered.delivery.id, DELIVERY_COMMIT: commit, REVIEW_DIR: directory },
     });
     const review = join(h.directory, "independent-review");
     materialize(review);
     assert.equal(git(review, "rev-parse", "HEAD"), delivered.delivery.commit);
+    assert.equal(git(review, "rev-parse", "--show-object-format"), objectFormat);
+    for (const invalid of ["A".repeat(40), "z".repeat(64), "a".repeat(41)]) {
+      const invalidDirectory = join(h.directory, `invalid-${invalid}`);
+      assert.throws(() => materialize(invalidDirectory, actualRemote, invalid));
+      assert.equal(existsSync(invalidDirectory), false, "invalid OIDs fail before creating a directory");
+    }
     assert.throws(() => git(review, "symbolic-ref", "-q", "HEAD"), "checkout must be detached");
     assert.equal(git(review, "status", "--porcelain"), "");
     assert.equal(readFileSync(join(review, "app.txt"), "utf8"), "frozen delivery\n");
@@ -146,7 +153,7 @@ test("the skill checks out the public delivery in a fresh directory using the ac
     // A moved tag must fail closed even though its old commit remains available.
     git(actualRemote, "update-ref", `refs/tags/grounds/deliveries/${delivered.delivery.id}`, h.baseline);
     assert.throws(() => materialize(join(h.directory, "moved-tag")));
-  });
+  }, objectFormat);
 });
 
 test("a call is safe to repeat with its operation id, and a delivery interrupted after the archive is simply run again", async () => {

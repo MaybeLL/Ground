@@ -23,10 +23,18 @@ grounds grade request --run "$RUN_ID" --json
 (
   set -eu
   : "${DELIVERY_REMOTE:?}" "${DELIVERY_ID:?}" "${DELIVERY_COMMIT:?}" "${REVIEW_DIR:?}"
+  if [[ "$DELIVERY_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+    OBJECT_FORMAT=sha1
+  elif [[ "$DELIVERY_COMMIT" =~ ^[0-9a-f]{64}$ ]]; then
+    OBJECT_FORMAT=sha256
+  else
+    printf '%s\n' 'Invalid full delivery commit' >&2
+    exit 1
+  fi
   DELIVERY_REF="refs/tags/grounds/deliveries/$DELIVERY_ID"
   EXPECTED_LINE="$(printf '%s\t%s' "$DELIVERY_COMMIT" "$DELIVERY_REF")"
   mkdir "$REVIEW_DIR"
-  git init -q "$REVIEW_DIR"
+  git init -q --object-format="$OBJECT_FORMAT" "$REVIEW_DIR"
   test "$(git -C "$REVIEW_DIR" ls-remote --exit-code --refs -- "$DELIVERY_REMOTE" "$DELIVERY_REF")" = "$EXPECTED_LINE"
   git -C "$REVIEW_DIR" fetch --no-tags --quiet -- "$DELIVERY_REMOTE" "$DELIVERY_REF"
   test "$(git -C "$REVIEW_DIR" rev-parse --verify 'FETCH_HEAD^{commit}')" = "$DELIVERY_COMMIT"
@@ -36,7 +44,7 @@ grounds grade request --run "$RUN_ID" --json
 )
 ```
 
-只有整个命令成功后才创建评价者。它核对远端读回与实际 fetch 的 commit，不承诺标签此后永不变化。不要把 worker 未提交改动或作者日志交给评价者；不要对已 delivered 的 run 再调用 `work workspace`，它是开发入口。网络不可达、标签缺失/变化或原目录已存在时停止，不能改用本地 HEAD，也不能清空旧目录强行继续。
+只有整个命令成功后才创建评价者。脚本只接受 40/64 位小写十六进制完整 commit，并显式选择 SHA-1/SHA-256 仓库格式，不依赖 Git 默认设置；本机 Git 不支持所需格式时停止，不截断或转换 commit。它核对远端读回与实际 fetch 的 commit，不承诺标签此后永不变化。不要把 worker 未提交改动或作者日志交给评价者；不要对已 delivered 的 run 再调用 `work workspace`，它是开发入口。网络不可达、标签缺失/变化或原目录已存在时停止，不能改用本地 HEAD，也不能清空旧目录强行继续。
 
 在交付冻结后，使用宿主提供的子 agent 功能创建全新上下文，不 fork 主会话、不 resume worker。最小交接：
 
