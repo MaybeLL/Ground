@@ -1,0 +1,9 @@
+flowchart LR
+  M0["M0 技术验证<br/>Durable 锁版与容器桥接<br/>Docker 暂停恢复<br/>单执行 SQLite 存储"] --> M1["M1 领域核心<br/>9 个聚合的纯规则<br/>不变量测试"]
+  M1 --> M2["M2 存储与驱动<br/>schema v24 · 仓储<br/>意图 · 完成事件 · 核对 · 宿主"]
+  M2 --> M3["M3 Sandbox<br/>复用 Workspace 与 Docker<br/>预留 · 移交 · 占用契约"]
+  M3 --> M4["M4 Agent 执行<br/>Durable 适配器<br/>轨迹与交付归档"]
+  M4 --> M5["M5 开发闭环与切换<br/>Work · TaskRun · gate<br/>迁移 Issue / DevRun / Verification"]
+  M5 --> M6["M6 评测闭环<br/>measure 评分 · 实验批次<br/>迁移评测记录"]
+  M6 --> M7["M7 退役<br/>旧写入路径 · Python 协调器<br/>Codex 采集"]
+  M0 -.->|不通过则回到选型| X[(重新评估 D69)]

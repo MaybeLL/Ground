@@ -1,0 +1,108 @@
+erDiagram
+  definitions ||--o{ revisions : "具有"
+  works ||--o{ task_runs : "包含"
+  task_runs ||--o| agent_executions : "worker"
+  task_runs ||--o| task_runs : "refines"
+  task_runs ||--o| sandboxes : "拥有"
+  grading_records ||--o| agent_executions : "评价者"
+  grading_records ||--o{ grading_command_steps : "包含"
+  grading_records ||--o| sandboxes : "拥有"
+  experiment_runs ||--o{ experiment_members : "成员"
+  experiment_members ||--|| task_runs : "被测"
+  task_runs ||--o{ candidates : "Manifest 引用"
+  task_runs ||--o{ artifacts : "Manifest 引用"
+  intents }o--|| idempotency_records : "请求身份"
+  completion_events }o--|| intents : "唤醒父意图"
+  definitions {
+    string id
+    string kind
+    string name
+  }
+  revisions {
+    string id
+    string definition_id
+    int seq
+    string digest
+    json body_json
+  }
+  works {
+    string id
+    string task_id
+    string head_task_run_id
+    string state
+    int version
+    json body_json
+  }
+  task_runs {
+    string id
+    string work_id
+    string refines_id
+    string state
+    int version
+    json body_json
+  }
+  agent_executions {
+    string id
+    string owner_type
+    string owner_id
+    string stage
+    int version
+    json body_json
+  }
+  sandboxes {
+    string id
+    string owner_type
+    string owner_id
+    string phase
+    string lifecycle_reservation
+    string occupant_ref
+    int fencing_token
+    int version
+    json body_json
+  }
+  grading_records {
+    string id
+    string purpose
+    string target_task_run_id
+    string status
+    int version
+    json body_json
+  }
+  grading_command_steps {
+    string grading_record_id
+    int ordinal
+    string state
+    json body_json
+  }
+  experiment_runs {
+    string id
+    string experiment_revision_id
+    int version
+    json body_json
+  }
+  experiment_members {
+    string experiment_run_id
+    string case_key
+    int repeat_index
+    string task_run_request_id
+  }
+  artifacts {
+    string id
+    string content_type
+    string blob_digest
+    string source_execution_id
+  }
+  intents {
+    string id
+    string parent_intent_id
+    string owner
+    string kind
+    string state
+    json body_json
+  }
+  completion_events {
+    string id
+    string parent_intent_id
+    string delivered_at
+    json body_json
+  }
