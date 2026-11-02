@@ -2,6 +2,7 @@
 
 Grounds keeps a versioned ledger of requirements, issues, development runs, candidates, independent verification, and delivery records. Claims and test evidence are stored explicitly; an unverified claim is not a successful verification.
 
+- [Vision and core principles](vision.md): highest-level product positioning, core values, and design principles; every design builds on it.
 - [Getting started](getting-started.md): requirements, source build, and configuration.
 - [GitHub archive onboarding](../plugins/grounds/skills/grounds/references/github-archive-onboarding.md): authentication, rulesets, and repository binding.
 - [Release process](releases.md): GitHub automation and distribution gates.

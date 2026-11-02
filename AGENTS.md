@@ -22,6 +22,7 @@ GitHub is the canonical remote; builds and releases run in GitHub Actions.
 
 ## Design and documentation
 
+- Read the [project vision and core principles](docs/vision.md) before any design, planning, or significant change. It is the highest-level guidance: every design must be consistent with it. Resolve conflicts by changing the design or, with explicit owner approval, revising the vision first and recording the reason in the relevant decision; never leave them in conflict.
 - Before changing interfaces, module responsibilities, or error handling, read [software design principles](docs/software-design.md). Prefer deep modules and information hiding; reduce caller knowledge and total complexity rather than optimizing function length.
 - Follow [documentation maintenance](docs/documentation.md). Use [the documentation index](docs/README.md) to find relevant current concepts, architecture, and accepted decisions; read applicable module guidance before editing.
 - Update concepts for changed business rules, architecture for changed implementation boundaries, and decisions for significant choices and their rationale. Deliver affected documentation with the implementation; briefly explain when no documentation change is needed.
