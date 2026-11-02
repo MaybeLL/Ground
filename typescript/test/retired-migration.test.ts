@@ -90,6 +90,21 @@ test("configuration accepts only the current version and current credential sour
   } }), invalid);
 });
 
+test("retired migration errors and recovery instructions are no longer public contracts", () => {
+  const valid = { code: "STATE_CONFLICT", message: "operation refused", retryable: false, details: {} };
+  assertContract("error.schema.json", valid);
+  assertContract("cli-envelope.schema.json", { format: "patchledger.cli/v1", ok: false, error: valid });
+  for (const error of [
+    { ...valid, code: "BRAND_MIGRATION_REQUIRED" },
+    { ...valid, details: { migrate_argv: ["grounds", "migrate", "data"] } },
+  ]) {
+    assert.throws(() => assertContract("error.schema.json", error));
+    assert.throws(() => assertContract("cli-envelope.schema.json", { format: "patchledger.cli/v1", ok: false, error }));
+  }
+  // SQL schema migration is not retired by this bounded deletion.
+  assertContract("error.schema.json", { ...valid, code: "MIGRATION_DIRTY", details: { reason: "incomplete SQL schema migration" } });
+});
+
 test("removed migration success types are no longer admitted by the distributed contract", () => {
   for (const result of [
     { result_type: "patchledger.result.brand-migration/v1", command: "migrate.patchledger", dry_run: true, config: { status: "not_found" }, repository: { status: "not_found" } },

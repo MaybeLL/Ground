@@ -17,7 +17,6 @@
 | `IDEMPOTENCY_CONFLICT` | 4 | 否 | `existing_command`, `request_hash`, `existing_request_hash`；不得换内容重试同 ID |
 | `SCHEMA_INCOMPATIBLE` | 5 | 否 | `required_version`, `actual_version_text` |
 | `MIGRATION_DIRTY` | 5 | 否 | 可选 `reason`；只允许 `db status/migrate` |
-| `BRAND_MIGRATION_REQUIRED` | 5 | 否 | 可选 `reason`, `migrate_argv`；按提示显式迁移旧本地状态 |
 | `DATABASE_ID_MISMATCH` | 5 | 否 | 可选 `reason`；检查本地 `config.yaml` 与目标数据库 |
 | `REPOSITORY_NOT_RESOLVED` | 6 | 否 | 可选 `reason`；注册或进入正确 clone |
 | `REPOSITORY_AMBIGUOUS` | 6 | 否 | 可选 `reason`；显式指定 Repository |

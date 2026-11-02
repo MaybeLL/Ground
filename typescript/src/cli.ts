@@ -2198,7 +2198,7 @@ const verificationRole = (args: ParsedArgs): "contract" | "quality" => {
   return parseVerificationRole(hasOption(args, "role") ? value(args, "role") : "contract");
 };
 
-export const exitCode = (error: DomainError): number => ({ VALIDATION_ERROR: 2, NOT_FOUND: 3, VERIFICATION_SET_CHANGED: 4, LIST_CHANGED: 4, STATE_CONFLICT: 4, AUTH_FAILED: 4, VERSION_CONFLICT: 4, PREDECESSOR_CONFLICT: 4, IDEMPOTENCY_CONFLICT: 4, SCHEMA_INCOMPATIBLE: 5, MIGRATION_DIRTY: 5, BRAND_MIGRATION_REQUIRED: 5, DATABASE_ID_MISMATCH: 5, REPOSITORY_NOT_RESOLVED: 6, REPOSITORY_AMBIGUOUS: 6, BASELINE_UNAVAILABLE: 6, REPOSITORY_ISSUE_LIMIT: 6, WORKTREE_MISMATCH: 6, ARTIFACT_TOO_LARGE: 6, ARTIFACT_INTEGRITY_ERROR: 6, STORAGE_TRANSIENT: 7, INTERNAL: 1 } as Record<string, number>)[error.code] ?? 1;
+export const exitCode = (error: DomainError): number => ({ VALIDATION_ERROR: 2, NOT_FOUND: 3, VERIFICATION_SET_CHANGED: 4, LIST_CHANGED: 4, STATE_CONFLICT: 4, AUTH_FAILED: 4, VERSION_CONFLICT: 4, PREDECESSOR_CONFLICT: 4, IDEMPOTENCY_CONFLICT: 4, SCHEMA_INCOMPATIBLE: 5, MIGRATION_DIRTY: 5, DATABASE_ID_MISMATCH: 5, REPOSITORY_NOT_RESOLVED: 6, REPOSITORY_AMBIGUOUS: 6, BASELINE_UNAVAILABLE: 6, REPOSITORY_ISSUE_LIMIT: 6, WORKTREE_MISMATCH: 6, ARTIFACT_TOO_LARGE: 6, ARTIFACT_INTEGRITY_ERROR: 6, STORAGE_TRANSIENT: 7, INTERNAL: 1 } as Record<string, number>)[error.code] ?? 1;
 
 const writeCommands = new Set([
   "code-workspace:end", "code-workspace:cleanup", "code-workspace:service-cleanup", "code-workspace:service-volume-retire", "code-workspace:service-volume-delete", "code-workspace:service-volume-restoration-cleanup", "code-workspace:service-volume-export", "code-workspace:service-volume-restore", "code-workspace:service-volume-restoration-stop",
