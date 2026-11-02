@@ -9,7 +9,6 @@ Build the CLI before TUI integration or plugin end-to-end checks. Use Node.js 22
 ```sh
 (cd typescript && npm ci && npm run build && npm test)
 (cd tui && npm ci && npm run build && npm test)
-python3 -m unittest discover -s plugins/grounds/tests -p 'test_*.py' -q
 node --test scripts/*.test.mjs
 node scripts/check-docs.mjs
 ```

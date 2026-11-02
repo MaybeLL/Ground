@@ -33,10 +33,6 @@ Requirement/Issue 的默认公开 authoring interface 是 `<数据根>/drafts/<�
 | 命令结果 | [`command-results.schema.json`](command-results.schema.json) | CLI 成功 `data` |
 | 版本化环境声明 | [`environment-definition.schema.json`](environment-definition.schema.json) | `.grounds/environments/<name>.yaml`；仅非敏感声明 |
 | 本机环境结果（不写业务账本） | [`environment.schema.json`](environment.schema.json) | `grounds env` 成功 `data`；实例与执行记录只在本机运行时目录 |
-| 使用现场候选／本机 QA 草稿 | [`qa-candidate.schema.json`](qa-candidate.schema.json), [`qa-source-index.schema.json`](qa-source-index.schema.json), [`qa-draft.schema.json`](qa-draft.schema.json), [`qa-draft-edit.schema.json`](qa-draft-edit.schema.json), [`qa-draft-result.schema.json`](qa-draft-result.schema.json) | KB 公共交接 → 本机 Grounds CLI/TUI |
-| QA 草稿发布目标／固定来源包 | [`qa-draft-target.schema.json`](qa-draft-target.schema.json), [`qa-source-package.schema.json`](qa-source-package.schema.json) | 人工确认 → 既有评测账本/blob |
-| 待提取来源线索 | [`source-clue.schema.json`](source-clue.schema.json), [`source-clue-result.schema.json`](source-clue-result.schema.json) | KB 显式交接有界元数据 → 本机 CLI/TUI；不含正文、不创建 QA |
-| 评测摘要列表 | [`eval-list.schema.json`](eval-list.schema.json) | `eval KIND list --view summary` `data` |
 | 详情/查询结果 | [`query-results.schema.json`](query-results.schema.json) | show/compare/ledger `data` |
 | 审阅追溯 | [`query-results.schema.json`](query-results.schema.json) `reviewTrace` | CLI → 人/审阅 Agent |
 | 稳定错误 | [`error.schema.json`](error.schema.json), [`errors.md`](errors.md) | CLI 失败 `error` |

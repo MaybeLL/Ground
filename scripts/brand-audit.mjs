@@ -19,7 +19,6 @@ const compatibility = new Set([
 ]);
 // Only the excluded historical data path is permitted in this new adapter.
 const snapshotExclusions = new Set([
-  "plugins/grounds/skills/grounds-knowledge-improve/references/repository-materials.md",
 ]);
 const forbidden = /@example\/patchledger(?:-tui)?|\bpatchledger-tui\b|\bpatchledger-(?:define|develop|verify|deliver|guide|eval-author|eval-run|export-confluence)\b|\bPATCHLEDGER_[A-Z0-9_]+|(?:^|[\s`'"/])\.patchledger(?:\/|\b)|plugins\/patchledger|\bPatchLedger\b|(?:^|[\s`])patchledger(?=[\s`])/;
 const findings = [];

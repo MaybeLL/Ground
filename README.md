@@ -12,7 +12,9 @@ Grounds keeps a record of the path from a requirement to delivery: an issue vers
 
 - The **CLI** manages the SQL ledger, development runs, candidates, verification, and delivery records.
 - The **TUI** provides a terminal workspace for reviewing candidates and their evidence.
-- The **agent skills** guide development and delivery, evaluation, and documentation improvement workflows. Start with the [Grounds workflow skill](plugins/grounds/skills/grounds/SKILL.md).
+- The **development skill** guides the new `task / work / grade` loop, including a fresh independent evaluator. Start with the [Grounds workflow skill](plugins/grounds/skills/grounds/SKILL.md).
+
+**Source cutover status:** the legacy `eval` CLI, QA authoring/capture workflow, evaluation TUI and evaluation/knowledge skills have been removed under D149. The TUI now opens Candidate review directly and rejects `--eval`; it has not yet been adapted to the new work model. New evaluation assets and managed experiments remain planned for P3–P5. This source-tree status does not change previously published npm packages.
 
 Candidate Git artifacts are archived remotely under protected namespaces. GitHub and GitLab repositories can be onboarded; archive protection and authorization must be verifiable when a candidate is submitted.
 

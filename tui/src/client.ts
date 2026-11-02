@@ -1,11 +1,9 @@
-import { parseEvalEnvelope, fixedRecord, type EvalAccess, type EvalRead, type FrozenPublication, type HumanIdentity, type EvalRecord } from './eval-protocol.js';
 import { spawn } from 'node:child_process';
 import { access, readFile, writeFile, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
 import { ClientTemporaryFiles } from './client-temp.js';
 import { ClientError, decode, methods, type Data, type Method } from './protocol.js';
-import { operationId } from './review-model.js';
 
 export interface Options { cli?: string; cwd: string; config?: string; timeout: number; signal?: AbortSignal; review?: boolean; temporaryRoot?: string }
 export interface Context { cli: string; version: string; configSource: string; databaseId: string; driver: string; cwd: string }
@@ -53,7 +51,7 @@ export function invoke(cli: string, args: string[], cwd: string, timeout: number
   });
 }
 
-export class Client implements Reader, EvalAccess {
+export class Client implements Reader {
   context!: Context;
   private directory?: string;
   private config?: string;
@@ -61,7 +59,6 @@ export class Client implements Reader, EvalAccess {
   private waiters: (() => void)[] = [];
   private pending = new Set<AbortController>();
   private closed = false;
-  private evalChecked?: Promise<void>;
   private temporary: ClientTemporaryFiles;
   constructor(private options: Options, private cli: string) { this.temporary = new ClientTemporaryFiles(options.temporaryRoot); }
   static async open(options: Options): Promise<Client> {
@@ -130,91 +127,6 @@ export class Client implements Reader, EvalAccess {
       const result = await invoke(this.cli, args, this.options.cwd, this.options.timeout, controller.signal);
       return decode(result.stdout, result.exit, 'selectionSet');
     } finally { this.pending.delete(controller); }
-  }
-  async evalReady(): Promise<void> {
-    this.evalChecked ??= (async () => {
-      for (const argv of [['artifact', 'file'], ['grader', 'evidence-file'], ['grader', 'notices'], ['suite', 'tasks', 'publish']]) {
-        const r = await invoke(this.cli, ['eval', ...argv, '--help', '--json'], this.options.cwd, this.options.timeout);
-        if (r.exit !== 0 || !String(decode(r.stdout, r.exit, 'help').usage).includes(argv.join(' '))) {
-          throw new ClientError('CLI_INCOMPATIBLE', 'Eval 工作台需要包含证据读取和 Grader notices 扩展的核心 CLI；请使用配套构建');
-        }
-      }
-    })().catch(error => { this.evalChecked = undefined; throw new ClientError('CLI_INCOMPATIBLE', 'Eval 工作台需要配套核心 CLI（artifact file、grader evidence-file/notices）：' + String(error)); });
-    return this.evalChecked;
-  }
-  async read(command: EvalRead, args: string[] = [], signal?: AbortSignal): Promise<unknown> {
-    await this.evalReady();
-    if (this.closed) throw new ClientError('CANCELLED', '已退出');
-    if (this.running >= 2) await new Promise<void>(r => this.waiters.push(r));
-    if (this.closed || signal?.aborted) { this.waiters.shift()?.(); throw new ClientError('CANCELLED', '已取消'); }
-    this.running++;
-    const controller = new AbortController(); this.pending.add(controller);
-    const cancel = () => controller.abort(); signal?.addEventListener('abort', cancel, { once: true });
-    try {
-      const r = await invoke(this.cli, ['eval', ...command.split('.'), ...args, '--json', '--cwd', this.options.cwd, '--config', this.config!], this.options.cwd, this.options.timeout, controller.signal);
-      return parseEvalEnvelope(r.stdout, r.exit, command);
-    } finally { signal?.removeEventListener('abort', cancel); this.pending.delete(controller); this.running--; this.waiters.shift()?.(); }
-  }
-  async database(): Promise<string> { return String((await this.query('dbTest')).database_id); }
-  async identity(): Promise<HumanIdentity> {
-    const values = await Promise.all(['user.name', 'user.email'].map(key => invoke('git', ['config', '--get', key], this.options.cwd, this.options.timeout)));
-    if (values.some(v => v.exit !== 0 || !v.stdout.trim())) throw new ClientError('HUMAN_IDENTITY_REQUIRED', '发布需要 Git user.name 和 user.email');
-    return { kind: 'human', git_name: values[0].stdout.trim(), git_email: values[1].stdout.trim() };
-  }
-  async publish(request: FrozenPublication): Promise<EvalRecord> {
-    await this.evalReady();
-    if (this.closed) throw new ClientError('CANCELLED', '已退出');
-    if (await this.database() !== request.databaseId) throw new ClientError('DATABASE_ID_MISMATCH', '待恢复操作属于另一账本，禁止重放');
-    const directory = await this.temporary.request('eval-write');
-    const controller = new AbortController(); this.pending.add(controller);
-    try {
-    const args = ['eval', ...request.command.split('.'), ...(request.id ? [request.id] : []), '--operation-id', request.operationId, '--json', '--cwd', this.options.cwd, '--config', this.config!];
-    if (request.expectedVersion !== undefined) args.push('--expected-version', String(request.expectedVersion));
-    if (request.taskId) args.push('--task', request.taskId);
-    if (request.name !== undefined) args.push('--name', request.name);
-    if (request.body) { const file = join(directory, 'input.json'); await writeFile(file, JSON.stringify(request.body), { mode: 0o600 }); args.push('--file', file); }
-      const environment = { ...process.env, GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: request.attribution.git_name, GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: request.attribution.git_email };
-      const result = await invoke(this.cli, args, this.options.cwd, this.options.timeout, controller.signal, environment);
-      return fixedRecord(parseEvalEnvelope(result.stdout, result.exit, request.command), request.command.split('.')[0], request.id);
-    } finally { this.pending.delete(controller); await this.temporary.release(directory); }
-  }
-  async qaDraft(command: string, args: string[] = [], body?: Data): Promise<unknown> {
-    const allowed = ['draft.list', 'draft.show', 'draft.status', 'draft.evidence', 'draft.edit', 'draft.split', 'draft.merge', 'draft.route-suggestion', 'draft.resolve-boundary', 'draft.preview', 'draft.publish', 'draft.resume', 'draft.cancel', 'draft.save-source', 'draft.export-public', 'source-package.show', 'source-package.file', 'clue.list', 'clue.show', 'clue.ignore'];
-    if(this.closed)throw new ClientError('CANCELLED','已退出');
-    if (!allowed.includes(command)) throw new ClientError('VALIDATION_ERROR', '未知草稿动作');
-    await this.evalReady();
-    const directory = await this.temporary.request('qa-draft');
-    const controller = new AbortController(); this.pending.add(controller);
-    try {
-    const argv = ['eval', ...command.split('.'), ...args, '--json', '--cwd', this.options.cwd, '--config', this.config!];
-    let environment = process.env;
-    if (command === 'draft.publish' || command === 'draft.save-source') {
-      const human = await this.identity();
-      environment = { ...process.env, GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: human.git_name, GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: human.git_email };
-      argv.push('--operation-id', operationId());
-    }
-    if (body) { const file = join(directory, 'input.json'); await writeFile(file, JSON.stringify(body), { mode: 0o600 }); argv.push('--file', file); }
-      const result = await invoke(this.cli, argv, this.options.cwd, this.options.timeout, controller.signal, environment);
-      let value: any; try { value = JSON.parse(result.stdout); } catch { throw new ClientError('PROTOCOL_ERROR', '草稿接口未返回有效 JSON'); }
-      if (value.format !== 'patchledger.cli/v1' || typeof value.ok !== 'boolean') throw new ClientError('PROTOCOL_ERROR', '草稿协议不兼容');
-      if (!value.ok) throw new ClientError(value.error?.code ?? 'PROTOCOL_ERROR', `${value.error?.message ?? '操作失败'} · ${JSON.stringify(value.error?.details ?? {})}`);
-      if (result.exit !== 0 || value.data?.result_type !== 'patchledger.result.eval/v1' || value.data.command !== `eval.${command}` || !('payload' in value.data)) throw new ClientError('PROTOCOL_ERROR', '草稿返回类型不匹配');
-      const payload = value.data.payload;
-      const objectValue = (v: unknown): v is Data => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
-      const draftValue = (v: unknown) => objectValue(v) && v.format === 'grounds.qa-draft/v1' && typeof v.id === 'string' && Number.isSafeInteger(v.version) && Number(v.version) > 0;
-      const digestValue = (v: unknown) => typeof v === 'string' && /^sha256:[a-f0-9]{64}$/.test(v);
-      const clueValue = (v: unknown) => objectValue(v) && v.format === 'grounds.source-clue-record/v1' && typeof v.id === 'string' && Number.isSafeInteger(v.version) && objectValue(v.source) && ['pending_analysis','expired','ignored'].includes(String(v.state));
-      const valid = command === 'clue.list' ? objectValue(payload) && payload.format === 'grounds.source-clue-list/v1' && Array.isArray(payload.clues) && payload.clues.every(clueValue) : ['clue.show','clue.ignore'].includes(command) ? clueValue(payload) : command==='draft.export-public'?objectValue(payload)&&payload.format==='grounds.eval-public-question/v1'&&objectValue(payload.qa)&&typeof payload.question==='string'&&typeof payload.instructions==='string':command === 'draft.list' ? objectValue(payload) && payload.format === 'grounds.qa-draft-list/v1' && Array.isArray(payload.drafts) && payload.drafts.every((d: unknown) => objectValue(d) && typeof d.id === 'string' && Number.isSafeInteger(d.version)) :
-        command === 'draft.show' ? objectValue(payload) && draftValue(payload.draft) && objectValue(payload.qa) && Array.isArray(payload.materials) && Array.isArray(payload.missing) :
-          command === 'draft.status' ? objectValue(payload) && payload.format === 'grounds.qa-draft-status/v1' && payload.draft_id === args[0] :
-            command === 'draft.preview' ? objectValue(payload) && payload.format === 'grounds.qa-draft-preview/v1' && payload.draft_id === args[0] && digestValue(payload.digest) && payload.database_id === await this.database() :
-              command === 'source-package.show' ? objectValue(payload) && payload.format === 'grounds.qa-source-package-reference/v1' && payload.digest === args[0] && Array.isArray(payload.evidence) :
-                command === 'draft.evidence' || command === 'source-package.file' ? objectValue(payload) && payload.encoding === 'base64' && digestValue(payload.digest) && Number.isSafeInteger(payload.offset) && Number.isSafeInteger(payload.size) && typeof payload.content === 'string' :
-                  command === 'draft.split' ? Array.isArray(payload) && payload.every(draftValue) :
-                    command === 'draft.save-source' ? objectValue(payload) && draftValue(payload.draft) && objectValue(payload.source_package) && digestValue(payload.source_package.digest) : draftValue(payload);
-      if (!valid) throw new ClientError('PROTOCOL_ERROR', '草稿返回缺少必要身份、版本或状态字段');
-      return payload;
-    } finally { this.pending.delete(controller); await this.temporary.release(directory); }
   }
   async selectionIdentity(): Promise<string> {
     const values = await Promise.all(['user.name', 'user.email'].map(key => invoke('git', ['config', '--get', key], this.options.cwd, this.options.timeout)));

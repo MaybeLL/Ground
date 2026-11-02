@@ -22,6 +22,8 @@ import { assembleSkillAssets, isSkillAssetsRoot, skillNames, type SkillName } fr
 export { skillNames } from "./skill-assets.js";
 
 export const legacySkillNames = [
+  "grounds-eval",
+  "grounds-knowledge-improve",
   "grounds-define",
   "grounds-develop",
   "grounds-verify",

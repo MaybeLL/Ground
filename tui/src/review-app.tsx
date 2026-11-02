@@ -56,7 +56,7 @@ function OutlineText({ line, selected }: { line: OutlineLine; selected: boolean 
   return <Text wrap="truncate"><Text color={color}>{line.lead}</Text><StatusCell state={line.checks.self} count={line.checks.counts?.self} width={selfColumnWidth} /><StatusCell state={line.checks.independent} count={line.checks.counts?.independent} width={independentColumnWidth} /><Text bold={line.parent || selected} color={color}>{line.value}</Text></Text>;
 }
 
-export function ReviewApp({ reader, writer, context, onExit, onEval, onHome, initialCandidate, initialSearchKind = 'requirements', width: widthOverride, height: heightOverride }: { onHome?: () => void; onEval?: () => void; initialCandidate?: string; initialSearchKind?: 'requirements' | 'issues'; reader: Reader; writer?: SelectionWriter; context: Context; onExit: () => void; width?: number; height?: number }) {
+export function ReviewApp({ reader, writer, context, onExit, initialCandidate, initialSearchKind = 'requirements', width: widthOverride, height: heightOverride }: { initialCandidate?: string; initialSearchKind?: 'requirements' | 'issues'; reader: Reader; writer?: SelectionWriter; context: Context; onExit: () => void; width?: number; height?: number }) {
   const { stdout } = useStdout();
   const [size, setSize] = useState({ width: stdout.columns || 100, height: stdout.rows || 30 });
   useEffect(() => { const f = () => setSize({ width: stdout.columns || 100, height: stdout.rows || 30 }); stdout.on('resize', f); return () => { stdout.off('resize', f); }; }, [stdout]);
@@ -269,8 +269,6 @@ export function ReviewApp({ reader, writer, context, onExit, onEval, onHome, ini
     if (!signal.aborted) setOverlay({ kind: 'reason', title: '人工选择候选：填写选择理由', value: '', row: 0, selection: record(result.selection), operation: operationId(), identity });
   });
   const actions: Action[] = [
-    ...(onHome ? [{ id: 'home', label: '返回首页（Ctrl+G）', run: onHome }] : []),
-    ...(onEval ? [{ id: 'eval', label: '评测资产与实验对照（Ctrl+E）', run: onEval }] : []),
     ...(screen.issue ? [{ id: 'versions', label: '切换 Issue 版本', run: () => showMenu('Issue 版本（候选与选择分别固定）', Array.from({ length: Number(screen.issue!.version) }, (_, index) => ({ id: String(index + 1), label: `v${index + 1}`, run: () => run(async signal => {
       const detail = await reader.query('issue', [text(screen.issue!.id), '--issue-version', String(index + 1)], signal), issue = record(detail.issue);
       if (issue.id !== screen.issue!.id || issue.version !== index + 1) throw new Error('历史 Issue 返回身份或版本不匹配');
@@ -326,8 +324,6 @@ export function ReviewApp({ reader, writer, context, onExit, onEval, onHome, ini
     finally { writing.current = false; setBusy(false); }
   };
   useInput((input, key) => {
-    if (key.ctrl && input === 'g' && onHome && !overlay && !legacy && !busy && !writing.current) { onHome(); return; }
-    if (key.ctrl && input === 'e' && onEval && !busy && !writing.current) { onEval(); return; }
     if (legacy) return;
     if (writing.current) return;
     if (key.escape) {
@@ -410,7 +406,7 @@ export function ReviewApp({ reader, writer, context, onExit, onEval, onHome, ini
     }
     if (screen.page === 'issues' && input === '?') {
       const body = '输入标题或 ID 搜索 · Backspace 删除 · ↑↓ 选择结果 · Enter 打开 · Tab 切换最近一周/搜索 · Esc 清空/返回 · Ctrl+T 切换需求/任务 · Ctrl+R 刷新 · Ctrl+C 退出';
-      setOverlay({ kind: 'help', title: '当前页面全部操作', body: body + (onHome ? ' · Ctrl+G 返回首页' : ''), value: '', row: 0 });
+      setOverlay({ kind: 'help', title: '当前页面全部操作', body, value: '', row: 0 });
       return;
     }
     if (screen.page === 'issues') {
@@ -449,7 +445,7 @@ export function ReviewApp({ reader, writer, context, onExit, onEval, onHome, ini
   if (legacy) return <App reader={reader} context={context} onExit={() => setLegacy(false)} width={widthOverride} height={heightOverride} />;
   if (width < 40 || height < 10) return <Text wrap="truncate">请扩大终端至 40×10；q 退出</Text>;
   if (screen.page === 'requirement' && !overlay) return <RequirementView requirement={screen.requirement!} activeTab={screen.requirementTab ?? 'requirement'} rows={rows} total={screen.rows.length} query={screen.filter} row={row} requirementScroll={screen.requirementScroll ?? 0} issueScroll={screen.issueScroll ?? 0} issueDetail={screen.issueDetail} busy={busy} notice={notice} width={width} height={height} />;
-  if (screen.page === 'issues' && !overlay) return <SearchHome homeAvailable={Boolean(onHome)} evalAvailable={Boolean(onEval)} kind={screen.searchKind ?? 'issues'} items={screen.rows} results={rows} query={screen.filter} row={row} recent={screen.focus === 1} busy={busy} notice={notice} width={width} height={height} />;
+  if (screen.page === 'issues' && !overlay) return <SearchHome kind={screen.searchKind ?? 'issues'} items={screen.rows} results={rows} query={screen.filter} row={row} recent={screen.focus === 1} busy={busy} notice={notice} width={width} height={height} />;
   const renderLines = (lines: string[], scroll: number, w: number, diff = false, visible = panelHeight - 1) => <Box flexDirection="column" width={w} height={visible} overflow="hidden">{lines.slice(bound(scroll, lines.length - visible), bound(scroll, lines.length - visible) + visible).map((line, i) => <Text key={i} wrap="truncate" color={process.env.NO_COLOR !== undefined ? undefined : diff && line.startsWith('+') ? 'green' : diff && line.startsWith('-') ? 'red' : undefined}>{line || ' '}</Text>)}</Box>;
   const dirRows: Data[] = codePage ? files.map((b, i) => ({ resource_id: text(b.unit.change_unit_id), label: `${i + 1}. ${association(trace, b).problems.length ? '[待核查] ' : ''}${text(b.unit.display_path)} · ${b.unit.kind === 'file' ? '文件级变更' : rangeLabel(b.unit.new_range)}` })) : rows;
   const dirWidth = leftWidth || width - 2;

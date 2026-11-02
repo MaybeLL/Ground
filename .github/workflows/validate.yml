@@ -53,7 +53,6 @@ jobs:
         working-directory: tui
       - run: node --test scripts/*.test.mjs
       - run: node scripts/check-docs.mjs
-      - run: python3 -m unittest discover -s plugins/grounds/tests -p 'test_*.py' -q
       - name: Validate packaged CLI and skills
         run: node scripts/package-test.mjs
         working-directory: typescript

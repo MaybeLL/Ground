@@ -1451,7 +1451,7 @@ flowchart TD
 4. 原有验收中的独立判断、盲验依据、逐项证据和矛盾结论应保留；共享能力不等于将完整 VerificationReport 压成一个 Grade。验收汇总与 GradingRecord 的持久化复用方式仍待定，不能复制两份同义的评价事实，也不能丢掉验收特有依据。
 5. Agent Judge 使用普通执行能力产生评价输出；其任务完成可由确定性的输出结构、标尺范围及归档检查闭合，不默认再调用一个 Judge 验收 Judge。格式有效只证明可作为评价结果读取，不证明判断客观正确；后者属于评分质量与校准问题。
 
-**源码依据：** [evaluation.ts](../../typescript/src/evaluation.ts) 的 GraderBase 已支持 criterion 范围与 decision / score 标尺，GraderSubmission 将 error 与质量结果分开，说明“评价契约条目”和“评价质量”确有共通输入 / 输出知识；[EvalModule.reserveGrader / submitGrader](../../typescript/src/eval-module.ts) 当前仍要求 EvalRun 并验证其选定 Grader，不能直接让通用任务验收依赖这套入口。需抽出独立评分用例，旧评测调用它，而非通用任务反向依赖评测。
+**源码依据：** [evaluation.ts](../../typescript/src/evaluation.ts) 的 GraderBase 已支持 criterion 范围与 decision / score 标尺，GraderSubmission 将 error 与质量结果分开，说明“评价契约条目”和“评价质量”确有共通输入 / 输出知识；[当时的 EvalModule.reserveGrader / submitGrader（已退役）](https://github.com/MaybeLL/Ground/blob/00a231e225c83328d9fdad0c3e939fc1ba289849/typescript/src/eval-module.ts) 当前仍要求 EvalRun 并验证其选定 Grader，不能直接让通用任务验收依赖这套入口。需抽出独立评分用例，旧评测调用它，而非通用任务反向依赖评测。
 
 [VerificationReportInput](../../typescript/src/domain.ts) 包含逐条独立判断、对照与最终结论；[VerificationRun](../../typescript/src/verification-run.ts) 记录 blind / freeze / reconcile 等阶段且不承载第二份验收结论；[候选 standing 汇总](../../typescript/src/module.ts) 保留 disputed。它们说明共享测试 / Agent 执行机制不能抹掉验收协议及矛盾证据。
 
@@ -1999,7 +1999,8 @@ flowchart LR
 | --- | --- |
 | 目标模型第 12 节与 0002 第 9 节的迁移规则（DevRun 树分 Work、历史工作头、迁移标记、会话身份缺失等） | **废止。** 没有需要保留的账本，迁移只会增加领域里的特例（迁移标记、可空的工作头与会话）。P0 第 4 步写的迁移代码（映射、读取器、写入编排、`importLegacy*`、`migrateWork`、`migrated` 标记）已删除，Work 始终有工作头，外部评价者始终有会话身份 |
 | 旧品牌和数据目录迁移工具 | 已删除 `migrate patchledger` / `migrate data`、专用搬运/绑定修复、旧配置读取与迁移门禁；只读取当前配置与目录，不自动搬动或清理历史文件。业务命令及其表、SQL schema 重编号仍待后续删除批次，不将本批标为完整切换 |
-| Python 协调器及分发调用方 | 已删除命令包装器、旧实验 runner、Codex 采集、容器准备代理及仓库快照适配和专用测试；skill 分发与包测试同步移除入口。开发 skill 直接调用 task/work/grade，主 agent 创建全新子 agent 独立验收；eval/知识改进 skill 明确自动实验暂不可用。保留独立的纯文件知识材料工具、旧 eval 资产/查询 CLI 与共享 env；它们不构成旧 runner 的兼容层。新结果 schema、真实 agent 冒烟、旧业务服务及表仍待后续完成 |
+| Python 协调器及分发调用方 | 已删除命令包装器、旧实验 runner、Codex 采集、容器准备代理及仓库快照适配和专用测试；skill 分发与包测试同步移除入口。开发 skill 直接调用 task/work/grade，主 agent 创建全新子 agent 独立验收；eval/知识改进 skill 明确自动实验暂不可用。该批当时保留纯文件知识材料工具、旧 eval 资产/查询 CLI 与共享 env；后续退役进度见下一行。新结果 schema、真实 agent 冒烟、旧开发业务服务及表仍待后续完成 |
+| 旧 eval 业务与调用方 | 已删除旧 TypeScript 评测服务、CLI、测试评分运行器、QA 草稿/来源线索及其 TUI/skill/材料工具；删除对应 11 个公开 schema 的双份副本和专用测试。TUI 直接进入候选审阅，不提供旧评测入口。共享 env 和新 task/work/grade 保留。旧 SQL 表/事务接口及其引用的评测记录校验器另随存储批次删除，保留存储完整性测试；不是评测读写兼容层 |
 | 旧模型何时删除 | 被新模型替代的部分（Requirement / Issue / DevRun / Candidate / Verification / 选择 / 完成 / 交付链接 / 预检的写入与读取、Python 协调器、Codex 采集），连同它们的表一起从 schema 删除，不留只读兼容；新账本只有新模型的表 |
 | 评测、环境、容器路线 | 用户确认“只删新模型已替代的”。但依赖分析显示 eval 的编码评测、`code-workspace`、部分 `code-route` 与 `repository-*` 直接依赖 DevRun / Candidate，无法在删除这些表之后原样保留；边界按依赖划定，见 0002 第 9 节 |
 
@@ -2571,7 +2572,7 @@ Artifact 来源在新受管执行中关联 AgentExecution；历史或已有外�
 | 轨迹、工具响应及其他已提交的证据文件 | 清单记录文件名、大小和内容摘要；文件字节经压缩分块存于 `eval_blobs` / `eval_blob_chunks`，按摘要读取并校验。 |
 | Agent 临时会话、工作目录中的输出 | 属于采集阶段；提交成功后的权威产物是上述持久记录和已保存的附件，不能只保留临时路径。 |
 
-具体实现：[QAArtifact](../../typescript/src/eval-qa.ts)、[提交与文件读取](../../typescript/src/eval-module.ts)、[SQL 持久化](../../typescript/src/sql-tx-core.ts)、[表结构](../../typescript/src/sql-schema.ts)。
+具体实现：[QAArtifact](../../typescript/src/eval-qa.ts)、[当时的提交与文件读取（已退役）](https://github.com/MaybeLL/Ground/blob/00a231e225c83328d9fdad0c3e939fc1ba289849/typescript/src/eval-module.ts)、[SQL 持久化](../../typescript/src/sql-tx-core.ts)、[表结构](../../typescript/src/sql-schema.ts)。
 
 例子：任务问“退款期限是多少？”，Agent 的产物可以包括“签收后七天内”的回答、支持该回答的引用片段，以及文档章节定位。Judge 读取这一次已冻结的回答及允许访问的证据评分；再次评分不必再次调用被测 Agent。轨迹另行记录它当时查了什么、调用了哪些工具，与最终答案分别表达。
 
@@ -2593,7 +2594,7 @@ Artifact 来源在新受管执行中关联 AgentExecution；历史或已有外�
 
 回答阶段生成包含这些文件的摘要与大小清单。调用产物提交后，文件内容随答案对应的产物一起持久化到 SQL 的内容寻址附件表；产物记录保存引用，后续可以按产物身份读取原文件。因此保存的是实际轨迹字节，不只是临时日志路径。评分 Agent 也复用采集器，但通过独立的评分证据提交路径保存，关联评分执行而非复用回答会话。
 
-未知事件、非法 JSONL、缺少终止事件、超时或捕获超限等情况会写入采集限制，覆盖状态相应标为部分；这里的“完整”表示当前采集契约满足，不代表拿到了模型全部内部状态。接下来的重构是把已有采集与保存能力放到共同接口后，并补齐编程任务和其他 Provider，而不是从零创造日志存储。实现入口为 [当时的 capture 与 Broker（已退役）](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_capture.py)、[产物及评分证据提交](../../typescript/src/eval-module.ts)。
+未知事件、非法 JSONL、缺少终止事件、超时或捕获超限等情况会写入采集限制，覆盖状态相应标为部分；这里的“完整”表示当前采集契约满足，不代表拿到了模型全部内部状态。接下来的重构是把已有采集与保存能力放到共同接口后，并补齐编程任务和其他 Provider，而不是从零创造日志存储。实现入口为 [当时的 capture 与 Broker（已退役）](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_capture.py)、[当时的产物及评分证据提交（已退役）](https://github.com/MaybeLL/Ground/blob/00a231e225c83328d9fdad0c3e939fc1ba289849/typescript/src/eval-module.ts)。
 
 ## 4. 已确认的流程与分工
 
@@ -2635,10 +2636,10 @@ Artifact 来源在新受管执行中关联 AgentExecution；历史或已有外�
 
 源码入口：
 
-- [领域模型与验证](../../typescript/src/evaluation.ts)、[评测业务流程](../../typescript/src/eval-module.ts)、[CLI](../../typescript/src/eval-cli.ts)。
+- [领域模型与验证](../../typescript/src/evaluation.ts)、[当时的评测业务流程](https://github.com/MaybeLL/Ground/blob/00a231e225c83328d9fdad0c3e939fc1ba289849/typescript/src/eval-module.ts)、[CLI](https://github.com/MaybeLL/Ground/blob/00a231e225c83328d9fdad0c3e939fc1ba289849/typescript/src/eval-cli.ts)（已退役）。
 - [问答产物与证据](../../typescript/src/eval-qa.ts)、[环境契约](../../typescript/src/eval-environment.ts)。
 - [当时的批次协调器](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_run.py)、[Codex 采集器](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_capture.py)、[受管协调](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_managed.py)（均已按 D149 退役）。
-- [当时的容器调度适配（已退役）](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_runtime.py)、[评分进程执行](../../typescript/src/eval-process.ts)。
+- [当时的容器调度适配（已退役）](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_runtime.py)、[当时的评分进程执行（已退役）](https://github.com/MaybeLL/Ground/blob/00a231e225c83328d9fdad0c3e939fc1ba289849/typescript/src/eval-process.ts)。
 - [Code Workspace 执行](../../typescript/src/code-route-execution.ts)、[Docker 实现](../../typescript/src/code-route-docker.ts)、[路由租约边界](../../typescript/src/env-route-lease.ts)。
 
 ### D109 Workspace 复用核验（2026-11-01）
@@ -2717,7 +2718,7 @@ Pi Durable 是独立的 Agent harness，不等同于 Pi Coding Agent SDK。两�
 - `decodeGrader` 对 QA 明确要求 Agent、diagnostic 和 `qa_decision`。因此即使公共类型中有数值分数，QA 仍不能直接使用任意数值标尺或规则评分；是否扩展、怎样兼容应作为具体开发项确认。
 - 受管问答已有配置冻结和独立环境校验，Coordinator 也会对未知启动阻塞；需要的是公共化与验证衔接，不是移除这些机制来简化接口。
 
-源码依据：[类型与评分器验证](../../typescript/src/evaluation.ts)、[运行创建、预留评分与结果关闭](../../typescript/src/eval-module.ts)、[当时的冻结执行配置核对](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_managed.py)、[启动意图与恢复](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_run.py)（均已按 D149 退役）。
+源码依据：[类型与评分器验证](../../typescript/src/evaluation.ts)、[当时的运行创建、预留评分与结果关闭（已退役）](https://github.com/MaybeLL/Ground/blob/00a231e225c83328d9fdad0c3e939fc1ba289849/typescript/src/eval-module.ts)、[当时的冻结执行配置核对](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_managed.py)、[启动意图与恢复](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_run.py)（均已按 D149 退役）。
 
 建议用四个具体用例评审这些边界：同题新作答与原产物重评；一个产物同时交给多个独立 Judge；Agent 完成但提交回执丢失；混合编程与问答并发且其中一个任务中断。逐项确定身份、状态、允许重试的操作和证据归属之后，再据此落具体字段和测试。当前图可以继续作为概念导览，不应直接当作完整的状态机、聚合设计或事务设计。
 

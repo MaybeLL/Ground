@@ -11,7 +11,6 @@ import { reviseTargetIssueSeeded, seedStartPreflight, seedRunAdmission, ledgerOn
 import { newUUIDv7 } from "../src/identity.js";
 import { SQLStore } from "../src/sql-store.js";
 import { Module } from "../src/module.js";
-import { EvalModule } from "../src/eval-module.js";
 import { snapshotRelation } from "../src/integration-history.js";
 import { renderReviewMarkdown } from "../src/review.js";
 import { captureArtifact, diffTrees, materializeCandidateWorktree } from "../src/git.js";
@@ -187,30 +186,4 @@ test("cross-base refinement Review and pairwise comparison separate upstream fro
   assert.equal(unavailable.trace.upstream_changes!.status, "unavailable");
   assert.equal(unavailable.trace.upstream_changes!.diff, undefined);
   assertContract("query-results.schema.json", unavailable);
-});
-
-test("Coding Eval stays pinned to task snapshot even when the Issue target is unavailable", async t => {
-  const x = await fixture(t), evals = new EvalModule(x.f.store);
-  const actor = () => ({ operation_id: newUUIDv7(), attribution: testAgent });
-  const issue = { id: x.f.issue.issue_id, version: 2 };
-  const grader = await evals.publishGrader({ format: "patchledger.eval-grader/v1", issue, name: "Behavior", scope: { kind: "diagnostic", name: "Behavior" }, result_spec: { kind: "decision" }, definition: { type: "agent", instructions: "Check feature behavior" }, limitations: "Fixture only" }, actor());
-  const empty = await evals.createSuite("Pinned", actor());
-  const suite = await evals.changeTask(empty.id, 1, { type: "add", task: { name: "Develop", issue, graders: [{ id: grader.id, version: 1 }] } }, actor());
-  const experiment = await evals.createExperiment({ suite_id: suite.id }, { name: "Agent", description: "Pinned fixture" }, actor());
-  x.git("update-ref", "-d", "refs/remotes/origin/main");
-  const run = await evals.startRun({ experiment_id: experiment.id, task_id: suite.data.tasks[0]!.id }, actor());
-  // The Eval-created run is a ledger-only fixture; record the admission its
-  // real observe/admit sequence would before requesting a Candidate template.
-  await seedRunAdmission(x.f.store, { devRunId: run.data.dev_run_id! });
-  const context = (await x.f.module.devRunContext(run.data.dev_run_id!)).context;
-  assert.equal(context.baseline.git_oid, x.snapshot); assert.equal(context.base_commit, undefined);
-  assert.equal(context.snapshot_relation, undefined);
-  x.git("checkout", "--detach", x.snapshot.slice(5)); writeFileSync(join(x.cwd, "feature"), "eval\n");
-  const { submission } = await x.f.module.candidateSubmissionTemplate(run.data.dev_run_id!);
-  submission.explanation = "Pinned implementation";
-  for (const claim of submission.claims) { claim.explanation = "Implemented"; for (const criterion of claim.criteria) criterion.explanation = "Feature changed"; }
-  const candidate = await x.f.module.submitCandidate({ ...actor(), dev_run_id: run.data.dev_run_id!, expected_version: 1, submission, artifact: captureArtifact(x.cwd, x.snapshot), ...x.f.gitCandidateFields(captureArtifact(x.cwd, x.snapshot), x.snapshot) });
-  const descriptor = await x.f.module.candidateArtifactDescriptor(candidate.candidate_id);
-  assert.equal(descriptor.base_commit, x.snapshot); assert.equal(descriptor.base_commit_source, "issue_version_baseline");
-  assert.equal((await x.f.module.replaySubject({ candidate_id: candidate.candidate_id })).base_commit, x.snapshot);
 });

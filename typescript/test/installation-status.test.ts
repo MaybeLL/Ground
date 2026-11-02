@@ -49,7 +49,7 @@ test("doctor reports a missing development skill", () => {
     rmSync(join(directory, "grounds"), { recursive: true });
 
     const result = installationStatus(directory, () => cliVersion());
-    assert.equal(result.skills.status, "mixed");
+    assert.equal(result.skills.status, "missing");
     assert.equal(result.skills.details[0].name, "grounds");
     assert.equal(result.skills.details[0].status, "missing");
     assert.equal(result.upgrade_required, true);
@@ -69,7 +69,7 @@ test("doctor degrades registry failures to a non-blocking diagnostic", () => {
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
-for (const missing of ["grounds-eval", "grounds-knowledge-improve"]) test(`doctor detects missing ${missing} and reinstall completes the installation`, () => {
+for (const missing of ["grounds"]) test(`doctor detects missing ${missing} and reinstall completes the installation`, () => {
   const directory = mkdtempSync(join(tmpdir(), "grounds-eval-upgrade-"));
   try {
     installGroundsSkills(directory, bundledPluginRoot());
