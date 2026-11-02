@@ -40,7 +40,14 @@ The work tables live in the same SQL ledger as the older tables and work on SQLi
 - **Requests** (`requests.ts`): a request is applied once. The same identity with the same input returns the first answer, with other input it is `request-conflict`. The intent is written in the same transaction as the effect, so a request is applied and remembered together or not at all. A refusal writes nothing and does not use the identity up.
 - **Outcomes** (`outcome.ts`): refusals the caller can act on (`invalid`, `conflict`, `forbidden`, `unsupported`, `not-found`, `stale`, `request-conflict`) are returned, not thrown; damaged data and bugs are thrown.
 - **Linearization**: a refinement moves the head only if the caller still sees the head it expected (`conflict` otherwise; concurrent refinements from one head have exactly one winner). `submit` checks the archive outside any transaction (`DeliveryReceiptPort`), then in one step freezes the manifest, fails the round, holds it open (`unavailable`) or lets an earlier cancellation win.
-- The work's conclusion and a run's acceptance are derived from the head run and the recorded gates when read, never stored. Gates themselves arrive with P1b.
+- The work's conclusion and a run's acceptance are derived from the head run and the recorded gates when read, never stored.
+
+`Grading` is the module for gates judged by an external evaluator (a fresh session of the caller's own agent). Managed and test graders arrive with P4, measures with P3.
+
+- `requestGate` binds a gate to the exact task revision, criteria digest, manifest, grader revision and materials, and numbers it from a ledger counter; the latest request over the same subject is the one that counts. Only a delivered run can be accepted. The one grader behind it (`builtin.independent-verification`) is created on first use, under the same ids a migrated ledger carries.
+- `registerExternalEvaluator` issues a fresh session now (after the delivery was frozen); it must differ from the worker's session. Only that session may record protocol stages and observed commands or submit the verdict.
+- The protocol is blind, freeze, reconcile, handoff, submit, in order. The freeze records the digest of the blind result and nothing afterwards may change it; a verdict is refused until the blind result was frozen. A verdict must judge exactly the task's criteria.
+- A cancelled grading ends once the evaluator declares it stopped; a verdict that arrives after cancellation is only recorded.
 
 ## Taking over the previous model
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   acceptanceOf, attachGradingSandbox, createGrading, declareExternalEvaluatorStop, evaluatorStopped, faultGrader, gradingViolations, isGradingTerminal, materialsDigest, registerAgentEvaluator, registerExternalEvaluator,
-  requestGradingCancel, requestStepStop, sameBinding, startCommandStep, stepStopUnknown, stepStopped, submitGrade, validateGrade,
+  recordEvaluatorCommand, recordEvaluatorStage, requestGradingCancel, requestStepStop, sameBinding, startCommandStep, stepStopUnknown, stepStopped, submitGrade, validateGrade,
   type CriterionVerdict, type Decision, type GateBinding, type Grade, type GradingEvent, type GradingRecord, type GraderContent, type Result, type RevisionRef,
 } from "../src/work/domain/index.js";
 import { accept, clock, hash, random, rejected } from "./work-fixtures.js";
@@ -263,4 +263,49 @@ test("random operations keep every grading invariant and never leave a final sta
       else if (isGradingTerminal(g)) finalStatus = g.status;
     }
   }
+});
+
+// ---- external evaluator protocol ------------------------------------------
+
+function withExternalEvaluator(sessionId = "session-e"): GradingRecord {
+  return apply(registerExternalEvaluator(gate(), { sessionId, agentId: "reviewer", sessionIssuedAt: "2026-01-02T00:00:00.000Z", targetsFrozenAt: "2026-01-01T00:00:00.000Z", at: at() }) as Step);
+}
+const stageAt = (g: GradingRecord, stage: Parameters<typeof recordEvaluatorStage>[1]["stage"], over: { sessionId?: string; blindDigest?: string } = {}) =>
+  recordEvaluatorStage(g, { sessionId: over.sessionId ?? "session-e", stage, ...(over.blindDigest ? { blindDigest: over.blindDigest } : {}), at: at() }) as Step;
+
+test("an external evaluator follows blind, freeze, reconcile, handoff, submit in order, and the frozen blind result never changes", () => {
+  let g = withExternalEvaluator();
+  rejected(stageAt(g, "freeze", { blindDigest: d("a") }), "conflict", /does not follow/);
+  g = apply(stageAt(g, "blind"));
+  rejected(stageAt(g, "blind"), "conflict", /already recorded/);
+  rejected(stageAt(g, "freeze"), "invalid", /digest of the blind result/);
+  g = apply(stageAt(g, "freeze", { blindDigest: d("a") }));
+  rejected(stageAt(g, "reconcile", { blindDigest: d("b") }), "conflict", /cannot change/);
+  g = apply(stageAt(g, "reconcile", { blindDigest: d("a") }));
+  g = apply(stageAt(g, "handoff"));
+  g = apply(stageAt(g, "submit"));
+  const evaluator = g.evaluator?.kind === "external" ? g.evaluator : undefined;
+  assert.deepEqual(evaluator?.protocol?.map(r => r.stage), ["blind", "freeze", "reconcile", "handoff", "submit"]);
+  assert.equal(evaluator?.protocol?.[1].blindDigest, d("a"));
+});
+
+test("only the registered session records protocol facts, and a migrated registration keeps what it was taken over with", () => {
+  const g = withExternalEvaluator();
+  rejected(stageAt(g, "blind", { sessionId: "someone-else" }), "forbidden");
+  rejected(recordEvaluatorCommand(g, { sessionId: "someone-else", observation: { stage: "blind", entry: "x", argvDigest: d("1"), state: "succeeded", at: at() } }), "forbidden");
+  const plain = gate();
+  rejected(stageAt(plain, "blind"), "conflict", /no external evaluator/);
+});
+
+test("observed commands are appended beside the stages; after the grading finished they are only recorded as late", () => {
+  let g = withExternalEvaluator();
+  g = apply(recordEvaluatorCommand(g, { sessionId: "session-e", observation: { stage: "blind", entry: "candidate-context", argvDigest: d("1"), state: "succeeded", exitCode: 0, at: at() } }) as Step);
+  g = apply(recordEvaluatorCommand(g, { sessionId: "session-e", observation: { stage: "blind", entry: "run-tests", argvDigest: d("2"), state: "failed", exitCode: 1, at: at() } }) as Step);
+  assert.deepEqual(g.evaluator?.kind === "external" && g.evaluator.commandObservations?.map(o => o.entry), ["candidate-context", "run-tests"]);
+  rejected(recordEvaluatorCommand(g, { sessionId: "session-e", observation: { stage: "nonsense" as never, entry: "x", argvDigest: d("1"), state: "succeeded", at: at() } }), "invalid");
+  const done = apply(submitGrade(g, { grade: criteriaGrade(), sessionId: "session-e", at: at() }) as Step);
+  const afterwards = accept(stageAt(done, "blind") as Step);
+  assert.equal(afterwards.outcome, "late");
+  assert.equal(afterwards.state.lateRecords.length, 1);
+  assert.deepEqual(afterwards.state.evaluator?.kind === "external" ? afterwards.state.evaluator.protocol ?? [] : undefined, [], "a late fact does not enter the protocol");
 });
