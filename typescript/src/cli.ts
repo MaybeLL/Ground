@@ -1,6 +1,4 @@
 import { dataLayout, dataRoot, draftsRoot } from "./data-layout.js";
-import { requireCurrentDataLayout } from "./data-layout-status.js";
-import { executeDataMigration } from "./data-migration-cli.js";
 import { resolveDevelopmentMode, resumeDevelopmentMode, validateDevelopmentMode, type DevelopmentModeSelection } from "./development-mode.js";
 import { observeCodeRoute } from "./code-route-observation.js";
 import { repositoryImageCommands, executeRepositoryImage } from "./repository-image-cli.js";
@@ -24,7 +22,7 @@ import { observeBranch, targetRelation } from "./integration-observation.js";
 import { executeEnvironmentCommand } from "./env-cli.js";
 import { isRouteWorkspace, isRouteLeased } from "./env-route-lease.js";
 import { renderContractReview } from "./contract-review.js";
-import { hostIdentity, runtimeRoot, safeRead, directoryRegistryRoot, withRuntimeLock } from './runtime-files.js';
+import { hostIdentity, runtimeRoot, safeRead } from './runtime-files.js';
 import { runtimeError } from "./runtime-record.js";
 import type { RuntimeRecord } from "./runtime-record.js";
 import { executeEval, evalNeedsOperation, evalHelp, validateEvalArgs } from "./eval-cli.js";
@@ -39,7 +37,7 @@ import { homedir } from "node:os";
 import { closeSync, existsSync, lstatSync, openSync, readFileSync, readSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { writeConfig, configPath, defaultSQLitePath, legacyConfigPath, loadConfig, mysqlPassword, networkPassword, validateConfig, type Config, type DatabaseConfig } from "./config.js";
+import { writeConfig, configPath, defaultSQLitePath, loadConfig, mysqlPassword, networkPassword, validateConfig, type Config, type DatabaseConfig } from "./config.js";
 import { candidateProse, checkContentLanguage, contentLanguagePolicy, qualityProse, verificationProse } from "./content-language.js";
 import { asDomainError, DomainError, schemaDetails, validation, worktreeMismatch } from "./errors.js";
 import { assertTargetBase } from "./target-branch.js";
@@ -73,7 +71,6 @@ import { previewExternalWorkspace, captureWorkspaceArtifact } from "./workspace-
 import { DevWorktreeModule, commonRepositoryRoot } from "./dev-worktree.js";
 import { ReviewSessions, writeMaterial, type ReviewPhase, type ReviewRole } from "./review-session.js";
 import { renderReviewMarkdown, renderReviewTrace, renderReviewSummary, type ReviewSummaryResult, type ReviewLocationRequest, type ReviewTraceResult } from "./review.js";
-import { migratePatchLedgerBrand, requireNoLegacyBrandState } from "./brand-migration.js";
 
 export interface ParsedArgs { positionals: string[]; values: Record<string, string | boolean | string[]> }
 
@@ -120,7 +117,7 @@ export const parseArgs = (argv: string[]): ParsedArgs => {
 const knownOptionKeys = new Set(["development-mode", "early", "pinned", "retention-days", "plan-digest", "allow-cached", "configuration", "data-root", "instance", "issue-slug", "view", "observation-time", "landing-record", "archive-policy","legacy-fixed","allow-unverified","policy", "expected-head", "choice", "preview","adoption-file","plan", "parallel-route", "definition-commit", "target-remote", "target-branch",
   "workspace", "output", "format", "selection", "selection-version", "source-remote", "source-ref", "source-commit", "sync", "target-commit", "observation", "authorization", "provenance", "record",
   "external-directory", "input-digest", "directory", "snippet-file", "start-line", "end-line", "commit", "status", "state", "sort", "has-open-devrun", "standing", "selected", "verdict",
-  "issue-version", "summary", "paged", "cursor", "after", "agent-id", "agent-name", "allow-second-issue-per-repository", "allow-submitted", "allow-unpublished-baseline", "at", "baseline", "base-commit", "baseline-policy", "bind-requirement", "branch", "brief", "brief-file", "canonical-remote", "candidate", "ca-file", "confirm-initialize", "config", "content-language", "language-override-reason", "context", "cwd", "database", "dev-run", "discard-changes", "driver", "dry-run", "event", "refresh", "expected-version", "exploration-brief", "file", "handoff", "help", "host", "include-diff", "include-patch", "include-verification", "issue", "issues-cursor", "json", "legacy-config", "limit", "link", "manifest-cursor", "markdown", "mode", "name", "non-interactive", "operation-id", "override-reason", "pairwise", "password-source", "path", "phase", "port", "preflight", "reason", "reconfigure", "refines-candidate", "remote", "remote-url", "repository", "requirement", "side", "skills-path", "subject-id", "subject-type", "tls", "tls-mode", "username", "verifications-cursor", "version", "role", "quality-handoff", "independent-digest", "out", "review-session",
+  "issue-version", "summary", "paged", "cursor", "after", "agent-id", "agent-name", "allow-second-issue-per-repository", "allow-submitted", "allow-unpublished-baseline", "at", "baseline", "base-commit", "baseline-policy", "bind-requirement", "branch", "brief", "brief-file", "canonical-remote", "candidate", "ca-file", "confirm-initialize", "config", "content-language", "language-override-reason", "context", "cwd", "database", "dev-run", "discard-changes", "driver", "dry-run", "event", "refresh", "expected-version", "exploration-brief", "file", "handoff", "help", "host", "include-diff", "include-patch", "include-verification", "issue", "issues-cursor", "json", "limit", "link", "manifest-cursor", "markdown", "mode", "name", "non-interactive", "operation-id", "override-reason", "pairwise", "password-source", "path", "phase", "port", "preflight", "reason", "reconfigure", "refines-candidate", "remote", "remote-url", "repository", "requirement", "side", "skills-path", "subject-id", "subject-type", "tls", "tls-mode", "username", "verifications-cursor", "version", "role", "quality-handoff", "independent-digest", "out", "review-session",
   "run", "stage", "entry", "started-at", "ended-at", "exit-code", "identity", "asset", "lease", "hit", "copy-path", "report-digest",
   ...Object.values(codeCleanupCommands).flatMap(command => [...command.options]),
   ...Object.values(repositoryImageCommands).flatMap(command => [...command.options]),
@@ -157,8 +154,6 @@ const commandOptionKeys: Record<string, Set<string>> = {
   "integration:consume": new Set(["config", "authorization", "operation-id", "agent-id", "agent-name"]),
   "integration:landing": new Set(["archive-policy","adoption-file","config", "observation", "commit", "provenance", "refresh", "operation-id", "agent-id", "agent-name"]),
   "integration:show": new Set(["config", "record"]),
-  "migrate:patchledger": new Set(["legacy-config", "dry-run"]),
-  "migrate:data": new Set(["legacy-config", "dry-run", "file", "data-root"]),
   "delivery-link:withdraw": new Set(["config", "expected-version", "reason", "operation-id", "agent-id", "agent-name"]),
   "delivery-link:show": new Set(["config", "version"]),
   "delivery-link:record": new Set(["config", "candidate", "commit", "expected-version", "repository", "remote", "operation-id", "agent-id", "agent-name"]),
@@ -292,7 +287,6 @@ const optionDocs: Record<string, string> = {
   "config": "Path to the Grounds config file",
   "content-language": "Check human-authored prose for the requested language (currently zh-CN); opt in for Chinese review workflows",
   "language-override-reason": "Explicit reason to accept flagged English prose with --content-language zh-CN",
-  "legacy-config": "Path to a PatchLedger v1 config to migrate",
   "context": "Saved blind VerificationContext JSON (offline template mode)",
   "confirm-initialize": "Explicitly confirm initializing an empty MySQL/PostgreSQL database",
   "cwd": "Working directory for Git operations",
@@ -391,8 +385,6 @@ const commandDocs: Record<string, string> = {
   "code-workspace:show": "Read a code Workspace instance history; a shared database record does not prove local availability",
   "code-workspace:prepare": "Prepare fixed repository baselines; retries recover the original selection; development execution remains disabled",
   ...Object.fromEntries(Object.entries(repositoryArchiveCommands).map(([action, spec]) => [`repository:${action}`, spec.description])),
-  "migrate:patchledger": "Migrate PatchLedger configuration and current-repository local state to Grounds",
-  "migrate:data": "Perform or resume the one-time data layout migration; --dry-run previews filesystem moves",
   "trace:": "Locate current code and trace verified Git changes to historical Candidate contracts",
   "integration:observe": "Persist target/source/Selection checks and separate Verification standing; offline is always unknown, --refresh fetches both branches",
   "integration:authorize": "Record an explicit one-time user decision accepting unverified landing; only a solely forward-expired gate is eligible",
@@ -501,7 +493,6 @@ const commandDocs: Record<string, string> = {
 const actionSets: Record<string, string[]> = {
   "code-workspace": [...Object.keys(repositoryImageCommands), ...Object.keys(environmentControlCommands), ...Object.keys(codeCleanupCommands), ...Object.keys(codeExecutionCommands), "environment-save", "environment-show", "config-save", "config-show", "create", "restore", "show", "prepare", "route-prepare", "route-show", "route-bind"],
   integration: ["observe", "authorize", "consume", "landing", "show"],
-  migrate: ["patchledger", "data"],
   "delivery-link": ["record", "withdraw", "show"],
   install: ["skill"], db: ["status", "test", "migrate"],
   contract: ["render"],
@@ -537,8 +528,6 @@ const positionalBounds: Record<string, [number, number]> = {
   "code-workspace:prepare": [3, 3],
   ...Object.fromEntries(Object.keys(repositoryArchiveCommands).map(action => [`repository:${action}`, [2, 2] as [number, number]])),
   "contract:render": [2, 2],
-  "migrate:patchledger": [2, 2],
-  "migrate:data": [2, 2],
   "delivery-link:withdraw": [3, 3], "delivery-link:show": [3, 3],
   "integration:observe": [2, 2], "integration:authorize": [2, 2], "integration:consume": [2, 2], "integration:landing": [2, 2], "integration:show": [2, 3],
   "delivery-link:record": [2, 2],
@@ -613,7 +602,12 @@ const validateHelpArguments = (args: ParsedArgs): void => {
   // The standalone form may take one topic.  When `--help` is attached to a
   // command, its normal positional arguments are intentionally ignored so a
   // user can ask for help before supplying required IDs/files.
-  if ((args.positionals.length > 0 && args.positionals[0] === "help") && args.positionals.length > 2) throw validation("command", "help expects at most one topic");
+  if (args.positionals[0] === "help") {
+    if (args.positionals.length > 2) throw validation("command", "help expects at most one topic");
+    const topic = args.positionals[1];
+    if (topic && !Object.hasOwn(actionSets, topic) && !["init", "doctor", "review", "trace", "config", "task", "work", "grade", "env", "eval", "draft"].includes(topic))
+      throw validation("command", `command is not implemented: ${topic}`);
+  }
 };
 
 // Render the per-command option list.  The set comes from commandOptionKeys
@@ -849,12 +843,6 @@ const databaseIdentityMismatch = (): DomainError => new DomainError(
 
 const openStore = async (pathOverride = ""): Promise<{ store: SQLStore; config: Config; policy: "warn" | "require_override" }> => {
   const path = configPath(pathOverride);
-  if (!pathOverride && !existsSync(path) && existsSync(legacyConfigPath())) {
-    throw new DomainError("BRAND_MIGRATION_REQUIRED", "legacy PatchLedger configuration must be migrated to Grounds", false, {
-      reason: `legacy configuration exists at ${legacyConfigPath()}`,
-      migrate_argv: ["grounds", "migrate", "patchledger"],
-    });
-  }
   if (!existsSync(path)) throw new DomainError("SCHEMA_INCOMPATIBLE", `configuration file does not exist: ${path}`, false, schemaDetails(SCHEMA_VERSION, `configuration file does not exist: ${path}`));
   const config = loadConfig(path); const store = storeForConfig(config);
   try {
@@ -867,9 +855,9 @@ const openStore = async (pathOverride = ""): Promise<{ store: SQLStore; config: 
   }
 };
 
-const initCommand = async (args: ParsedArgs, io: CLIIO, observedAbsent = false): Promise<unknown> => {
+const initCommand = async (args: ParsedArgs, io: CLIIO): Promise<unknown> => {
   const configFile = configPath(value(args, "config"));
-  if (existsSync(configFile) && !bool(args, "reconfigure") && !observedAbsent) throw validation("config", "already exists; pass --reconfigure to replace it");
+  if (existsSync(configFile) && !bool(args, "reconfigure")) throw validation("config", "already exists; pass --reconfigure to replace it");
   const driver = await promptValue(args, io, "driver", "Storage driver [sqlite/mysql/postgres] (sqlite): ", "sqlite") as "sqlite" | "mysql" | "postgres";
   if (driver !== "sqlite" && driver !== "mysql" && driver !== "postgres") throw validation("driver", "must be sqlite, mysql or postgres");
   const policy = await promptValue(args, io, "baseline-policy", `Baseline policy [warn/require_override] (${driver === "sqlite" ? "warn" : "require_override"}): `, driver === "sqlite" ? "warn" : "require_override") as "warn" | "require_override";
@@ -1057,23 +1045,9 @@ const routeLeased = (cwd: string, databaseID: string, runID: string): boolean =>
 };
 
 export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> => {
-  const args = parseArgs(argv), group = args.positionals[0] ?? "", action = args.positionals[1] ?? "";
-  // Preserve the concurrent-init publication protocol across asynchronous lock acquisition.
-  const initObservedAbsent = group === "init" && !existsSync(configPath(value(args, "config")));
-  const informational = bool(args, "help") || action === "help" || ["help", "--help", "version", "-v", "doctor", "install", "migrate"].includes(group)
-    || (hasOption(args, "version") && args.positionals.length === 0) || (group === "config" && action === "path");
-  if (informational) return executeCommand(argv, io);
-  return withRuntimeLock(directoryRegistryRoot(), "data-layout", async () => {
-    requireCurrentDataLayout(value(args, "cwd", io.cwd ?? process.cwd()));
-    return executeCommand(argv, io, initObservedAbsent);
-  }, 0, "shared");
-};
-
-const executeCommand = async (argv: string[], io: CLIIO = {}, initObservedAbsent = false): Promise<unknown> => {
   const args = parseArgs(argv); const group = args.positionals[0] ?? ""; const action = args.positionals[1] ?? ""; const cwd = value(args, "cwd", io.cwd ?? process.cwd());
   if (group === "env") return executeEnvironmentCommand(args, cwd, {
     resolveRepository: async (workspace: string, devRunId?: string) => {
-      requireNoLegacyBrandState(workspace, value(args, "config"));
       const opened = await openStore(value(args, "config"));
       opened.store.setGitArtifactResolver(ref => {
         if (!ref.git_artifact) throw validation("artifact", "Git artifact metadata required");
@@ -1102,7 +1076,6 @@ const executeCommand = async (argv: string[], io: CLIIO = {}, initObservedAbsent
   if (isVerificationRunCommand(args)) {
     if (bool(args, "help") || verificationRunSubcommand(args) === "help") return { result_type: "patchledger.result.help/v1", command: "help", usage: verificationRunHelp() };
     validateVerificationRunArgs(args);
-    requireNoLegacyBrandState(cwd, value(args, "config"));
     // Only creation accepts attribution. Later observations use the recorded
     // run identity and read commands must work without a human Git profile.
     if (verificationRunSubcommand(args) === "start") attribution(args, cwd);
@@ -1115,7 +1088,6 @@ const executeCommand = async (argv: string[], io: CLIIO = {}, initObservedAbsent
   }
   if ((WORK_GROUPS as readonly string[]).includes(group)) {
     if (bool(args, "help") || !action || action === "help") return { result_type: "patchledger.result.help/v1", command: "help", usage: workHelp() };
-    requireNoLegacyBrandState(cwd, value(args, "config"));
     const opened = await openStore(value(args, "config"));
     try { return await executeWorkCommand(args, { app: composeWork(opened.store), cwd, readFile: path => readFileSync(resolve(cwd, path), "utf8") }); }
     finally { await opened.store.close(); }
@@ -1125,13 +1097,11 @@ const executeCommand = async (argv: string[], io: CLIIO = {}, initObservedAbsent
     if (isQADraftCommand(args)) {
       validateQADraftArgs(args);
       if (!qaDraftNeedsLedger(args)) return executeQADraft(args, cwd);
-      requireNoLegacyBrandState(cwd, value(args, 'config'));
       const opened = await openStore(value(args, 'config'));
       try { return await executeQADraft(args,cwd,opened.store,opened.config.database.expected_database_id,()=>attribution(args,cwd)); }
       finally { await opened.store.close(); }
     }
     validateEvalArgs(args);
-    requireNoLegacyBrandState(cwd, value(args, "config"));
     const opened = await openStore(value(args, "config"));
     opened.store.setGitArtifactResolver(ref => { if (!ref.git_artifact) throw validation("artifact", "Git artifact metadata required"); return deriveLocalGitArtifact(cwd, ref.git_artifact.binding); });
     try { return await executeEval(args, opened.store, cwd, opened.config.database.expected_database_id, () => attribution(args, cwd)); }
@@ -1160,7 +1130,7 @@ const executeCommand = async (argv: string[], io: CLIIO = {}, initObservedAbsent
       }
       return { result_type: "patchledger.result.help/v1", command: "help", usage: formatCommandHelp(commandHelp(helpGroup, helpAction)) };
     }
-    return { result_type: "patchledger.result.help/v1", command: "help", usage: "grounds doctor | migrate data | migrate patchledger | install skill [path] | init | review [candidate-id] | trace | delivery-link | integration | contract | draft (legacy alias: workspace) | code-workspace | requirement | repository | issue | devrun | preflight | candidate | selection | completion | verification | ledger | eval | env | db | config" };
+    return { result_type: "patchledger.result.help/v1", command: "help", usage: "grounds doctor | task | work | grade | install skill [path] | init | review [candidate-id] | trace | delivery-link | integration | contract | draft (legacy alias: workspace) | code-workspace | requirement | repository | issue | devrun | preflight | candidate | selection | completion | verification | ledger | eval | env | db | config" };
   }
   if (!group) throw validation("command", "expected install, init, review, config, db, workspace, repository, requirement, issue, devrun, candidate, selection, verification, or ledger");
   if (group === "doctor") {
@@ -1169,29 +1139,17 @@ const executeCommand = async (argv: string[], io: CLIIO = {}, initObservedAbsent
     if (hasOption(args, "skills-path") && !value(args, "skills-path").trim()) throw validation("skills-path", "must not be empty");
     return installationStatus(value(args, "skills-path") || defaultSkillsDirectory());
   }
-  if (group === "migrate") {
-    if (!["patchledger", "data"].includes(action)) throw validation("migrate", "expected patchledger or data");
-    validateCommandArguments(args, group, action);
-    if (action === "data") return executeDataMigration({ cwd, dryRun: bool(args, "dry-run"),
-      ...(hasOption(args, "file") ? { file: required(args, "file") } : {}),
-      ...(hasOption(args, "data-root") ? { targetRoot: required(args, "data-root") } : {}),
-      ...(hasOption(args, "legacy-config") ? { oldConfig: required(args, "legacy-config") } : {}),
-    }, storeForConfig);
-    return migratePatchLedgerBrand({ cwd, legacyConfig: value(args, "legacy-config") || undefined, dryRun: bool(args, "dry-run") });
-  }
   if (group === "init") {
     validateCommandArguments(args, group, action);
     if (action) throw validation("command", "init does not take an action");
     if (hasOption(args, "config") && !value(args, "config").trim()) throw validation("config", "must not be empty");
     if (hasOption(args, "path") && !value(args, "path").trim()) throw validation("path", "must not be empty");
-    requireNoLegacyBrandState(cwd, value(args, "config"));
-    return initCommand(args, io, initObservedAbsent);
+    return initCommand(args, io);
   }
   if (group === "config") {
     if (!action || !["show", "path", "validate", "set-development-mode"].includes(action)) throw validation("config", "expected show, path, validate, or set-development-mode");
     validateCommandArguments(args, group, action);
     if (hasOption(args, "config") && !value(args, "config").trim()) throw validation("config", "must not be empty");
-    requireNoLegacyBrandState(cwd, value(args, "config"));
     return configCommand(args);
   }
   if (group === "install") {
@@ -1235,7 +1193,6 @@ const executeCommand = async (argv: string[], io: CLIIO = {}, initObservedAbsent
     return { result_type: subject.handoffResultType, command: "verification.handoff", candidate_id: subject.report.candidate_id, report_digest: handoff.report_digest, independent_digest: subject.independentDigest, handoff, ...(outputPath ? { output_path: outputPath } : {}), warnings: languageWarnings };
   }
   if (group === "db") {
-    requireNoLegacyBrandState(cwd, value(args, "config"));
     const configFile = configPath(value(args, "config"));
     if (!existsSync(configFile)) throw new DomainError("SCHEMA_INCOMPATIBLE", `configuration file does not exist: ${configFile}`, false, schemaDetails(SCHEMA_VERSION, `configuration file does not exist: ${configFile}`));
     const config = loadConfig(configFile);
@@ -1253,10 +1210,6 @@ const executeCommand = async (argv: string[], io: CLIIO = {}, initObservedAbsent
     const eventID = resourceID(args, "event", "event");
     if (!isUUIDv7(eventID)) throw validation("event", "must be a lowercase UUIDv7; use ledger list to discover event IDs");
   }
-  // Every ordinary ledger or repository command fails closed when legacy
-  // local state is visible. Help, version, doctor, Skill installation and the
-  // explicit migration command remain available so the user can recover.
-  requireNoLegacyBrandState(cwd, value(args, "config"));
   if (group === "contract" && action === "render") {
     const workspace = hasOption(args, "workspace");
     const fixed = hasOption(args, "requirement") || hasOption(args, "issue");

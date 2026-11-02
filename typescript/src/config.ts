@@ -3,8 +3,8 @@ import { validateDevelopmentMode, type DevelopmentMode } from "./development-mod
 import { chmodSync, closeSync, existsSync, fsyncSync, linkSync, mkdirSync, openSync, readSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { homedir, platform } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { platform } from "node:os";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { stringify } from "yaml";
 import { isUUIDv7 } from "./identity.js";
 import { DomainError, validation } from "./errors.js";
@@ -17,7 +17,7 @@ export interface MySQLTLS {
 
 export interface PasswordSource {
   source: "keychain" | "environment";
-  variable?: "GROUNDS_MYSQL_PASSWORD" | "PATCHLEDGER_MYSQL_PASSWORD" | "GROUNDS_POSTGRES_PASSWORD";
+  variable?: "GROUNDS_MYSQL_PASSWORD" | "GROUNDS_POSTGRES_PASSWORD";
 }
 
 export interface DatabaseConfig {
@@ -35,11 +35,6 @@ export interface DatabaseConfig {
 export interface Config {
   development?: { default_mode: DevelopmentMode };
   version: 2;
-  database: DatabaseConfig;
-}
-
-export interface LegacyConfig {
-  version: 1;
   database: DatabaseConfig;
 }
 
@@ -64,14 +59,14 @@ const rejectUnknown = (value: unknown, allowed: string[], field: string): void =
   for (const key of Object.keys(value as object)) if (!allowed.includes(key)) throw validation(`${field}.${key}`, "unknown field");
 };
 
-const validateConfigVersion = (value: unknown, version: 1 | 2): void => {
+export const validateConfig = (value: unknown): void => {
   if (!isRecord(value)) throw validation("config", "must be an object");
-  rejectUnknown(value, version === 2 ? ["version", "database", "development"] : ["version", "database"], "config");
+  rejectUnknown(value, ["version", "database", "development"], "config");
   if (value.development !== undefined) {
     rejectUnknown(value.development, ["default_mode"], "config.development");
     validateDevelopmentMode((value.development as Record<string, unknown>).default_mode, "config.development.default_mode");
   }
-  if (value.version !== version) throw validation("version", `must equal ${version}`);
+  if (value.version !== 2) throw validation("version", "must equal 2");
   const db = value.database;
   if (!isRecord(db)) throw validation("database", "must be an object");
   rejectUnknown(db, ["driver", "path", "host", "port", "database", "username", "tls", "password", "expected_database_id"], "config.database");
@@ -113,7 +108,7 @@ const validateConfigVersion = (value: unknown, version: 1 | 2): void => {
     } else if (password.source === "environment") {
       const expected = db.driver === "postgres"
         ? "GROUNDS_POSTGRES_PASSWORD"
-        : version === 2 ? "GROUNDS_MYSQL_PASSWORD" : "PATCHLEDGER_MYSQL_PASSWORD";
+        : "GROUNDS_MYSQL_PASSWORD";
       if (password.variable !== expected) throw validation("database.password.variable", `must equal ${expected}`);
     } else {
       throw validation("database.password.source", "must be keychain or environment");
@@ -124,27 +119,13 @@ const validateConfigVersion = (value: unknown, version: 1 | 2): void => {
   if (!isUUIDv7(db.expected_database_id)) throw validation("database.expected_database_id", "must be a lowercase UUIDv7");
 };
 
-export const validateConfig = (value: unknown): void => validateConfigVersion(value, 2);
-
 export const configPath = (override = ""): string => {
   if (override) return resolve(override);
   if (process.env.GROUNDS_CONFIG) return resolve(process.env.GROUNDS_CONFIG);
   return dataLayout().config;
 };
 
-export const legacyConfigPath = (): string => {
-  if (platform() === "darwin") return join(homedir(), "Library", "Application Support", "PatchLedger", "config.yaml");
-  if (platform() === "win32") return join(process.env.APPDATA ?? join(homedir(), "AppData", "Roaming"), "PatchLedger", "config.yaml");
-  return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "patchledger", "config.yaml");
-};
-
 export const defaultSQLitePath = (): string => dataLayout().database;
-
-export const legacyDefaultSQLitePath = (): string => {
-  if (platform() === "darwin") return join(homedir(), "Library", "Application Support", "PatchLedger", "patchledger.db");
-  if (platform() === "win32") return join(process.env.APPDATA ?? join(homedir(), "AppData", "Roaming"), "PatchLedger", "patchledger.db");
-  return join(process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share"), "patchledger", "patchledger.db");
-};
 
 const loadConfigDocument = (filePath: string): unknown => {
   let parsed: unknown;
@@ -171,10 +152,10 @@ const loadConfigDocument = (filePath: string): unknown => {
   return parsed;
 };
 
-const loadConfigVersion = <T extends Config | LegacyConfig>(filePath: string, version: 1 | 2): T => {
+export const loadConfig = (filePath: string): Config => {
   const parsed = loadConfigDocument(filePath);
   rejectNulls(parsed, "config");
-  rejectUnknown(parsed, version === 2 ? ["version", "database", "development"] : ["version", "database"], "config");
+  rejectUnknown(parsed, ["version", "database", "development"], "config");
   const raw = parsed as Record<string, unknown>;
   rejectUnknown(raw.database, ["driver", "path", "host", "port", "database", "username", "tls", "password", "expected_database_id"], "config.database");
   if (raw.database && typeof raw.database === "object") {
@@ -182,13 +163,9 @@ const loadConfigVersion = <T extends Config | LegacyConfig>(filePath: string, ve
     if (db.tls !== undefined) rejectUnknown(db.tls, ["mode", "ca_file"], "config.database.tls");
     if (db.password !== undefined) rejectUnknown(db.password, ["source", "variable"], "config.database.password");
   }
-  validateConfigVersion(parsed, version);
-  return parsed as T;
+  validateConfig(parsed);
+  return parsed as Config;
 };
-
-export const loadConfig = (filePath: string): Config => loadConfigVersion<Config>(filePath, 2);
-
-export const loadLegacyConfig = (filePath: string): LegacyConfig => loadConfigVersion<LegacyConfig>(filePath, 1);
 
 const rejectNulls = (value: unknown, field: string): void => {
   if (value === null) throw validation(field, "YAML null is not supported; omit optional fields instead");
@@ -258,7 +235,7 @@ export const systemKeychainReader: KeychainReader = (locator) => {
 
 export const networkPassword = (db: DatabaseConfig, readKeychain: KeychainReader = systemKeychainReader): string => {
   if (!db.password) throw validation("database.password", "is required");
-  // Fixed per engine, as before: a legacy configuration naming PATCHLEDGER_MYSQL_PASSWORD still reads GROUNDS_MYSQL_PASSWORD.
+  // Credential environment names are fixed per engine, never arbitrary config input.
   const variable = db.driver === "postgres" ? "GROUNDS_POSTGRES_PASSWORD" : "GROUNDS_MYSQL_PASSWORD";
   const password = db.password.source === "environment"
     ? process.env[variable] ?? ""

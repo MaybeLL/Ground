@@ -4,16 +4,16 @@ Current implementation structure and storage boundaries. Product meaning lives i
 
 ## The work model (`typescript/src/work/`)
 
-A hexagonal subtree that will replace the DevRun, Verification and evaluation paths. It is being built layer by layer (plan phase P0); nothing outside it calls it yet.
+A hexagonal subtree replacing the DevRun, Verification and evaluation paths. The CLI already calls its task, work and grade entry points (P1c); retirement of the old paths is in progress (P1d).
 
 | Layer | Contents | May import |
 | --- | --- | --- |
 | `domain/` | Aggregates (definitions, task run, work, sandbox, agent execution, grading record, experiment run), derived queries, invariant checkers | itself only |
 | `ports/` | Repository interfaces, storage errors, the unit of work | domain |
-| `application/` | Use cases (not yet written) | domain, ports |
+| `application/` | Task definitions, execution, grading and code delivery use cases | domain, ports |
 | `driver/` | Synchronous driving, completion-event delivery, reconciliation (not yet written) | application, ports, domain, Node |
-| `adapters/` | SQL repositories; later workspace, devcontainer, agents | domain, ports, existing modules, Node |
-| `entry/` | CLI command groups (not yet written) | application, driver, domain |
+| `adapters/` | SQL repositories, Git archive receipts and worktrees; later devcontainer and agents | domain, ports, existing modules, Node |
+| `entry/` | Task, work and grade CLI command groups | application, driver, domain |
 | `composition.ts` | Wires adapters into use cases | everything |
 
 `test/work-architecture.test.ts` checks these rules statically.
@@ -44,7 +44,7 @@ The work tables live in the same SQL ledger as the older tables and work on SQLi
 
 `Grading` is the module for gates judged by an external evaluator (a fresh session of the caller's own agent). Managed and test graders arrive with P4, measures with P3.
 
-- `requestGate` binds a gate to the exact task revision, criteria digest, manifest, grader revision and materials, and numbers it from a ledger counter; the latest request over the same subject is the one that counts. Only a delivered run can be accepted. The one grader behind it (`builtin.independent-verification`) is created on first use, under the same ids a migrated ledger carries.
+- `requestGate` binds a gate to the exact task revision, criteria digest, manifest, grader revision and materials, and numbers it from a ledger counter; the latest request over the same subject is the one that counts. Only a delivered run can be accepted. The one grader behind it (`builtin.independent-verification`) is created on first use with stable built-in definition and revision identities.
 - `registerExternalEvaluator` issues a fresh session now (after the delivery was frozen); it must differ from the worker's session. Only that session may record protocol stages and observed commands or submit the verdict.
 - The protocol is blind, freeze, reconcile, handoff, submit, in order. The freeze records the digest of the blind result and nothing afterwards may change it; a verdict is refused until the blind result was frozen. A verdict must judge exactly the task's criteria.
 - A cancelled grading ends once the evaluator declares it stopped; a verdict that arrives after cancellation is only recorded.
@@ -64,6 +64,14 @@ Crash safety needs no intent log here: every use case is one transaction, and th
 Three groups, each action one use case: `task` (create, revise, show, list), `work` (start, continue, branch, select, close, show, run, register, transcript, workspace, deliver, stop, cancel) and `grade` (request, register, stage, command, submit, stop, cancel, show, list); `grounds work help` lists the options. The operation id every write prints is its request identity: repeating a call with `--operation-id` is safe. `composition.ts` is the only place that wires the SQL repositories, git and the real clock together; the entry layer calls application classes and never adapters. Task text is passed as `--title` (`--summary` is an existing boolean option). A grade is a JSON file of criterion verdicts (`criterion_id`, `independent`, `reconciliation`, `final`, `rationale`, `evidence`).
 
 Not yet covered: JSON schemas for the new result types under `docs/contracts/v1` (with the skill rewrite, P1d).
+
+## Retirement boundary (P1d, in progress)
+
+D149 cancels data migration. The `migrate data` and `migrate patchledger` commands, their filesystem relocation and binding repair modules, old configuration readers, old-location discovery and migration-only command lock are removed. Ordinary commands no longer inspect historical directories or migration journals; they resolve only the current configuration and data root. Configuration version 1 is rejected rather than converted. Existing files are **not** moved, rewritten or deleted automatically.
+
+This is a bounded first deletion, not the completed model cutover. Old business commands, their SQL tables, `db migrate` and draft-format conversion still exist until their consumers retire together. Schema 24 and its SQL transaction/initialization safeguards are unchanged in this batch. The final schema reset and removal of old business services remain P1d work; no compatibility layer will replace them.
+
+`test/retired-migration.test.ts` checks rejected command/help forms, untouched historical bytes, initialization and new-model queries despite historical markers, rejection of old config/credential names, and removal of migration result schemas. The original CLI concurrency/identity tests and work-model end-to-end tests remain.
 
 ## Verifying a storage change
 

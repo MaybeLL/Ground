@@ -1998,6 +1998,7 @@ flowchart LR
 | 问题 | 处理 |
 | --- | --- |
 | 目标模型第 12 节与 0002 第 9 节的迁移规则（DevRun 树分 Work、历史工作头、迁移标记、会话身份缺失等） | **废止。** 没有需要保留的账本，迁移只会增加领域里的特例（迁移标记、可空的工作头与会话）。P0 第 4 步写的迁移代码（映射、读取器、写入编排、`importLegacy*`、`migrateWork`、`migrated` 标记）已删除，Work 始终有工作头，外部评价者始终有会话身份 |
+| 旧品牌和数据目录迁移工具 | 已删除 `migrate patchledger` / `migrate data`、专用搬运/绑定修复、旧配置读取与迁移门禁；只读取当前配置与目录，不自动搬动或清理历史文件。业务命令及其表、SQL schema 重编号仍待后续删除批次，不将本批标为完整切换 |
 | 旧模型何时删除 | 被新模型替代的部分（Requirement / Issue / DevRun / Candidate / Verification / 选择 / 完成 / 交付链接 / 预检的写入与读取、Python 协调器、Codex 采集），连同它们的表一起从 schema 删除，不留只读兼容；新账本只有新模型的表 |
 | 评测、环境、容器路线 | 用户确认“只删新模型已替代的”。但依赖分析显示 eval 的编码评测、`code-workspace`、部分 `code-route` 与 `repository-*` 直接依赖 DevRun / Candidate，无法在删除这些表之后原样保留；边界按依赖划定，见 0002 第 9 节 |
 

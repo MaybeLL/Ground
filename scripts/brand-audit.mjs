@@ -9,11 +9,11 @@ const files = execFileSync("git", ["ls-files", "--cached", "--others", "--exclud
   .toString("utf8").split("\0").filter(Boolean);
 const historical = /^(docs\/adr\/|docs\/dogfooding-|docs\/experiments\/|docs\/validation\/|docs\/examples\/reviewer-first-review\.md$|tui\/CHANGELOG\.md$)/;
 const compatibility = new Set([
-  "typescript/src/brand-migration.ts",
   "typescript/src/config.ts",
   "typescript/src/cli.ts",
   "typescript/src/skill-installer.ts",
-  "typescript/test/brand-migration.test.ts",
+  // Negative regression fixtures: historical paths are ignored, never migrated.
+  "typescript/test/retired-migration.test.ts",
   "typescript/test/skill-installer.test.ts",
   "scripts/brand-audit.mjs",
 ]);
