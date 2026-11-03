@@ -35,12 +35,6 @@
       "$ref": "#/$defs/contractReviewResult"
     },
     {
-      "$ref": "eval.schema.json"
-    },
-    {
-      "$ref": "eval-list.schema.json"
-    },
-    {
       "$ref": "#/$defs/selectionMaterialize"
     },
     {
@@ -386,19 +380,13 @@
             "installed_version": { "type": "string", "minLength": 1, "maxLength": 128 },
             "status": { "enum": ["current", "outdated", "ahead", "unknown", "missing", "mixed"] },
             "details": {
-              "type": "array", "minItems": 2, "maxItems": 8,
+              "type": "array", "minItems": 1, "maxItems": 1,
               "items": {
                 "type": "object", "additionalProperties": false,
                 "required": ["name", "status"],
                 "properties": {
                   "name": {
-                    "enum": [
-                      "grounds", "grounds-eval", "grounds-knowledge-improve", "grounds-define",
-                      "grounds-develop",
-                      "grounds-verify",
-                      "grounds-deliver",
-                      "grounds-guide", "grounds-eval-author", "grounds-eval-run", "grounds-export-confluence"
-                    ]
+                    "const": "grounds"
                   },
                   "status": { "enum": ["current", "outdated", "ahead", "unknown", "missing"] },
                   "installed_version": { "type": "string", "minLength": 1, "maxLength": 128 }
@@ -499,21 +487,15 @@
         "target_path": { "type": "string", "minLength": 1, "maxLength": 32768 },
         "skills": {
           "type": "array",
-          "minItems": 2,
-          "maxItems": 8,
+          "minItems": 1,
+          "maxItems": 1,
           "items": {
             "type": "object",
             "additionalProperties": false,
             "required": ["name", "path"],
             "properties": {
               "name": {
-                "enum": [
-                  "grounds", "grounds-eval", "grounds-knowledge-improve", "grounds-define",
-                  "grounds-develop",
-                  "grounds-verify",
-                  "grounds-deliver",
-                  "grounds-guide", "grounds-eval-author", "grounds-eval-run", "grounds-export-confluence"
-                ]
+                "const": "grounds"
               },
               "path": { "type": "string", "minLength": 1, "maxLength": 32768 }
             }

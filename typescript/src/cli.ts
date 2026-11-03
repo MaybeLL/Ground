@@ -25,8 +25,6 @@ import { renderContractReview } from "./contract-review.js";
 import { hostIdentity, runtimeRoot, safeRead } from './runtime-files.js';
 import { runtimeError } from "./runtime-record.js";
 import type { RuntimeRecord } from "./runtime-record.js";
-import { executeEval, evalNeedsOperation, evalHelp, validateEvalArgs } from "./eval-cli.js";
-import { executeQADraft, isQADraftCommand, qaDraftNeedsLedger, qaDraftNeedsOperation, qaDraftHelp, validateQADraftArgs } from './qa-draft-cli.js';
 import { traceSource } from "./code-history-trace.js";
 import { candidateFromReceipt, deliveryProof, withHistoryRead } from "./git-history.js";
 import { DeliveryWorktreeModule } from "./delivery-worktree.js";
@@ -605,7 +603,7 @@ const validateHelpArguments = (args: ParsedArgs): void => {
   if (args.positionals[0] === "help") {
     if (args.positionals.length > 2) throw validation("command", "help expects at most one topic");
     const topic = args.positionals[1];
-    if (topic && !Object.hasOwn(actionSets, topic) && !["init", "doctor", "review", "trace", "config", "task", "work", "grade", "env", "eval", "draft"].includes(topic))
+    if (topic && !Object.hasOwn(actionSets, topic) && !["init", "doctor", "review", "trace", "config", "task", "work", "grade", "env", "draft"].includes(topic))
       throw validation("command", `command is not implemented: ${topic}`);
   }
 };
@@ -1092,21 +1090,6 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
     try { return await executeWorkCommand(args, { app: composeWork(opened.store), cwd, readFile: path => readFileSync(resolve(cwd, path), "utf8") }); }
     finally { await opened.store.close(); }
   }
-  if (group === "eval") {
-    if (bool(args, "help")) return { result_type: "patchledger.result.help/v1", command: "help", usage: evalHelp() + '\n\n' + qaDraftHelp() };
-    if (isQADraftCommand(args)) {
-      validateQADraftArgs(args);
-      if (!qaDraftNeedsLedger(args)) return executeQADraft(args, cwd);
-      const opened = await openStore(value(args, 'config'));
-      try { return await executeQADraft(args,cwd,opened.store,opened.config.database.expected_database_id,()=>attribution(args,cwd)); }
-      finally { await opened.store.close(); }
-    }
-    validateEvalArgs(args);
-    const opened = await openStore(value(args, "config"));
-    opened.store.setGitArtifactResolver(ref => { if (!ref.git_artifact) throw validation("artifact", "Git artifact metadata required"); return deriveLocalGitArtifact(cwd, ref.git_artifact.binding); });
-    try { return await executeEval(args, opened.store, cwd, opened.config.database.expected_database_id, () => attribution(args, cwd)); }
-    finally { await opened.store.close(); }
-  }
   // `--version` / `-v` print the installed package version without touching
   // storage.  It must stay available even before the config/store opens, and
   // under `--json` it returns a contract-shaped version result.
@@ -1130,7 +1113,7 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
       }
       return { result_type: "patchledger.result.help/v1", command: "help", usage: formatCommandHelp(commandHelp(helpGroup, helpAction)) };
     }
-    return { result_type: "patchledger.result.help/v1", command: "help", usage: "grounds doctor | task | work | grade | install skill [path] | init | review [candidate-id] | trace | delivery-link | integration | contract | draft (legacy alias: workspace) | code-workspace | requirement | repository | issue | devrun | preflight | candidate | selection | completion | verification | ledger | eval | env | db | config" };
+    return { result_type: "patchledger.result.help/v1", command: "help", usage: "grounds doctor | task | work | grade | install skill [path] | init | review [candidate-id] | trace | delivery-link | integration | contract | draft (legacy alias: workspace) | code-workspace | requirement | repository | issue | devrun | preflight | candidate | selection | completion | verification | ledger | env | db | config" };
   }
   if (!group) throw validation("command", "expected install, init, review, config, db, workspace, repository, requirement, issue, devrun, candidate, selection, verification, or ledger");
   if (group === "doctor") {
@@ -2251,7 +2234,7 @@ const assessmentView = (record: RuntimeRecord): Record<string, unknown> => {
 };
 
 export const commandNeedsOperationID = (args: ParsedArgs): boolean =>
-  !(args.positionals[0] === "candidate" && args.positionals[1] === "archive" && bool(args, "dry-run")) && (args.positionals[0] === "selection" && args.positionals[1] === "materialize" && bool(args, "allow-unverified")) || evalNeedsOperation(args) || qaDraftNeedsOperation(args) || writeCommands.has(`${args.positionals[0] ?? "help"}:${args.positionals[1] ?? ""}`) || WORK_WRITE_ACTIONS.has(`${args.positionals[0] ?? ""}:${args.positionals[1] ?? ""}`);
+  !(args.positionals[0] === "candidate" && args.positionals[1] === "archive" && bool(args, "dry-run")) && (args.positionals[0] === "selection" && args.positionals[1] === "materialize" && bool(args, "allow-unverified")) || writeCommands.has(`${args.positionals[0] ?? "help"}:${args.positionals[1] ?? ""}`) || WORK_WRITE_ACTIONS.has(`${args.positionals[0] ?? ""}:${args.positionals[1] ?? ""}`);
 
 export const runCLI = async (argv: string[], io: CLIIO = {}): Promise<number> => {
   const args = parseArgs(argv);

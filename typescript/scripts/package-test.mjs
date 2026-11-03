@@ -15,7 +15,7 @@ try {
   const entries = execFileSync("tar", ["-tf", tarball], { encoding: "utf8" }).split(/\r?\n/).filter(Boolean);
   for (const name of ["LICENSE", "THIRD_PARTY_NOTICES.md"]) if (!entries.includes(`package/dist/${name}`)) throw new Error(`tarball is missing ${name}`);
   if (!entries.includes("package/native/host-process.c")) throw new Error("tarball is missing trusted-host process inspection source");
-  for (const required of ["package/dist/src/bin.js", "package/dist/src/safe-tree.js", "package/binding.gyp", "package/native/peercred.c", "package/native/safe-tree.c", "package/dist/assets/grounds/skills/grounds/references/workflows/verify.md", "package/dist/assets/grounds/skills/grounds-eval/references/workflows/eval-run.md", "package/dist/assets/grounds/skills/grounds-knowledge-improve/scripts/grounds_knowledge.py", "package/README.md"]) {
+  for (const required of ["package/dist/src/bin.js", "package/dist/src/safe-tree.js", "package/binding.gyp", "package/native/peercred.c", "package/native/safe-tree.c", "package/dist/assets/grounds/skills/grounds/references/workflows/verify.md", "package/README.md"]) {
     if (!entries.includes(required)) throw new Error(`tarball is missing ${required}`);
   }
   // The review page inlines a pinned mermaid build, vendored as exactly one
@@ -40,13 +40,11 @@ try {
   if (entries.some(entry => /^package\/node_modules\/mermaid\//.test(entry))) throw new Error("tarball must not bundle mermaid as a runtime dependency");
   if (JSON.parse(readFileSync(join(root, "package.json"), "utf8")).dependencies?.mermaid) throw new Error("mermaid must not be a runtime dependency");
   const skillEntries = entries.filter(entry => /^package\/dist\/assets\/grounds\/skills\/[^/]+\/SKILL\.md$/.test(entry)).sort();
-  const expectedNames = ["grounds", "grounds-eval", "grounds-knowledge-improve"];
+  const expectedNames = ["grounds"];
   const expectedSkills = expectedNames.map(name => `package/dist/assets/grounds/skills/${name}/SKILL.md`).sort();
-  if (JSON.stringify(skillEntries) !== JSON.stringify(expectedSkills)) throw new Error("tarball must expose the three Grounds skills");
+  if (JSON.stringify(skillEntries) !== JSON.stringify(expectedSkills)) throw new Error("tarball must expose only the Grounds development skill");
   const workflows = {
     grounds: ["define", "develop", "verify", "deliver", "export-confluence"],
-    "grounds-eval": ["eval-author", "eval-run"],
-    "grounds-knowledge-improve": ["improve"],
   };
   for (const [skill, names] of Object.entries(workflows)) {
     for (const name of names) {
@@ -60,13 +58,13 @@ try {
   if (entries.some(entry => /skills\/grounds\/(?:references\/evaluation|scripts\/grounds_eval_)/.test(entry)
     || /skills\/grounds-eval\/references\/(?:review-conversation|workflows\/develop)/.test(entry))) throw new Error("tarball contains another skill's private material");
   if (entries.some((entry) => /patchledger_agent|assets\/patchledger/.test(entry))) throw new Error("tarball contains an old public helper or asset path");
-  if (entries.some(entry => /\/scripts\/(?:grounds_agent|grounds_eval_[^/]+)\.py$/.test(entry))) throw new Error("tarball contains a retired agent coordinator or capture script");
+  if (entries.some(entry => /\/scripts\/(?:grounds_agent|grounds_knowledge|grounds_eval_[^/]+)\.py$/.test(entry))) throw new Error("tarball contains a retired agent coordinator or capture script");
   execFileSync("tar", ["-xf", tarball, "-C", output]);
   const clientHelp = execFileSync("python3", [join(output, "package/dist/assets/code-route-client.py"), "--help"], { encoding: "utf8" });
   if (!clientHelp.includes("stage") || !clientHelp.includes("retry")) throw new Error("packaged managed Git command unavailable");
   symlinkSync(join(root, 'node_modules'), join(output, 'package/node_modules'), 'dir');
   const installed = JSON.parse(execFileSync(process.execPath, [join(output, 'package/dist/src/bin.js'), 'install', 'skill', join(output, 'skills'), '--json'], {cwd: output, encoding: 'utf8'}));
-  if (!installed.ok || JSON.stringify(installed.data.skills.map(skill => skill.name)) !== JSON.stringify(expectedNames)) throw new Error('packaged CLI did not install all three skills');
+  if (!installed.ok || JSON.stringify(installed.data.skills.map(skill => skill.name)) !== JSON.stringify(expectedNames)) throw new Error('packaged CLI did not install exactly the development skill');
   for (const skill of installed.data.skills) {
     if (skill.name === 'grounds') {
       if (!existsSync(join(skill.path, 'references/workflows/verify.md'))) throw new Error('installed independent gate guide missing');
@@ -74,18 +72,6 @@ try {
         cwd: output, encoding: 'utf8', env: { ...process.env, GROUNDS_CONFIG: join(output, 'missing-config') },
       }));
       if (!help.ok || !help.data.usage.includes('work deliver') || !help.data.usage.includes('grade submit')) throw new Error('packaged CLI cannot discover the new work/gate commands without a ledger');
-    }
-    if (existsSync(join(skill.path, 'scripts/grounds_knowledge.py')) !== (skill.name === 'grounds-knowledge-improve')) throw new Error('knowledge helper bundled into wrong skill');
-    if (skill.name === 'grounds-knowledge-improve') {
-      const help = execFileSync('python3', [join(skill.path, 'scripts/grounds_knowledge.py'), '--help'], {cwd: output, encoding: 'utf8'});
-      if (!help.includes('handoff') || !help.includes('compare')) throw new Error('installed knowledge helper unavailable');
-      for (const role of ['doc', 'code']) mkdirSync(join(output, role, '.git'), {recursive: true});
-      const worksheet = JSON.parse(execFileSync('python3', [join(skill.path, 'scripts/grounds_knowledge.py'), 'inputs',
-        '--doc-repo', join(output, 'doc'), '--code-repo', join(output, 'code'), '--scope', 'packaged smoke',
-        '--allow-doc', 'rules.md', '--out', join(output, 'private-run')], {cwd: output, encoding: 'utf8'}));
-      const resumed = JSON.parse(execFileSync('python3', [join(skill.path, 'scripts/grounds_knowledge.py'), 'budget',
-        '--inputs', join(output, 'private-run/inputs.json')], {cwd: output, encoding: 'utf8'}));
-      if (worksheet.deadline_epoch !== resumed.deadline_epoch || resumed.remaining_seconds <= 0) throw new Error('installed worksheet budget did not survive resume');
     }
     const entrypoint = readFileSync(join(skill.path, 'SKILL.md'), 'utf8');
     if (entrypoint.includes('../../references/')) throw new Error('installed entrypoint contains source-layout references');

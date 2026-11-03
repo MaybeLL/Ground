@@ -5,7 +5,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-test('home public entry and mode compatibility in a CI PTY leave ledger unchanged', { skip: process.env.GROUNDS_TUI_PTY !== '1', timeout: 120000 }, () => {
+test('direct development entry and retired eval rejection in a CI PTY leave ledger unchanged', { skip: process.env.GROUNDS_TUI_PTY !== '1', timeout: 120000 }, () => {
   const root = mkdtempSync(join(tmpdir(), 'grounds-home-pty-'));
   const cli = process.env.GROUNDS_RELEASE_CLI ?? resolve('../typescript/dist/src/bin.js');
   const slowCli = join(root, 'slow-cli.py');

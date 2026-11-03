@@ -36,7 +36,7 @@ export function searchIssues(items: Data[], query: string): Data[] {
 export function weekIssues(items: Data[], now = Date.now()): Data[] {
   return items.filter(item => { const at = Date.parse(String(record(item.last_activity).occurred_at ?? '')); return at <= now && at >= now - 7 * 86400000; });
 }
-export function SearchHome({ homeAvailable = false, evalAvailable = false, kind = 'issues', parent, items, results, query, row, recent, busy, notice, width, height }: { homeAvailable?: boolean; evalAvailable?: boolean; kind?: 'requirements' | 'issues'; parent?: string; items: Data[]; results: Data[]; query: string; row: number; recent: boolean; busy: boolean; notice: string; width: number; height: number }) {
+export function SearchHome({ kind = 'issues', parent, items, results, query, row, recent, busy, notice, width, height }: { kind?: 'requirements' | 'issues'; parent?: string; items: Data[]; results: Data[]; query: string; row: number; recent: boolean; busy: boolean; notice: string; width: number; height: number }) {
   const entity = kind === 'requirements' ? 'Requirement' : 'Issue';
   const activityKnown = items.length === 0 || items.every(item => Number.isFinite(Date.parse(String(record(item.last_activity).occurred_at ?? ''))));
   const week = weekIssues(items), compactLayout = height < 22;
@@ -44,8 +44,8 @@ export function SearchHome({ homeAvailable = false, evalAvailable = false, kind 
   const branding = brandTier(parent, width, height);
   const brandHeight = branding === 'full' ? 8 : branding === 'compact' ? 2 : 0;
   const hints = operationHintLines([
-    ...(homeAvailable ? ['Ctrl+G 返回首页'] : []), '输入标题/ID 搜索', 'Backspace 删除', '↑↓ 选结果', ...(results.length ? ['Enter 打开'] : []), 'Tab 最近一周/搜索',
-    ...(evalAvailable ? ['Ctrl+E 评测工作台'] : []), 'Esc 清空/返回', 'Ctrl+T 切换需求/任务', 'Ctrl+R 刷新', '? 全部操作', 'Ctrl+C 退出',
+    '输入标题/ID 搜索', 'Backspace 删除', '↑↓ 选结果', ...(results.length ? ['Enter 打开'] : []), 'Tab 最近一周/搜索',
+    'Esc 清空/返回', 'Ctrl+T 切换需求/任务', 'Ctrl+R 刷新', '? 全部操作', 'Ctrl+C 退出',
   ], width, Math.max(1, Math.min(4, height - 10)));
   const resultHeight = Math.max(1, Math.min(7, height - recentHeight - 10 - brandHeight - (hints.length - 1)));
   const start = Math.max(0, row - resultHeight + 1);

@@ -645,22 +645,22 @@ test('40x10 long Requirement and historical Issue stay identifiable and openable
   } finally { view.unmount(); view.cleanup(); }
 });
 
-test('Eval entry opens the exact Candidate contract and returns through the Eval action', async () => {
-  let returned = 0;
+test('direct Candidate review keeps the fixed contract and no longer exposes an Eval action', async () => {
   const calls: string[] = [];
   const source = { query: async (method: Method, args: string[] = []) => { calls.push(method + ':' + args.join(',')); return reader.query(method, args); } };
-  const view = render(<ReviewApp initialCandidate="c" reader={source} context={context} onEval={() => returned++} onExit={() => {}} width={100} height={30} />);
+  const view = render(<ReviewApp initialCandidate="c" reader={source} context={context} onExit={() => {}} width={100} height={30} />);
   try {
     await wait(view, /交付概览/); await wait(view, /固定契约/);
     assert.ok(calls.includes('issue:i,--issue-version,1'));
     assert.ok(calls.includes('review:c,--summary,--include-diff'));
-    await pause(); view.stdin.write('\x05'); await pause(); assert.equal(returned, 1);
+    await pause(); view.stdin.write('\x05'); await pause();
+    assert.match(view.lastFrame()!, /交付概览/);
+    assert.doesNotMatch(view.lastFrame()!, /评测资产|Ctrl\+E/);
   } finally { view.unmount(); view.cleanup(); }
 });
 
-for (const [width, height] of [[40,10],[80,24]]) test(`Eval fixed Candidate remains actionable at ${width}x${height}`, async () => {
-  let returned = 0;
-  const view = render(<ReviewApp initialCandidate="c" reader={reader} context={context} onEval={() => returned++} onExit={() => {}} width={width} height={height} />);
+for (const [width, height] of [[40,10],[80,24]]) test(`fixed Candidate review remains actionable without Eval at ${width}x${height}`, async () => {
+  const view = render(<ReviewApp initialCandidate="c" reader={reader} context={context} onExit={() => {}} width={width} height={height} />);
   try {
     await wait(view, /交付概览/);
     view.stdin.write('\u001b[B'); await pause();
@@ -670,8 +670,8 @@ for (const [width, height] of [[40,10],[80,24]]) test(`Eval fixed Candidate rema
     view.stdin.write('\u001b'); await pause();
     view.stdin.write(':'); await pause();
     view.stdin.write('评测'); await pause();
-    assert.match(view.lastFrame()!, /评测资产与实验对照/);
-    view.stdin.write('\r'); await pause(); assert.equal(returned, 1);
+    assert.doesNotMatch(view.lastFrame()!, /评测资产与实验对照/);
+    view.stdin.write('\u001b'); await pause();
     assert.ok(view.lastFrame()!.split('\n').every(line => stringWidth(line) <= width));
   } finally { view.unmount(); view.cleanup(); }
 });

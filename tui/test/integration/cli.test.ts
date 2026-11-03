@@ -4,9 +4,6 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { checkedReport } from '../../src/eval-protocol.js';
-import { attemptText, matrixRows, reports } from '../../src/eval-model.js';
-import { newGrader } from '../../src/eval-drafts.js';
 import { Client } from '../../src/client.js';
 import { methods } from '../../src/protocol.js';
 import { loadPage } from '../../src/pages.js';
@@ -269,32 +266,6 @@ for (const driver of ['sqlite', 'mysql']) test(`${driver}: real Git archives and
       // The new UI's only write port: literal arguments, human identity, optimistic locking and idempotency.
       const writer = await Client.open({ cli, config, cwd: repository, timeout: 30000, review: true });
       try {
-        // Eval Coding uses the same frozen Candidate and public protocol as the review workspace.
-        const actor = await writer.identity(), databaseId = await writer.database();
-        const issueRef = { id: issue, version: 1 };
-        const publishEval = (request: any) => writer.publish({ ...request, attribution: actor, databaseId, operationId: operationId() });
-        const codingGrader = await publishEval({ command: 'grader.publish', body: { ...newGrader({ issue: issueRef }), name: '可读性', scope: {kind:'diagnostic',name:'可读性'}, result_spec:{kind:'score',min:0,max:5,higher_is_better:true,rubric:'清晰程度'}, definition:{type:'agent',instructions:'阅读固定代码'}, limitations:'合成数据' } });
-        const goGrader = await publishEval({ command: 'grader.publish', body: { ...newGrader({ issue: issueRef }), name:'Go 检查', definition:{type:'unit_test',adapter:'go',package:'.',test_name:'TestFixture',timeout_seconds:30,files:[{path:'fixture_test.go',content:'package fixture'}]}, scope:{kind:'diagnostic',name:'正确性'},limitations:'只测试管理，不执行 Go'} });
-        let evalSuite = await publishEval({ command:'suite.create',name:'Coding 夹具' });
-        evalSuite = await publishEval({ command:'suite.task.add',id:evalSuite.id,expectedVersion:1,body:{name:'Coding 题',issue:issueRef,graders:[{id:codingGrader.id,version:1},{id:goGrader.id,version:1}]} });
-        const subject = join(root,'coding-subject.json'); writeFileSync(subject,JSON.stringify({name:'Coding A',description:'合成对照'}));
-        const experiment = run(['eval','experiment','create','--suite',evalSuite.id,'--file',subject]).payload;
-        const peer = run(['eval','experiment','create','--snapshot',experiment.data.snapshot_id,'--file',subject]).payload;
-        const evalRun = run(['eval','run','start','--experiment',experiment.id,'--task',(evalSuite.data.tasks as any[])[0].id,'--candidate',ids[0]]).payload;
-        const runId = evalRun.run?.id ?? evalRun.id;
-        const packet = run(['eval','grader','context','--eval-run',runId,'--grader',codingGrader.id,'--out',join(root,'coding-grade')]).payload;
-        const gradeFile = join(root,'coding-grade.json'); writeFileSync(gradeFile,JSON.stringify({...packet.submission_template,status:'completed',outcome:{kind:'score',value:4},explanation:'代码清晰',evidence:[{kind:'observation',content:'固定工件'}]}));
-        run(['eval','grader','submit','--file',gradeFile]);
-        run(['eval','run','stop',runId,'--reason','Go 维度未执行']);
-        const codingReport = checkedReport(await writer.read('experiment.report',[experiment.id]),experiment.id);
-        assert.equal(codingReport.tasks[0].runs[0].result!.data.candidate_id,ids[0]);
-        assert.match(attemptText(codingReport.tasks[0],codingReport.tasks[0].runs[0]),/Verification/);
-        assert.match(attemptText(codingReport.tasks[0],codingReport.tasks[0].runs[0]),/评分区间 0–5/);
-        assert.deepEqual(matrixRows(await reports(writer,[experiment.id,peer.id]),{})[0].values,['4','未开始']);
-        if (process.env.GROUNDS_TUI_PTY === '1' && driver === 'sqlite') {
-          const pty = execFileSync('python3',['scripts/eval-coding-pty-smoke.py',process.execPath,resolve('dist/bin.js'),'--eval','--cli',cli,'--config',config,'--cwd',repository],{cwd:resolve('.'),env:{...env,GROUNDS_TUI_CODING_EXPERIMENT:experiment.id},encoding:'utf8',timeout:90000});
-          assert.match(pty,/EVAL CODING PTY PASS/);
-        }
         const old = await writer.query('selection', ['--issue', issue, '--issue-version', '1']);
         const request = { issue, version: 1, candidate: ids[1], expectedVersion: (old.selection as any).version, operationId: operationId(), reason: 'Synthetic TUI writer fixture' };
         const result = await writer.selectCandidate(request);

@@ -9,11 +9,11 @@ import sys
 import termios
 import time
 
-for mode in ('home', '--eval', '--legacy', 'conflict'):
+for mode in ('development', '--eval', '--legacy'):
     master, slave = os.openpty()
     original = termios.tcgetattr(slave)
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 152, 0, 0))
-    args = [] if mode == 'home' else ['--eval', '--legacy'] if mode == 'conflict' else [mode]
+    args = [] if mode == 'development' else [mode]
     process = subprocess.Popen(sys.argv[1:] + args, stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
     output = bytearray()
 
@@ -51,38 +51,25 @@ for mode in ('home', '--eval', '--legacy', 'conflict'):
         settle()
 
     try:
-        if mode == 'conflict':
-            wait('--legacy 与 --eval 不能同时使用')
+        if mode == '--eval':
+            wait("Unknown option '--eval'")
             assert process.wait(timeout=5) == 1
+            assert b'\x1b[?1049h' not in output
+            assert termios.tcgetattr(slave) == original
             continue
-        if mode == 'home':
-            wait('Tab 选择 · Enter 进入')
-            wait('评测')
+        if mode == 'development':
+            wait('查找需求')
+            wait('可搜索 0 项 · 下方为可用记录')
+            assert '评测工作台'.encode() not in output
             for rows, columns in [(24, 80), (10, 40), (40, 152)]:
                 output.clear()
                 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', rows, columns, 0, 0))
                 os.kill(process.pid, signal.SIGWINCH)
-                wait('Tab 选择 · Enter 进入')
-                wait('评测')
-                wait('Enter 进入')
-            press('\r')
-            wait('查找需求')
-            wait('Ctrl+G 返回首页')
-            # The hint is visible during the initial read, when Ctrl+G is
-            # intentionally disabled. Wait for the empty fixture to finish.
-            wait('可搜索 0 项 · 下方为可用记录')
-            settle()
-            press('\x07')
-            wait('Tab 选择 · Enter 进入')
-            press('\x1b[C')
-            press('\r')
-            wait('有据 Grounds · 评测工作台')
-            press('\x1b')
-            wait('Tab 选择 · Enter 进入')
-        elif mode == '--eval':
-            wait('有据 Grounds · 评测工作台')
-            press('\x1b')
-            wait('Tab 选择 · Enter 进入')
+                # Incremental rendering need not repeat the unchanged title;
+                # the resized search/input rows still identify the active view.
+                wait('Requirement')
+            press('\x05')
+            assert '评测工作台'.encode() not in output
         else:
             wait('Requirement')
             settle()
@@ -96,4 +83,4 @@ for mode in ('home', '--eval', '--legacy', 'conflict'):
             process.wait()
         os.close(master)
         os.close(slave)
-print('HOME PTY PASS: default, both entries, return, resize 152/80/40, eval/legacy/conflict, terminal restoration')
+print('HOME PTY PASS: direct development, resize 152/80/40, retired eval rejection, legacy, terminal restoration')

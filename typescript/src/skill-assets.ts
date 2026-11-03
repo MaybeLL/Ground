@@ -2,13 +2,8 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { validation } from "./errors.js";
 
-export const skillNames = ["grounds", "grounds-eval", "grounds-knowledge-improve"] as const;
+export const skillNames = ["grounds"] as const;
 export type SkillName = typeof skillNames[number];
-
-// Development and evaluation use the CLI directly. The remaining Python
-// utility only transforms local knowledge files; it never executes agents.
-export const scriptsForSkill = (name: SkillName): readonly string[] =>
-  name === "grounds-knowledge-improve" ? ["grounds_knowledge.py"] : [];
 
 const included = (path: string): boolean =>
   !["__pycache__", ".pytest_cache", ".DS_Store"].includes(basename(path)) && !path.endsWith(".pyc");
@@ -30,10 +25,9 @@ const sourceLayout = (root: string): boolean =>
 
 export const isSkillAssetsRoot = (root: string): boolean =>
   skillNames.every((name) => existsSync(join(root, "skills", name, "SKILL.md")))
-  && (sourceLayout(root) ? skillNames.every(name => scriptsForSkill(name).every(script => existsSync(join(root, "scripts", script)))) : skillNames.every((name) =>
+  && (sourceLayout(root) || skillNames.every((name) =>
     existsSync(join(root, "skills", name, "references", "preparation.md"))
-    && existsSync(join(root, "skills", name, "references", "contracts", "v1"))
-    && scriptsForSkill(name).every((script) => existsSync(join(root, "skills", name, "scripts", script)))));
+    && existsSync(join(root, "skills", name, "references", "contracts", "v1"))));
 
 export const contractAssetsRoot = (root: string): string => sourceLayout(root)
   ? join(root, "references", "contracts", "v1")
@@ -73,9 +67,6 @@ export const assembleSkillAssets = (root: string, name: SkillName, target: strin
     copies.set(path, destination);
   }
   mkdirSync(join(target, "scripts"), { recursive: true });
-  for (const script of scriptsForSkill(name)) {
-    cpSync(join(root, "scripts", script), join(target, "scripts", script), { errorOnExist: true });
-  }
 
   // Resolve source links before relocating them. Only this skill, shared
   // references, and the other entrypoints are portable distribution resources.

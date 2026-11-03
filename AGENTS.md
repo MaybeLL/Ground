@@ -4,7 +4,7 @@ Grounds is an MIT-licensed project hosted at https://github.com/MaybeLL/Ground.
 GitHub is the canonical remote; builds and releases run in GitHub Actions.
 
 - CLI code and tests live in `typescript/`; terminal UI code and tests live in `tui/`.
-- Agent skills and their Python tests live in `plugins/grounds/`.
+- Agent skills live in `plugins/grounds/`; distribution and CLI workflow tests live in `typescript/test/`. Legacy Python evaluation tools and their tests have been retired.
 - Read `CONTRIBUTING.md` for build and test prerequisites. Keep CLI, TUI, plugin and lockfile versions aligned.
 - Use ESM TypeScript, focused regression tests for behavior changes, and Conventional Commits.
 - Never commit credentials, local configuration, private evaluation cases or internal acceptance records.

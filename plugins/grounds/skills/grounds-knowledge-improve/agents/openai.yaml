@@ -1,4 +1,0 @@
-interface:
-  display_name: "Grounds Knowledge Improve"
-  short_description: "Prepare source-backed questions and documentation repairs"
-  default_prompt: "Use $grounds-knowledge-improve to verify documentation gaps against sources and prepare repairs; do not claim measured improvement without actual evaluation evidence."

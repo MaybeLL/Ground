@@ -1,4 +1,3 @@
-import { mkdtempSync } from 'node:fs';
 import { lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -7,7 +6,6 @@ import { tmpdir } from 'node:os';
 export class ClientTemporaryFiles {
   readonly root: string;
   directory?: string;
-  private active = new Set<string>();
   constructor(root = join(tmpdir(), `grounds-tui-owned-${process.getuid?.() ?? 'user'}`)) { this.root = root; }
   async open(): Promise<string> {
     await mkdir(this.root, { recursive: true, mode: 0o700 });
@@ -34,18 +32,6 @@ export class ClientTemporaryFiles {
         }
       } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error; }
     }
-    if (this.directory) for (const name of await readdir(this.directory)) {
-      if (!/^(qa-draft|eval-write)-[a-zA-Z0-9]+$/.test(name)) continue;
-      const directory = join(this.directory, name);
-      if (!this.active.has(directory)) await rm(directory, { recursive: true, force: true });
-    }
   }
-  async request(prefix: 'qa-draft' | 'eval-write'): Promise<string> {
-    await this.sweep();
-    const directory = mkdtempSync(join(this.directory!, prefix + '-'));
-    this.active.add(directory);
-    return directory;
-  }
-  async release(directory: string): Promise<void> { await rm(directory, { recursive: true, force: true }); this.active.delete(directory); }
-  async close(): Promise<void> { if (this.directory) await rm(this.directory, { recursive: true, force: true }); this.directory = undefined; this.active.clear(); }
+  async close(): Promise<void> { if (this.directory) await rm(this.directory, { recursive: true, force: true }); this.directory = undefined; }
 }
