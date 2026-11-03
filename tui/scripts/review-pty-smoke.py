@@ -39,8 +39,7 @@ def action(query):
     press('\r')
 
 try:
-    wait('需求开发')
-    press('\r')
+    # The launcher enters development directly; no retired area picker.
     wait('找到需求，阅读需求详情')
     wait('Describe the requirement')
     output.clear()
