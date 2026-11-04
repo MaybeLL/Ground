@@ -2000,7 +2000,8 @@ flowchart LR
 | 目标模型第 12 节与 0002 第 9 节的迁移规则（DevRun 树分 Work、历史工作头、迁移标记、会话身份缺失等） | **废止。** 没有需要保留的账本，迁移只会增加领域里的特例（迁移标记、可空的工作头与会话）。P0 第 4 步写的迁移代码（映射、读取器、写入编排、`importLegacy*`、`migrateWork`、`migrated` 标记）已删除，Work 始终有工作头，外部评价者始终有会话身份 |
 | 旧品牌和数据目录迁移工具 | 已删除 `migrate patchledger` / `migrate data`、专用搬运/绑定修复、旧配置读取与迁移门禁；只读取当前配置与目录，不自动搬动或清理历史文件。业务命令及其表、SQL schema 重编号仍待后续删除批次，不将本批标为完整切换 |
 | Python 协调器及分发调用方 | 已删除命令包装器、旧实验 runner、Codex 采集、容器准备代理及仓库快照适配和专用测试；skill 分发与包测试同步移除入口。开发 skill 直接调用 task/work/grade，主 agent 创建全新子 agent 独立验收；eval/知识改进 skill 明确自动实验暂不可用。该批当时保留纯文件知识材料工具、旧 eval 资产/查询 CLI 与共享 env；后续退役进度见下一行。新结果 schema、真实 agent 冒烟、旧开发业务服务及表仍待后续完成 |
-| 旧 eval 业务与调用方 | 已删除旧 TypeScript 评测服务、CLI、测试评分运行器、QA 草稿/来源线索及其 TUI/skill/材料工具；删除对应 11 个公开 schema 的双份副本和专用测试。TUI 直接进入候选审阅，不提供旧评测入口。共享 env 和新 task/work/grade 保留。旧 SQL 表/事务接口及其引用的评测记录校验器另随存储批次删除，保留存储完整性测试；不是评测读写兼容层 |
+| 旧 eval 业务与调用方 | 已删除旧 TypeScript 评测服务、CLI、测试评分运行器、QA 草稿/来源线索及其 TUI/skill/材料工具；删除对应 11 个公开 schema 的双份副本和专用测试。该批当时将 TUI 改为直接进入候选审阅；其后续退役见下一行。共享 env 和新 task/work/grade 保留。旧 SQL 表/事务接口及其引用的评测记录校验器另随存储批次删除，保留存储完整性测试；不是评测读写兼容层 |
+| 剩余旧 TUI 包 | 2026-11-03 用户确认先退役旧 TUI，而不是本批切换最小新版 TUI。旧界面全部绑定 Requirement / Issue / Candidate，保留它会阻塞核心退役；同时重写会扩大删除批次。移除 `tui/` 包、专用测试/PTY、CI/发布/开发镜像入口，仅保留 CLI 与 skill；新版 TUI 单独设计，当前未实现。已发布 npm 版本和历史标签不改写、不撤回。本批不删除旧 CLI／SQL，不宣称整个 P1d 完成 |
 | 旧模型何时删除 | 被新模型替代的部分（Requirement / Issue / DevRun / Candidate / Verification / 选择 / 完成 / 交付链接 / 预检的写入与读取、Python 协调器、Codex 采集），连同它们的表一起从 schema 删除，不留只读兼容；新账本只有新模型的表 |
 | 评测、环境、容器路线 | 用户确认“只删新模型已替代的”。但依赖分析显示 eval 的编码评测、`code-workspace`、部分 `code-route` 与 `repository-*` 直接依赖 DevRun / Candidate，无法在删除这些表之后原样保留；边界按依赖划定，见 0002 第 9 节 |
 

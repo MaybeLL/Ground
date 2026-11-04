@@ -3,9 +3,9 @@
 Grounds is an MIT-licensed project hosted at https://github.com/MaybeLL/Ground.
 GitHub is the canonical remote; builds and releases run in GitHub Actions.
 
-- CLI code and tests live in `typescript/`; terminal UI code and tests live in `tui/`.
+- CLI code and tests live in `typescript/`. The legacy TUI package has been retired; a new work-model TUI is not implemented.
 - Agent skills live in `plugins/grounds/`; distribution and CLI workflow tests live in `typescript/test/`. Legacy Python evaluation tools and their tests have been retired.
-- Read `CONTRIBUTING.md` for build and test prerequisites. Keep CLI, TUI, plugin and lockfile versions aligned.
+- Read `CONTRIBUTING.md` for build and test prerequisites. Keep CLI, plugin and CLI lockfile versions aligned.
 - Use ESM TypeScript, focused regression tests for behavior changes, and Conventional Commits.
 - Never commit credentials, local configuration, private evaluation cases or internal acceptance records.
 - Preserve third-party license notices. Run `node scripts/check-docs.mjs` and relevant tests after changes.
@@ -16,9 +16,9 @@ GitHub is the canonical remote; builds and releases run in GitHub Actions.
 ## Releases
 
 - Read the [release process](docs/releases.md) before preparing a release; it defines validation gates, tag protection, npm setup, and recovery. Automation lives in [release.yml](.github/workflows/release.yml).
-- Update the CLI, TUI, plugin manifests, and both lockfiles to the same `X.Y.Z` version. Merge the change to `main` through a pull request, then create and push a new matching `vX.Y.Z` tag on the merged commit. Existing release tags and published versions are immutable.
-- The tag workflow validates the exact source, builds checksummed tarballs, creates a GitHub Release, and publishes both npm packages through OIDC. Automatic npm publication requires both trusted publishers and `NPM_PUBLISH_ENABLED=true`; verify those settings using the release guide. Source-directory `npm publish` is intentionally blocked.
-- Before announcing npm availability, confirm both package versions, verify their integrity and provenance, and test a fresh CLI/TUI installation. A successful upload can precede installability while npm scans the packages; follow the release guide's verification steps.
+- Update the CLI and plugin manifests and the CLI lockfile to the same `X.Y.Z` version. Merge the change to `main` through a pull request, then create and push a new matching `vX.Y.Z` tag on the merged commit. Existing release tags and published versions are immutable.
+- The tag workflow validates the exact source, builds checksummed tarballs, creates a GitHub Release, and publishes the CLI npm package through OIDC. Automatic npm publication requires both trusted publishers and `NPM_PUBLISH_ENABLED=true`; verify those settings using the release guide. Source-directory `npm publish` is intentionally blocked.
+- Before announcing npm availability, confirm the CLI package version, verify its integrity and provenance, and test a fresh CLI installation. A successful upload can precede installability while npm scans the packages; follow the release guide's verification steps.
 
 ## Design and documentation
 

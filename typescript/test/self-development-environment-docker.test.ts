@@ -34,7 +34,7 @@ test("Grounds builds and tests its fixed source in an offline managed developmen
     writeFileSync(file, JSON.stringify({ name: "Grounds self development", dockerfile: "scripts/dev-environment/Dockerfile", files: [
       "scripts/dev-environment/Dockerfile", "scripts/dev-environment/grounds-dev", "scripts/dev-environment/dependency-fingerprint.mjs", "typescript/package.json", "typescript/package-lock.json",
       "typescript/binding.gyp", "typescript/native/peercred.c", "typescript/native/host-process.c", "typescript/native/safe-tree.c",
-      "typescript/vendor/THIRD-PARTY-NOTICES.md", "typescript/vendor/mermaid.min.js", "tui/package.json", "tui/package-lock.json",
+      "typescript/vendor/THIRD-PARTY-NOTICES.md", "typescript/vendor/mermaid.min.js",
     ] }));
     const recipe = (await invoke(["recipe-save", newUUIDv7(), "--repository", x.route.repository_id, "--expected-version", "0",
       "--directory", process.env.GROUNDS_SELF_DEV_RECIPE_SOURCE, "--file", file])).recipe;
@@ -61,7 +61,7 @@ test("Grounds builds and tests its fixed source in an offline managed developmen
 import json, pathlib, subprocess
 originals={}
 try:
-    for project in ['typescript', 'tui']:
+    for project in ['typescript']:
         for name in ['package.json', 'package-lock.json']:
             p=pathlib.Path(project)/name
             originals[p]=p.read_bytes()
@@ -70,7 +70,7 @@ try:
             p.write_text(json.dumps(data))
     result=subprocess.run(['grounds-dev','node','--version'],capture_output=True,text=True)
     assert result.returncode==0, result.stderr
-    for project in ['typescript', 'tui']:
+    for project in ['typescript']:
         assert (pathlib.Path(project)/'node_modules/.grounds-image-lock').read_text().startswith('grounds-dependencies-v1:')
 finally:
     for p, original in originals.items(): p.write_bytes(original)

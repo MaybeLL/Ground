@@ -4,7 +4,7 @@ cd /workspace
 fingerprint() {
   node /usr/local/lib/grounds-dependency-fingerprint.mjs "$1"
 }
-for project in typescript tui; do
+for project in typescript; do
   expected=$(fingerprint "$project")
   installed=$(fingerprint "/opt/grounds-deps/$project")
   [ "$expected" = "$installed" ] || {
@@ -23,7 +23,7 @@ export GOMAXPROCS=1
 printf '%s\n' '#!/bin/sh' 'exec node /workspace/typescript/dist/src/bin.js "$@"' > node_modules/.grounds-dev/bin/grounds
 chmod 755 node_modules/.grounds-dev/bin/grounds
 export PATH="/workspace/node_modules/.grounds-dev/bin:$PATH"
-for project in typescript tui; do
+for project in typescript; do
   expected=$(fingerprint "$project")
   if [ -e "$project/node_modules" ]; then
     [ "$(cat "$project/node_modules/.grounds-image-lock" 2>/dev/null || true)" = "$expected" ] || {
@@ -43,19 +43,16 @@ fi
 case "${1:-build}" in
   build)
     (cd typescript && node /usr/local/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js rebuild --nodedir=/usr/local --jobs=1 && npm run build)
-    (cd tui && npm run typecheck && npm run build)
     ;;
   test)
     grounds-dev build
     (cd typescript && node scripts/test-parallel.mjs --workers 1)
-    python3 -m unittest discover -s plugins/grounds/tests -v
-    (cd tui && npm test)
+    node --test scripts/*.test.mjs
     ;;
   smoke)
     grounds-dev build
     (cd typescript && node --import tsx --test --test-concurrency=1 test/code-workspace.test.ts test/runtime-store.test.ts)
-    python3 -m unittest discover -s plugins/grounds/tests -v
-    (cd tui && npm test)
+    node --test scripts/*.test.mjs
     ;;
   *) exec "$@" ;;
 esac

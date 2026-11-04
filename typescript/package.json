@@ -24,7 +24,6 @@
     "prepublishOnly": "node -e \"throw new Error('Publish verified GitHub Release tarballs; see docs/releases.md')\"",
     "test:serial": "node scripts/test-parallel.mjs --workers 1",
     "test:code-workspace": "node scripts/test-code-workspace.mjs",
-    "test:workspace-compatibility": "node scripts/test-workspace-compatibility.mjs",
     "release:check": "node ../scripts/github-release-check.mjs"
   },
   "engines": {

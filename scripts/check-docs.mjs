@@ -133,7 +133,7 @@ export function checkDocumentation(root, { writeIndex = false } = {}) {
       else throw Error('stale design index; run node scripts/check-docs.mjs --write-index');
     }
   });
-  const entries = ['README.md', 'AGENTS.md', 'docs/README.md', 'typescript/README.md', 'tui/README.md'].map(name => resolve(root, name));
+  const entries = ['README.md', 'AGENTS.md', 'docs/README.md', 'typescript/README.md'].map(name => resolve(root, name));
   for (const name of ['GROUNDS_DESIGN.md', 'TODO.md', 'CONTRIBUTING.md', 'SECURITY.md', 'THIRD_PARTY_NOTICES.md']) {
     if (existsSync(resolve(root, name))) entries.push(resolve(root, name));
   }
@@ -183,7 +183,7 @@ export function checkDocumentation(root, { writeIndex = false } = {}) {
     const text = prose(source);
     for (const match of text.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)) reference(path, match[1]);
     for (const match of text.matchAll(/^ {0,3}\[[^\]]+\]:\s+(\S+)/gm)) reference(path, match[1]);
-    if (['typescript/README.md', 'tui/README.md'].includes(relative(root, path))) {
+    if (relative(root, path) === 'typescript/README.md') {
       if (!['GROUNDS_DESIGN.md', 'docs/README.md'].some(name => text.includes('https://github.com/MaybeLL/grounds-open/blob/main/' + name))) throw Error('package entrance must link to the canonical manual');
       for (const match of text.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)) {
         if (!/^[a-z][a-z0-9+.-]*:/i.test(match[1]) && !match[1].startsWith('#')) throw Error('package README links must work outside the repository');
