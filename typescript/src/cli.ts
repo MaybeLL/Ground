@@ -1,15 +1,6 @@
-import { dataLayout, dataRoot, draftsRoot } from "./data-layout.js";
+import { dataLayout, draftsRoot } from "./data-layout.js";
 import { resolveDevelopmentMode, resumeDevelopmentMode, validateDevelopmentMode, type DevelopmentModeSelection } from "./development-mode.js";
-import { observeCodeRoute } from "./code-route-observation.js";
-import { repositoryImageCommands, executeRepositoryImage } from "./repository-image-cli.js";
-import { environmentControlCommands, executeEnvironmentControl } from "./repository-environment-cli.js";
-import { RepositoryEnvironments, type RepositoryEnvironmentConfiguration } from "./repository-environment.js";
-import { CodeRouteSyncWorkspace } from "./code-route-sync.js";
-import { codeCleanupCommands, executeCodeCleanup } from "./code-workspace-cleanup-cli.js";
-import { codeExecutionCommands, executeCodeExecution, codeExecutionExitCode } from "./code-route-cli.js";
-import { CodeWorkspaceRoutes } from "./code-workspace-route.js";
 import { RepositoryArchiveAccess } from "./repository-archive-access.js";
-import { CodeWorkspaces } from "./code-workspace.js";
 import { archivePolicyFor, executeRepositoryArchive, repositoryArchiveCommands } from "./repository-archive-cli.js";
 import type { CompletionInput } from './completion.js';
 import { CandidateArchiveService, archiveOperation } from "./candidate-archive-service.js";
@@ -22,7 +13,7 @@ import { observeBranch, targetRelation } from "./integration-observation.js";
 import { executeEnvironmentCommand } from "./env-cli.js";
 import { isRouteWorkspace, isRouteLeased } from "./env-route-lease.js";
 import { renderContractReview } from "./contract-review.js";
-import { hostIdentity, runtimeRoot, safeRead } from './runtime-files.js';
+import { safeRead } from './runtime-files.js';
 import { runtimeError } from "./runtime-record.js";
 import type { RuntimeRecord } from "./runtime-record.js";
 import { traceSource } from "./code-history-trace.js";
@@ -117,9 +108,6 @@ const knownOptionKeys = new Set(["development-mode", "early", "pinned", "retenti
   "external-directory", "input-digest", "directory", "snippet-file", "start-line", "end-line", "commit", "status", "state", "sort", "has-open-devrun", "standing", "selected", "verdict",
   "issue-version", "summary", "paged", "cursor", "after", "agent-id", "agent-name", "allow-second-issue-per-repository", "allow-submitted", "allow-unpublished-baseline", "at", "baseline", "base-commit", "baseline-policy", "bind-requirement", "branch", "brief", "brief-file", "canonical-remote", "candidate", "ca-file", "confirm-initialize", "config", "content-language", "language-override-reason", "context", "cwd", "database", "dev-run", "discard-changes", "driver", "dry-run", "event", "refresh", "expected-version", "exploration-brief", "file", "handoff", "help", "host", "include-diff", "include-patch", "include-verification", "issue", "issues-cursor", "json", "limit", "link", "manifest-cursor", "markdown", "mode", "name", "non-interactive", "operation-id", "override-reason", "pairwise", "password-source", "path", "phase", "port", "preflight", "reason", "reconfigure", "refines-candidate", "remote", "remote-url", "repository", "requirement", "side", "skills-path", "subject-id", "subject-type", "tls", "tls-mode", "username", "verifications-cursor", "version", "role", "quality-handoff", "independent-digest", "out", "review-session",
   "run", "stage", "entry", "started-at", "ended-at", "exit-code", "identity", "asset", "lease", "hit", "copy-path", "report-digest",
-  ...Object.values(codeCleanupCommands).flatMap(command => [...command.options]),
-  ...Object.values(repositoryImageCommands).flatMap(command => [...command.options]),
-  ...Object.values(environmentControlCommands).flatMap(command => [...command.options]),
 ]);
 
 const validateOptionKeys = (args: ParsedArgs): void => {
@@ -131,21 +119,6 @@ const validateOptionKeys = (args: ParsedArgs): void => {
 // a default (for example `issue list --baseline ...`).  Keep the command
 // surface explicit so every option is consumed by exactly one handler.
 const commandOptionKeys: Record<string, Set<string>> = {
-  ...Object.fromEntries(Object.entries(repositoryImageCommands).map(([action, spec]) => [`code-workspace:${action}`, new Set<string>(spec.options)])),
-  ...Object.fromEntries(Object.entries(environmentControlCommands).map(([action, spec]) => [`code-workspace:${action}`, new Set<string>(spec.options)])),
-  ...Object.fromEntries(Object.entries(codeExecutionCommands).map(([action, spec]) => [`code-workspace:${action}`, new Set<string>(spec.options)])),
-  ...Object.fromEntries(Object.entries(codeCleanupCommands).map(([action, spec]) => [`code-workspace:${action}`, new Set<string>(spec.options)])),
-  "code-workspace:route-prepare": new Set(["config", "data-root", "issue-slug", "operation-id", "agent-id", "agent-name"]),
-  "code-workspace:route-show": new Set(["config"]),
-  "code-workspace:route-bind": new Set(["development-mode", "config", "data-root", "operation-id", "agent-id", "agent-name"]),
-  "code-workspace:environment-save": new Set(["config", "file", "repository", "expected-version", "operation-id", "agent-id", "agent-name"]),
-  "code-workspace:environment-show": new Set(["config"]),
-  "code-workspace:config-save": new Set(["config", "file", "expected-version", "operation-id", "agent-id", "agent-name"]),
-  "code-workspace:config-show": new Set(["config", "version"]),
-  "code-workspace:create": new Set(["config", "configuration", "version", "issue", "issue-version", "data-root", "operation-id", "agent-id", "agent-name"]),
-  "code-workspace:restore": new Set(["config", "candidate", "context", "data-root", "operation-id", "agent-id", "agent-name"]),
-  "code-workspace:show": new Set(["config"]),
-  "code-workspace:prepare": new Set(["config", "data-root", "allow-cached"]),
   ...Object.fromEntries(Object.entries(repositoryArchiveCommands).map(([action, spec]) => [`repository:${action}`, new Set<string>(spec.options)])),
   "integration:observe": new Set(["config", "candidate", "selection", "selection-version", "source-remote", "source-ref", "source-commit", "refresh", "operation-id", "agent-id", "agent-name"]),
   "integration:authorize": new Set(["config", "observation", "reason", "operation-id", "agent-id", "agent-name"]),
@@ -367,21 +340,6 @@ const optionDocs: Record<string, string> = {
 // Human description per command family/action.  Options are derived from
 // commandOptionKeys so the two can never drift.
 const commandDocs: Record<string, string> = {
-  ...Object.fromEntries(Object.entries(repositoryImageCommands).map(([action, spec]) => [`code-workspace:${action}`, spec.description])),
-  ...Object.fromEntries(Object.entries(environmentControlCommands).map(([action, spec]) => [`code-workspace:${action}`, spec.description])),
-  ...Object.fromEntries(Object.entries(codeExecutionCommands).map(([action, spec]) => [`code-workspace:${action}`, spec.description])),
-  ...Object.fromEntries(Object.entries(codeCleanupCommands).map(([action, spec]) => [`code-workspace:${action}`, spec.description])),
-  "code-workspace:route-prepare": "Prepare one independently identified target route under an instance; retain preparation ownership, without DevRun admission or execution",
-  "code-workspace:route-show": "Read the route preparation record; its ID is distinct from the Workspace instance ID",
-  "code-workspace:route-bind": "Bind a prepared target route to one preparing DevRun; retain ownership without granting execution",
-  "code-workspace:environment-save": "Save a Repo environment version: ID --repository REPO --expected-version N --file JSON {name,image,postgres?:{image}}; fixed local images, no default promotion",
-  "code-workspace:environment-show": "Read a complete immutable Repo environment by REVISION_ID; does not prove local readiness",
-  "code-workspace:config-save": "Save a versioned repository context configuration; does not start development or change existing instances",
-  "code-workspace:config-show": "Read a complete immutable code Workspace configuration version",
-  "code-workspace:create": "Create an Issue code Workspace instance from fixed configuration and Issue versions; execution remains disabled",
-  "code-workspace:restore": "Create a new instance from a reclaimed instance and its Candidate with --context original; prepare, bind and admit separately",
-  "code-workspace:show": "Read a code Workspace instance history; a shared database record does not prove local availability",
-  "code-workspace:prepare": "Prepare fixed repository baselines; retries recover the original selection; development execution remains disabled",
   ...Object.fromEntries(Object.entries(repositoryArchiveCommands).map(([action, spec]) => [`repository:${action}`, spec.description])),
   "trace:": "Locate current code and trace verified Git changes to historical Candidate contracts",
   "integration:observe": "Persist target/source/Selection checks and separate Verification standing; offline is always unknown, --refresh fetches both branches",
@@ -489,7 +447,6 @@ const commandDocs: Record<string, string> = {
 // A group help page is a navigation step, not an empty command: it must tell a
 // caller which actions exist before it can sensibly request action-level help.
 const actionSets: Record<string, string[]> = {
-  "code-workspace": [...Object.keys(repositoryImageCommands), ...Object.keys(environmentControlCommands), ...Object.keys(codeCleanupCommands), ...Object.keys(codeExecutionCommands), "environment-save", "environment-show", "config-save", "config-show", "create", "restore", "show", "prepare", "route-prepare", "route-show", "route-bind"],
   integration: ["observe", "authorize", "consume", "landing", "show"],
   "delivery-link": ["record", "withdraw", "show"],
   install: ["skill"], db: ["status", "test", "migrate"],
@@ -513,17 +470,6 @@ const repeatableOptionKeys: Record<string, Set<string>> = {
 };
 
 const positionalBounds: Record<string, [number, number]> = {
-  ...Object.fromEntries(Object.keys(repositoryImageCommands).map(action => [`code-workspace:${action}`, [3, 3] as [number, number]])),
-  ...Object.fromEntries(Object.keys(environmentControlCommands).map(action => [`code-workspace:${action}`, [3, 3] as [number, number]])),
-  ...Object.fromEntries(Object.entries(codeExecutionCommands).map(([action, spec]) => [`code-workspace:${action}`, [spec.positions, spec.positions] as [number, number]])),
-  ...Object.fromEntries(Object.keys(codeCleanupCommands).map(action => [`code-workspace:${action}`, [3, 3] as [number, number]])),
-  "code-workspace:route-prepare": [3, 3], "code-workspace:route-show": [3, 3],
-  "code-workspace:route-bind": [3, 3],
-  "code-workspace:environment-save": [3, 3], "code-workspace:environment-show": [3, 3],
-  "code-workspace:config-save": [3, 3], "code-workspace:config-show": [3, 3],
-  "code-workspace:create": [2, 2], "code-workspace:show": [3, 3],
-  "code-workspace:restore": [3, 3],
-  "code-workspace:prepare": [3, 3],
   ...Object.fromEntries(Object.keys(repositoryArchiveCommands).map(action => [`repository:${action}`, [2, 2] as [number, number]])),
   "contract:render": [2, 2],
   "delivery-link:withdraw": [3, 3], "delivery-link:show": [3, 3],
@@ -1113,7 +1059,7 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
       }
       return { result_type: "patchledger.result.help/v1", command: "help", usage: formatCommandHelp(commandHelp(helpGroup, helpAction)) };
     }
-    return { result_type: "patchledger.result.help/v1", command: "help", usage: "grounds doctor | task | work | grade | install skill [path] | init | review [candidate-id] | trace | delivery-link | integration | contract | draft (legacy alias: workspace) | code-workspace | requirement | repository | issue | devrun | preflight | candidate | selection | completion | verification | ledger | env | db | config" };
+    return { result_type: "patchledger.result.help/v1", command: "help", usage: "grounds doctor | task | work | grade | install skill [path] | init | review [candidate-id] | trace | delivery-link | integration | contract | draft (legacy alias: workspace) | requirement | repository | issue | devrun | preflight | candidate | selection | completion | verification | ledger | env | db | config" };
   }
   if (!group) throw validation("command", "expected install, init, review, config, db, workspace, repository, requirement, issue, devrun, candidate, selection, verification, or ledger");
   if (group === "doctor") {
@@ -1249,75 +1195,6 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
   let preparedMarkdown: PreparedReviewMarkdown | undefined;
   try {
     return await (async () => {
-    if (group === "code-workspace" && Object.hasOwn(repositoryImageCommands, action)) return executeRepositoryImage({
-      action: action as keyof typeof repositoryImageCommands, args, store: opened.store, cwd, attribution: actor, operationID: () => operationID(args, io) });
-    if (group === "code-workspace" && Object.hasOwn(environmentControlCommands, action)) return executeEnvironmentControl({
-      action: action as keyof typeof environmentControlCommands, args, store: opened.store, attribution: actor, operationID: () => operationID(args, io) });
-    if (group === "code-workspace" && Object.hasOwn(codeCleanupCommands, action)) return executeCodeCleanup({
-      action: action as keyof typeof codeCleanupCommands, args, store: opened.store, cwd, attribution: actor, operationID: () => operationID(args, io) });
-    if (group === "code-workspace" && Object.hasOwn(codeExecutionCommands, action)) return executeCodeExecution({
-      action: action as keyof typeof codeExecutionCommands, args, store: opened.store, cwd, io, attribution: actor, operationID: () => operationID(args, io) });
-    if (group === "code-workspace") {
-      const workspaces = new CodeWorkspaces(opened.store), id = args.positionals[2]!;
-      if (action === "environment-save" || action === "environment-show") {
-        const environments = new RepositoryEnvironments(opened.store);
-        let content: unknown;
-        if (action === "environment-save") {
-          try { content = JSON.parse(safeRead(resolve(cwd, required(args, "file")), 64 * 1024).toString("utf8")); }
-          catch { throw validation("file", "requires a bounded regular JSON environment configuration"); }
-        }
-        const environment = action === "environment-show" ? await environments.revision(id)
-          : await environments.save({ operation_id: operationID(args, io), environment_id: id,
-            repository_id: required(args, "repository"), expected_version: integerValue(args, "expected-version", 0),
-            configuration: content as RepositoryEnvironmentConfiguration, attribution: actor() });
-        return { result_type: "grounds.result.repository-environment/v1", command: `code-workspace.${action}`, environment };
-      }
-      if (action === "route-prepare" || action === "route-show" || action === "route-bind") {
-        const routes = new CodeWorkspaceRoutes(opened.store);
-        if (action === "route-show") return { result_type: "grounds.result.code-workspace/v1", command: "code-workspace.route-show", route: await routes.show(id) };
-        const root = dataRoot(hasOption(args, "data-root") ? required(args, "data-root") : undefined, cwd);
-        if (action === "route-bind") {
-          const owner = await workspaces.instance((await routes.show(id)).instance_id);
-          if (owner.data_root !== root) throw validation("data-root", "differs from the recorded instance");
-        }
-        const request = { operation_id: operationID(args, io), attribution: actor(), data_root: root, host_id: hostIdentity(join(root, "runtime")) };
-        const boundRoute = action === "route-bind" ? await routes.show(id) : undefined;
-        const boundRun = boundRoute?.dev_run_id ? await opened.store.read(tx => tx.getDevRun(boundRoute.dev_run_id!)) : undefined;
-        const executionMode = action === "route-bind" ? boundRun ? boundRun.execution_mode : await selectDevelopmentMode(args, io, opened.config) : undefined;
-        if (boundRun && hasOption(args, "development-mode")) {
-          if (!executionMode) throw validation("development-mode", "historical DevRun has no recorded mode; start a new DevRun");
-          resumeDevelopmentMode(executionMode.mode, value(args, "development-mode"));
-        }
-        const route = action === "route-bind" ? await routes.bindDevRun({ ...request, route_id: id, ...(executionMode ? { execution_mode: executionMode } : {}) })
-          : await routes.prepare({ ...request, instance_id: id, issue_slug: required(args, "issue-slug") });
-        return { result_type: "grounds.result.code-workspace/v1", command: `code-workspace.${action}`, route };
-      }
-      if (action === "create" || action === "restore" || action === "show" || action === "prepare") {
-        const root = dataRoot(hasOption(args, "data-root") ? required(args, "data-root") : undefined, cwd);
-        const instance = action === "show" ? await workspaces.instance(id) : action === "prepare"
-          ? await workspaces.prepareInstance({ instance_id: id, host_id: hostIdentity(join(root, "runtime")), data_root: root, allow_cached: bool(args, "allow-cached") })
-          : action === "restore" ? await workspaces.restoreInstance({ operation_id: operationID(args, io), attribution: actor(),
-            source_instance_id: id, candidate_id: required(args, "candidate"), context_policy: required(args, "context") as "original",
-            host_id: hostIdentity(join(root, "runtime")) })
-          : await workspaces.createInstance({
-          operation_id: operationID(args, io), attribution: actor(), configuration_id: required(args, "configuration"),
-          configuration_version: integerValue(args, "version", 1), issue_id: required(args, "issue"), issue_version: integerValue(args, "issue-version", 1),
-          host_id: hostIdentity(join(root, "runtime")),
-        });
-        return { result_type: "grounds.result.code-workspace/v1", command: `code-workspace.${action}`, instance };
-      }
-      let content: unknown;
-      if (action === "config-save") {
-        const bytes = safeRead(resolve(cwd, required(args, "file")), 64 * 1024);
-        try { content = JSON.parse(bytes.toString("utf8")); }
-        catch { throw validation("file", "requires a JSON Workspace configuration"); }
-      }
-      const configuration = action === "config-show"
-        ? await workspaces.configuration(id, hasOption(args, "version") ? integerValue(args, "version", 1) : undefined)
-        : await workspaces.saveConfiguration({ configuration_id: id, expected_version: integerValue(args, "expected-version", 0),
-          operation_id: operationID(args, io), attribution: actor(), configuration: content as import("./code-workspace.js").WorkspaceConfiguration });
-      return { result_type: "grounds.result.code-workspace/v1", command: `code-workspace.${action}`, configuration };
-    }
     if (group === "repository" && Object.hasOwn(repositoryArchiveCommands, action)) return executeRepositoryArchive({ action: action as keyof typeof repositoryArchiveCommands, args, store: opened.store, attribution: actor, operationID: () => operationID(args, io) });
     if (group === "integration") {
       const integration = new IntegrationService(opened.store, cwd);
@@ -1440,9 +1317,7 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
       const service = preflightService();
       const record = await service.markPreparing({ operation_id: operationID(args, io), attribution: actor(), dev_run_id: runID });
       const preflight = await service.devRunReadModel(runID);
-      const route = await opened.store.read(tx => tx.getRuntimeRecord("runtime_operation", detail.development!.workspace_id));
-      const local = route?.data.format === "grounds.code-workspace-route/v1" ? undefined
-        : await new DevWorktreeModule(cwd, opened.config.database.expected_database_id, newUUIDv7, opened.store).inspectAuthoritative(runID);
+      const local = await new DevWorktreeModule(cwd, opened.config.database.expected_database_id, newUUIDv7, opened.store).inspectAuthoritative(runID);
       return { result_type: "grounds.result.preflight-preparation/v1", command: "devrun.prepare", dev_run_id: runID, prepare_id: record.id,
         ...(local ? { local_worktree: local } : {}), ...(preflight ? { preflight } : {}) };
     }
@@ -1668,13 +1543,7 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
       return { ...started.value.result, local_worktree: started.local_worktree, ...(prepareOnly ? { prepare_only: true } : {}), warnings: started.value.warnings };
     }
     if (group === "devrun" && ["sync-status", "sync-show", "sync", "sync-complete", "sync-abandon"].includes(action)) {
-      let sync = new DevRunSyncService(opened.store, new DevWorktreeModule(cwd, opened.config.database.expected_database_id, newUUIDv7, opened.store));
-      if (action !== "sync-show") {
-        const runId = ["sync", "sync-status"].includes(action) ? resourceID(args, "dev-run", "dev_run")
-          : (await sync.show(resourceID(args, "sync", "sync"))).parent_id!;
-        if (await new CodeWorkspaceRoutes(opened.store).forDevRun(runId))
-          sync = new DevRunSyncService(opened.store, new CodeRouteSyncWorkspace(opened.store, cwd));
-      }
+      const sync = new DevRunSyncService(opened.store, new DevWorktreeModule(cwd, opened.config.database.expected_database_id, newUUIDv7, opened.store));
       const header = { result_type: "patchledger.result.devrun-sync/v1", command: `devrun.${action}` };
       if (action === "sync-status") return { ...header, status: await sync.status(resourceID(args, "dev-run", "dev_run"), bool(args, "refresh")) };
       if (action === "sync-show") return { ...header, sync: await sync.show(resourceID(args, "sync", "sync")) };
@@ -1693,16 +1562,11 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
     if (group === "devrun" && action === "context") {
       const runID = resourceID(args, "dev-run", "dev_run");
       const result = await module.devRunContext(runID, false, commaSeparated(args, "include-verification"));
-      const local = (await observeCodeRoute(opened.store, runID))?.view
-        ?? await new DevWorktreeModule(cwd, opened.config.database.expected_database_id, newUUIDv7, opened.store).inspectAuthoritative(runID);
+      const local = await new DevWorktreeModule(cwd, opened.config.database.expected_database_id, newUUIDv7, opened.store).inspectAuthoritative(runID);
       return { ...result, local_worktree: local.status === "available" && result.context.dev_run.development && JSON.stringify(local.development) !== JSON.stringify(result.context.dev_run.development) ? { status: "invalid", reason: "local development identity differs from the ledger" } : local };
     }
     if (group === "devrun" && action === "abandon") {
       const runID = resourceID(args, "dev-run", "dev_run");
-      const routes = new CodeWorkspaceRoutes(opened.store), route = await routes.forDevRun(runID);
-      if (route) return routes.abandon(route.route_id, runID, cwd, () => module.abandonDevRun({
-        operation_id: operationID(args, io), dev_run_id: runID, expected_version: integerValue(args, "expected-version", 1),
-        ...(hasOption(args, "reason") ? { reason: value(args, "reason") } : {}), attribution: actor() }));
       const observed = new DevWorktreeModule(cwd, opened.config.database.expected_database_id, newUUIDv7).observe(runID);
       if (["syncing", "sync_interrupted"].includes(observed.journal?.lifecycle ?? "")) throw runtimeError("complete or abandon sync before abandoning the DevRun");
       if (routeLeased(cwd, opened.config.database.expected_database_id, runID)) throw runtimeError('the route is leased or requires reconciliation; wait for it to finish or repair the route before abandoning');
@@ -1719,15 +1583,6 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
     }
     if (group === "devrun" && action === "cleanup") {
       const runID = resourceID(args, "dev-run", "dev_run");
-      const workspace = await observeCodeRoute(opened.store, runID);
-      if (workspace) {
-        if (bool(args, "preview")) return { result_type: "grounds.result.development-cleanup-preview/v1", command: "devrun.cleanup",
-          preview: { dev_run_id: runID, local_worktree: workspace.view, options: ["keep"],
-            risks: ["Workspace-owned route: use code-workspace end and code-workspace cleanup for lifecycle checks"] } };
-        if (value(args, "choice") === "keep") return { result_type: "patchledger.result.devrun-worktree-cleanup/v1", command: "devrun.cleanup",
-          dev_run_id: runID, removed: false, local_worktree: workspace.view };
-        throw runtimeError("Workspace-owned route: use code-workspace end and code-workspace cleanup for lifecycle checks");
-      }
       const preview = new DevWorktreeModule(cwd, opened.config.database.expected_database_id, newUUIDv7, opened.store).cleanupPreview(runID);
       const leased = routeLeased(cwd, opened.config.database.expected_database_id, runID);
       if (leased) preview.risks.push("the route is leased or its Git pointer is damaged");
@@ -1759,13 +1614,11 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
       const runID = resourceID(args, "dev-run", "dev_run"), detail = await module.showDevRun(runID);
       const preflight = await preflightService().devRunReadModel(runID);
       if (!detail.development) return { ...detail, ...(preflight ? { preflight } : {}) };
-      const local = (await observeCodeRoute(opened.store, runID))?.view
-        ?? await new DevWorktreeModule(cwd, opened.config.database.expected_database_id, newUUIDv7, opened.store).inspectAuthoritative(runID);
+      const local = await new DevWorktreeModule(cwd, opened.config.database.expected_database_id, newUUIDv7, opened.store).inspectAuthoritative(runID);
       const current = local.status === "available" && local.head && local.active_dev_run_id && local.owner_phase === "active" ? await module.developmentHeadStanding(local.active_dev_run_id, local.head) : { standing: "unknown" };
       return { ...detail, local_worktree: local, current_head: current, ...(preflight ? { preflight } : {}) };
     }
-    if (group === "devrun" && action === "reconcile") return reconcileDevRun(module, opened.config.database.expected_database_id, cwd, resourceID(args, "dev-run", "dev_run"),
-      await observeCodeRoute(opened.store, resourceID(args, "dev-run", "dev_run")));
+    if (group === "devrun" && action === "reconcile") return reconcileDevRun(module, opened.config.database.expected_database_id, cwd, resourceID(args, "dev-run", "dev_run"));
     if (group === "devrun" && action === "uncommitted") return listUncommittedWork(module, opened.config.database.expected_database_id, cwd);
     if (group === "candidate" && action === "diff") {
       const candidateId = resourceID(args, "candidate", "candidate"), descriptor = await module.candidateArtifactDescriptor(candidateId);
@@ -1864,8 +1717,7 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
     }
     if (group === "candidate" && action === "submit") {
       const runID = resourceID(args, "dev-run", "dev_run");
-      const routes = new CodeWorkspaceRoutes(opened.store), route = await routes.forDevRun(runID);
-      if (!route && routeLeased(cwd, opened.config.database.expected_database_id, runID)) throw runtimeError('the route is leased or requires reconciliation; wait for it to finish or repair the route first');
+      if (routeLeased(cwd, opened.config.database.expected_database_id, runID)) throw runtimeError('the route is leased or requires reconciliation; wait for it to finish or repair the route first');
       const op = operationID(args, io);
       const expectedVersion = integerValue(args, "expected-version", 1);
       const submitter = actor();
@@ -1884,9 +1736,9 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
         if (context.context.base_commit && context.context.issue.target_branch) assertTargetBase(devCwd, context.context.issue.target_branch, await module.repositoryRemotesForResolution(context.context.repository.canonical_remote), baseCommit);
         if (context.context.dev_run.development) await validateRepositoryClone(module, devCwd, context.context.repository.id);
         else await validateRepositoryClone(module, devCwd, context.context.repository.id);
-        const local = route ? undefined : devWorktrees.inspect(runID);
-        const development = route?.development ?? (local?.status === "available" ? local.development : undefined);
-        const fixed = development ? captureCommittedDevelopment(devCwd, development, baseCommit, route ? "external-runtime" : true) : captureCommittedCandidate(devCwd, baseCommit);
+        const local = devWorktrees.inspect(runID);
+        const development = local.status === "available" ? local.development : undefined;
+        const fixed = development ? captureCommittedDevelopment(devCwd, development, baseCommit, true) : captureCommittedCandidate(devCwd, baseCommit);
         const artifact = fixed.artifact;
         // Pin the source before crossing SQL; a crash retains an operation-scoped object.
         retainCandidateSource(devCwd, op, fixed.source);
@@ -1903,9 +1755,7 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
         }
         return result;
       };
-      const submitted = route
-        ? await routes.captureCandidate(route.route_id, runID, cwd, replay.found, capture)
-        : await devWorktrees.submit(runID, capture);
+      const submitted = await devWorktrees.submit(runID, capture);
       return { ...submitted, warnings: languageWarnings };
     }
     if (group === "completion") {
@@ -2061,8 +1911,7 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
     }
     if (group === "candidate" && action === "template") {
       const runID = resourceID(args, "dev-run", "dev_run");
-      const routes = new CodeWorkspaceRoutes(opened.store), route = await routes.forDevRun(runID);
-      if (!route && routeLeased(cwd, opened.config.database.expected_database_id, runID)) throw runtimeError('the route is leased or requires reconciliation; wait for it to finish or repair the route first');
+      if (routeLeased(cwd, opened.config.database.expected_database_id, runID)) throw runtimeError('the route is leased or requires reconciliation; wait for it to finish or repair the route first');
       const worktrees = new DevWorktreeModule(cwd, opened.config.database.expected_database_id, newUUIDv7, opened.store);
       const capture = async (path: string) => {
         await module.assertDevelopmentAdmission(runID);
@@ -2071,9 +1920,9 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
         if (context.context.base_commit && context.context.issue.target_branch) assertTargetBase(path, context.context.issue.target_branch, await module.repositoryRemotesForResolution(context.context.repository.canonical_remote), baseCommit);
         await validateRepositoryClone(module, path, context.context.repository.id);
         const language = contentLanguagePolicy(hasOption(args, "content-language") ? value(args, "content-language") : undefined, undefined);
-        return module.candidateSubmissionTemplate(runID, context.context.dev_run.development ? captureCommittedDevelopment(path, context.context.dev_run.development, baseCommit, route ? "external-runtime" : true).artifact : captureCommittedCandidate(path, baseCommit).artifact, language?.language);
+        return module.candidateSubmissionTemplate(runID, context.context.dev_run.development ? captureCommittedDevelopment(path, context.context.dev_run.development, baseCommit, true).artifact : captureCommittedCandidate(path, baseCommit).artifact, language?.language);
       };
-      return route ? routes.capture(route.route_id, runID, cwd, capture) : worktrees.capture(runID, capture);
+      return worktrees.capture(runID, capture);
     }
     if (group === "verification" && action === "template") { const language = contentLanguagePolicy(hasOption(args, "content-language") ? value(args, "content-language") : undefined, undefined); return module.verificationReportTemplate(resourceID(args, "candidate", "candidate"), language?.language, verificationRole(args)); }
     if (group === "verification" && action === "context") {
@@ -2184,17 +2033,6 @@ const verificationRole = (args: ParsedArgs): "contract" | "quality" => {
 export const exitCode = (error: DomainError): number => ({ VALIDATION_ERROR: 2, NOT_FOUND: 3, VERIFICATION_SET_CHANGED: 4, LIST_CHANGED: 4, STATE_CONFLICT: 4, AUTH_FAILED: 4, VERSION_CONFLICT: 4, PREDECESSOR_CONFLICT: 4, IDEMPOTENCY_CONFLICT: 4, SCHEMA_INCOMPATIBLE: 5, MIGRATION_DIRTY: 5, DATABASE_ID_MISMATCH: 5, REPOSITORY_NOT_RESOLVED: 6, REPOSITORY_AMBIGUOUS: 6, BASELINE_UNAVAILABLE: 6, REPOSITORY_ISSUE_LIMIT: 6, WORKTREE_MISMATCH: 6, ARTIFACT_TOO_LARGE: 6, ARTIFACT_INTEGRITY_ERROR: 6, STORAGE_TRANSIENT: 7, INTERNAL: 1 } as Record<string, number>)[error.code] ?? 1;
 
 const writeCommands = new Set([
-  "code-workspace:end", "code-workspace:cleanup", "code-workspace:service-cleanup", "code-workspace:service-volume-retire", "code-workspace:service-volume-delete", "code-workspace:service-volume-restoration-cleanup", "code-workspace:service-volume-export", "code-workspace:service-volume-restore", "code-workspace:service-volume-restoration-stop",
-  "code-workspace:execution-start",
-  "code-workspace:route-prepare",
-  "code-workspace:route-bind",
-  "code-workspace:recipe-save", "code-workspace:recipe-prepare", "code-workspace:recipe-preparation-cancel", "code-workspace:recipe-preparation-cleanup",
-  "code-workspace:build-material-capture", "code-workspace:image-prepare", "code-workspace:image-cancel", "code-workspace:image-cleanup",
-  "code-workspace:environment-check", "code-workspace:environment-set-default",
-  "code-workspace:environment-save",
-  "code-workspace:config-save",
-  "code-workspace:create",
-  "code-workspace:restore",
   "repository:archive-bind",
   "integration:observe", "integration:authorize", "integration:consume", "integration:landing",
   "delivery-link:withdraw",
@@ -2276,7 +2114,7 @@ export const runCLI = async (argv: string[], io: CLIIO = {}): Promise<number> =>
       if (op) stdout(io, `operation_id: ${op}`);
       stdout(io, human(cleanData, bool(args, "markdown")));
     }
-    return codeExecutionExitCode(cleanData);
+    return 0;
   } catch (error) {
     const domain = asDomainError(error);
     const envelope = { format: "patchledger.cli/v1", ok: false, ...(op ? { operation_id: op } : {}), error: domain.toJSON() };

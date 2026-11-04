@@ -1,4 +1,4 @@
-import { DevWorktreeModule, type LocalObservation } from "./dev-worktree.js";
+import { DevWorktreeModule } from "./dev-worktree.js";
 import { isRouteLeased } from "./env-route-lease.js";
 import { DeliveryWorktreeModule } from "./delivery-worktree.js";
 import { DomainError } from "./errors.js";
@@ -6,26 +6,22 @@ import { newUUIDv7 } from "./identity.js";
 import type { Module, Warning } from "./module.js";
 import { computeFindings, hasLocalRisk, localFacts, mergeNextActions, riskReasons, riskSummary, summarizeLocalWork, type LocalFacts } from "./reconcile.js";
 
-const localSnapshot = async (module: Module, dev: DevWorktreeModule, runID: string, override?: LocalObservation): Promise<{ ledger: Awaited<ReturnType<Module["reconcileLedger"]>>; local: LocalFacts }> => {
+const localSnapshot = async (module: Module, dev: DevWorktreeModule, runID: string): Promise<{ ledger: Awaited<ReturnType<Module["reconcileLedger"]>>; local: LocalFacts }> => {
   const ledger = await module.reconcileLedger(runID);
-  const observation = override ?? dev.observe(runID);
+  const observation = dev.observe(runID);
   if (ledger.pending_sync && !["syncing", "sync_interrupted"].includes(observation.journal?.lifecycle ?? "")) observation.journal = { lifecycle: "sync_interrupted", recognized: true };
   const pendingSync = ["syncing", "sync_interrupted"].includes(observation.journal?.lifecycle ?? "");
-  const local = localFacts(observation, ledger.dev_run.state, ledger.candidate?.result_tree_oid, (path, external) => summarizeLocalWork(path, ledger.baseline_oid, external || override !== undefined, pendingSync));
+  const local = localFacts(observation, ledger.dev_run.state, ledger.candidate?.result_tree_oid, (path, external) => summarizeLocalWork(path, ledger.baseline_oid, external, pendingSync));
   return { ledger, local };
 };
 
 /** `devrun reconcile`: one read-only view over ledger, local worktree (with its route lease) and delivery directories. */
-export const reconcileDevRun = async (module: Module, databaseID: string, cwd: string, runID: string, workspace?: LocalObservation & { route_leased?: boolean }): Promise<Record<string, unknown>> => {
+export const reconcileDevRun = async (module: Module, databaseID: string, cwd: string, runID: string): Promise<Record<string, unknown>> => {
   const dev = new DevWorktreeModule(cwd, databaseID, newUUIDv7);
-  const { ledger, local } = await localSnapshot(module, dev, runID, workspace);
+  const { ledger, local } = await localSnapshot(module, dev, runID);
   const delivery = ledger.candidate ? { worktrees: new DeliveryWorktreeModule(cwd, databaseID).inspectCandidate(ledger.candidate.candidate_id) } : { worktrees: [] };
-  const routeLeased = workspace?.route_leased ?? (local.path !== undefined && isRouteLeased(local.path));
+  const routeLeased = local.path !== undefined && isRouteLeased(local.path);
   const { overall, findings } = computeFindings({ ledger: ledger.dev_run.state, local, execution: { route_leased: routeLeased }, delivery });
-  if (workspace) for (const finding of findings) for (const action of finding.next_actions) {
-    if (action.action.startsWith("cleanup_")) action.description = "Inspect code-workspace cleanup-preview and use Workspace lifecycle cleanup; preserve unarchived changes.";
-    if (action.action === "resolve_execution") action.description = "Inspect code-workspace execution-show and explicitly stop or recover the owning execution.";
-  }
   return {
     result_type: "patchledger.result.devrun-reconcile/v1",
     command: "devrun.reconcile",

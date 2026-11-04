@@ -9,7 +9,6 @@ import { newUUIDv7 } from "./identity.js";
 import { DomainError } from "./errors.js";
 import { PREPARATION_FORMAT } from "./preflight-admission.js";
 import type { Store, Tx } from "./store-types.js";
-import { CodeWorkspaceRoutes } from "./code-workspace-route.js";
 
 export interface PreflightRunInputs {
   dev_run_id: string;
@@ -48,11 +47,7 @@ export async function capturePreflightInputs(tx: Tx, devRunId: string, path: str
   const parent = run.refines_candidate_id ? (await tx.getCandidate(run.refines_candidate_id)).candidate : undefined;
   const head = resolveBaseline(path, "HEAD");
   const index = sha256Bytes(branchGit(path, ["ls-files", "--stage", "-z"]));
-  const route = run.development ? await tx.getRuntimeRecord("runtime_operation", run.development.workspace_id) : undefined;
-  // New code routes keep control files outside the worktree. Use the existing
-  // runtime-excluding capture mode without requiring a source .gitignore edit.
-  const codeRoute = route?.data.format === "grounds.code-workspace-route/v1" && route.data.dev_run_id === run.id;
-  const artifact = captureArtifact(path, base, codeRoute);
+  const artifact = captureArtifact(path, base);
   if (head !== resolveBaseline(path, "HEAD") || index !== sha256Bytes(branchGit(path, ["ls-files", "--stage", "-z"]))) fail(devRunId, "development inputs changed during observation");
   return {
     dev_run_id: run.id, dev_run_version: run.version, base_commit: base,
@@ -66,13 +61,6 @@ export async function capturePreflightInputs(tx: Tx, devRunId: string, path: str
 }
 
 export async function withPreflightScene<T>(store: Store, root: string, devRunId: string, action: (path: string) => Promise<T>): Promise<T> {
-  const routeId = await store.read(async tx => {
-    const run = await tx.getDevRun(devRunId);
-    if (!run.development) return undefined;
-    const row = await tx.getRuntimeRecord("runtime_operation", run.development.workspace_id);
-    return row?.data.format === "grounds.code-workspace-route/v1" ? row.id : undefined;
-  });
-  if (routeId) return new CodeWorkspaceRoutes(store).capture(routeId, devRunId, root, action);
   const metadata = await store.open();
   const worktrees = new DevWorktreeModule(root, metadata.database_id, newUUIDv7, store);
   return worktrees.capture(devRunId, action);
