@@ -20,7 +20,7 @@ docker image inspect grounds-self-dev:0.2.41 --format '{{.Id}}'
 
 构建脚本只发送 Dockerfile、工具与指纹脚本、两份 package/lock、原生 addon 和 vendored 源码，不发送整个仓库、Git 历史、账本或用户配置。Node22基础镜像固定 registry digest，依赖通过 `npm ci` 安装；最终执行使用本地 `sha256:...` 镜像 ID。OS 包未逐包锁版本，因此不承诺重建字节一致。
 
-镜像含 Node/npm、Git、Python、C/C++/make、OpenSSL、进程工具、无头 Chromium、CLI/TUI 各自的依赖及 Linux 原生 addon。构建脚本按当前宿主UID/GID添加用户记录；跨用户或平台使用时重新构建。业务容器无需联网安装工具。
+镜像含 Node/npm、Git、Python、C/C++/make、OpenSSL、进程工具、无头 Chromium、CLI 的依赖及 Linux 原生 addon。构建脚本按当前宿主UID/GID添加用户记录；跨用户或平台使用时重新构建。业务容器无需联网安装工具。
 
 ## 注册与执行
 
@@ -51,9 +51,11 @@ code-workspace execution-serve ROUTE_ID EXECUTION_ID
 
 ## 日常命令
 
-- `grounds-dev build`：重新编译当前native源码、CLI构建、TUI类型检查与构建。
-- `grounds-dev smoke`：上述构建，Workspace/运行存储聚焦测试、Plugin测试和TUI单元测试。
-- `grounds-dev test`：CLI串行完整文件队列，再跑Plugin/TUI；条件测试仍按原协议跳过，不等于发行验收。
+- `grounds-dev build`：重新编译当前 native 源码并构建 CLI。
+- `grounds-dev smoke`：上述构建、Workspace/运行存储聚焦测试及根脚本测试。
+- `grounds-dev test`：CLI 串行完整文件队列，再跑根脚本测试；条件测试仍按原协议跳过，不等于发行验收。
+
+旧 TUI 包和 Python plugin 测试已退役，镜像不再安装或运行它们。
 - `grounds-dev COMMAND ...`：在准备好的同一环境运行指定命令，例如 `grounds-dev node --version`。
 
 依赖从镜像复制到当前路线，避免跨需求共享可变 node_modules；首次准备有磁盘成本，之后同一路线复用。镜像兼容与缓存标记共用 `dependency-fingerprint.mjs` 的结构化指纹：仅忽略package.json根version、lockfile根version及packages[""].version，JSON排版/键顺序不影响结果；其他字段（依赖版本、来源、完整性、安装脚本等）继续参与比较。仅修改源码或发行版本号可复用镜像；真实安装输入变化则拒绝，应重建并保存新的环境版本。指纹只说明该配方的依赖清单兼容，不证明任意源码均可构建。旧镜像需重建一次以安装新检查器，旧的原始lockfile摘要标记不会自动升级。未知或旧 node_modules 不覆盖、不删除；用新Workspace，或先保留并移走原目录。

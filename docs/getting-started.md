@@ -20,11 +20,10 @@ To expose the commands in your shell from a local checkout:
 
 ```sh
 (cd typescript && npm link)
-(cd tui && npm link)
 grounds help --json
 ```
 
-Use matching CLI and TUI versions. `npm link` modifies your local npm installation; it does not publish a package.
+`npm link` modifies your local npm installation; it does not publish a package.
 
 ## Configure a ledger
 
@@ -40,4 +39,4 @@ Keep credentials outside the repository. Do not reuse production credentials for
 
 Use `grounds help --json` for the installed command surface and the [workflow skill](../plugins/grounds/skills/grounds/SKILL.md) for the supported requirement → candidate → independent verification → delivery workflow. The [contracts](contracts/v1/README.md) define structured inputs and outputs. For GitHub repositories, follow [GitHub archive onboarding](../plugins/grounds/skills/grounds/references/github-archive-onboarding.md) to configure authentication, immutable tag rules, and the ledger binding. Candidate submission also checks archive protection on the target host; a repository plan without those protections cannot satisfy that requirement.
 
-To inspect the terminal interface after building both components, run `grounds-tui --help`. Configure a ledger before opening data-backed views.
+The legacy TUI has been retired from this source tree. Use `grounds help --json` and the development skill; a new work-model TUI is not implemented.

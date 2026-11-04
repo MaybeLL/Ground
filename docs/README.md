@@ -27,8 +27,6 @@ Grounds keeps a versioned ledger of requirements, issues, development runs, cand
 | --- | --- |
 | `typescript/src/` | CLI, SQL ledger, candidate and delivery operations |
 | `typescript/test/` | CLI regression tests |
-| `tui/src/` | Terminal review interface |
-| `tui/test/` | Terminal UI and integration tests |
 | `plugins/grounds/` | Agent skills, references, and plugin tests |
 | `docs/contracts/v1/` | Versioned machine contracts |
 | `.github/workflows/` | GitHub build, test, and release automation |
