@@ -20,12 +20,12 @@
 
 | 现有 | 在新结构中的位置 |
 | --- | --- |
-| SQL 账本（`sql-*.ts`，schema v23，三种数据库） | 新表并入同一账本，沿用事务、方言与三后端测试夹具 |
-| `module.ts`、`cli.ts` 中 DevRun / Candidate / Verification 的命令 | Candidate 的提交与归档逻辑由 coding 任务类型复用；开发闭环切换后，DevRun 与 Verification 的写入口停用 |
+| SQL 账本（`sql-*.ts`，当前 schema v24，三种数据库） | 新表已并入同一账本，沿用事务、方言与三后端测试夹具；旧表按 D149 待删除 |
+| `module.ts`、`cli.ts` 中 DevRun / Candidate / Verification 的命令 | 新代码交付已通过 `work` 用例和 Git 标签适配器实现，不写旧 Candidate；旧业务命令与服务仍待 P1d 删除，不保留只读兼容 |
 | `plugins/grounds/skills/grounds` 的开发与验收工作流 | **外部执行的主要入口**：skill 引导自带 Agent 领取 Workspace、提交清单；协调者拉起全新会话做独立验收。改为调用新的 `work` 命令 |
-| `code-workspace*.ts`（配置、缓存、基线、worktree、清理） | Workspace 适配器直接复用；绑定从 Issue / DevRun 改为 Sandbox 归属者 |
-| `code-route-docker.ts`、`repository-environment.ts`、`development-image-*.ts` | 第一阶段继续可用；托管执行阶段由 devcontainer 方案逐步替代，旧配置作为兼容格式保留只读 |
-| `verification-run.ts`、`submitVerification` 的身份与盲验校验 | 外部评价者的协议阶段与独立性校验直接复用 |
+| 旧 `code-workspace*.ts`（配置、缓存、基线、worktree、清理） | 已按 D149 退役，不直接复用旧实例/路线；外部执行使用新 `work/adapters/git/worktrees.ts`，托管 Sandbox 在 P4 实现 |
+| 旧 `code-route-docker.ts`、`repository-environment.ts`、`development-image-*.ts` | 已按 D149 整链退役，不保留旧配置只读兼容；P4 重新实现 devcontainer 路径。独立 `env-*` 保留 |
+| 旧 `verification-run.ts`、`submitVerification` | 新外部评价者协议与独立性校验已在 `work` 领域/应用层实现；旧 Verification 服务随旧业务退役，不作为新 gate 的依赖 |
 | 旧评测模块 | 业务服务、CLI、QA 草稿/线索、TUI 评测及其 skill 已在 P1d 整链退役。仅 `evaluation.ts`、`eval-qa.ts`、`eval-environment.ts` 仍供旧 SQL 完整性校验使用，随存储批次删除；新评测资产按 P3 实现 |
 
 ## 3. 交付阶段
@@ -89,7 +89,7 @@ P0 结束后，P1 与 P2 可以并行；P3 只依赖 P1（测试评分需要 San
 | 环境定义 | **devcontainer.json** 标准（附 lockfile 摘要与镜像摘要） | 业界通用，用户仓库常常已有；lockfile 可以固定 feature 版本，有利于复现 |
 | 构建与启动 | **devcontainers CLI**（`build`、`up --id-label`、`exec`） | 官方参考实现，可以作为 npm 依赖引入，不需要常驻服务 |
 | 生命周期 | **Docker CLI** 按标签查询、暂停、恢复、停止、删除 | devcontainers CLI 还没实现 `stop` / `down`；用标签标识归属，与现有的资源归属校验方式一致 |
-| Workspace | 现有的开发 worktree 与只读基线 | 已有实现、测试与清理保护（D109） |
+| Workspace | 新 `work` 的 Git worktree 适配器；P4 实现托管 Sandbox 的工作区准备 | 外部执行的独立 worktree 已落地；旧 code-workspace 实例/路线已按 D149 退役，不直接接入 |
 | 强隔离（后续） | microsandbox（本地 microVM，Apache-2.0，带 TS SDK） | 适合不受信任的托管执行；作为 SandboxRuntime 的第二个实现，P4 之后再评估 |
 
 不采用的方案：

@@ -1,14 +1,14 @@
 flowchart TB
-  subgraph WORK["typescript/src/work/（新增，依赖方向自上而下）"]
+  subgraph WORK["typescript/src/work/ 目标结构（P4 / P5 部分待实现）"]
     direction TB
-    CLIW["entry/：CLI 命令与 TUI 视图<br/>work · task · grade · experiment · host"]
+    CLIW["entry/：CLI 命令<br/>task · work · grade<br/>experiment / host 待 P4 / P5；新版 TUI 未实现"]
     APPW["application/：用例与编排<br/>TaskExecution · AgentExecutionService · Grading<br/>ExperimentExecution · SandboxProvisioning · 查询"]
     DRVW["driver/：入站驱动<br/>同步驱动 · 完成事件投递 · 核对循环<br/>宿主（P4 起）"]
     DOMW["domain/：纯领域<br/>9 个聚合 · 值对象 · 不变量 · 版本化定义"]
     PORTW["ports/：内侧定义的出站端口"]
     ADPW["adapters/：外侧实现<br/>sql · workspace · devcontainer + docker<br/>命令行 Agent · 交付与证据"]
   end
-  LEG["现有模块（复用并逐步收敛）<br/>code-workspace* · candidate-* · verification-run · sql-* · git-*"]
+  LEG["复用基础设施<br/>SQL 事务与方言 · Git 工具<br/>旧业务模块按 D149 退役"]
   CLIW --> APPW
   APPW --> DOMW
   APPW --> PORTW
@@ -16,7 +16,7 @@ flowchart TB
   DRVW --> PORTW
   ADPW -.->|实现| PORTW
   ADPW -->|复用| LEG
-  OSS["开源依赖<br/>devcontainers CLI · Docker CLI<br/>（后续）microsandbox"]
+  OSS["P4 新实现：devcontainer 路径<br/>devcontainers CLI · Docker CLI<br/>旧 code-workspace / 容器路线已退役<br/>（后续）microsandbox"]
   ADPW -->|集成| OSS
   CHK{{"依赖规则检查（测试）：<br/>domain 不 import 其他层与 node:*；<br/>application 只依赖 domain 与 ports；<br/>driver 与 entry 调用 application"}}
   CHK -.-> WORK
