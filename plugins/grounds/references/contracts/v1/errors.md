@@ -44,7 +44,3 @@
 Selection 沿用 `VALIDATION_ERROR`（版本/归属/理由）、`VERSION_CONFLICT`（expected Selection 版本）、`STATE_CONFLICT`（无当前选择）与 `IDEMPOTENCY_CONFLICT`。冲突资源类型可为 `selection`，从未选择时版本为 0、错误定位使用 Issue ID。交付工件问题复用现有 Git/artifact 错误；凭据写入失败为 `WORKTREE_MISMATCH`，reason 包含保留目录。
 
 交付准备错误可含 `target_path` 和 `inspect_argv`；恢复前先运行只读检查。`WORKTREE_MISMATCH` 保留已编辑、无归属、缺失或冲突的准备状态。Selection 版本冲突时不得刷新版本后对旧目录重试。
-
-`code-workspace environment-show` 接受环境 revision UUIDv7，而非环境身份 ID。不存在的 revision（含误传环境身份）返回 `NOT_FOUND`、退出码 3，`details.resource_type=environment_revision` 并携带请求的 `resource_id`；非法 UUID 仍返回 `VALIDATION_ERROR`。
-
-`code-workspace environment-default` 在仓库尚未配置默认环境时返回 `NOT_FOUND`、退出码 3，`details.resource_type=environment_default`，`resource_id` 为查询的仓库 ID。

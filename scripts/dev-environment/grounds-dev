@@ -51,7 +51,7 @@ case "${1:-build}" in
     ;;
   smoke)
     grounds-dev build
-    (cd typescript && node --import tsx --test --test-concurrency=1 test/code-workspace.test.ts test/runtime-store.test.ts)
+    (cd typescript && node --import tsx --test --test-concurrency=1 test/work-code-delivery.test.ts test/work-storage.test.ts test/runtime-store.test.ts)
     node --test scripts/*.test.mjs
     ;;
   *) exec "$@" ;;

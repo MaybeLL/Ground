@@ -20,12 +20,12 @@
 
 | 现有 | 在新结构中的位置 |
 | --- | --- |
-| SQL 账本（`sql-*.ts`，schema v23，三种数据库） | 新表并入同一账本，沿用事务、方言与三后端测试夹具 |
-| `module.ts`、`cli.ts` 中 DevRun / Candidate / Verification 的命令 | Candidate 的提交与归档逻辑由 coding 任务类型复用；开发闭环切换后，DevRun 与 Verification 的写入口停用 |
+| SQL 账本（`sql-*.ts`，当前 schema v24，三种数据库） | 新表已并入同一账本，沿用事务、方言与三后端测试夹具；旧表按 D149 待删除 |
+| `module.ts`、`cli.ts` 中 DevRun / Candidate / Verification 的命令 | 新代码交付已通过 `work` 用例和 Git 标签适配器实现，不写旧 Candidate；旧业务命令与服务仍待 P1d 删除，不保留只读兼容 |
 | `plugins/grounds/skills/grounds` 的开发与验收工作流 | **外部执行的主要入口**：skill 引导自带 Agent 领取 Workspace、提交清单；协调者拉起全新会话做独立验收。改为调用新的 `work` 命令 |
-| `code-workspace*.ts`（配置、缓存、基线、worktree、清理） | Workspace 适配器直接复用；绑定从 Issue / DevRun 改为 Sandbox 归属者 |
-| `code-route-docker.ts`、`repository-environment.ts`、`development-image-*.ts` | 第一阶段继续可用；托管执行阶段由 devcontainer 方案逐步替代，旧配置作为兼容格式保留只读 |
-| `verification-run.ts`、`submitVerification` 的身份与盲验校验 | 外部评价者的协议阶段与独立性校验直接复用 |
+| 旧 `code-workspace*.ts`（配置、缓存、基线、worktree、清理） | 已按 D149 退役，不直接复用旧实例/路线；外部执行使用新 `work/adapters/git/worktrees.ts`，托管 Sandbox 在 P4 实现 |
+| 旧 `code-route-docker.ts`、`repository-environment.ts`、`development-image-*.ts` | 已按 D149 整链退役，不保留旧配置只读兼容；P4 重新实现 devcontainer 路径。独立 `env-*` 保留 |
+| 旧 `verification-run.ts`、`submitVerification` | 新外部评价者协议与独立性校验已在 `work` 领域/应用层实现；旧 Verification 服务随旧业务退役，不作为新 gate 的依赖 |
 | 旧评测模块 | 业务服务、CLI、QA 草稿/线索、TUI 评测及其 skill 已在 P1d 整链退役。仅 `evaluation.ts`、`eval-qa.ts`、`eval-environment.ts` 仍供旧 SQL 完整性校验使用，随存储批次删除；新评测资产按 P3 实现 |
 
 ## 3. 交付阶段
@@ -89,7 +89,7 @@ P0 结束后，P1 与 P2 可以并行；P3 只依赖 P1（测试评分需要 San
 | 环境定义 | **devcontainer.json** 标准（附 lockfile 摘要与镜像摘要） | 业界通用，用户仓库常常已有；lockfile 可以固定 feature 版本，有利于复现 |
 | 构建与启动 | **devcontainers CLI**（`build`、`up --id-label`、`exec`） | 官方参考实现，可以作为 npm 依赖引入，不需要常驻服务 |
 | 生命周期 | **Docker CLI** 按标签查询、暂停、恢复、停止、删除 | devcontainers CLI 还没实现 `stop` / `down`；用标签标识归属，与现有的资源归属校验方式一致 |
-| Workspace | 现有的开发 worktree 与只读基线 | 已有实现、测试与清理保护（D109） |
+| Workspace | 新 `work` 的 Git worktree 适配器；P4 实现托管 Sandbox 的工作区准备 | 外部执行的独立 worktree 已落地；旧 code-workspace 实例/路线已按 D149 退役，不直接接入 |
 | 强隔离（后续） | microsandbox（本地 microVM，Apache-2.0，带 TS SDK） | 适合不受信任的托管执行；作为 SandboxRuntime 的第二个实现，P4 之后再评估 |
 
 不采用的方案：
@@ -132,7 +132,7 @@ Provider 用能力声明表达差异（D68），应用层只依赖声明，不�
 
 **按依赖划边界：** 用户确认“只删新模型已替代的”，而 eval 的编码评测直接用 `tx.getCandidate`、`startDevRunInTransaction`，`code-workspace` 全部、部分 `code-route` 与 `repository-*` 依赖 DevRun / Candidate，删除这些表之后无法原样保留。它们对应的新实现分别在 P3（评测资产）、P4（托管执行与沙箱）、P5（实验）；在那之前，依赖旧表的部分随旧表一起删除，不做临时兼容。`env-*`（环境定义）这类不依赖旧模型核心的部分保留，到 P4 由 devcontainer 环境取代时再处理。
 
-**P1d 当前删除进度：** 已先删除无业务调用方的旧品牌/数据目录迁移工具（`migrate patchledger`、`migrate data`）、路径搬运与绑定修复、旧配置读取和迁移门禁。命令不会搬动、转换或清理历史文件。一次删除全部旧 CLI 会同时破坏仍在使用它构造数据的 eval、容器路线及验收测试；因此业务入口、调用方及对应表按依赖一起退役，而不是先删表或批量跳过测试。随后删除了 Python 包装器、实验协调器、Codex 采集器、容器准备代理和仓库快照适配，以及专用测试；分发清单与安装/包测试同步收敛。开发 skill 改为直接调用 task/work/grade，并要求主 agent 在交付冻结后启动全新子 agent 盲验；eval/知识改进入口明确自动实验暂不可用，不保留临时 runner。下一批已整链删除旧 TypeScript eval 服务/CLI/评分执行、QA 草稿与来源线索、TUI 评测界面及其客户端、评测与知识改进 skill、旧格式的纯文件材料工具和对应公开 schema/专用测试；随后用户确认先退役剩余旧 TUI 包，而不是本批重写界面：移除候选审阅/legacy 两个入口、客户端、专用测试/PTY、安装/发布及开发镜像依赖，保留 CLI 与 skill。新版工作模型 TUI 单独设计，当前未实现。共享 env 保留。剩余旧开发命令/表尚未删除，也未重编号 schema；旧评测类型/校验器及事务接口仍由 SQL 完整性检查引用，随存储收敛一起删除，不是公开兼容入口；SQL 层 `db migrate` 和 draft 格式转换在其所属模块退役时删除。新结果 schema 与真实 Claude Code/Codex 冒烟仍待完成。
+**P1d 当前删除进度：** 已先删除无业务调用方的旧品牌/数据目录迁移工具（`migrate patchledger`、`migrate data`）、路径搬运与绑定修复、旧配置读取和迁移门禁。命令不会搬动、转换或清理历史文件。一次删除全部旧 CLI 会同时破坏仍在使用它构造数据的 eval、容器路线及验收测试；因此业务入口、调用方及对应表按依赖一起退役，而不是先删表或批量跳过测试。随后删除了 Python 包装器、实验协调器、Codex 采集器、容器准备代理和仓库快照适配，以及专用测试；分发清单与安装/包测试同步收敛。开发 skill 改为直接调用 task/work/grade，并要求主 agent 在交付冻结后启动全新子 agent 盲验；eval/知识改进入口明确自动实验暂不可用，不保留临时 runner。下一批已整链删除旧 TypeScript eval 服务/CLI/评分执行、QA 草稿与来源线索、TUI 评测界面及其客户端、评测与知识改进 skill、旧格式的纯文件材料工具和对应公开 schema/专用测试；随后用户确认先退役剩余旧 TUI 包，而不是本批重写界面：移除候选审阅/legacy 两个入口、客户端、专用测试/PTY、安装/发布及开发镜像依赖，保留 CLI 与 skill。新版工作模型 TUI 单独设计，当前未实现。共享 env 保留。之后整链退役 code-workspace 实例/路线、容器执行和 Git/sync 路由、服务/卷回收、Repo 环境默认、配方/镜像准备，连同 CLI、七个公开 schema 和专用测试；DevRun/Candidate 的这些调用方改为只走仍保留的宿主 worktree。保留独立 env 与只读目录占用拒绝检查，不执行或清理旧容器/卷/目录，不增加替代 runner。SQL 操作完整性校验仍留在存储批次处理。剩余旧开发命令/表尚未删除，也未重编号 schema；旧评测类型/校验器及事务接口仍由 SQL 完整性检查引用，随存储收敛一起删除，不是公开兼容入口；SQL 层 `db migrate` 和 draft 格式转换在其所属模块退役时删除。新结果 schema 与真实 Claude Code/Codex 冒烟仍待完成。
 
 P1 按下面四步切分，每步一个 PR，可独立评审和回退：
 

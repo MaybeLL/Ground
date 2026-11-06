@@ -59,9 +59,8 @@ try {
     || /skills\/grounds-eval\/references\/(?:review-conversation|workflows\/develop)/.test(entry))) throw new Error("tarball contains another skill's private material");
   if (entries.some((entry) => /patchledger_agent|assets\/patchledger/.test(entry))) throw new Error("tarball contains an old public helper or asset path");
   if (entries.some(entry => /\/scripts\/(?:grounds_agent|grounds_knowledge|grounds_eval_[^/]+)\.py$/.test(entry))) throw new Error("tarball contains a retired agent coordinator or capture script");
+  if (entries.some(entry => /(?:^|\/)code-route-client\.py$/.test(entry))) throw new Error("tarball contains the retired container route client");
   execFileSync("tar", ["-xf", tarball, "-C", output]);
-  const clientHelp = execFileSync("python3", [join(output, "package/dist/assets/code-route-client.py"), "--help"], { encoding: "utf8" });
-  if (!clientHelp.includes("stage") || !clientHelp.includes("retry")) throw new Error("packaged managed Git command unavailable");
   symlinkSync(join(root, 'node_modules'), join(output, 'package/node_modules'), 'dir');
   const installed = JSON.parse(execFileSync(process.execPath, [join(output, 'package/dist/src/bin.js'), 'install', 'skill', join(output, 'skills'), '--json'], {cwd: output, encoding: 'utf8'}));
   if (!installed.ok || JSON.stringify(installed.data.skills.map(skill => skill.name)) !== JSON.stringify(expectedNames)) throw new Error('packaged CLI did not install exactly the development skill');

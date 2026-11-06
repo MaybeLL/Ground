@@ -894,10 +894,10 @@ flowchart LR
 
 | 现有能力 | 源码依据与边界 |
 | --- | --- |
-| 编码工作区 | [CodeWorkspaceInstance / WorkspaceConfiguration](../../typescript/src/code-workspace.ts) 固定多仓库配置、commit/tree 基线，并关联 Issue、目标仓库及回收/恢复信息；当前不是通用 Working 工作区。 |
-| 独立可写开发目录 | [CodeWorkspaceRoutes](../../typescript/src/code-workspace-route.ts) 准备独立开发 worktree；准备代码不等于授予执行权限。[DockerRouteEngine](../../typescript/src/code-route-docker.ts) 在开发模式挂载可写 `/workspace`，基线与 Git 元数据只读。 |
+| 编码工作区 | [CodeWorkspaceInstance / WorkspaceConfiguration](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-workspace.ts) 固定多仓库配置、commit/tree 基线，并关联 Issue、目标仓库及回收/恢复信息；当前不是通用 Working 工作区。 |
+| 独立可写开发目录 | [CodeWorkspaceRoutes](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-workspace-route.ts) 准备独立开发 worktree；准备代码不等于授予执行权限。[DockerRouteEngine](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-docker.ts) 在开发模式挂载可写 `/workspace`，基线与 Git 元数据只读。 |
 | 问答材料空间 | [当时的评测环境脚本（已退役）](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_environment.py) 校验 workspace/materials，保存文件清单并将准备后的材料设为只读；包含 code/doc/fixture 材料角色。 |
-| 运行条件独立定义 | [RepositoryEnvironmentConfiguration](../../typescript/src/repository-environment.ts) 描述镜像和依赖服务；[RouteExecution](../../typescript/src/code-route-execution.ts) 组合代码路径、基线和运行环境。当前两条路径尚未统一治理。 |
+| 运行条件独立定义 | [RepositoryEnvironmentConfiguration](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/repository-environment.ts) 描述镜像和依赖服务；[RouteExecution](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-execution.ts) 组合代码路径、基线和运行环境。当前两条路径尚未统一治理。 |
 | 其他同名概念 | [WorkspaceModule](../../typescript/src/workspace.ts) 用于需求与 Issue 的 Markdown 编辑发布，不能直接当作 Agent 文件空间；[WorkspaceLease](../../typescript/src/workspace-provider.ts) 区分 managed/external 目录归属，统一时应保留这种所有权差异。 |
 
 **建议边界：** 保留 Workspace（执行工作空间）作为可识别的领域概念，纳入统一环境治理。EnvironmentSpec / EnvironmentInstance 表达运行条件和运行实例；Workspace 表达 Agent 实际可见的文件材料、来源版本、读写范围及工作区域。Task 声明材料需求，Workspace 记录实际准备出来的文件绑定，两者不重复拥有需求定义。AgentExecution 关联所使用的环境实例与工作空间；环境实例绑定或承载文件空间。图中的箭头表示关联，不预先确定聚合所有权、数量关系或事务边界。
@@ -988,7 +988,7 @@ WorkingTask 表达问答、资料分析、报告等工作，其公开目标与�
 
 用户指出 D81 若只包一层 Task 而保留 DevRun 与其他任务各自的运行体系，仍未实现统一；要求所有任务共用一套领域 / 应用核心，编码、抓取以及未来任务是特化，并支持配置或便于开发者扩展。此目标修订 D81 中可能被理解为长期保留两套完整生命周期的表述。编码的仓库、候选、验收规则继续保留，但不因此单独拥有通用启动、恢复、取消和资源回收机制。
 
-**代码事实与不能直接合并的粒度：** [DevRun](../../typescript/src/domain.ts) 固定 IssueRevision、代码基线、开发身份与 refinement 来源，状态为 open / submitted / abandoned；[startDevRunInTransaction](../../typescript/src/devrun-lifecycle.ts) 创建开发尝试并登记事件，单独调用它不等于已经运行 Agent。Candidate 绑定 dev_run_id 及 issue_revision_id；实际容器执行又由 [RouteExecution](../../typescript/src/code-route-execution.ts) 记录。因此 DevRun 与 AgentExecution 不是同粒度对象，直接重命名会把“交付候选”误当成“Agent 会话结束”，并可能破坏人工 / 外部执行的现有来源记录。
+**代码事实与不能直接合并的粒度：** [DevRun](../../typescript/src/domain.ts) 固定 IssueRevision、代码基线、开发身份与 refinement 来源，状态为 open / submitted / abandoned；[startDevRunInTransaction](../../typescript/src/devrun-lifecycle.ts) 创建开发尝试并登记事件，单独调用它不等于已经运行 Agent。Candidate 绑定 dev_run_id 及 issue_revision_id；实际容器执行又由 [RouteExecution](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-execution.ts) 记录。因此 DevRun 与 AgentExecution 不是同粒度对象，直接重命名会把“交付候选”误当成“Agent 会话结束”，并可能破坏人工 / 外部执行的现有来源记录。
 
 **推荐的统一核心（新的提案，不视为已确认实体清单）：**
 
@@ -1148,7 +1148,7 @@ Requirement 继续表达上游需求意图；一项需求可由具体编码任�
 
 用户明确 Coding 的可写业务工作目录为 Worktree，其他声明材料按只读使用；任务所需代码结果最终通过 Git Candidate 保存，因此不为 Workspace 另建一套起止快照系统。Coding 如有附加报告、数据等产物，则走既定 Artifact 存取能力，Candidate 与 Artifact 保持并列。通用执行协调并记录已有存储机制的成功回执，不再复制完整工作区作为另一份交付事实。
 
-源码核对：[submitCandidate](../../typescript/src/module.ts) 要求固定 Git 来源及 Git 归档，拒绝新增仅 patch 的候选；[GitArchiveBinding](../../typescript/src/candidate-git-archive.ts) 固定 source_commit、result_tree、base_commit 与 archive_ref，并提供归档核对；[DockerRouteEngine](../../typescript/src/code-route-docker.ts) 在开发模式开放工作目录写入，同时将基线和 Git 元数据挂为只读。这些是现有机制证据，不表示 TaskRun 等新模型已接入，也不构成当前运行的归档或灾难恢复测试。
+源码核对：[submitCandidate](../../typescript/src/module.ts) 要求固定 Git 来源及 Git 归档，拒绝新增仅 patch 的候选；[GitArchiveBinding](../../typescript/src/candidate-git-archive.ts) 固定 source_commit、result_tree、base_commit 与 archive_ref，并提供归档核对；[DockerRouteEngine](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-docker.ts) 在开发模式开放工作目录写入，同时将基线和 Git 元数据挂为只读。这些是现有机制证据，不表示 TaskRun 等新模型已接入，也不构成当前运行的归档或灾难恢复测试。
 
 **保存保证的准确范围：** 代码交付必须进入固定提交并完成 Candidate 所要求的归档确认，附加必需产物必须完成 Artifact 保存，之后才满足 D83 的成功交付条件。只在本地执行 git commit 不等于全部交付已经可靠归档。未提交修改、未纳入提交的必要文件及未声明的临时输出不因使用 Git 自动保存；中途环境丢失也不承诺恢复任意未提交现场。需要交付的内容须进入 Candidate 或 Artifact，缓存和中间态不默认归档。
 
@@ -1284,7 +1284,7 @@ TaskRun 宣布成功时固定采用的交付及验收依据，成功判定还包
 
 #### D105：TaskRevision 引用 Workspace 修订，定义与实例分离——原建议撤回，最终复用决定见 D109
 
-本条三层实体方案已在奥卡姆剃刀复审中撤回，保留以下内容作为比较依据，不作为待采用的默认方案。用户提出 TaskRevision 应声明任务需要何种 Workspace，并询问 Workspace 是否需要稳定定义、Revision 与实例。现有 [code-workspace.ts](../../typescript/src/code-workspace.ts) 已有 WorkspaceConfigurationVersion（configuration_id、revision_id、version、configuration、digest）与 CodeWorkspaceInstance，具备配置版本和实例分离基础，但实例仍绑定 Issue、目标仓库等编码语义，不是已完成的通用模型。
+本条三层实体方案已在奥卡姆剃刀复审中撤回，保留以下内容作为比较依据，不作为待采用的默认方案。用户提出 TaskRevision 应声明任务需要何种 Workspace，并询问 Workspace 是否需要稳定定义、Revision 与实例。现有 [code-workspace.ts](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-workspace.ts) 已有 WorkspaceConfigurationVersion（configuration_id、revision_id、version、configuration、digest）与 CodeWorkspaceInstance，具备配置版本和实例分离基础，但实例仍绑定 Issue、目标仓库等编码语义，不是已完成的通用模型。
 
 建议通用模型采用 WorkspaceDefinition 稳定配置身份、WorkspaceRevision 不可变文件空间配置、WorkspaceInstance 实际准备出的文件空间。TaskRevision 固定引用 WorkspaceRevision，声明所需材料版本、逻辑目录、只读与可写区域；不引用某次运行的临时目录或具体实例。EnvironmentSpec 继续声明软件与服务条件。应用执行用例准备或核对兼容的 WorkspaceInstance，将其挂入 EnvironmentInstance；AgentExecution 记录实际使用的实例。现有图中挂载与保留的 Workspace 按此提案将明确为 WorkspaceInstance，而非再增加一套并行工作空间。
 
@@ -1325,7 +1325,7 @@ TaskRevision 包含 WorkspaceSpec，实际 Workspace 按该规格准备；运行
 | WorkspaceDefinition + WorkspaceRevision + WorkspaceInstance | 可独立管理同一模板身份及多版本、供多个任务选择 | 引入独立编辑发布、任务绑定与模板升级等管理问题；当前缺少需要该业务身份的使用场景，撤回作为默认方案。 |
 | TaskRevision 内的 WorkspaceSpec + Workspace | 利用已有任务版本固定要求，实际空间仍可独立挂载、保留和隔离 | 多个任务复用配置时需复制配置值或借助创建入口；修改共享模板不会自动传播到已发布任务。推荐一期采用，不需要复制材料内容。 |
 
-现有 [WorkspaceConfigurationVersion 与 CodeWorkspaceInstance](../../typescript/src/code-workspace.ts) 以及 [配置版本测试](../../typescript/test/code-workspace.test.ts) 证明已有实现支持独立配置的保存、读取和版本冲突检查，不证明其独立身份已成为通用产品必须保留的业务能力。迁移可读取确定的旧配置版本，冻结为任务规格并保留来源，不因此删除历史版本；若实际用户依赖独立模板管理，应在迁移前识别并提供兼容入口，不能静默丢功能。
+现有 [WorkspaceConfigurationVersion 与 CodeWorkspaceInstance](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-workspace.ts) 以及 [配置版本测试](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/test/code-workspace.test.ts) 证明已有实现支持独立配置的保存、读取和版本冲突检查，不证明其独立身份已成为通用产品必须保留的业务能力。迁移可读取确定的旧配置版本，冻结为任务规格并保留来源，不因此删除历史版本；若实际用户依赖独立模板管理，应在迁移前识别并提供兼容入口，不能静默丢功能。
 
 复用配置值不等于复制所有文件：Git 对象、固定资料继续引用并共享只读数据；不同尝试仅隔离可写区域，沿用 D93 不增全量快照。存储可按内容去重，不需要先增加领域实体。配置不可变不等于动态分支或远程资料不变，仍需保存真实的输入版本；已发布 TaskRevision 不因外部模板或分支更新偷偷改变材料。
 
@@ -1356,7 +1356,7 @@ TaskRevision 包含 WorkspaceSpec，实际 Workspace 按该规格准备；运行
 - 当前实例、route 与 DevRun 仍引用 Issue / RequirementRevision。迁到 TaskRevision / TaskRun 时，需要替换业务绑定并保留旧来源及准入约束；这是通用任务接入工作，不是重做缓存、组装和清理机制。具体绑定字段尚未定稿。
 - 现有执行器有容器暂停 / 恢复 / 停止能力，但不代表新 TaskRun 等待策略已实现，也不保证所有依赖服务一起暂停。统一评测与开发的环境治理目标仍需后续接通。
 
-**源码阅读范围：** [配置、实例、准备与恢复](../../typescript/src/code-workspace.ts)、[开发路线与 DevRun 绑定](../../typescript/src/code-workspace-route.ts)、[路线所有权与暂停围栏](../../typescript/src/code-route-fence.ts)、[容器执行生命周期](../../typescript/src/code-route-execution.ts)、[Docker 挂载适配](../../typescript/src/code-route-docker.ts)、[受限 Git 视图](../../typescript/src/code-route-git-view.ts)、[结束与清理](../../typescript/src/code-workspace-cleanup.ts)，以及 CLI 的 code-workspace 入口。另核对 [外部工作区提供器](../../typescript/src/workspace-provider.ts)：其租约与 Git 身份验证不是上述受管实例的另一套配置定义，不因同名混并。
+**源码阅读范围：** [配置、实例、准备与恢复](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-workspace.ts)、[开发路线与 DevRun 绑定](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-workspace-route.ts)、[路线所有权与暂停围栏](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-fence.ts)、[容器执行生命周期](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-execution.ts)、[Docker 挂载适配](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-docker.ts)、[受限 Git 视图](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-git-view.ts)、[结束与清理](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-workspace-cleanup.ts)，以及 CLI 的 code-workspace 入口。另核对 [外部工作区提供器](../../typescript/src/workspace-provider.ts)：其租约与 Git 身份验证不是上述受管实例的另一套配置定义，不因同名混并。
 
 本项决定只更新设计文档与图，不改生产代码。配置、准备、路线隔离和清理的验证结果见第 5 节；真实 Docker、线上 Agent 和新 Task 模型迁移不在本次验证范围。
 
@@ -1556,7 +1556,7 @@ flowchart TB
 
 拆分收益是文件配置、缓存及保留策略的变化可以局部处理，环境实现或镜像变化不必牵动 Workspace；换环境保留 Workspace、无活动容器时准备文件也有自然边界。代价是挂载与清理需要跨模块协调，因此要明确资源归属与停止确认，不能只拆文件而把调用顺序转嫁给 CLI。D28 的统一目标仍是开发与评测共用同一套环境治理，不是把运行资源与文件空间强制合并。
 
-当前 [code-workspace.ts](../../typescript/src/code-workspace.ts) 已集中仓库配置、基线准备与恢复，[repository-environment.ts](../../typescript/src/repository-environment.ts) 管环境配置，[code-route-execution.ts](../../typescript/src/code-route-execution.ts) 已组合这些能力；这是可沿用的职责分离基础，不证明通用接口及跨模块协议已经实现。本次按用户要求将此拆分同步到 D117 的应用层总表与 Mermaid；后续用户已确认当前 D117 整体模块关系，详细接口仍待细化，生产代码未改。
+当前 [code-workspace.ts](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-workspace.ts) 已集中仓库配置、基线准备与恢复，[repository-environment.ts](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/repository-environment.ts) 管环境配置，[code-route-execution.ts](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-execution.ts) 已组合这些能力；这是可沿用的职责分离基础，不证明通用接口及跨模块协议已经实现。本次按用户要求将此拆分同步到 D117 的应用层总表与 Mermaid；后续用户已确认当前 D117 整体模块关系，详细接口仍待细化，生产代码未改。
 
 #### D120：TaskExecution 发起契约与资源配置来源——已确认，待实现
 
@@ -1692,7 +1692,7 @@ D122 的请求防重仍成立：已受理请求的同身份重试应取回原 Ta
 
 **恢复与并发。** 一次逻辑执行只由一个有效拥有者推进；重复发起、恢复或停止请求不能同时启动两个工作进程。默认 20 个 Agent 名额由通用执行能力管理，实际是否仍运行未知时不能因客户端失联释放占用。任务级默认 5 个评测名额仍由 ExperimentExecution 管理，普通执行不依赖实验调度。Agent 已完成不代表应删除任务仍需保留的 Workspace 或环境；业务用例给出保留 / 释放意图，执行侧协调安全核对，治理模块实施操作。
 
-**收敛依据与取舍。** 将已准备的裸目录、容器和 SDK 句柄全部交给调用方虽然能缩短执行接口实现，却要求 TaskExecution 与 Verification 各自理解准备顺序、归档重试和停止核对。本方案让调用方提交执行目的与固定资源依据，复杂步骤留在 AgentExecutionService；需要保留的策略信息仍显式传递，不让服务猜测文件是否可删。已有 [code-route-execution.ts](../../typescript/src/code-route-execution.ts) 的 RouteExecution / RouteEngine 已表达运行意图、资源身份和状态核对，可作为迁移参考；它当前仍绑定编码路径，不证明上述通用服务已存在。
+**收敛依据与取舍。** 将已准备的裸目录、容器和 SDK 句柄全部交给调用方虽然能缩短执行接口实现，却要求 TaskExecution 与 Verification 各自理解准备顺序、归档重试和停止核对。本方案让调用方提交执行目的与固定资源依据，复杂步骤留在 AgentExecutionService；需要保留的策略信息仍显式传递，不让服务猜测文件是否可删。已有 [code-route-execution.ts](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-execution.ts) 的 RouteExecution / RouteEngine 已表达运行意图、资源身份和状态核对，可作为迁移参考；它当前仍绑定编码路径，不证明上述通用服务已存在。
 
 **实现验收场景。** 普通任务与独立验收可复用执行能力但不共享可变会话；相同请求并发提交只得到一个逻辑执行；Provider 完成而归档失败时补归档不再调用模型；停止结果不明时保留占用且不误报取消；更换环境仍保留合法 Workspace；相同持久状态不可被两个恢复拥有者同时推进。以上是待实现验证目标，本轮仅检查设计文档一致性，没有运行真实模型或容器测试。
 
@@ -2002,6 +2002,7 @@ flowchart LR
 | Python 协调器及分发调用方 | 已删除命令包装器、旧实验 runner、Codex 采集、容器准备代理及仓库快照适配和专用测试；skill 分发与包测试同步移除入口。开发 skill 直接调用 task/work/grade，主 agent 创建全新子 agent 独立验收；eval/知识改进 skill 明确自动实验暂不可用。该批当时保留纯文件知识材料工具、旧 eval 资产/查询 CLI 与共享 env；后续退役进度见下一行。新结果 schema、真实 agent 冒烟、旧开发业务服务及表仍待后续完成 |
 | 旧 eval 业务与调用方 | 已删除旧 TypeScript 评测服务、CLI、测试评分运行器、QA 草稿/来源线索及其 TUI/skill/材料工具；删除对应 11 个公开 schema 的双份副本和专用测试。该批当时将 TUI 改为直接进入候选审阅；其后续退役见下一行。共享 env 和新 task/work/grade 保留。旧 SQL 表/事务接口及其引用的评测记录校验器另随存储批次删除，保留存储完整性测试；不是评测读写兼容层 |
 | 剩余旧 TUI 包 | 2026-11-03 用户确认先退役旧 TUI，而不是本批切换最小新版 TUI。旧界面全部绑定 Requirement / Issue / Candidate，保留它会阻塞核心退役；同时重写会扩大删除批次。移除 `tui/` 包、专用测试/PTY、CI/发布/开发镜像入口，仅保留 CLI 与 skill；新版 TUI 单独设计，当前未实现。已发布 npm 版本和历史标签不改写、不撤回。本批不删除旧 CLI／SQL，不宣称整个 P1d 完成 |
+| 旧 code-workspace / 容器开发路线 | 按依赖整链删除配置/实例、路线执行与控制器、Git/sync 路由、服务/卷回收、Repo 环境默认和配方/镜像准备服务，连同 CLI、七份公开 schema 的镜像和专用测试。宿主 DevRun/Candidate 调用方去掉路线分支，独立 env 保留。目录占用标记只用于拒绝接管，不提供兼容执行/恢复/自动清理；SQL 的既有 runtime 操作完整性检查随存储批次退役。本批不删除其余旧业务或表，不宣称 P1d 完成 |
 | 旧模型何时删除 | 被新模型替代的部分（Requirement / Issue / DevRun / Candidate / Verification / 选择 / 完成 / 交付链接 / 预检的写入与读取、Python 协调器、Codex 采集），连同它们的表一起从 schema 删除，不留只读兼容；新账本只有新模型的表 |
 | 评测、环境、容器路线 | 用户确认“只删新模型已替代的”。但依赖分析显示 eval 的编码评测、`code-workspace`、部分 `code-route` 与 `repository-*` 直接依赖 DevRun / Candidate，无法在删除这些表之后原样保留；边界按依赖划定，见 0002 第 9 节 |
 
@@ -2276,7 +2277,7 @@ TaskRun 图已按 D102 区分 succeeded / failed / cancelled 三种已确认终�
 | Workspace 配置版本、CodeWorkspaceInstance 与 CodeWorkspaceRoute | 按 D109 复用现有模型与准备、缓存、清理机制，接入通用任务 | 不复制 WorkspaceDefinition / Revision 新体系，不实施 D108；迁移 Issue / DevRun 绑定时保留版本、基线、准入与资源归属。 |
 | 评测环境与代码路线环境 | 单一环境定义、实例与 Workspace 治理 | 保留资源所有权、占用、未知状态处理、固定材料和归档；按 D114 不设计运行中旧 DevRun 的资源接管。 |
 
-对应源码依据：[domain.ts](../../typescript/src/domain.ts)、[DevRun 生命周期](../../typescript/src/devrun-lifecycle.ts)、[evaluation.ts](../../typescript/src/evaluation.ts)、[QA 定义](../../typescript/src/eval-qa.ts)、[代码路线执行](../../typescript/src/code-route-execution.ts)。本表基于源码职责审阅，不是实际数据库迁移结果。
+对应源码依据：[domain.ts](../../typescript/src/domain.ts)、[DevRun 生命周期](../../typescript/src/devrun-lifecycle.ts)、[evaluation.ts](../../typescript/src/evaluation.ts)、[QA 定义](../../typescript/src/eval-qa.ts)、[代码路线执行](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-execution.ts)。本表基于源码职责审阅，不是实际数据库迁移结果。
 
 建议分四步实施：①确定版本与身份映射、迁移校验和兼容读取；②让一个编码和一个非编码案例共用 TaskRun / Execution / 环境主线；③迁移评分、批次和旧 CLI 入口，确认同一事实源；④再移除重复生命周期路径。按 D114 不设计运行中接管或新旧任务并行收尾；必要的历史读取适配不形成两套权威运行状态。尚未确认的旧数据映射应报待处理，不依据记录名称或时间猜造受管执行历史。
 
@@ -2421,7 +2422,7 @@ flowchart TB
 
 **图的表达限制：** 当前两层图为阅读省略了 AgentExecution 对 Task / AgentSpec / 当次 Workspace 视图的准确引用，以及 EnvironmentInstance 到 EnvironmentSpec 的依据关系。Review 和实现契约中必须补回；尤其不能从“执行记录 → 环境实例 → 当前挂载”动态反查历史文件视图，因为挂载会改变。没有画出的连线不应被解释为不需要保存关联。
 
-源码佐证仅限现有基础：[DockerRouteEngine](../../typescript/src/code-route-docker.ts) 已区分可写代码目录与只读基线；[当时的问答环境脚本（已退役）](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_environment.py) 已保存 workspace manifest 并校验材料。这些可复用为输入固定和访问控制机制，不证明通用 Workspace 的写入互斥、历史视图或所有权契约已经实现。本轮仅做设计与源码审阅，未运行容器或真实 Agent。
+源码佐证仅限现有基础：[DockerRouteEngine](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-docker.ts) 已区分可写代码目录与只读基线；[当时的问答环境脚本（已退役）](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_environment.py) 已保存 workspace manifest 并校验材料。这些可复用为输入固定和访问控制机制，不证明通用 Workspace 的写入互斥、历史视图或所有权契约已经实现。本轮仅做设计与源码审阅，未运行容器或真实 Agent。
 
 建议先讨论第 1 项，让被测任务和 Judge 都能经同一通用执行契约运行，再定第 2、3 项的文件身份与隔离；资源释放依据这些身份和占用规则进一步细化。所有建议保留待确认，不直接修改当前运行代码。
 
@@ -2641,16 +2642,16 @@ Artifact 来源在新受管执行中关联 AgentExecution；历史或已有外�
 - [问答产物与证据](../../typescript/src/eval-qa.ts)、[环境契约](../../typescript/src/eval-environment.ts)。
 - [当时的批次协调器](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_run.py)、[Codex 采集器](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_capture.py)、[受管协调](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_managed.py)（均已按 D149 退役）。
 - [当时的容器调度适配（已退役）](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_runtime.py)、[当时的评分进程执行（已退役）](https://github.com/MaybeLL/Ground/blob/00a231e225c83328d9fdad0c3e939fc1ba289849/typescript/src/eval-process.ts)。
-- [Code Workspace 执行](../../typescript/src/code-route-execution.ts)、[Docker 实现](../../typescript/src/code-route-docker.ts)、[路由租约边界](../../typescript/src/env-route-lease.ts)。
+- [Code Workspace 执行](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-execution.ts)、[Docker 实现](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-docker.ts)、[路由租约边界](../../typescript/src/env-route-lease.ts)。
 
 ### D109 Workspace 复用核验（2026-11-01）
 
 使用仓库已有测试隔离工具创建临时 HOME、数据根和本地 Git 仓库，以 SQLite 执行以下四个现有测试文件，**36 / 36 通过，0 跳过**：
 
-- [配置版本与实例](../../typescript/test/code-workspace.test.ts)：保存、版本冲突、重试与完整性。
-- [缓存与基线准备](../../typescript/test/code-workspace-preparation.test.ts)：共享对象库、固定 commit、局部失败恢复、显式缓存回退、路径与保留引用检查。
-- [开发路线](../../typescript/test/code-workspace-route.test.ts)：独立 worktree、并发准备与跨进程控制、拒绝接管无归属目录。
-- [清理](../../typescript/test/code-workspace-cleanup.test.ts)：保留期与 pin、未保存文件保护、Git / SQL 回执失败恢复、活动或暂停执行阻止清理。
+- [配置版本与实例](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/test/code-workspace.test.ts)：保存、版本冲突、重试与完整性。
+- [缓存与基线准备](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/test/code-workspace-preparation.test.ts)：共享对象库、固定 commit、局部失败恢复、显式缓存回退、路径与保留引用检查。
+- [开发路线](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/test/code-workspace-route.test.ts)：独立 worktree、并发准备与跨进程控制、拒绝接管无归属目录。
+- [清理](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/test/code-workspace-cleanup.test.ts)：保留期与 pin、未保存文件保护、Git / SQL 回执失败恢复、活动或暂停执行阻止清理。
 
 Docker 挂载、Git 只读视图和暂停语义本次仅核对源码；清理测试中的执行引擎为替身，不算真实容器验证。未调用线上模型，未验证新的通用 Task 接入，也未修改生产代码。
 

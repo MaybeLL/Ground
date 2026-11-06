@@ -4,13 +4,6 @@
   "title": "Grounds CLI 命令结果 v1",
   "oneOf": [
     { "$ref": "#/$defs/developmentDefaultResult" },
-    { "$ref": "development-image.schema.json" },
-    { "$ref": "service-cleanup.schema.json" },
-    { "$ref": "repository-image.schema.json" },
-    { "$ref": "environment-control.schema.json" },
-    { "$ref": "code-workspace.schema.json" },
-    { "$ref": "code-execution.schema.json" },
-    { "$ref": "repository-environment.schema.json" },
     { "$ref": "repository-archive.schema.json" },
     { "$ref": "#/$defs/contractSessionResult" },
     {

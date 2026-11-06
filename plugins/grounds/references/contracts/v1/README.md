@@ -11,12 +11,6 @@ Requirement/Issue 的默认公开 authoring interface 是 `<数据根>/drafts/<�
 | 契约 | Schema | 方向 |
 |---|---|---|
 | 本地 JSON authoring Workspace | [`authoring-workspace.schema.json`](authoring-workspace.schema.json) | CLI 管理结构；Agent 只读写 draft |
-| 代码 Workspace 配置、实例与路线准备（本开发树，执行禁用） | [`code-workspace.schema.json`](code-workspace.schema.json) | CLI → 调用方；完整快照、固定基线、持久准备占用及可选DevRun关联；准入沿用preflight协议 |
-| 服务资源回收（本开发树） | [`service-cleanup.schema.json`](service-cleanup.schema.json) | 已结束实例的服务预览、日志归档和容器/网络回收；保留卷冷导出、独立新卷恢复及启动/目录与可选固定表行数检查历史、本机阶段及未完成尝试显式停止、保留卷清单与只读回收预览、原卷重新导出与固定旧归档比较、已完成恢复卷的新数据冷归档及来源追溯；持久受管禁写service-volume-retire及预览门禁状态；原导出restore_status固定not_verified，数据卷/镜像保留 |
-| 固定构建材料与镜像准备（本开发树） | [`repository-image.schema.json`](repository-image.schema.json) | 有界Git材料字节快照、独立离线classic构建、原ID恢复及按输入复用、协作取消、终结失败和临时输入回收；环境可关联preparation_id |
-| Repo环境不可变版本（本开发树） | [`repository-environment.schema.json`](repository-environment.schema.json) | Repo关联、固定本地镜像与可选路线私有PostgreSQL；保存不改变默认 |
-| Repo环境检查与默认（本开发树） | [`environment-control.schema.json`](environment-control.schema.json) | 固定只读探针历史、显式CAS默认选择；执行保存默认来源与环境快照 |
-| 路线容器执行（本开发树） | [`code-execution.schema.json`](code-execution.schema.json) | 固定启动输入 → CLI；执行记录、显式实时观察与前台控制器终态 → 调用方 |
 | 本地配置 YAML | [`config.schema.json`](config.schema.json) | 人/CLI → CLI |
 | Requirement 规范输入 | [`requirement.schema.json`](requirement.schema.json) | Workspace 解析器 → Work Module |
 | Issue 规范输入 | [`issue.schema.json`](issue.schema.json) | Workspace 解析器 → Work Module |
@@ -263,8 +257,4 @@ GitHub.com / GitLab 项目归档接入的闭合结果与绑定格式见 `reposit
 
 归档错误响应的 `details.operation_id` 指向需恢复的原操作；可选 `phase` 为 prepared / verified / committed / unknown / failed。它们不代表重新提交授权或允许创建新Candidate。
 
-代码Workspace增量（本开发树未发行）：`code-workspace.schema.json`增加end / cleanup-preview / cleanup及实例lifecycle。code_reclaimed仅表示代码worktree全部回收，不包括共享缓存、保活引用、运行材料与服务；详情见仓库总设计 `GROUNDS_DESIGN.md` §11.8。
-
-代码 Workspace 的 `restore` 使用显式 original 上下文：实例 restoration 保存来源实例、Candidate、源提交、归档绑定及原各仓库固定提交/树；路线 restoration 保存 Candidate/源提交，base_commit 保持原目标基线。分配、代码准备与新 DevRun 准入分别执行，不能把历史回放当作新的执行权限。
-
-环境默认增量（本开发树未发行）：environment-check只有passed退出0，其余检查状态退出1；show/default查询读取成功退出0。执行startInput须在image、environment_revision_id、environment_default=true之间三选一，后者一次解析并固定。保存及检查不隐式修改默认；详情见总设计§8.4/§12.6。
+旧 `code-workspace` 命令、路线执行/服务回收、Repo 环境默认及镜像准备已退役，相关公开 schema 已删除。独立 `env` 命令保留；新托管执行与 devcontainer 集成仍待 P4。不会自动清理旧工作目录、容器、卷或镜像；存在持久保留标记的目录仍拒绝被 `env` 接管。
