@@ -104,7 +104,7 @@ OID（Object ID）是 Git 对象标识，Grounds 使用 `sha1:` 加 40 位或 `s
 - Candidate detail 和 Candidate comparison 输出各自最大 8 MiB。detail/compare 最多内联 2,000 个 manifest entries 和 256 个 Verification summaries，同时返回总数、完整集合 digest 与显式 `*_omitted`；Candidate detail 提供 opaque next cursor 分页，Comparison 可转到专用 show/list 命令，不静默假装集合完整。
 - Review Trace v3 输出最大 8 MiB，内部遍历全部 Verification 分页并内联每份完整报告；`complete: true` 表示集合完整。超过总大小限制时命令整体失败，不返回看似完整的截断结果。位置查询对 v2 Candidate 返回匹配 Change Unit、作者 Rationale 和 coverage；行查询另以 `line_status` 区分真正 added/deleted 的行、hunk context、hunk 外位置和 file-level 无法定位。历史 v1 Candidate 仍以 `not_recorded` 明示尚无逐变更 rationale。
 - Comparison text preview 是原字符串前 2,048 Unicode code points，并同时返回完整 UTF-8 string digest 与 `truncated`；manifest 先按 raw path bytes 排序后取前 2,000，Verification summary 按数据库时间、Verification ID 排序后取前 256。Candidate patch 和显式 pairwise diff 每份最多 inline 1 MiB，状态字段区分未请求、大小省略和 binary。
-- Candidate materialization 的 `existing` 模式应用到调用者准备的有效基础 worktree（目标流程取 Candidate base，历史回退 Baseline）；`review` 创建 detached worktree，并在该 worktree 专属 Git metadata 中记录 database/Candidate/artifact identity 供 `grounds review` 自动发现；`delivery` 创建分支 worktree。后两者要求显式目标路径且目标不得已存在，失败时清理本次创建的 worktree 和 Delivery 分支，成功时保留未提交变化。CLI 不自动 commit、push 或创建 PR。
+- `candidate materialize --mode existing` 校验已有工作树的 HEAD、结果树及干净状态是否与冻结的 Candidate 一致。`--mode review` 创建 detached 工作树，记录 Candidate 身份供 `grounds review` 读取。省略 `--path` 时 CLI 分配本地审阅会话。
 
 这些跨字段限制由 Work Module 校验，不能仅依赖 Schema。
 

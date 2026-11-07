@@ -14,7 +14,8 @@ import { resolveBaseline } from "../src/git.js";
 import { deriveLocalGitArtifact } from "../src/git-artifact-local.js";
 import { receiveDevelopmentObjects, receiveDevelopmentSource, captureCommittedDevelopment } from "../src/development-branch.js";
 import { DevWorktreeModule } from "../src/dev-worktree.js";
-import { Module } from "../src/module.js";
+import { readCommit } from "../src/integration-history.js";
+import { Module, verificationSetSummary } from "../src/module.js";
 import { PreflightService } from "../src/preflight.js";
 import { reviseTargetIssue } from "./preflight-fixture.js";
 import { SQLStore } from "../src/sql-store.js";
@@ -148,6 +149,53 @@ async function fixture(t: { after(f: () => void | Promise<void>): void }, canoni
   t.after(async () => { await f.close(); rmSync(root, { recursive: true, force: true }); });
   return { root, cwd, remote, f, revised, base, config, database, databasePath, transport, rawAt, invokeAt, invoke, start, submission, submit };
 }
+
+test("landing diff reads the historical target predecessor and rejects a record without one", async t => {
+  const x = await fixture(t);
+  const run = await x.start();
+  commit(run.path, "first", "first change\n");
+  commit(run.path, "second", "second change\n");
+  const candidate = await x.submit(run, (await x.submission(run)).file);
+  const actual = readCommit(run.path, candidate.source.commit);
+  const predecessor = readCommit(run.path, x.base);
+  assert.notEqual(actual.parents[0], predecessor.oid);
+
+  for (const confirmed of [true, false]) {
+    const id = newUUIDv7();
+    await x.f.store.write(async tx => {
+      const at = await tx.now();
+      const record = {
+        id, kind: "landing", based_on: newUUIDv7(), candidate_id: candidate.candidate_id, created_at: at, attribution: testAgent,
+        landing: {
+          actual_landing: actual,
+          ...(confirmed ? { target_predecessor: { state: "confirmed", commit: predecessor, source: "adoption_binding" } } : {}),
+          target_observation: { branch: { remote: "origin", ref: "refs/heads/main" }, refreshed: false, observed_at: at },
+          decision: { identity: "trusted", shape: "single_parent", parent_matches: false, tree_matches: true, outcome: "same_content_different_history" },
+          delivery_link_eligibility: "not_exact_artifact",
+          verification: { candidate_id: candidate.candidate_id, selection: { version: 0 },
+            current_verification: await verificationSetSummary(tx, candidate.candidate_id), verification_changed: null },
+        },
+      };
+      assertContract("integration.schema.json#/$defs/record", record);
+      await tx.appendLedgerEvent({ event_id: id, event_type: "integration.landing", event_version: 1,
+        operation_id: newUUIDv7(), repository_id: x.f.repository.repository_id, subject_type: "candidate",
+        subject_id: candidate.candidate_id, occurred_at: at, attribution: testAgent,
+        facts: [{ name: "record", value: JSON.stringify(record) }, { name: "record_digest", value: sha256(record) }] });
+    });
+    const args = ["candidate", "diff", "--candidate", candidate.candidate_id, "--view", "landing", "--landing-record", id];
+    if (confirmed) {
+      const { comparison } = await x.invoke(...args);
+      assert.equal(comparison.left_commit, predecessor.oid);
+      assert.equal(comparison.right_commit, actual.oid);
+      assert.match(comparison.patch, /first change/);
+      assert.match(comparison.patch, /second change/);
+    } else {
+      const result = await x.rawAt(x.cwd, ...args);
+      assert.equal(result.envelope.error.code, "STATE_CONFLICT");
+      assert.equal(result.envelope.error.details.reason, "actual_target_predecessor_unknown");
+    }
+  }
+});
 
 test("public Git Candidate uses no SQL patch and restores exact history after author and branch loss", async t => {
   const x = await fixture(t), run = await x.start();

@@ -146,6 +146,28 @@ for (const backend of ["sqlite", "mysql", "postgres"] as const) {
     assert.deepEqual(await f.module.listIssues("", { sort: "activity" }), list);
   });
 
+  backendTest("historical completion is visible on the exact Issue version and its Requirement", async f => {
+    await f.store.write(async tx => {
+      const at = await tx.now();
+      await tx.appendCompletion(f.issue.issue_revision_id, {
+        version: 1, state: "completed", recorded_at: at, attribution: testAgent, evidence_status: "asserted_not_checked",
+        completion: { format: "grounds.issue-completion-input/v1", origin: "historical",
+          repository_id: f.repository.repository_id, target_branch: "refs/heads/main",
+          landed_commit: `sha1:${"a".repeat(40)}`, adoption_evidence: { reference: "fixture", description: "Recorded merge" },
+          release: { status: "not_applicable", reason: "Documentation" }, completed_at: at },
+      }, 0);
+    });
+    const detail = await f.module.showIssueVersion(f.issue.issue_id, 1);
+    assertContract("query-results.schema.json", detail);
+    assert.equal(detail.board.status, "completed");
+    assert.equal(detail.board.next_action, null);
+    assert.equal(detail.board.completion.record?.evidence_status, "asserted_not_checked");
+    const requirement = await f.module.showRequirement(f.requirement.requirement_id);
+    assertContract("query-results.schema.json", requirement);
+    assert.equal(requirement.aggregates.completed_issue_count, 1);
+    assert.equal(requirement.aggregates.completion_status, "completed");
+  });
+
   backendTest("issue list follows Selection changes without touching Candidate facts", async f => {
     const s = await seed(f);
     const status = async () => (await f.module.listIssues("", { repository_id: s.r1.repository_id })).resources.find(item => item.resource_id === s.selected.issue_id)!;
