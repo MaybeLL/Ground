@@ -6,7 +6,6 @@ import { candidateHistoryProjection, type CandidateHistoryProjection } from "./c
 import { GIT_CANDIDATE_ARTIFACT_FORMAT, validateGitArtifactCandidateBinding, type GitCommitArtifact } from "./git-artifact-storage.js";
 import { validateDevelopment, validateSourceIdentity } from "./development-branch.js";
 import { startDevRunInTransaction, abandonDevRunInTransaction, validateContextSize as contextSize } from './devrun-lifecycle.js';
-import { validateDeliveryProof, validateDeliveryLink } from "./delivery-link.js";
 import type { SelectionView } from "./selection.js";
 import { createHash } from "node:crypto";
 import { canonicalBytes, sha256, sha256Bytes } from "./canonical-json.js";
@@ -441,109 +440,9 @@ export class Module {
     catch { context.snapshot_relation = { kind: "unknown" }; }
   }
 
-  async historyCandidate(candidateId: string) {
+  async candidateRecord(candidateId: string) {
     ensureID("candidate_id", candidateId);
-    return this.store.read(async tx => {
-      const record = await tx.getCandidate(candidateId);
-      const issue = await tx.getIssueRevisionById(record.candidate.issue_revision_id);
-      return { record, issue, repository_id: (await tx.getIssue(issue.issue_id)).repository_id, requirement_version: (await tx.getRequirementRevision(issue.requirement_id, issue.requirement_revision_id)).revision_number };
-    });
-  }
-
-  async deliveryLinks(repositoryId: string) {
-    ensureID("repository_id", repositoryId);
-    return this.store.read(tx => tx.listDeliveryLinks(repositoryId, 1001));
-  }
-
-  async historySnapshot(repositoryId: string, path: string) {
-    ensureID("repository_id", repositoryId);
-    return this.store.read(async tx => ({ candidate_ids: await tx.historyCandidateIds(repositoryId, path, 1001), links: await tx.listDeliveryLinks(repositoryId, 1001) }));
-  }
-
-  async showDeliveryLink(id: string, version?: number): Promise<import("./delivery-link.js").DeliveryLinkResult> {
-    ensureID("link_id", id);
-    if (version !== undefined) this.validateSelectionVersion("version", version);
-    return this.store.read(async tx => ({ result_type: "patchledger.result.delivery-link/v1", command: "delivery-link.show", link: await tx.getDeliveryLink(id, version) }));
-  }
-
-  async withdrawDeliveryLink(input: { link_id: string; operation_id: string; expected_version: number; reason: string; attribution: Attribution }): Promise<import("./delivery-link.js").DeliveryLinkResult> {
-    ensureID("link_id", input.link_id); validateAttribution(input.attribution);
-    this.validateSelectionVersion("expected_version", input.expected_version, 0);
-    validateOptionalLongText("reason", input.reason);
-    if (!input.reason.trim() || input.reason.length > 4096) throw validation("reason", "requires 1 to 4096 characters");
-    const op = opID(input.operation_id), name = "delivery-link.withdraw";
-    const hash = operationHash(name, input, input.attribution, {}, { expected_version: input.expected_version });
-    return this.store.write(async tx => {
-      const replay = await tx.reserveOperation({ id: op, command: name, request_hash: hash });
-      if (replay) return decodeReplay<import("./delivery-link.js").DeliveryLinkResult>(replay).data;
-      const observed = await tx.getDeliveryLink(input.link_id);
-      await tx.lockCandidateVerifications(observed.candidate_id);
-      const before = await tx.getDeliveryLink(input.link_id);
-      if (before.version !== input.expected_version) throw versionConflict("delivery_link", before.id, input.expected_version, before.version);
-      if (before.state === "withdrawn") throw stateConflict("delivery_link", before.id, "already withdrawn");
-      const link: import("./delivery-link.js").DeliveryLink = { ...before, state: "withdrawn", version: before.version + 1, reason: input.reason, updated_at: await tx.now(), attribution: input.attribution };
-      await tx.saveDeliveryLink(link, input.expected_version);
-      await tx.appendLedgerEvent(event(this.newId(), name, op, "delivery_link", link.id, link.repository_id, link.version, link.updated_at, input.attribution, { reason: input.reason }));
-      const result: import("./delivery-link.js").DeliveryLinkResult = { result_type: "patchledger.result.delivery-link/v1", command: name, link };
-      await tx.completeOperation(op, JSON.stringify(envelopeData(result, op)));
-      return result;
-    });
-  }
-
-  async completedDeliveryLinkOperation(input: { operation_id: string; repository_id: string; candidate_id?: string; commit_oid: string; expected_version: number; attribution: Attribution }): Promise<import("./delivery-link.js").DeliveryLinkResult | undefined> {
-    ensureID("operation_id", input.operation_id); ensureID("repository_id", input.repository_id);
-    if (input.candidate_id !== undefined) ensureID("candidate_id", input.candidate_id);
-    validateAttribution(input.attribution);
-    this.validateSelectionVersion("expected_version", input.expected_version, 0);
-    const name = "delivery-link.record";
-    return this.store.read(async tx => {
-      const replay = await tx.getOperation(input.operation_id);
-      if (!replay) return undefined;
-      if (replay.command !== name) throw idempotencyConflict(replay.command, replay.request_hash, replay.request_hash);
-      const result = decodeReplay<import("./delivery-link.js").DeliveryLinkResult>(replay).data;
-      try {
-        validateDeliveryLink(result.link);
-        if (result.result_type !== "patchledger.result.delivery-link/v1" || result.link.state !== "recorded") throw new Error("invalid recording result");
-      } catch { throw new DomainError("ARTIFACT_INTEGRITY_ERROR", "Stored delivery result is invalid"); }
-      // Reconstruct the original request from its immutable proof, replacing
-      // only caller-supplied fields. No live receipt, artifact or Git lookup.
-      const { id, version, state, updated_at, attribution, reason, ...frozenProof } = result.link;
-      const request = { expected_version: input.expected_version, attribution: input.attribution, proof: { ...frozenProof, candidate_id: input.candidate_id ?? frozenProof.candidate_id, repository_id: input.repository_id, commit_oid: input.commit_oid } };
-      const hash = operationHash(name, request, input.attribution, {}, { expected_version: input.expected_version });
-      if (hash !== replay.request_hash) throw idempotencyConflict(name, hash, replay.request_hash);
-      return result;
-    });
-  }
-
-  async recordDeliveryLink(input: { operation_id: string; expected_version: number; attribution: Attribution; proof: import("./delivery-link.js").DeliveryProof }): Promise<import("./delivery-link.js").DeliveryLinkResult> {
-    validateDeliveryProof(input.proof);
-    ensureID("candidate_id", input.proof.candidate_id); ensureID("repository_id", input.proof.repository_id);
-    validateAttribution(input.attribution);
-    this.validateSelectionVersion("expected_version", input.expected_version, 0);
-    if (!input.proof.units.length) throw validation("proof", "requires matched changes");
-    const op = opID(input.operation_id); const name = "delivery-link.record";
-    const hash = operationHash(name, input, input.attribution, {}, { expected_version: input.expected_version });
-    return this.store.write(async tx => {
-      const replay = await tx.reserveOperation({ id: op, command: name, request_hash: hash });
-      if (replay) return decodeReplay<import("./delivery-link.js").DeliveryLinkResult>(replay).data;
-      await tx.lockCandidateVerifications(input.proof.candidate_id);
-      const candidate = await tx.getCandidate(input.proof.candidate_id);
-      const units = indexCandidateChanges(candidate.artifact).change_units;
-      for (const mapped of input.proof.units) {
-        const unit = units.find(u => u.change_unit_id === mapped.change_unit_id);
-        if (!unit || unit.kind !== "hunk" || !unit.new_range || Buffer.from(unit.path_bytes, "base64").toString("utf8") !== mapped.path || unit.new_range.start !== mapped.candidate_start || unit.new_range.lines !== mapped.lines) throw validation("proof.units", "must reference complete Candidate Change Units");
-      }
-      const issue = await tx.getIssueRevisionById(candidate.candidate.issue_revision_id);
-      if ((await tx.getIssue(issue.issue_id)).repository_id !== input.proof.repository_id || candidate.candidate.patch_digest !== input.proof.patch_digest) throw validation("proof", "Candidate binding mismatch");
-      const before = await tx.findDeliveryLink(input.proof.candidate_id, input.proof.commit_oid);
-      if ((before?.version ?? 0) !== input.expected_version) throw versionConflict("delivery_link", before?.id ?? input.proof.candidate_id, input.expected_version, before?.version ?? 0);
-      const link: import("./delivery-link.js").DeliveryLink = { ...input.proof, id: before?.id ?? this.newId(), version: input.expected_version + 1, state: "recorded", updated_at: await tx.now(), attribution: input.attribution };
-      await tx.saveDeliveryLink(link, input.expected_version);
-      await tx.appendLedgerEvent(event(this.newId(), name, op, "delivery_link", link.id, link.repository_id, link.version, link.updated_at, input.attribution, { candidate_id: link.candidate_id, commit_oid: link.commit_oid }));
-      const result: import("./delivery-link.js").DeliveryLinkResult = { result_type: "patchledger.result.delivery-link/v1", command: name, link };
-      await tx.completeOperation(op, JSON.stringify(envelopeData(result, op)));
-      return result;
-    });
+    return this.store.read(tx => tx.getCandidate(candidateId));
   }
 
   async createRequirement(input: CreateRequirementCommand): Promise<{ result: RequirementWriteResult; warnings: Warning[] }> {
@@ -1011,7 +910,7 @@ export class Module {
       const replay = await tx.getOperation(operationId);
       if (!replay) return undefined;
       // This is a read-only lookup, so it has no request hash of its own. Like
-      // replayCandidateSubmit and completedDeliveryLinkOperation, it reports the
+      // replayCandidateSubmit, it reports the
       // stored hash on both sides rather than an empty string, which the error
       // contract rejects: request_hash and existing_request_hash are sha256.
       if (replay.command !== "devrun.cleanup") throw idempotencyConflict(replay.command, replay.request_hash, replay.request_hash);

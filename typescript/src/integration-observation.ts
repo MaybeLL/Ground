@@ -1,6 +1,6 @@
 import type { TargetBranch } from "./domain.js";
 import type { CommitIdentity, TargetRelation } from "./integration-gate.js";
-import { assertHistoryRepository, historyGit, rawOID } from "./git-history.js";
+import { assertHistoryRepository, historyGit, rawOID } from "./git-history-read.js";
 import { runGitWithEnv } from "./git-command.js";
 import { readCommit } from "./integration-history.js";
 import { validateTargetBranch } from "./target-branch.js";

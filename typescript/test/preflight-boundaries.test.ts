@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -307,6 +307,18 @@ test("the read model reports a stale target until the observed commit matches th
 });
 
 // --- Real preparation scene boundaries --------------------------------------
+
+test("start observation rejects a worktree clean filter before Git executes it", async t => {
+  const x = await fixture(t);
+  const marker = join(x.worktree, "filter-executed");
+  x.git(x.worktree, "config", "filter.preflight-test.clean", "touch filter-executed && cat");
+  writeFileSync(join(x.worktree, ".gitattributes"), "filtered.txt filter=preflight-test\n");
+  writeFileSync(join(x.worktree, "filtered.txt"), "untracked input\n");
+  const response = await x.invoke(["preflight", "observe", "--phase", "start", "--dev-run", x.devRunId, "--refresh"]);
+  assert.equal(response.envelope.error.code, "WORKTREE_MISMATCH");
+  assert.match(response.envelope.error.details.reason, /clean filters/);
+  assert.equal(existsSync(marker), false);
+});
 
 test("observe refuses to evaluate the run inputs while an unfinished Git operation is present", async (t) => {
   const x = await fixture(t);

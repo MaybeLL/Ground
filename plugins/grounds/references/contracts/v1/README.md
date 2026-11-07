@@ -168,12 +168,6 @@ Issue 和 Candidate 查询可展示旧账本中的选择与完成记录。日常
 `command-results.schema.json` 中 `candidateMaterializeResult.review_session_id`、`verificationContextResult.output_path`、两个 handoff 结果的 `output_path` 与 `devRunWorktreeCleanupResult.deletion_summary` 均为可选字段：只在 review 会话、落盘输出或实际删除受管工作树时出现。
 
 
-## 当前代码历史查询
-
-[code-history.schema.json](code-history.schema.json) 定义 `trace` 与 `delivery-link record/show/withdraw` 的结果。来源身份和内容吻合分开返回，包含当前/历史行范围、精确契约版本、可继续读取的 `review_argv`、未解释范围及预算缺口。登记交付关联需要显式提供 `--candidate`。交付关联需要 schema 14；只读查询不会自动迁移数据库。
-
-`trace.source.index.staged_paths` 与 `unmerged_paths` 描述本次命中文件的暂存/冲突状态；未解决冲突通过 `unresolved_index_conflict` 明确阻止该文件的来源追溯。
-
 <a id="local-environment"></a>
 
 ## 本机环境（grounds env）

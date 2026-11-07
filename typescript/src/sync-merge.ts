@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from
 import { basename, dirname, join, resolve } from "node:path";
 import { TextDecoder } from "node:util";
 import { captureFrozen, freezeCheckout } from "./frozen-checkout.js";
-import { assertHistoryRepository, historyGit } from "./git-history.js";
+import { assertHistoryRepository, historyGit } from "./git-history-read.js";
 import { isGitOID } from "./identity.js";
 import { validation } from "./errors.js";
 import { atomicPrivateWrite, digestBytes } from "./runtime-files.js";

@@ -13,8 +13,6 @@ import { isRouteLeased } from "./env-route-lease.js";
 import { safeRead } from './runtime-files.js';
 import { runtimeError } from "./runtime-record.js";
 import type { RuntimeRecord } from "./runtime-record.js";
-import { traceSource } from "./code-history-trace.js";
-import { deliveryProof, withHistoryRead } from "./git-history.js";
 import { prepareReviewMarkdown, PreparedReviewMarkdown } from "./review-export.js";
 import { execFileSync } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, readSync } from "node:fs";
@@ -93,7 +91,7 @@ export const parseArgs = (argv: string[]): ParsedArgs => {
 // intentionally reuse a small set of attribution, storage and Git flags.
 const knownOptionKeys = new Set(["development-mode", "early", "pinned", "retention-days", "plan-digest", "allow-cached", "configuration", "data-root", "instance", "issue-slug", "view", "observation-time", "landing-record", "archive-policy","legacy-fixed","policy", "expected-head", "choice", "preview","plan", "parallel-route", "definition-commit", "target-remote", "target-branch",
   "workspace", "output", "format", "sync", "target-commit", "observation",
-  "external-directory", "input-digest", "directory", "snippet-file", "start-line", "end-line", "commit", "status", "state", "sort", "has-open-devrun", "standing", "selected", "verdict",
+  "external-directory", "input-digest", "directory", "status", "state", "sort", "has-open-devrun", "standing", "selected", "verdict",
   "issue-version", "summary", "paged", "cursor", "after", "agent-id", "agent-name", "allow-submitted", "at", "baseline", "base-commit", "baseline-policy", "branch", "brief", "brief-file", "canonical-remote", "candidate", "ca-file", "confirm-initialize", "config", "content-language", "language-override-reason", "context", "cwd", "database", "dev-run", "discard-changes", "driver", "dry-run", "event", "refresh", "expected-version", "exploration-brief", "file", "handoff", "help", "host", "include-diff", "include-patch", "include-verification", "issue", "issues-cursor", "json", "limit", "link", "manifest-cursor", "markdown", "mode", "name", "non-interactive", "operation-id", "pairwise", "password-source", "path", "phase", "port", "preflight", "reason", "reconfigure", "refines-candidate", "remote", "remote-url", "repository", "requirement", "side", "skills-path", "subject-id", "subject-type", "tls", "tls-mode", "username", "verifications-cursor", "version", "role", "quality-handoff", "independent-digest", "out", "review-session",
   "run", "stage", "entry", "started-at", "ended-at", "exit-code", "identity", "asset", "lease", "hit", "copy-path", "report-digest",
 ]);
@@ -108,10 +106,6 @@ const validateOptionKeys = (args: ParsedArgs): void => {
 // surface explicit so every option is consumed by exactly one handler.
 const commandOptionKeys: Record<string, Set<string>> = {
   ...Object.fromEntries(Object.entries(repositoryArchiveCommands).map(([action, spec]) => [`repository:${action}`, new Set<string>(spec.options)])),
-  "delivery-link:withdraw": new Set(["config", "expected-version", "reason", "operation-id", "agent-id", "agent-name"]),
-  "delivery-link:show": new Set(["config", "version"]),
-  "delivery-link:record": new Set(["config", "candidate", "commit", "expected-version", "repository", "remote", "operation-id", "agent-id", "agent-name"]),
-  "trace:": new Set(["config", "snippet-file", "at", "path", "start-line", "end-line", "repository", "remote", "limit"]),
   "init:": new Set(["config", "driver", "path", "reconfigure", "baseline-policy", "non-interactive", "confirm-initialize", "host", "port", "database", "username", "tls", "tls-mode", "ca-file", "password-source"]),
   "doctor:": new Set(["skills-path"]),
   "review:": new Set(["config", "candidate", "at", "side", "include-diff", "markdown", "summary"]),
@@ -188,10 +182,6 @@ const optionDocs: Record<string, string> = {
   "parallel-route": "Use a separate planned managed route instead of continuing the parent route",
   "issue-slug": "Readable English issue name for grounds/<issue-slug>/<route-key>; route key is generated from the plan identity",
   "definition-commit": "Fixed full commit used to analyze the contract; does not silently follow a target ref",
-  "snippet-file": "UTF-8 file containing pasted code (maximum 64 KiB)",
-  "start-line": "First source line (one-based, default 1)",
-  "end-line": "Last source line, inclusive (default start-line)",
-  "commit": "Full 40- or 64-character commit OID; exactly one parent required",
   "agent-id": "Attribution for an Agent caller (with --agent-name)",
   "agent-name": "Display name for an Agent caller (with --agent-id)",
   "allow-submitted": "Unused placeholder kept for option-allowlist parity",
@@ -234,14 +224,14 @@ const optionDocs: Record<string, string> = {
   "include-diff": "Include the Candidate's unified diff when it is bounded text",
   "include-verification": "Include a Verification ID in a refinement context",
   "issue": "Issue ID",
-  "at": "Review: PATH[:LINE]; trace: PATH:START[-END]",
+  "at": "Review: PATH[:LINE]",
   "issues-cursor": "Opaque page cursor for issue listing",
   "json": "Emit a machine-readable patchledger.cli/v1 envelope",
   "summary": "Review facts without report bodies; candidate compare: ledger-only summary without local Git",
   "paged": "Read a Candidate-bound Verification directory page",
   "cursor": "Continue a fixed Verification directory (--paged), or a cursor-paged resource list: pass the previous page's next_cursor with the same filters",
   "markdown": "Render a portable read-only review summary for a Markdown file or PR body",
-  "limit": "Maximum results; trace checks up to 200 Candidates (default 200). On list commands it selects paged mode: 1-1000 items per page (default 100 when only --cursor is given). Order: Issue by ID ascending (or latest activity first with --sort activity); DevRun/Requirement/Repository by ID ascending; Candidate/Verification by created_at then ID ascending",
+  "limit": "Maximum results. On list commands it selects paged mode: 1-1000 items per page (default 100 when only --cursor is given). Order: Issue by ID ascending (or latest activity first with --sort activity); DevRun/Requirement/Repository by ID ascending; Candidate/Verification by created_at then ID ascending",
   "link": "Create links to the canonical ~/.agents/skills install instead of copying a second managed copy",
   "manifest-cursor": "Opaque page cursor for a Candidate file manifest",
   "mode": "candidate materialize: existing or review; verification submit: normal (default) or ultra",
@@ -291,10 +281,6 @@ const optionDocs: Record<string, string> = {
 // commandOptionKeys so the two can never drift.
 const commandDocs: Record<string, string> = {
   ...Object.fromEntries(Object.entries(repositoryArchiveCommands).map(([action, spec]) => [`repository:${action}`, spec.description])),
-  "trace:": "Locate current code and trace verified Git changes to historical Candidate contracts",
-  "delivery-link:record": "Record a verified Candidate/commit association; requires --candidate, a full commit OID and expected version",
-  "delivery-link:withdraw": "Withdraw LINK_ID at an expected version, retaining immutable history",
-  "delivery-link:show": "Read LINK_ID, optionally at a historical --version",
   "init:": "Initialize a Grounds ledger and write its config file",
   "doctor:": "Check PATH CLI, registry release, and managed skill versions",
   "review:": "Explain a Candidate from code location back to its historical contract, claims, and verification",
@@ -369,7 +355,6 @@ const commandDocs: Record<string, string> = {
 // A group help page is a navigation step, not an empty command: it must tell a
 // caller which actions exist before it can sensibly request action-level help.
 const actionSets: Record<string, string[]> = {
-  "delivery-link": ["record", "withdraw", "show"],
   install: ["skill"], db: ["status", "test", "migrate"],
   repository: [...Object.keys(repositoryArchiveCommands), "register", "resolve", "list", "show", "move", "alias-add", "alias-retire"],
   requirement: ["list", "show"], issue: ["list", "show"],
@@ -387,9 +372,6 @@ const repeatableOptionKeys: Record<string, Set<string>> = {
 
 const positionalBounds: Record<string, [number, number]> = {
   ...Object.fromEntries(Object.keys(repositoryArchiveCommands).map(action => [`repository:${action}`, [2, 2] as [number, number]])),
-  "delivery-link:withdraw": [3, 3], "delivery-link:show": [3, 3],
-  "delivery-link:record": [2, 2],
-  "trace:": [1, 1],
   "init:": [1, 1],
   "doctor:": [1, 1],
   "review:": [1, 2],
@@ -460,7 +442,7 @@ const validateHelpArguments = (args: ParsedArgs): void => {
   if (args.positionals[0] === "help") {
     if (args.positionals.length > 2) throw validation("command", "help expects at most one topic");
     const topic = args.positionals[1];
-    if (topic && !Object.hasOwn(actionSets, topic) && !["init", "doctor", "review", "trace", "config", "task", "work", "grade", "env"].includes(topic))
+    if (topic && !Object.hasOwn(actionSets, topic) && !["init", "doctor", "review", "config", "task", "work", "grade", "env"].includes(topic))
       throw validation("command", `command is not implemented: ${topic}`);
   }
 };
@@ -904,13 +886,13 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
       const helpAction = args.positionals[1] ?? "";
       const specialActions: Record<string, string[]> = { config: ["show", "path", "validate", "set-development-mode"] };
       const actions = actionSets[helpGroup] ?? specialActions[helpGroup];
-      const actionless = helpGroup === "init" || helpGroup === "doctor" || helpGroup === "review" || helpGroup === "trace";
+      const actionless = helpGroup === "init" || helpGroup === "doctor" || helpGroup === "review";
       if ((!actions && !actionless) || (helpAction && !(actions ?? []).includes(helpAction)) || (actionless && helpAction)) {
         throw validation("command", `command is not implemented: ${helpGroup}${helpAction ? ` ${helpAction}` : ""}`);
       }
       return { result_type: "patchledger.result.help/v1", command: "help", usage: formatCommandHelp(commandHelp(helpGroup, helpAction)) };
     }
-    return { result_type: "patchledger.result.help/v1", command: "help", usage: "grounds doctor | task | work | grade | install skill [path] | init | review [candidate-id] | trace | delivery-link | requirement | repository | issue | devrun | preflight | candidate | verification | ledger | env | db | config" };
+    return { result_type: "patchledger.result.help/v1", command: "help", usage: "grounds doctor | task | work | grade | install skill [path] | init | review [candidate-id] | requirement | repository | issue | devrun | preflight | candidate | verification | ledger | env | db | config" };
   }
   if (!group) throw validation("command", "expected install, init, review, config, db, repository, requirement, issue, devrun, candidate, verification, or ledger");
   if (group === "doctor") {
@@ -940,7 +922,7 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
     const target = requestedPath === undefined ? defaultSkillsDirectory() : resolve(cwd, requestedPath);
     return installGroundsSkills(target, bundledPluginRoot(), bool(args, "link"));
   }
-  const isReview = group === "review" || group === "trace";
+  const isReview = group === "review";
   if (!isReview && !(group in actionSets)) throw validation("command", `command is not implemented: ${group}`);
   if (!isReview && (!action || !actionSets[group].includes(action))) throw validation(group, `expected ${actionSets[group].join(", ")}`);
   validateCommandArguments(args, group, isReview ? "" : action);
@@ -1003,33 +985,6 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
   try {
     return await (async () => {
     if (group === "repository" && Object.hasOwn(repositoryArchiveCommands, action)) return executeRepositoryArchive({ action: action as keyof typeof repositoryArchiveCommands, args, store: opened.store, attribution: actor, operationID: () => operationID(args, io) });
-    if (group === "delivery-link" && action === "show") return module.showDeliveryLink(args.positionals[2], hasOption(args, "version") ? integerValue(args, "version", 1) : undefined);
-    if (group === "delivery-link" && action === "withdraw") return module.withdrawDeliveryLink({ link_id: args.positionals[2], operation_id: operationID(args, io), expected_version: integerValue(args, "expected-version", 0), reason: required(args, "reason"), attribution: actor() });
-    if (group === "delivery-link" && action === "record") {
-      const operation = operationID(args, io), expected = integerValue(args, "expected-version", 0);
-      const caller = actor(), commit = required(args, "commit");
-      const repository = await resolveCurrentRepository(module, args, cwd);
-      const candidate = required(args, "candidate");
-      const replay = await module.completedDeliveryLinkOperation({ operation_id: operation, expected_version: expected, attribution: caller, repository_id: repository.id, candidate_id: candidate, commit_oid: commit });
-      if (replay) return replay;
-      const proof = await withHistoryRead(async () => deliveryProof(module, cwd, repository.id, candidate, commit));
-      return module.recordDeliveryLink({ operation_id: operation, expected_version: expected, attribution: caller, proof });
-    }
-    if (group === "trace") {
-      const repository = await resolveCurrentRepository(module, args, cwd);
-      if (hasOption(args, "at") && ["path", "start-line", "end-line", "snippet-file"].some(key => hasOption(args, key))) throw validation("source", "--at cannot be combined with other source selectors");
-      if (hasOption(args, "snippet-file") && ["path", "start-line", "end-line"].some(key => hasOption(args, key))) throw validation("source", "--snippet-file cannot be combined with a path or range");
-      const at = value(args, "at");
-      const match = at ? /^(.*):(\d+)(?:-(\d+))?$/.exec(at) : undefined;
-      if (at && !match) throw validation("at", "expected path:start-end");
-      return traceSource(discoverRepository(cwd).root, repository.id, {
-        snippet_file: value(args, "snippet-file") || undefined,
-        candidate_limit: hasOption(args, "limit") ? integerValue(args, "limit", 1) : 200,
-        path: match?.[1] ?? (value(args, "path") || undefined),
-        start_line: match ? Number(match[2]) : args.values["start-line"] === undefined ? undefined : integerValue(args, "start-line", 1),
-        end_line: match ? Number(match[3] ?? match[2]) : args.values["end-line"] === undefined ? undefined : integerValue(args, "end-line", 1),
-      }, module, opened.config.database.expected_database_id);
-    }
     if (group === "review") {
       const positionalCandidate = args.positionals[1];
       if (positionalCandidate !== undefined && hasOption(args, "candidate")) throw validation("candidate", "use either positional candidate or --candidate, not both");
@@ -1232,14 +1187,14 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
       if (!hasOption(args, "plan") && recovery?.development) plan = readDevelopmentPlan(devWorktrees.repositoryRoot, recovery.development.workspace_id, opened.config.database.expected_database_id);
       if (hasOption(args, "plan")) plan = readDevelopmentPlan(devWorktrees.repositoryRoot, required(args, "plan"), opened.config.database.expected_database_id);
       if (refinementMaterialization && !bool(args, "parallel-route")) {
-        const parent = await module.historyCandidate(refinementMaterialization.candidate_id);
-        const local = devWorktrees.inspect(parent.record.candidate.dev_run_id);
-        const parentRun = await module.showDevRun(parent.record.candidate.dev_run_id);
+        const parent = await module.candidateRecord(refinementMaterialization.candidate_id);
+        const local = devWorktrees.inspect(parent.candidate.dev_run_id);
+        const parentRun = await module.showDevRun(parent.candidate.dev_run_id);
         const parentDevelopment = local.status === "available" ? local.development : local.status === "removed" ? parentRun.development : undefined;
         if (parentDevelopment) {
           const inherited = readDevelopmentPlan(devWorktrees.repositoryRoot, parentDevelopment.workspace_id, opened.config.database.expected_database_id);
           if (plan && plan.workspace_id !== inherited.workspace_id) throw validation("plan", "serial refinement must reuse its original plan; use --parallel-route for another route");
-          plan = inherited; continueFrom = parent.record.candidate.dev_run_id;
+          plan = inherited; continueFrom = parent.candidate.dev_run_id;
         }
       }
       if (plan && (!targetBranch || plan.repository_id !== repository.id || JSON.stringify(plan.target) !== JSON.stringify(targetBranch) || plan.definition_commit !== detail.baseline.git_oid)) throw validation("plan", "confirmed plan Repository, target or definition commit differs from the sealed contract; show the difference and confirm a new plan");
@@ -1662,8 +1617,6 @@ export const exitCode = (error: DomainError): number => ({ VALIDATION_ERROR: 2, 
 
 const writeCommands = new Set([
   "repository:archive-bind",
-  "delivery-link:withdraw",
-  "delivery-link:record",
   "repository:register",
   "repository:move",
   "repository:alias-add",

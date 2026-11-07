@@ -170,7 +170,7 @@ test("help rejects non-boolean help values", async () => {
 });
 
 test("retired authoring and delivery commands are unavailable, including through help", async () => {
-  for (const command of [["selection", "set"], ["selection", "materialize"], ["completion", "record"], ["integration", "observe"], ["workspace", "edit"], ["draft", "migrate"], ["draft", "new"], ["workspace", "publish"], ["contract", "render"], ["quickstart", "create"], ["requirement", "create"], ["requirement", "revise"], ["issue", "create"], ["issue", "revise"]]) {
+  for (const command of [["trace"], ["delivery-link", "record"], ["delivery-link", "show"], ["delivery-link", "withdraw"], ["selection", "set"], ["selection", "materialize"], ["completion", "record"], ["integration", "observe"], ["workspace", "edit"], ["draft", "migrate"], ["draft", "new"], ["workspace", "publish"], ["contract", "render"], ["quickstart", "create"], ["requirement", "create"], ["requirement", "revise"], ["issue", "create"], ["issue", "revise"]]) {
     for (const suffix of [[], ["--help"]]) {
       const output: string[] = [];
       assert.equal(await runCLI([...command, ...suffix, "--json"], { stdout: (line) => output.push(line), stderr: () => undefined }), 2);
