@@ -147,20 +147,6 @@ export function atomicPrivateWrite(path: string, data: Buffer | string): void {
     closeSync(dir);
   }
 }
-/** Long-lived readers (such as draft editors) hold this until their service closes. */
-export async function acquireRuntimeLease(root: string, key: string, mode: "exclusive" | "shared"): Promise<() => void> {
-  const { flock } = await import("fs-ext");
-  const path = join(privateDirectory(join(root, "locks")), createHash("sha256").update(key).digest("hex") + ".lock");
-  const fd = openSync(path, constants.O_CREAT | constants.O_RDWR | constants.O_NOFOLLOW, 0o600);
-  try {
-    await new Promise<void>((yes, no) => flock(fd, mode === "shared" ? "shnb" : "exnb", error => error ? no(error) : yes()));
-  } catch {
-    closeSync(fd);
-    throw runtimeError("busy: another local controller holds the operation lock", undefined, "busy");
-  }
-  let released = false;
-  return () => { if (!released) { released = true; closeSync(fd); } };
-}
 
 /** Nonblocking synchronous counterpart using the exact same lock file as
  * withRuntimeLock. Keep the protected section short and never await inside it. */

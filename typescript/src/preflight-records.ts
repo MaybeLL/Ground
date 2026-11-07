@@ -81,7 +81,7 @@ export async function enforcePublishGate(tx: Tx, input: PublishGateInput, expect
       && data.binds.content_digest === input.content_digest
       && (input.reviewed_version === undefined || data.binds.scope_digest === input.reviewed_version);
   });
-  if (!row) preflightConflict("publication requires a refreshed observation and assessment of this exact reviewed scope and content; run preflight observe --phase publish --workspace <name> --expected-version <version> --refresh");
+  if (!row) preflightConflict("publication requires a refreshed observation and assessment of this exact reviewed scope and content");
   const matched = await matchRecord(tx, row, expected?.assessment_id);
   if (expected && matched.target_commit !== expected.target_commit) preflightConflict("publication target differs from the final refreshed check");
   return matched;

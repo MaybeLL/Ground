@@ -79,7 +79,7 @@ test("a real CLI read waits for another process's SQLite writer", async () => {
   }
 });
 
-test("concurrent real CLI reads and Workspace publications never return INTERNAL", async () => {
+test("concurrent real CLI reads and Repository registrations never return INTERNAL", async () => {
   const directory = mkdtempSync(join(tmpdir(), "grounds-sqlite-cli-race-"));
   const repository = join(directory, "repo");
   const database = join(directory, "ledger.db");
@@ -95,22 +95,13 @@ test("concurrent real CLI reads and Workspace publications never return INTERNAL
     execFileSync("git", ["remote", "add", "origin", "ssh://git@example.test/team/concurrent-cli"], { cwd: repository });
     const initialized = await runProcess(["--import", tsxLoader, source, "init", "--driver", "sqlite", "--path", database, "--config", config, "--non-interactive", "--json"]);
     assert.equal(initialized.code, 0, initialized.stderr || initialized.stdout);
-    const versions = new Map<string,string>();
-    for (const name of ["left", "right"]) {
-      const created = await runProcess(["--import", tsxLoader, source, "workspace", "new", name, "--config", config, "--json"], repository);
-      assert.equal(created.code, 0, created.stderr || created.stdout);
-      const read = await runProcess(["--import", tsxLoader, source, "workspace", "read", name, "--config", config, "--json"], repository);
-      assert.equal(read.code, 0, read.stderr || read.stdout);
-      versions.set(name,JSON.parse(read.stdout).data.version);
-    }
-    const publish = (name: string): Promise<{ code: number | null; stdout: string; stderr: string }> => runProcess(["--import", tsxLoader, source, "workspace", "publish", name, "--expected-version", versions.get(name)!, "--config", config, "--agent-id", "race-agent", "--agent-name", "Race Agent", "--json"], repository);
-    const writes = await Promise.all([publish("left"), publish("right")]);
+    const register = () => runProcess(["--import", tsxLoader, source, "repository", "register", "--config", config, "--json"], repository);
+    const writes = await Promise.all([register(), register()]);
     assert.ok(writes.every((result) => result.code === 0), JSON.stringify(writes));
     assert.ok(writes.every((result) => result.stdout.trim()), JSON.stringify(writes));
     const envelopes = writes.map((result) => JSON.parse(result.stdout));
     assert.ok(envelopes.every((envelope) => envelope.ok === true));
     assert.equal(envelopes[0].data.repository_id, envelopes[1].data.repository_id);
-    assert.notEqual(envelopes[0].data.requirement.id, envelopes[1].data.requirement.id);
 
     const readArgs = ["--import", tsxLoader, source, "requirement", "list", "--config", config, "--json"];
     const reads = await Promise.all([runProcess(readArgs), runProcess(readArgs), runProcess(readArgs)]);

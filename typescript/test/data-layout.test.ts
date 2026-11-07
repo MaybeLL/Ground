@@ -25,7 +25,7 @@ test("data root has one cross-platform default and explicit overrides win", () =
 test("all managed categories have a deterministic location without accessing disk", () => {
   assert.deepEqual(dataLayout("/persistent/grounds"), {
     root: "/persistent/grounds", config: "/persistent/grounds/config.yaml",
-    database: "/persistent/grounds/grounds.db", drafts: "/persistent/grounds/drafts",
+    database: "/persistent/grounds/grounds.db",
     workspaces: "/persistent/grounds/workspaces", runtime: "/persistent/grounds/runtime",
     cache: "/persistent/grounds/cache", directoryRegistry: join(homedir(), ".grounds", "directory-registry"),
   });

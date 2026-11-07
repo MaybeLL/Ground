@@ -10,5 +10,4 @@ export * from "./projections.js";
 export * from "./review.js";
 export * from "./sql-store.js";
 export * from "./store-types.js";
-export * from "./workspace.js";
 export * from "./selection.js";

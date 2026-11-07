@@ -340,32 +340,6 @@ test("an assessment that no longer matches the observed input is refused on admi
   assert.equal(x.git(x.source, "status", "--porcelain"), before);
 });
 
-test("CLI workspace publish of a new target Issue is gated on the reviewed-scope preflight", async (t) => {
-  const x = await fixture(t);
-  const run = x.run;
-  const created = await run(["workspace", "new", "pub"]);
-  assert.equal(created.code, 0, JSON.stringify(created.envelope));
-  const path = created.envelope.data.path;
-  const manifest = JSON.parse(readFileSync(join(path, ".workspace.json"), "utf8"));
-  manifest.draft.issues[0].input.target_branch = { remote: "origin", ref: "refs/heads/main" };
-  manifest.draft.issues[0].baselineExpression = x.base;
-  writeFileSync(join(path, ".workspace.json"), JSON.stringify(manifest));
-
-  const read = await run(["workspace", "read", "pub"]);
-  assert.equal(read.code, 0, JSON.stringify(read.envelope));
-  const version = read.envelope.data.version;
-
-  // A dry-run never claims publishable and leaves no pending publication.
-  const dryRun = await run(["workspace", "publish", "pub", "--dry-run", "--expected-version", version]);
-  assert.equal(dryRun.code, 0, JSON.stringify(dryRun.envelope));
-  assert.ok((dryRun.envelope.warnings ?? []).some((warning: { code: string }) => warning.code === "PREFLIGHT_REQUIRED"));
-
-  const blocked = await run(["workspace", "publish", "pub", "--expected-version", version, "--refresh"]);
-  assert.equal(blocked.code, 4, JSON.stringify(blocked.envelope));
-  assert.equal(blocked.envelope.error.code, "STATE_CONFLICT");
-  assert.match(blocked.envelope.error.message, /preflight observe/);
-});
-
 test("a plain Module without any wiring still fails closed on a target publication", async (t) => {
   const x = await fixture(t);
   // No gate callback exists; a target write must fail closed on its own, even
@@ -377,16 +351,6 @@ test("a plain Module without any wiring still fails closed on a target publicati
   });
   await service.assess({ ...actor(), observation_id: observed.id, file: { assessment: "applicable", author: testAgent, rationale: "Recorded before the Module was rewired", affected: [] } });
   const bare = new Module(x.f.store, newUUIDv7);
-  await assert.rejects(
-    bare.publishAuthoring({
-      operation_id: newUUIDv7(),
-      canonical_remote: x.f.repository.canonical_remote,
-      requirement: { input: { format: 1, summary: "Gated requirement", outcomes: ["x"] } },
-      issues: [{ baseline: { git_oid: x.base, reachability: "remote_tracking_reachable" }, input: { format: 1, summary: "Gated issue", target_branch: { remote: "origin", ref: "refs/heads/main" }, goals: [{ statement: "G", criteria: ["C"] }] } }],
-      attribution: testAgent,
-    }),
-    (error: any) => error.code === "STATE_CONFLICT",
-  );
   await assert.rejects(
     bare.createIssue({
       operation_id: newUUIDv7(),

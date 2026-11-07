@@ -4,7 +4,7 @@
 
 ## 构建工具链镜像
 
-需要 Docker/Colima。首次构建需要访问 Debian、公开 npm registry 和 Playwright 下载源；只在明确需要构建时执行：
+需要 Docker/Colima。首次构建需要访问 Debian 和公开 npm registry；只在明确需要构建时执行：
 
 ```sh
 python3 scripts/dev-environment/build.py --tag grounds-self-dev:local
@@ -13,7 +13,7 @@ docker image inspect grounds-self-dev:local --format '{{.Id}}'
 
 构建脚本只发送 Dockerfile、工具和指纹脚本、CLI package/lock、原生 addon 与 vendored 源码，不发送整个仓库、Git 历史、账本或用户配置。Node 22 基础镜像固定 registry digest，依赖通过 `npm ci` 安装；OS 包未逐包锁版本，不承诺重建字节一致。
 
-镜像含 Node/npm、Git、Python、C/C++/make、OpenSSL、进程工具、无头 Chromium、CLI 依赖和 Linux 原生 addon。构建脚本按宿主 UID/GID 添加用户；跨用户或平台使用须重新构建。退役过程不启动 Docker，也不自动清理已有容器、卷或镜像。
+镜像含 Node/npm、Git、Python、C/C++/make、OpenSSL、进程工具、CLI 依赖和 Linux 原生 addon。构建脚本按宿主 UID/GID 添加用户；跨用户或平台使用须重新构建。退役过程不启动 Docker，也不自动清理已有容器、卷或镜像。
 
 ## 镜像内工具
 

@@ -43,7 +43,7 @@ import {
   validateVerificationReport,
 } from "./domain.js";
 import { isGitOID, isSha256, isUUIDv7, newUUIDv7 } from "./identity.js";
-import { DomainError, idempotencyConflict, notFound, predecessorConflict, repositoryAmbiguous, repositoryIssueLimit, repositoryNotResolved, stateConflict, validation, versionConflict } from "./errors.js";
+import { DomainError, idempotencyConflict, notFound, predecessorConflict, repositoryAmbiguous, repositoryNotResolved, stateConflict, validation, versionConflict } from "./errors.js";
 import type {
   ArtifactBlob,
   CandidateListFilter,
@@ -100,7 +100,7 @@ import { isSyncRecord, syncReview, syncData, syncTerminal } from "./devrun-sync-
 import { locateReviewPath, type ReviewLocationRequest, type ReviewTraceResult, type ReviewSummaryResult, type VerificationPageResult, type VerificationSetSummary } from "./review.js";
 import { isPagedRequest, readListPage, withPagingHint, type ListPageInfo, type ListPageRequest } from "./list-page.js";
 import { indexCandidateChanges, inspectChangeRationaleBindings, type ChangeIndex } from "./change-index.js";
-import { contentDigestFor, enforcePublishGate, enforceStartGate, issueWriteBinding, publishAuthoringBinding, saveAdmission, savePreparation, type PreflightCoordinator, type PreflightMatch, type PublishGateInput } from "./preflight.js";
+import { contentDigestFor, enforcePublishGate, enforceStartGate, issueWriteBinding, saveAdmission, savePreparation, type PreflightCoordinator, type PreflightMatch, type PublishGateInput } from "./preflight.js";
 import { assertDevRunAdmitted } from "./preflight-admission.js";
 import { devRunPreflightView } from "./preflight-view.js";
 
@@ -197,31 +197,6 @@ export interface ComparisonTreeDiff { patch: Buffer; files: number; insertions: 
 export type TreeDiffProvider = (leftTree: string, rightTree: string) => Promise<ComparisonTreeDiff>;
 export interface CandidateMaterialization { git_artifact?: GitCommitArtifact; source?: import("./development-branch.js").SourceIdentity; candidate_id: string; issue_revision_id: string; repository_id: string; canonical_remote: string; baseline: Baseline; result_tree_oid: string; patch_digest: string; patch: Buffer }
 
-export interface AuthoringRequirementChange { requirement_id?: string; expected_revision_id?: string; require_current?: boolean; input?: RequirementInput }
-export interface AuthoringIssueChange { issue_id?: string; expected_revision_id?: string; requirement_revision_id?: string; baseline: Baseline; input: IssueInput }
-export interface PublishAuthoringCommand { operation_id: string; canonical_remote: string; requirement: AuthoringRequirementChange; issues: AuthoringIssueChange[]; attribution: Attribution; allow_second_issue_per_repository?: boolean; repository_issue_override_reason?: string; /** The externally reviewed Workspace version a JSON publication binds to. */ reviewed_version?: string }
-
-/** One Requirement may hold only one Issue per Repository.  The ledger enforces
- * the invariant on every publish, so overlapping Issues never reach concurrent
- * DevRuns that would have to be merged by hand outside the ledger. */
-export interface IssueRepositoryRuleInput { requirement_id: string; existing: string[]; existing_more: boolean; created_issue_count: number; allow_second_issue_per_repository: boolean; override_reason: string }
-const issueRepositoryRule = (input: IssueRepositoryRuleInput): Warning[] => {
-  const listed = input.existing.join(", ") + (input.existing_more ? ", …" : "");
-  const alternative = "Keep one Issue per Requirement and Repository (express additional features as Goals/Constraints of that Issue), or publish the extra work under a separate Requirement.";
-  if (input.created_issue_count > 0 && input.existing.length + input.created_issue_count > 1) {
-    const detail = input.existing.length
-      ? `Requirement ${input.requirement_id} already has Issue ${listed} on this Repository`
-      : `this publication creates ${input.created_issue_count} Issues for one Requirement and one Repository`;
-    if (!input.allow_second_issue_per_repository) throw repositoryIssueLimit(input.requirement_id, `${detail}. ${alternative} Pass --allow-second-issue-per-repository with --override-reason to accept it explicitly.`);
-    if (!input.override_reason.trim()) throw validation("override-reason", "is required to publish a second Issue for one Requirement on the same Repository");
-    return [{ code: "SECOND_ISSUE_PER_REPOSITORY_OVERRIDE", message: `${detail}; accepted by explicit override: ${input.override_reason.trim()}` }];
-  }
-  if (input.created_issue_count === 0 && input.existing.length > 1) return [{ code: "SECOND_ISSUE_PER_REPOSITORY_EXISTING", message: `Requirement ${input.requirement_id} already has Issue ${listed} on this Repository. ${alternative}` }];
-  return [];
-};
-export interface PublishedAuthoringResource { action: "created" | "revised" | "unchanged"; id: string; revision_id: string; version: number; requirement_revision_id?: string; baseline?: Baseline }
-export interface PublishAuthoringResult { result_type: string; command: string; repository_id: string; repository_action: "registered" | "resolved"; requirement: PublishedAuthoringResource; issues: PublishedAuthoringResource[] }
-
 /** Repository ids whose active remotes (canonical or alias) share a transport-
  * agnostic match key with any of `remotes`.  Computed inside the caller's
  * transaction so the scan and any following write stay serialized. */
@@ -239,20 +214,8 @@ const matchRepositoriesByKey = async (tx: Tx, remotes: readonly string[]): Promi
 /** Ambiguity by key must not leak a URL, and must name the way out. */
 const ambiguousByKeyReason = "multiple registered repositories match this clone by host and path; pass --repository to choose one, or point --remote at a remote whose canonical address exactly equals a registered canonical remote or active alias, so the exact match takes precedence";
 
-/** Resolve one Repository for `canonical`: exact canonical/alias match first,
- * then a unique match key.  A key shared by several Repositories is ambiguous
- * and must not be silently picked. */
-const resolveRepositoryByKeyOrExact = async (tx: Tx, canonical: string): Promise<RepositoryRecord> => {
-  try { return await tx.findRepositoryByRemote(canonical); }
-  catch (error) { if (!(error instanceof DomainError) || error.code !== "NOT_FOUND") throw error; }
-  const matched = await matchRepositoriesByKey(tx, [canonical]);
-  if (!matched.length) throw notFound("repository", canonical);
-  if (matched.length > 1) throw repositoryAmbiguous(ambiguousByKeyReason);
-  return tx.getRepository(matched[0]!);
-};
-
 const command = {
-  workspacePublish: "workspace.publish", quickstartCreate: "quickstart.create", requirementCreate: "requirement.create", requirementRevise: "requirement.revise", repositoryRegister: "repository.register", repositoryMove: "repository.move", repositoryAliasAdd: "repository.alias-add", repositoryAliasRetire: "repository.alias-retire", issueCreate: "issue.create", issueRevise: "issue.revise", devrunStart: "devrun.start", candidateSubmit: "candidate.submit", verificationSubmit: "verification.submit",
+  quickstartCreate: "quickstart.create", requirementCreate: "requirement.create", requirementRevise: "requirement.revise", repositoryRegister: "repository.register", repositoryMove: "repository.move", repositoryAliasAdd: "repository.alias-add", repositoryAliasRetire: "repository.alias-retire", issueCreate: "issue.create", issueRevise: "issue.revise", devrunStart: "devrun.start", candidateSubmit: "candidate.submit", verificationSubmit: "verification.submit",
 };
 
 const ensureID = (field: string, value: string): void => { if (!isUUIDv7(value)) throw validation(field, "must be a lowercase UUIDv7"); };
@@ -461,15 +424,6 @@ export class Module {
     return checked;
   }
 
-  private async authoringGates(input: PublishAuthoringCommand): Promise<PublishGateInput[]> {
-    const targets = await this.store.read(async tx => Promise.all(input.issues.map(async item =>
-      item.input.target_branch ?? (item.issue_id ? (item.expected_revision_id ? await tx.getIssueRevision(item.issue_id, item.expected_revision_id) : await tx.getCurrentIssueRevision(item.issue_id)).target_branch : undefined))));
-    const unique = targets.filter((target, index): target is TargetBranch => !!target && targets.findIndex(other => other?.remote === target.remote && other?.ref === target.ref) === index);
-    const digest = contentDigestFor(publishAuthoringBinding({ ...input, issues: input.issues.map(issue => ({ ...issue, target_branch: issue.input.target_branch })) }));
-    return unique.map(target => ({ canonical_remote: input.canonical_remote, reviewed_version: input.reviewed_version,
-      content_digest: digest, target, what: "publish", operation_id: input.operation_id }));
-  }
-
   private async upstreamChanges(left: string, right: string, includeDiff = true): Promise<import("./comparison.js").UpstreamChanges> {
     const base = { source: "derived_relation" as const, role: "base_changes_not_candidate_changes" as const, left_base_commit: left, right_base_commit: right };
     if (!this.treeDiffProvider) return { ...base, status: "unavailable" };
@@ -589,141 +543,6 @@ export class Module {
       const result: import("./delivery-link.js").DeliveryLinkResult = { result_type: "patchledger.result.delivery-link/v1", command: name, link };
       await tx.completeOperation(op, JSON.stringify(envelopeData(result, op)));
       return result;
-    });
-  }
-
-  async completedAuthoringOperation(operationID: string): Promise<{ result: PublishAuthoringResult; warnings: Warning[] } | undefined> {
-    ensureID("operation_id", operationID); const replay = await this.store.read((tx) => tx.getOperation(operationID));
-    if (!replay) return undefined; if (replay.command !== command.workspacePublish) throw validation("operation_id", "does not belong to a Workspace publication");
-    const decoded = decodeReplay<PublishAuthoringResult>(replay); return { result: decoded.data, warnings: decoded.warnings };
-  }
-
-  /** Atomic publication seam used by file-oriented authoring Workspaces. */
-  async publishAuthoring(input: PublishAuthoringCommand): Promise<{ result: PublishAuthoringResult; warnings: Warning[] }> {
-    input = structuredClone(input);
-    validateCanonicalRemote(input.canonical_remote); validateAttribution(input.attribution);
-    if (!input.requirement.requirement_id && !input.requirement.input) throw validation("requirement", "a new Workspace must publish Requirement content");
-    if (input.requirement.requirement_id) ensureID("requirement_id", input.requirement.requirement_id);
-    if (input.requirement.expected_revision_id) ensureID("expected_revision_id", input.requirement.expected_revision_id);
-    if (input.requirement.input) validateRequirementInput(input.requirement.input);
-    if (input.repository_issue_override_reason !== undefined) validateOptionalLongText("repository_issue_override_reason", input.repository_issue_override_reason);
-    if (!Array.isArray(input.issues) || input.issues.length > 100) throw validation("issues", "must contain at most 100 changed Issues");
-    const seenIssues = new Set<string>();
-    input.issues.forEach((issue, index) => {
-      if (issue.issue_id) { ensureID(`issues[${index}].issue_id`, issue.issue_id); if (seenIssues.has(issue.issue_id)) throw validation("issues", "contains a duplicate Issue"); seenIssues.add(issue.issue_id); }
-      if (issue.expected_revision_id) ensureID(`issues[${index}].expected_revision_id`, issue.expected_revision_id);
-      if (issue.requirement_revision_id) ensureID(`issues[${index}].requirement_revision_id`, issue.requirement_revision_id);
-      validateBaseline(issue.baseline); validateIssueInput(issue.input);
-    });
-    const op = opID(input.operation_id);
-    const requirementID = input.requirement.requirement_id || this.newId();
-    const requirementRevisionID = input.requirement.input ? this.newId() : input.requirement.expected_revision_id || "";
-    const allocatedIssues = input.issues.map((item) => ({ item, issueID: item.issue_id || this.newId(), revisionID: this.newId() }));
-    const hash = operationHash(command.workspacePublish, {
-      canonical_remote: input.canonical_remote,
-      requirement: { ...input.requirement, input: input.requirement.input ? hashRequirementInput(input.requirement.input) : undefined },
-      issues: input.issues.map((issue) => ({ ...issue, input: hashIssueInput(issue.input) })),
-      ...(input.reviewed_version ? { reviewed_version: input.reviewed_version } : {}),
-      ...(input.allow_second_issue_per_repository ? { allow_second_issue_per_repository: true } : {}),
-      ...(input.repository_issue_override_reason?.trim() ? { repository_issue_override_reason: input.repository_issue_override_reason.trim() } : {}),
-    }, input.attribution, {}, { requirement_revision_id: input.requirement.expected_revision_id, issue_revision_ids: input.issues.map((issue) => issue.expected_revision_id ?? null) });
-    let result!: PublishAuthoringResult; let warnings: Warning[] = [];
-    const preflightChecks = await this.checkPublications(await this.authoringGates(input), op);
-    await this.store.write(async (tx) => {
-      const replay = await tx.reserveOperation({ id: op, command: command.workspacePublish, request_hash: hash });
-      if (replay) { ({ data: result, warnings } = decodeReplay<PublishAuthoringResult>(replay)); return; }
-      const now = await tx.now();
-      const ensured = await tx.ensureRepository({ id: this.newId(), canonical_remote: input.canonical_remote, version: 1, created_at: now, attribution: input.attribution });
-      if (ensured.created) await tx.appendLedgerEvent(event(this.newId(), "repository.registered", op, "repository", ensured.repository.id, ensured.repository.id, ensured.repository.version, now, input.attribution, { canonical_remote: ensured.repository.canonical_remote }));
-      for (const checked of preflightChecks) {
-        await enforcePublishGate(tx, { ...checked.input, repository_id: ensured.repository.id }, checked.match);
-      }
-
-      let requirementRevision: RequirementRevision;
-      let requirementAction: PublishedAuthoringResource["action"];
-      if (!input.requirement.requirement_id) {
-        const content = input.requirement.input!;
-        requirementRevision = { id: requirementRevisionID, requirement_id: requirementID, revision_number: 1, summary: content.summary, outcomes: content.outcomes, decisions: content.decisions ?? [], ...(content.open_questions?.length ? { open_questions: content.open_questions } : {}), ...(content.context === undefined ? {} : { context: content.context }) };
-        await tx.createRequirement({ id: requirementID, created_at: now, attribution: input.attribution }, { revision: requirementRevision, created_at: now, attribution: input.attribution });
-        await tx.appendLedgerEvent(event(this.newId(), "requirement.created", op, "requirement_revision", requirementRevision.id, undefined, 1, now, input.attribution, { requirement_id: requirementID }));
-        requirementAction = "created";
-      } else {
-        await tx.lockRequirement(requirementID);
-        const current = await tx.getCurrentRequirementRevision(requirementID);
-        if (input.requirement.input) {
-          if (!input.requirement.expected_revision_id) throw validation("workspace", "existing Requirement is missing its source Version");
-          if (current.id !== input.requirement.expected_revision_id) { const expected = await tx.getRequirementRevision(requirementID, input.requirement.expected_revision_id); throw versionConflict("requirement", requirementID, expected.revision_number, current.revision_number); }
-          const content = input.requirement.input;
-          requirementRevision = { id: requirementRevisionID, requirement_id: requirementID, revision_number: current.revision_number + 1, predecessor_revision_id: current.id, summary: content.summary, outcomes: content.outcomes, decisions: content.decisions ?? [], ...(content.open_questions?.length ? { open_questions: content.open_questions } : {}), ...(content.context === undefined ? {} : { context: content.context }) };
-          await tx.appendRequirementRevision({ revision: requirementRevision, created_at: now, attribution: input.attribution });
-          await tx.appendLedgerEvent(event(this.newId(), "requirement.revised", op, "requirement_revision", requirementRevision.id, undefined, requirementRevision.revision_number, now, input.attribution, { requirement_id: requirementID, predecessor_revision_id: current.id }));
-          requirementAction = "revised";
-        } else { if (!input.requirement.expected_revision_id) throw validation("workspace", "existing Requirement is missing its source Version"); if ((input.requirement.require_current ?? true) && current.id !== input.requirement.expected_revision_id) { const expected = await tx.getRequirementRevision(requirementID, input.requirement.expected_revision_id); throw versionConflict("requirement", requirementID, expected.revision_number, current.revision_number); } requirementRevision = await tx.getRequirementRevision(requirementID, input.requirement.expected_revision_id); requirementAction = "unchanged"; }
-      }
-
-      // The Requirement lock above covers its whole Issue set, so counting here
-      // is the authoritative check.  Issue writes below cannot introduce a
-      // second Issue on this Repository for the same Requirement.
-      const issuesOnRepository = input.requirement.requirement_id ? await tx.listIssuesPage(requirementID, "", 20, { repository_id: ensured.repository.id }) : { rows: [], more: false };
-      warnings.push(...issueRepositoryRule({
-        requirement_id: requirementID,
-        existing: issuesOnRepository.rows.map((item) => item.id),
-        existing_more: issuesOnRepository.more,
-        created_issue_count: allocatedIssues.filter(({ item }) => !item.issue_id).length,
-        allow_second_issue_per_repository: input.allow_second_issue_per_repository === true,
-        override_reason: input.repository_issue_override_reason ?? "",
-      }));
-
-      const publishedIssues: PublishedAuthoringResource[] = [];
-      for (const { item, issueID, revisionID } of allocatedIssues) {
-        const bindingID = input.requirement.input ? requirementRevision.id : (item.requirement_revision_id || requirementRevision.id);
-        const boundRequirement = bindingID === requirementRevision.id ? requirementRevision : await tx.getRequirementRevision(requirementID, bindingID);
-        if ((boundRequirement.open_questions ?? []).some((question) => question.blocking)) throw validation("requirement.open_questions", "the Requirement Version bound by an Issue contains a blocking Open Question");
-        let revision: IssueRevision;
-        let action: "created" | "revised";
-        if (!item.issue_id) {
-          revision = makeIssueRevision(this.newId, issueID, requirementID, bindingID, revisionID, 1, undefined, item.baseline, item.input, boundRequirement);
-          preflightIndependentDevRunContext(revision, boundRequirement, ensured.repository.id, now);
-          await tx.createIssue({ id: issueID, requirement_id: requirementID, repository_id: ensured.repository.id, created_at: now, attribution: input.attribution }, { revision, created_at: now, attribution: input.attribution });
-          action = "created";
-        } else {
-          const issue = await tx.getIssue(issueID);
-          if (issue.requirement_id !== requirementID || issue.repository_id !== ensured.repository.id) throw validation("issues", "an Issue does not belong to this Requirement and Repository");
-          const current = await tx.getCurrentIssueRevision(issueID);
-          if (!item.expected_revision_id) throw validation("workspace", "existing Issue is missing its source Version");
-          if (current.id !== item.expected_revision_id) { const expected = await tx.getIssueRevision(issueID, item.expected_revision_id); throw versionConflict("issue", issueID, expected.revision_number, current.revision_number); }
-          revision = makeIssueRevision(this.newId, issueID, requirementID, bindingID, revisionID, current.revision_number + 1, current.id, item.baseline, item.input, boundRequirement);
-          preflightIndependentDevRunContext(revision, boundRequirement, ensured.repository.id, now);
-          await tx.appendIssueRevision({ revision, created_at: now, attribution: input.attribution });
-          action = "revised";
-        }
-        const publicationTarget = revision.target_branch ?? (revision.predecessor_revision_id ? (await tx.getIssueRevision(issueID, revision.predecessor_revision_id)).target_branch : undefined);
-        await tx.appendLedgerEvent(event(this.newId(), action === "created" ? "issue.created" : "issue.revised", op, "issue_revision", revision.id, ensured.repository.id, revision.revision_number, now, input.attribution, { issue_id: issueID, requirement_id: requirementID, requirement_revision_id: bindingID, ...(revision.predecessor_revision_id ? { predecessor_revision_id: revision.predecessor_revision_id } : {}), ...publicationPreflightFacts(preflightChecks, publicationTarget, revision.baseline.git_oid) }));
-        if (item.baseline.reachability === "unconfirmed") warnings.push(baselineWarning(item.baseline));
-        publishedIssues.push({ action, id: issueID, revision_id: revision.id, version: revision.revision_number, requirement_revision_id: bindingID, baseline: revision.baseline });
-      }
-      result = { result_type: "patchledger.result.workspace-publish/v1", command: command.workspacePublish, repository_id: ensured.repository.id, repository_action: ensured.created ? "registered" : "resolved", requirement: { action: requirementAction, id: requirementID, revision_id: requirementRevision.id, version: requirementRevision.revision_number }, issues: publishedIssues };
-      await tx.completeOperation(op, JSON.stringify(envelopeData(result, op, warnings)));
-    });
-    return { result, warnings };
-  }
-
-  /** Read-only projection of the publish-time Issue/Repository rule so
-   * `workspace publish --dry-run` reports the same blocking condition without
-   * writing a pending publication.  The transactional check in
-   * publishAuthoring stays authoritative under concurrency. */
-  async preflightIssueRepositoryRule(input: { requirement_id?: string; canonical_remote: string; created_issue_count: number; allow_second_issue_per_repository: boolean; override_reason: string }): Promise<Warning[]> {
-    validateCanonicalRemote(input.canonical_remote);
-    return this.store.read(async (tx) => {
-      let existing: string[] = []; let more = false;
-      if (input.requirement_id) {
-        try {
-          const repository = await resolveRepositoryByKeyOrExact(tx, input.canonical_remote);
-          const page = await tx.listIssuesPage(input.requirement_id, "", 20, { repository_id: repository.id });
-          existing = page.rows.map((item) => item.id); more = page.more;
-        } catch (error) { if (!(error instanceof DomainError) || error.code !== "NOT_FOUND") throw error; }
-      }
-      return issueRepositoryRule({ requirement_id: input.requirement_id ?? "", existing, existing_more: more, created_issue_count: input.created_issue_count, allow_second_issue_per_repository: input.allow_second_issue_per_repository, override_reason: input.override_reason });
     });
   }
 

@@ -7,18 +7,6 @@ import { join } from 'node:path';
 import mysql from 'mysql2/promise';
 import { workerEnvironment, createWorkerHome, mysqlEnabled, createIsolatedMysqlDatabase } from './test-environment.mjs';
 
-test('isolated worker HOME can launch the installed Chromium without sharing its runtime home', () => {
-  const home = createWorkerHome('browser-regression');
-  try {
-    const env = workerEnvironment(home);
-    assert.equal(env.HOME, home);
-    const output = execFileSync(process.execPath, ['--input-type=module', '-e',
-      'import {chromium} from "playwright";const browser=await chromium.launch();try{const page=await browser.newPage();await page.setContent("<p>worker browser</p>");console.log(await page.locator("p").innerText());}finally{await browser.close();}'],
-      { cwd: new URL('..', import.meta.url), env, encoding: 'utf8', timeout: 20000 });
-    assert.match(output, /worker browser/);
-  } finally { rmSync(home, { recursive: true, force: true }); }
-});
-
 test('worker temp and Docker fixture roots are writable beneath its private home', () => {
   const home = createWorkerHome('temp-regression');
   try {
@@ -27,10 +15,6 @@ test('worker temp and Docker fixture roots are writable beneath its private home
       { env: workerEnvironment(home), encoding: 'utf8' });
     for (const path of JSON.parse(output)) assert.ok(path.startsWith(home + '/tmp'));
   } finally { rmSync(home, { recursive: true, force: true }); }
-});
-
-test('explicit browser installation selection is preserved', () => {
-  assert.equal(workerEnvironment('/private/test-home', { PLAYWRIGHT_BROWSERS_PATH: '0' }).PLAYWRIGHT_BROWSERS_PATH, '0');
 });
 
 test('worker database provisioning rejects a non-test base before connecting', async () => {

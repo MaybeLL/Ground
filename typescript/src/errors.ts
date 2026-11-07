@@ -16,7 +16,6 @@ export type ErrorCode =
   | "REPOSITORY_NOT_RESOLVED"
   | "REPOSITORY_AMBIGUOUS"
   | "BASELINE_UNAVAILABLE"
-  | "REPOSITORY_ISSUE_LIMIT"
   | "WORKTREE_MISMATCH"
   | "ENVIRONMENT_CAPABILITY_UNSUPPORTED"
   | "ENVIRONMENT_SETUP_FAILED"
@@ -124,13 +123,6 @@ export const repositoryAmbiguous = (reason: string): DomainError =>
 
 export const baselineUnavailable = (reason: string): DomainError =>
   new DomainError("BASELINE_UNAVAILABLE", "baseline is unavailable", false, { reason: bounded(reason, 4096) });
-
-export const repositoryIssueLimit = (requirementId: string, reason: string): DomainError =>
-  new DomainError("REPOSITORY_ISSUE_LIMIT", "one Requirement may have only one Issue per Repository", false, {
-    resource_type: "requirement",
-    resource_id: requirementId,
-    reason: bounded(reason, 4096),
-  });
 
 export const worktreeMismatch = (resourceId: string, reason: string): DomainError => {
   const details: ErrorDetails = { reason: bounded(reason, 4096) };
