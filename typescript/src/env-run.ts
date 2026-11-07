@@ -1,7 +1,7 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { readEnvironment, environmentPrivateDirectory, saveEnvironment, type EnvironmentRecord } from "./env-environment.js";
+import { readEnvironment, environmentPrivateDirectory, saveEnvironment, assertEnvironmentExecution, type EnvironmentRecord } from "./env-environment.js";
 import { createHostProcessScope, hostProcessEnvironment, inspectHostProcessScope, signalHostProcessScope, hostProcessIdentity, signalHostProcessLeader, processIdentity, type HostProcessScope } from "./env-process.js";
 import { acquireRouteLease, type RouteLease } from "./env-route-lease.js";
 import { inspectTaskGit, type RouteReport } from "./env-route-exit.js";
@@ -127,6 +127,7 @@ export const reconcileRun=(runId:string):RunRecord=>{
 };
 const startRunUnlocked=(input:{environmentId:string;argv:string[];timeoutMs?:number;requiresNetwork?:boolean;artifacts?:string[]}):StartedRun=>{
  const environment=readEnvironment(input.environmentId);validateArgv(input.argv);
+ assertEnvironmentExecution(environment);
  if(environment.state!=="ready")throw stateConflict("environment",environment.id,"environment is not ready");
  if(input.requiresNetwork&&environment.requirements.network==="none")throw validation("network","selected Agent requires network but frozen definition forbids it");
  const timeout=input.timeoutMs??30*60*1000;if(!Number.isInteger(timeout)||timeout<1||timeout>24*60*60*1000)throw validation("timeout_ms","must be within 24 hours");

@@ -1,11 +1,11 @@
 import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { dockerCapabilities, hostCapabilities } from "./env-capabilities.js";
 import { readEnvironmentDefinitions, selectEnvironmentDefinition } from "./env-definition.js";
 import { environmentDown, environmentUp, listEnvironments, readEnvironment, reconcileEnvironment, handoffEnvironment } from "./env-environment.js";
 import { cancelRun, readRun, startRun } from "./env-run.js";
 import { validation } from "./errors.js";
-import { existsSync as pathExists } from "node:fs";
+import { resolveEnvironmentRepository } from "./env-repository.js";
+import { assertIndependentWorkspace } from "./env-route-lease.js";
 import { credentialOccupancy, registerCredentialGrant } from "./env-credentials.js";
 import { registerSharedService } from "./env-services.js";
 
@@ -16,7 +16,7 @@ export interface EnvironmentArgs {
   values: Record<string, string | boolean | string[]>;
 }
 
-const ALLOWED_OPTIONS = new Set(["cwd", "config", "json", "help", "workspace", "definition", "argv-file", "timeout-seconds", "tail-bytes", "input-commit", "branch", "material-scope", "fixed-inputs-file", "dev-run", "requires-network", "artifact", "target", "source-commit", "grant-file", "service-file"]);
+const ALLOWED_OPTIONS = new Set(["cwd", "config", "json", "help", "workspace", "definition", "argv-file", "timeout-seconds", "tail-bytes", "input-commit", "branch", "material-scope", "fixed-inputs-file", "requires-network", "artifact", "target", "source-commit", "grant-file", "service-file"]);
 const DEFAULT_TAIL_BYTES = 16 * 1024;
 const MAX_TAIL_BYTES = 256 * 1024;
 const MAX_ARGV_FILE_BYTES = 64 * 1024;
@@ -79,37 +79,21 @@ const readTail = (file: string, bytes: number): string => {
   }
 };
 
-export interface EnvironmentCommandContext {
-  resolveRepository?: (workspace: string, devRunId?: string) => Promise<{executionMode?: import("./development-mode.js").DevelopmentMode;taskRepositoryId:string;resolvedRepositoryId:string;devRunId?:string;inputCommit?:string;branch?:string}>;
-}
-const upCommand = async (args: EnvironmentArgs, cwd: string, context?: EnvironmentCommandContext) => {
+const upCommand = async (args: EnvironmentArgs, cwd: string) => {
   const workspace = resolve(cwd, text(args, "workspace") ?? ".");
   const definition = selectEnvironmentDefinition(readEnvironmentDefinitions(workspace), text(args, "definition"));
-  const needsIdentity=!!text(args,"dev-run") || definition.credentials.length>0 || definition.services.some(s=>s.shared) || pathExists(join(workspace,"..","owner.json"));
-  const identity = needsIdentity && context?.resolveRepository ? await context.resolveRepository(workspace,text(args,"dev-run")) : undefined;
-  if (text(args,"dev-run") && !identity) throw validation("dev-run","requires coordinator admission and repository resolution");
-  if (identity?.executionMode && (identity.executionMode === "container") !== (definition.backend === "docker")) throw validation("dev-run", "environment backend conflicts with the fixed DevRun mode; start a new DevRun to change modes");
   const scope=text(args,"material-scope");
   if(scope!==undefined && scope!=="development" && scope!=="blind")throw validation("material-scope","must be development or blind");
   const inputsFile=text(args,"fixed-inputs-file");
   const fixedInputs=inputsFile?JSON.parse(readFileSync(inputsFile,"utf8")):undefined;
   if(fixedInputs!==undefined&&(!Array.isArray(fixedInputs)||fixedInputs.length>64||fixedInputs.some(i=>typeof i.name!=="string"||typeof i.path!=="string")))throw validation("fixed-inputs-file","requires [{name,path}] fixed single-file inputs");
-  if(identity?.inputCommit && text(args,"input-commit") && identity.inputCommit.replace(/^sha(?:1|256):/,"")!==text(args,"input-commit")!.replace(/^sha(?:1|256):/,""))throw validation("input-commit","must equal the coordinator-admitted input");
-  if(identity?.branch && text(args,"branch") && identity.branch!==text(args,"branch"))throw validation("branch","must equal the admitted development branch");
   if(definition.backend==="host")process.stderr.write(JSON.stringify({event:"environment.trust",mode:"trusted_host",enforced_isolation:false,message:"可信本机执行：setup和任务可使用当前用户权限；不强制隔离文件、网络或资源。"})+"\n");
-  const environment = await environmentUp({ definition, workspace, ...identity, inputCommit:identity?.inputCommit??text(args,"input-commit"),branch:identity?.branch??text(args,"branch"),materialScope:scope as "development"|"blind"|undefined,fixedInputs });
+  const environment = await environmentUp({ definition, workspace, inputCommit:text(args,"input-commit"),branch:text(args,"branch"),materialScope:scope as "development"|"blind"|undefined,fixedInputs });
   return { result_type: ENVIRONMENT_RESULT, command: "env.up", environment };
 };
 
-const runCommand = async (args: EnvironmentArgs, context?: EnvironmentCommandContext) => {
+const runCommand = async (args: EnvironmentArgs) => {
   const environmentId = positionalId(args, "environment_id");
-  const environment=readEnvironment(environmentId);
-  if(environment.dev_run_id){
-    if(!context?.resolveRepository)throw validation("dev-run","execution requires the coordinator to recheck admission");
-    const identity=await context.resolveRepository(environment.original_workspace,environment.dev_run_id);
-    if (identity.executionMode && (identity.executionMode === "container") !== (environment.backend === "docker")) throw validation("dev-run", "environment backend conflicts with the fixed DevRun mode");
-    if(identity.devRunId!==environment.dev_run_id||identity.taskRepositoryId!==environment.repository_id||identity.resolvedRepositoryId!==environment.repository_id)throw validation("dev-run","execution admission identity does not match the prepared task");
-  }
   const file = text(args, "argv-file");
   if (file === undefined) throw validation("argv-file", "is required; give a JSON array of strings");
   const rawArtifacts=args.values.artifact;
@@ -131,7 +115,8 @@ export const envHelp = (): string => [
  "grounds env", "",
  "统一环境：默认可信 macOS/Linux host，没有文件、网络或资源隔离；声明 setup 也使用本机权限。",
  "Docker 在独立普通 Git 仓库中执行完整任务，使用固定镜像、默认 CPU/内存/PIDs 上限；失败不回退 host。",
- "env up [--workspace DIR] [--definition NAME] [--dev-run ID] [--input-commit SHA] [--branch NAME]",
+ "env repository [--workspace DIR] (本机 Git 身份；授权使用输出的 repository 对象)",
+ "env up [--workspace DIR] [--definition NAME] [--input-commit SHA] [--branch NAME]",
  "       [--material-scope development|blind] [--fixed-inputs-file JSON]",
  "env run ENVIRONMENT_ID --argv-file FILE [--timeout-seconds N] [--requires-network] [--artifact PATH]",
  "env cancel RUN_ID | env logs RUN_ID [--tail-bytes N]",
@@ -140,17 +125,24 @@ export const envHelp = (): string => [
  "env down ENVIRONMENT_ID (显式结束，确认停止/交接后回收私有资源；摘要、日志和已收集产物保留)",
  "env credential-grant --grant-file JSON | env credential-occupancy | env service-register --service-file JSON",
  "凭据需求不构成授权；共享服务须显式登记/授权，共享可写数据可能互相干扰。",
- "run命令退出不代表作者完成、独立验证结束或Candidate已归档。固定输入/inputs只读；显式产物来自/output。",
+ "独立 env 不承担 TaskRun 准入；旧 DevRun 绑定拒绝。授权仅适用同一 Git common directory 的同一实例，其他 clone 不继承。",
+ "run命令退出不代表任务完成、交付归档或独立验收通过。固定输入/inputs只读；显式产物来自/output。",
 ].join("\n");
 
 /** Runs one `env` command. Environment commands never open the ledger: they manage local runtime state only. */
-export const executeEnvironmentCommand = async (args: EnvironmentArgs, cwd: string, context?: EnvironmentCommandContext): Promise<unknown> => {
+export const executeEnvironmentCommand = async (args: EnvironmentArgs, cwd: string): Promise<unknown> => {
   requireUnknownFree(args);
   const action = args.positionals[1] ?? "";
   if (bool(args, "help") || action === "") return { result_type: "patchledger.result.help/v1", command: "help", usage: envHelp() };
   switch (action) {
+    case "repository": {
+      if (args.positionals.length !== 2) throw validation("repository", "does not accept positional identifiers");
+      const workspace = resolve(cwd, text(args, "workspace") ?? ".");
+      assertIndependentWorkspace(workspace);
+      return { result_type: ENVIRONMENT_RESULT, command: "env.repository", repository: resolveEnvironmentRepository(workspace) };
+    }
     case "up":
-      return upCommand(args, cwd, context);
+      return upCommand(args, cwd);
     case "list":
       return { result_type: ENVIRONMENT_RESULT, command: "env.list", environments: listEnvironments() };
     case "down": {
@@ -159,7 +151,7 @@ export const executeEnvironmentCommand = async (args: EnvironmentArgs, cwd: stri
       return { result_type: ENVIRONMENT_RESULT, command: "env.down", environment_id: environmentId, removed: true, environment: readEnvironment(environmentId) };
     }
     case "run":
-      return runCommand(args,context);
+      return runCommand(args);
     case "cancel": {
       const runId = positionalId(args, "run_id");
       return { result_type: ENVIRONMENT_RESULT, command: "env.cancel", run: cancelRun(runId) };
