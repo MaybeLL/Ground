@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { sha256, sha256Bytes } from "./canonical-json.js";
 import { captureArtifact, resolveBaseline } from "./git.js";
-import { assertNoHistoryFilters } from "./git-history.js";
+import { assertNoHistoryFilters } from "./git-history-read.js";
 import { branchGit, unfinishedOperationPaths } from "./development-branch.js";
 import { workspaceIdentity } from "./workspace-provider.js";
 import { DevWorktreeModule } from "./dev-worktree.js";

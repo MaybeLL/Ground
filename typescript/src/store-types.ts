@@ -304,10 +304,7 @@ export interface Tx {
   lockRuntimeRecord(kind: string, id: string): Promise<void>;
   listRuntimeRecords(kind: string, parentId?: string): Promise<import("./runtime-record.js").RuntimeRecord[]>;
   saveRuntimeRecord(record: import("./runtime-record.js").RuntimeRecord, expectedVersion: number): Promise<void>;
-  historyCandidateIds(repositoryId: string, path: string, limit: number): Promise<string[]>;
   getDeliveryLink(id: string, version?: number): Promise<import("./delivery-link.js").DeliveryLink>;
-  findDeliveryLink(candidateId: string, commit: string): Promise<import("./delivery-link.js").DeliveryLink | undefined>;
-  listDeliveryLinks(repositoryId: string, limit: number): Promise<import("./delivery-link.js").DeliveryLink[]>;
   saveDeliveryLink(record: import("./delivery-link.js").DeliveryLink, expectedVersion: number): Promise<void>;
   putEvalBlob(bytes: Buffer): Promise<string>;
   getEvalBlob(digest: string): Promise<Buffer>;

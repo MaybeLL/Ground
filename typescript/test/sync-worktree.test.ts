@@ -110,7 +110,7 @@ test("interrupted restoration can be abandoned again without discarding edits ma
 
 
 test("compiled development and history modules load alone in fresh processes", () => {
-  for (const name of ["sync-worktree", "development-branch", "integration-history", "git-history"]) {
+  for (const name of ["sync-worktree", "development-branch", "integration-history", "git-history-read"]) {
     const url = new URL(`../dist/src/${name}.js`, import.meta.url);
     assert.ok(existsSync(url), "build the compiled modules before this test");
     const child = spawnSync(process.execPath, ["--input-type=module", "-e", `await import(${JSON.stringify(url.href)})`], {

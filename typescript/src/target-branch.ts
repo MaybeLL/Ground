@@ -1,4 +1,4 @@
-import { assertHistoryRepository, historyGit, rawOID } from "./git-history.js";
+import { assertHistoryRepository, historyGit, rawOID } from "./git-history-read.js";
 import { normalizeRemote, repositoryMatchKey } from "./git.js";
 import { isGitOID } from "./identity.js";
 import { validation } from "./errors.js";

@@ -267,7 +267,7 @@ test("GitLab onboarding dry-run retains unbound and API failure diagnoses withou
   const x = await fixture(t, "ssh://git@127.0.0.1/team/repo"), run = await x.start();
   commit(run.path, "preview", "preserve preview diagnostics\n");
   const form = await x.submission(run), candidate = await x.submit(run, form.file);
-  const before = (await x.f.module.historyCandidate(candidate.candidate_id)).record;
+  const before = await x.f.module.candidateRecord(candidate.candidate_id);
   const preview = () => x.rawAt(x.cwd, "candidate", "archive", "--candidate", candidate.candidate_id, "--dry-run");
   const missing = await preview();
   assert.equal(missing.exit, 4); assert.equal(missing.envelope.error.code, "STATE_CONFLICT");
@@ -284,7 +284,7 @@ test("GitLab onboarding dry-run retains unbound and API failure diagnoses withou
   api.failures.clear();
   const ready = await preview(); assert.equal(ready.exit, 0); assert.equal(ready.envelope.data.policy_check.status, "confirmed");
   assertContract("command-results.schema.json", ready.envelope.data);
-  assert.deepEqual((await x.f.module.historyCandidate(candidate.candidate_id)).record, before);
+  assert.deepEqual(await x.f.module.candidateRecord(candidate.candidate_id), before);
   assert.equal(git(x.remote, "rev-parse", `refs/tags/grounds/candidates/${candidate.candidate_id}`), candidate.source.commit.slice(5));
 });
 
@@ -306,7 +306,7 @@ test("Git archive binding survives completion-marker failure and fresh checked r
   const x = await fixture(t), run = await x.start(); commit(run.path, "legacy-retry", "recoverable history\n");
   const form = await x.submission(run), fixed = captureCommittedDevelopment(run.path, run.development, x.base);
   const old = await x.submit(run, form.file);
-  const before = (await x.f.module.historyCandidate(old.candidate_id)).record;
+  const before = await x.f.module.candidateRecord(old.candidate_id);
   const policy = x.transport.policy(), policyBytes = readFileSync(policy), operation = newUUIDv7();
   const args = ["candidate", "archive", "--candidate", old.candidate_id, "--archive-policy", policy, "--operation-id", operation];
   // Inject at the public workflow's real non-atomic boundary: the Candidate's
@@ -353,7 +353,7 @@ test("Git archive binding survives completion-marker failure and fresh checked r
   assert.notEqual(resumed.operation.data.receipt.observed_at, stored.receipt.observed_at);
   assert.deepEqual(resumed.artifact, stored, "public result must identify the persisted artifact, not the fresh observation");
   assert.deepEqual(resumed.operation.data.result.artifact, stored); assert.deepEqual(snapshot(), frozenBytes);
-  const after = (await x.f.module.historyCandidate(old.candidate_id)).record;
+  const after = await x.f.module.candidateRecord(old.candidate_id);
   assert.deepEqual(after, before);
   assert.deepEqual((await x.invoke(...args)).artifact, stored);
 });

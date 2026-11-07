@@ -79,22 +79,6 @@ export abstract class SqlTxWork extends SqlTxCore {
     } catch { throw new DomainError("ARTIFACT_INTEGRITY_ERROR", "Delivery link is inconsistent", false, { resource_id: id }); }
   }
 
-  async historyCandidateIds(repositoryId: string, path: string, limit: number): Promise<string[]> {
-    const bytes = Buffer.from(path);
-    const rows = await this.client.all("SELECT DISTINCT c.id FROM candidates c JOIN issue_revisions ir ON ir.id = c.issue_revision_id JOIN issues i ON i.id = ir.issue_id JOIN candidate_files f ON f.candidate_id = c.id WHERE i.repository_id = ? AND (f.path_bytes = ? OR f.old_path_bytes = ?) ORDER BY c.id LIMIT ?", [repositoryId, bytes, bytes, limit]);
-    return rows.map(row => asText(row.id));
-  }
-
-  async findDeliveryLink(candidateId: string, commit: string): Promise<import("./delivery-link.js").DeliveryLink | undefined> {
-    const row = await this.client.get("SELECT id FROM delivery_links WHERE candidate_id = ? AND commit_oid = ?", [candidateId, commit]);
-    return row ? this.getDeliveryLink(asText(row.id)) : undefined;
-  }
-
-  async listDeliveryLinks(repositoryId: string, limit: number): Promise<import("./delivery-link.js").DeliveryLink[]> {
-    const rows = await this.client.all("SELECT id FROM delivery_links WHERE repository_id = ? ORDER BY id LIMIT ?", [repositoryId, limit]);
-    return Promise.all(rows.map(row => this.getDeliveryLink(asText(row.id))));
-  }
-
   async saveDeliveryLink(record: import("./delivery-link.js").DeliveryLink, expectedVersion: number): Promise<void> {
     if (expectedVersion === 0) {
       await this.client.run("INSERT INTO delivery_links (id, candidate_id, repository_id, commit_oid, version) VALUES (?, ?, ?, ?, ?)", [record.id, record.candidate_id, record.repository_id, record.commit_oid, record.version]);

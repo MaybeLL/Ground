@@ -10,7 +10,6 @@
     { "$ref": "candidate-archive.schema.json#/$defs/archiveResult" },
     { "$ref": "candidate-archive.schema.json#/$defs/archiveStatus" },
     { "$ref": "candidate-archive.schema.json#/$defs/lineageResult" },
-    { "$ref": "code-history.schema.json" },
     { "$ref": "devrun-sync.schema.json" },
     { "$ref": "#/$defs/reviewSummary" },
     { "$ref": "#/$defs/verificationPage" },
