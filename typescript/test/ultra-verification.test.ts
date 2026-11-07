@@ -408,19 +408,6 @@ backendTest("a refinement sees the mode, the quality verdict and, on request, ev
   assert.deepEqual(abstraction?.final.findings, findings);
 });
 
-backendTest("a new ultra report changes the Selection's verification snapshot just like a normal report", async (fixture) => {
-  const candidate = await fixture.submitCandidate();
-  await fixture.verify(candidate, "qualified");
-  const selected = await fixture.module.setSelection({ operation_id: newUUIDv7(), issue_id: fixture.issue.issue_id, issue_version: 1, candidate_id: candidate.candidate.candidate_id, expected_version: 0, attribution: testAgent, reason: "Reviewed" });
-  assert.equal(selected.selection.verification_changed, false);
-  const ultra = await submitUltra(fixture, candidate, await qualityReport(fixture, candidate, { conciseness: { verdict: "rejected", findings: [blocking()] } }));
-  const after = await fixture.module.showSelection(fixture.issue.issue_id);
-  assert.equal(after.selection.verification_changed, true);
-  assert.ok(after.selection.warnings.some((warning) => warning.code === "SELECTION_VERIFICATION_CHANGED"));
-  assert.equal(after.selection.current_verification?.count, 2);
-  assert.equal(after.selection.current_verification?.standing, ultra.standing);
-});
-
 test("the Chinese content check also covers the quality part before signing", async () => {
   const fixture = await LedgerFixture.create();
   const directory = mkdtempSync(join(tmpdir(), "grounds-ultra-language-"));

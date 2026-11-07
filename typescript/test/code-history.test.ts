@@ -326,27 +326,6 @@ test("trace exposes a versioned contract with both current and historical source
   } finally { f.close(); }
 });
 
-test("after preparing a fixed Git delivery the CLI can resolve the Candidate from its validated receipt", async () => {
-  const f = await setup();
-  try {
-    const c = await candidate(f, "export function refund(days: number) {\n  return days > 60 ? 'manual' : 'automatic';\n}\n");
-    assert.equal((await f.invoke("selection", "set", "--issue", c.issue.issue_id, "--issue-version", "2", "--candidate", c.id, "--expected-version", "0", "--reason", "Adopt this implementation")).code, 0);
-    const target = join(f.root, "delivery");
-    assert.equal((await f.invoke("selection", "materialize", "--issue", c.issue.issue_id, "--issue-version", "2", "--expected-version", "1", "--path", target)).code, 0);
-    assert.equal(git(target, "rev-parse", "HEAD"), c.source.commit.slice(5));
-    const recordArgs = ["delivery-link", "record", "--cwd", target, "--commit", git(target, "rev-parse", "HEAD"), "--expected-version", "0", "--operation-id", newUUIDv7()];
-    const linked = await f.invoke(...recordArgs);
-    assert.equal(linked.code, 0, JSON.stringify(linked));
-    assert.equal(linked.data.link.candidate_id, c.id);
-    rmSync(git(target, "rev-parse", "--git-path", "grounds-delivery.json"));
-    const retry = await f.invoke(...recordArgs);
-    assert.equal(retry.code, 0, JSON.stringify(retry));
-    assert.deepEqual(retry.data, linked.data);
-    const differentOperation = [...recordArgs]; differentOperation[differentOperation.indexOf("--operation-id") + 1] = newUUIDv7();
-    assert.equal((await f.invoke(...differentOperation)).error?.code, "VALIDATION_ERROR");
-  } finally { f.close(); }
-});
-
 test("the Work Module rejects delivery evidence pointing at nonexistent change units", async () => {
   const f = await setup();
   const store = SQLStore.sqlite(join(f.root, "ledger.db"));

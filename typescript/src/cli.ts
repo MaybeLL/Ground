@@ -1,7 +1,6 @@
 import { resolveDevelopmentMode, resumeDevelopmentMode, validateDevelopmentMode, type DevelopmentModeSelection } from "./development-mode.js";
 import { RepositoryArchiveAccess } from "./repository-archive-access.js";
 import { archivePolicyFor, executeRepositoryArchive, repositoryArchiveCommands } from "./repository-archive-cli.js";
-import type { CompletionInput } from './completion.js';
 import { CandidateArchiveService, archiveOperation } from "./candidate-archive-service.js";
 import { ArchiveProtectionUnavailable, collectGitArchiveBinding, fetchGitArchive, inspectGitArchive, inspectLocalGitArchive, readArchiveProtectionPolicy, restoreGitArchive } from "./candidate-git-archive.js";
 import { deriveLocalGitArtifact } from "./git-artifact-local.js";
@@ -15,9 +14,7 @@ import { safeRead } from './runtime-files.js';
 import { runtimeError } from "./runtime-record.js";
 import type { RuntimeRecord } from "./runtime-record.js";
 import { traceSource } from "./code-history-trace.js";
-import { candidateFromReceipt, deliveryProof, withHistoryRead } from "./git-history.js";
-import { DeliveryWorktreeModule } from "./delivery-worktree.js";
-import type { DeliveryReceipt } from "./selection.js";
+import { deliveryProof, withHistoryRead } from "./git-history.js";
 import { prepareReviewMarkdown, PreparedReviewMarkdown } from "./review-export.js";
 import { execFileSync } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, readSync } from "node:fs";
@@ -28,10 +25,8 @@ import { candidateProse, checkContentLanguage, contentLanguagePolicy, qualityPro
 import { asDomainError, DomainError, schemaDetails, validation, worktreeMismatch } from "./errors.js";
 import { assertTargetBase } from "./target-branch.js";
 import { snapshotRelation, readCommit } from "./integration-history.js";
-import { IntegrationService } from "./integration-service.js";
 import { DevRunSyncService } from "./devrun-sync-service.js";
 import { PreflightService, observationData, assessmentData, type AssessInput } from "./preflight.js";
-import type { LandingSource } from "./integration-gate.js";
 import { assertReviewWorktreeCandidateArtifact, captureArtifact, discoverRepository, matchingRemoteNames, materializeCandidateWorktree, normalizeRemote, readReviewWorktreeMarker, resolveBaseline, selectRemote, diffTrees, type ReviewWorktreeMarker, type WorktreeMode } from "./git.js";
 import { isUUIDv7, newUUIDv7 } from "./identity.js";
 import { Module, type PairwiseOptions, type SuccessEnvelope, type Warning } from "./module.js";
@@ -69,7 +64,7 @@ export interface CLIIO {
 const stdout = (io: CLIIO, line: string): void => (io.stdout ?? ((value) => process.stdout.write(value + "\n")))(line);
 const stderr = (io: CLIIO, line: string): void => (io.stderr ?? ((value) => process.stderr.write(value + "\n")))(line);
 
-const booleanOptionKeys = new Set(["early", "pinned", "allow-cached", "legacy-fixed","allow-unverified","preview","parallel-route","tty", "summary", "paged", "json", "markdown", "reconfigure", "allow-submitted", "non-interactive", "confirm-initialize", "help", "link", "dry-run", "discard-changes", "include-diff", "refresh", "declare-stop"]);
+const booleanOptionKeys = new Set(["early", "pinned", "allow-cached", "legacy-fixed","preview","parallel-route","tty", "summary", "paged", "json", "markdown", "reconfigure", "allow-submitted", "non-interactive", "confirm-initialize", "help", "link", "dry-run", "discard-changes", "include-diff", "refresh", "declare-stop"]);
 
 export const parseArgs = (argv: string[]): ParsedArgs => {
   const positionals: string[] = []; const values: Record<string, string | boolean | string[]> = {};
@@ -96,8 +91,8 @@ export const parseArgs = (argv: string[]): ParsedArgs => {
 // back to a default and an extra positional silently being ignored.  The
 // option allow-list is shared across commands because Grounds commands
 // intentionally reuse a small set of attribution, storage and Git flags.
-const knownOptionKeys = new Set(["development-mode", "early", "pinned", "retention-days", "plan-digest", "allow-cached", "configuration", "data-root", "instance", "issue-slug", "view", "observation-time", "landing-record", "archive-policy","legacy-fixed","allow-unverified","policy", "expected-head", "choice", "preview","adoption-file","plan", "parallel-route", "definition-commit", "target-remote", "target-branch",
-  "workspace", "output", "format", "selection", "selection-version", "source-remote", "source-ref", "source-commit", "sync", "target-commit", "observation", "authorization", "provenance", "record",
+const knownOptionKeys = new Set(["development-mode", "early", "pinned", "retention-days", "plan-digest", "allow-cached", "configuration", "data-root", "instance", "issue-slug", "view", "observation-time", "landing-record", "archive-policy","legacy-fixed","policy", "expected-head", "choice", "preview","plan", "parallel-route", "definition-commit", "target-remote", "target-branch",
+  "workspace", "output", "format", "sync", "target-commit", "observation",
   "external-directory", "input-digest", "directory", "snippet-file", "start-line", "end-line", "commit", "status", "state", "sort", "has-open-devrun", "standing", "selected", "verdict",
   "issue-version", "summary", "paged", "cursor", "after", "agent-id", "agent-name", "allow-submitted", "at", "baseline", "base-commit", "baseline-policy", "branch", "brief", "brief-file", "canonical-remote", "candidate", "ca-file", "confirm-initialize", "config", "content-language", "language-override-reason", "context", "cwd", "database", "dev-run", "discard-changes", "driver", "dry-run", "event", "refresh", "expected-version", "exploration-brief", "file", "handoff", "help", "host", "include-diff", "include-patch", "include-verification", "issue", "issues-cursor", "json", "limit", "link", "manifest-cursor", "markdown", "mode", "name", "non-interactive", "operation-id", "pairwise", "password-source", "path", "phase", "port", "preflight", "reason", "reconfigure", "refines-candidate", "remote", "remote-url", "repository", "requirement", "side", "skills-path", "subject-id", "subject-type", "tls", "tls-mode", "username", "verifications-cursor", "version", "role", "quality-handoff", "independent-digest", "out", "review-session",
   "run", "stage", "entry", "started-at", "ended-at", "exit-code", "identity", "asset", "lease", "hit", "copy-path", "report-digest",
@@ -113,11 +108,6 @@ const validateOptionKeys = (args: ParsedArgs): void => {
 // surface explicit so every option is consumed by exactly one handler.
 const commandOptionKeys: Record<string, Set<string>> = {
   ...Object.fromEntries(Object.entries(repositoryArchiveCommands).map(([action, spec]) => [`repository:${action}`, new Set<string>(spec.options)])),
-  "integration:observe": new Set(["config", "candidate", "selection", "selection-version", "source-remote", "source-ref", "source-commit", "refresh", "operation-id", "agent-id", "agent-name"]),
-  "integration:authorize": new Set(["config", "observation", "reason", "operation-id", "agent-id", "agent-name"]),
-  "integration:consume": new Set(["config", "authorization", "operation-id", "agent-id", "agent-name"]),
-  "integration:landing": new Set(["archive-policy","adoption-file","config", "observation", "commit", "provenance", "refresh", "operation-id", "agent-id", "agent-name"]),
-  "integration:show": new Set(["config", "record"]),
   "delivery-link:withdraw": new Set(["config", "expected-version", "reason", "operation-id", "agent-id", "agent-name"]),
   "delivery-link:show": new Set(["config", "version"]),
   "delivery-link:record": new Set(["config", "candidate", "commit", "expected-version", "repository", "remote", "operation-id", "agent-id", "agent-name"]),
@@ -135,14 +125,6 @@ const commandOptionKeys: Record<string, Set<string>> = {
   "repository:alias-add": new Set(["config", "repository", "remote", "remote-url", "expected-version", "operation-id", "agent-id", "agent-name"]),
   "repository:alias-retire": new Set(["config", "repository", "remote", "remote-url", "expected-version", "operation-id", "agent-id", "agent-name"]),
   "requirement:list": new Set(["config", "limit", "cursor"]), "requirement:show": new Set(["config", "requirement", "issues-cursor"]),
-  "selection:inspect": new Set(["config", "issue", "issue-version", "path"]),
-  "completion:show": new Set(["config", "issue", "issue-version"]),
-  "completion:record": new Set(["config", "issue", "issue-version", "file", "expected-version", "operation-id", "agent-id", "agent-name"]),
-  "completion:reopen": new Set(["config", "issue", "issue-version", "reason", "expected-version", "operation-id", "agent-id", "agent-name"]),
-  "selection:show": new Set(["config", "issue", "issue-version"]),
-  "selection:set": new Set(["config", "issue", "issue-version", "candidate", "expected-version", "reason", "operation-id", "agent-id", "agent-name"]),
-  "selection:clear": new Set(["config", "issue", "issue-version", "expected-version", "reason", "operation-id", "agent-id", "agent-name"]),
-  "selection:materialize": new Set(["allow-unverified", "reason", "operation-id", "agent-id", "agent-name","config", "issue", "issue-version", "expected-version", "path", "branch"]),
   "issue:list": new Set(["config", "requirement", "repository", "status", "has-open-devrun", "sort", "limit", "cursor"]), "issue:show": new Set(["config", "issue", "issue-version"]),
   "devrun:sync-status": new Set(["config", "dev-run", "refresh"]),
   "devrun:sync-show": new Set(["config", "sync"]),
@@ -168,7 +150,7 @@ const commandOptionKeys: Record<string, Set<string>> = {
   "candidate:fetch": new Set(["config", "candidate"]),
   "candidate:restore": new Set(["config", "candidate", "path", "branch"]),
   "candidate:lineage": new Set(["config", "candidate"]),
-  "candidate:materialize": new Set(["config", "candidate", "mode", "path", "branch"]), "candidate:artifact": new Set(["config", "candidate"]), "candidate:replay-check": new Set(["config", "candidate", "issue", "issue-version", "refresh"]), "candidate:show": new Set(["config", "candidate", "manifest-cursor", "verifications-cursor"]),
+  "candidate:materialize": new Set(["config", "candidate", "mode", "path"]), "candidate:artifact": new Set(["config", "candidate"]), "candidate:replay-check": new Set(["config", "candidate", "refresh"]), "candidate:show": new Set(["config", "candidate", "manifest-cursor", "verifications-cursor"]),
   "candidate:list": new Set(["config", "issue", "issue-version", "repository", "standing", "selected", "limit", "cursor"]), "candidate:compare": new Set(["candidate", "config", "include-patch", "pairwise", "summary"]),
   "candidate:template": new Set(["config", "dev-run", "content-language"]),
   "verification:submit": new Set(["config", "candidate", "file", "handoff", "quality-handoff", "mode", "content-language", "language-override-reason", "operation-id", "agent-id", "agent-name"]), "verification:context": new Set(["config", "candidate", "phase", "role", "out", "review-session"]),
@@ -198,12 +180,10 @@ const optionDocs: Record<string, string> = {
   "legacy-fixed": "Explicit legacy pinned target-start compatibility; never a fallback for a new managed plan. Existing legacy operations replay without this flag",
   "target-remote": "Explicit user-confirmed target remote of the registered Repository",
   "target-branch": "Explicit full refs/heads/... target branch; no main/master/checkout guessing",
-  "allow-unverified": "Explicit single preparation exception; requires reason and stable operation ID and binds Candidate/source/Selection/refreshed target; does not change Verification",
   "policy": "Explicit author continuation policy: parallel or paused; a replay returns its historical receipt, inspect devrun context for the current policy",
   "expected-head": "Qualified HEAD observed for author continuation, synchronization or preflight admission; stale values are rejected",
   "choice": "Cleanup choice: worktree (retain branch), worktree-and-branch, or keep",
   "preview": "Read-only cleanup preview; does not remove a worktree or branch",
-  "adoption-file": "Explicit adoption evidence JSON; binds Repository, target, source, L and method; FF requires target_predecessor evidence to confirm the real target update predecessor",
   "plan": "Confirmed local development plan UUID; creates exactly its managed path and branch",
   "parallel-route": "Use a separate planned managed route instead of continuing the parent route",
   "issue-slug": "Readable English issue name for grounds/<issue-slug>/<route-key>; route key is generated from the plan identity",
@@ -217,7 +197,7 @@ const optionDocs: Record<string, string> = {
   "allow-submitted": "Unused placeholder kept for option-allowlist parity",
   "baseline": "Git revision to use as the Issue baseline (default HEAD)",
   "baseline-policy": "warn or require_override for unconfirmed baselines",
-  "branch": "Delivery branch name (candidate materialize delivery mode)",
+  "branch": "Development branch name",
   "brief": "Inline DevRun exploration brief",
   "base-commit": "First target-flow start must equal the freshly assessed target commit; refinement preparation restores its parent Candidate base",
   "view": "Fixed comparison: candidate, original, upstream, evolution, cumulative, landing, or target",
@@ -225,15 +205,7 @@ const optionDocs: Record<string, string> = {
   "landing-record": "Exact recorded landing UUID for landing difference",
   "target-commit": "Qualified fixed target commit OID for explicit sync or observed-target comparison",
   "sync": "Durable DevRun sync record ID; complete/abandon use its version",
-  "selection": "Selection ID bound to an integration observation",
-  "selection-version": "Expected Selection version bound to an integration observation",
-  "source-remote": "Git remote for the actual integration source branch",
-  "source-ref": "Full refs/heads/... source branch ref; distinct from the Issue target",
-  "source-commit": "Qualified source commit OID; managed source must match archived commit/ordered parents/result tree and contain Candidate base; requires the exact source commit of the Git artifact",
-  "observation": "Saved integration gate observation ID",
-  "authorization": "One-time integration authorization ID; consumption refreshes facts and never merges",
-  "provenance": "Landing identity source: user, merge_result, or target_is_source; first-parent checks still apply",
-  "record": "Immutable integration record ID to inspect",
+  "observation": "Saved preflight observation ID",
   "brief-file": "Path to a DevRun exploration brief file",
   "ca-file": "MySQL/PostgreSQL TLS CA file",
   "candidate": "Candidate ID (positional or --candidate)",
@@ -272,7 +244,7 @@ const optionDocs: Record<string, string> = {
   "limit": "Maximum results; trace checks up to 200 Candidates (default 200). On list commands it selects paged mode: 1-1000 items per page (default 100 when only --cursor is given). Order: Issue by ID ascending (or latest activity first with --sort activity); DevRun/Requirement/Repository by ID ascending; Candidate/Verification by created_at then ID ascending",
   "link": "Create links to the canonical ~/.agents/skills install instead of copying a second managed copy",
   "manifest-cursor": "Opaque page cursor for a Candidate file manifest",
-  "mode": "candidate materialize: existing, review, or delivery; verification submit: normal (default) or ultra",
+  "mode": "candidate materialize: existing or review; verification submit: normal (default) or ultra",
   "development-mode": "Choose simple (current environment) or container for this DevRun",
   "non-interactive": "Never prompt; use supplied values or defaults",
   "operation-id": "Caller-supplied UUIDv7 idempotency key",
@@ -307,7 +279,7 @@ const optionDocs: Record<string, string> = {
   "tls-mode": "MySQL/PostgreSQL TLS mode",
   "username": "MySQL/PostgreSQL username",
   "verifications-cursor": "Opaque page cursor for candidate verifications",
-  "issue-version": "Public Issue Version number; expected-version is the Selection concurrency version",
+  "issue-version": "Public Issue Version number",
   "version": "Print the installed Grounds CLI version",
   "name": "Human-facing Workspace name",
   "dry-run": "Validate and show the publication plan without writing",
@@ -320,12 +292,7 @@ const optionDocs: Record<string, string> = {
 const commandDocs: Record<string, string> = {
   ...Object.fromEntries(Object.entries(repositoryArchiveCommands).map(([action, spec]) => [`repository:${action}`, spec.description])),
   "trace:": "Locate current code and trace verified Git changes to historical Candidate contracts",
-  "integration:observe": "Persist target/source/Selection checks and separate Verification standing; offline is always unknown, --refresh fetches both branches",
-  "integration:authorize": "Record an explicit one-time user decision accepting unverified landing; only a solely forward-expired gate is eligible",
-  "integration:consume": "Freshly fetch and recheck all bound facts, then consume authorization exactly once; never merges or retries an unknown merge outcome",
-  "integration:landing": "Persist trusted landing identity, actual target predecessor evidence, Git parent checks and Verification standing; never infers adoption from similar trees",
-  "integration:show": "Read an immutable gate, authorization, consumption or landing record",
-  "delivery-link:record": "Record a verified Candidate/commit association; requires a full commit OID and expected version",
+  "delivery-link:record": "Record a verified Candidate/commit association; requires --candidate, a full commit OID and expected version",
   "delivery-link:withdraw": "Withdraw LINK_ID at an expected version, retaining immutable history",
   "delivery-link:show": "Read LINK_ID, optionally at a historical --version",
   "init:": "Initialize a Grounds ledger and write its config file",
@@ -349,14 +316,6 @@ const commandDocs: Record<string, string> = {
   "requirement:list": "List Requirements",
   "requirement:show": "Show a Requirement Version and its Issues",
   "issue:list": "List Issues (optionally for a Requirement)",
-  "selection:inspect": "Inspect local delivery preparation and safe next steps",
-  "completion:show": "Read exact Issue Version completion and retained history; verification remains independent",
-  "completion:record": "Record confirmed external delivery (including historical work without a Candidate); --file grounds.issue-completion-input/v1 requires repository_id, full target_branch ref, landed_commit, adoption_evidence, completed_at, origin and release (released version/channel/evidence or not_applicable reason). References are asserted, not checked. No merge or release is executed. First expected-version is 0; reopen before correcting a completed record.",
-  "completion:reopen": "Reopen exact Issue Version with a reason and expected completion version; preserve history and restore derived work status",
-  "selection:show": "Show the current delivery choice for an Issue Version",
-  "selection:set": "Choose or reselect a Candidate (expected-version 0 for the first choice)",
-  "selection:clear": "Clear the current choice while retaining its concurrency version",
-  "selection:materialize": "Prepare delivery from the pinned Selection version",
   "issue:show": "Show the current or an explicit historical Issue Version",
   "devrun:sync-status": "Observe target advancement offline by default; --refresh explicitly fetches; list durable sync records",
   "devrun:sync-show": "Read one persisted sync reservation, recovery identity and terminal receipt",
@@ -371,7 +330,7 @@ const commandDocs: Record<string, string> = {
   "devrun:abandon": "Abandon an open DevRun",
   "devrun:cleanup": "Remove a terminal managed worktree (records a devrun.worktree_removed event and returns deletion_summary) or detach an external workspace",
   "devrun:list": "List DevRuns",
-  "devrun:reconcile": "Read-only view of one DevRun across the ledger, local worktree (including whether an env run holds its route) and delivery directories, with findings and safe next steps",
+  "devrun:reconcile": "Read-only view of one DevRun across the ledger, local worktree and env route lease, with findings and safe next steps",
   "devrun:uncommitted": "List DevRuns of this clone whose local worktree holds uncaptured changes or ignored files that exist only on this machine",
   "devrun:show": "Show a DevRun",
   "preflight:observe": "Record an immutable, bound observation of the declared target for a phase; --refresh explicitly fetches; start binds the Issue scope, definition observes a repository/target",
@@ -410,15 +369,12 @@ const commandDocs: Record<string, string> = {
 // A group help page is a navigation step, not an empty command: it must tell a
 // caller which actions exist before it can sensibly request action-level help.
 const actionSets: Record<string, string[]> = {
-  integration: ["observe", "authorize", "consume", "landing", "show"],
   "delivery-link": ["record", "withdraw", "show"],
   install: ["skill"], db: ["status", "test", "migrate"],
   repository: [...Object.keys(repositoryArchiveCommands), "register", "resolve", "list", "show", "move", "alias-add", "alias-retire"],
   requirement: ["list", "show"], issue: ["list", "show"],
   devrun: ["plan", "continue", "sync-status", "sync-show", "sync", "sync-complete", "sync-abandon", "inspect-workspace", "start", "context", "abandon", "cleanup", "list", "show", "reconcile", "uncommitted", "prepare", "admit"],
   preflight: ["observe", "assess", "show"],
-  completion: ["show", "record", "reopen"],
-  selection: ["show", "set", "clear", "materialize", "inspect"],
   candidate: ["diff", "archive", "archive-status", "archive-operation", "fetch", "restore", "lineage", "submit", "materialize", "show", "list", "compare", "template", "artifact", "replay-check"],
   verification: ["submit", "context", "show", "list", "template", "handoff", "independent-digest", "run"], ledger: ["list", "show"],
 };
@@ -432,7 +388,6 @@ const repeatableOptionKeys: Record<string, Set<string>> = {
 const positionalBounds: Record<string, [number, number]> = {
   ...Object.fromEntries(Object.keys(repositoryArchiveCommands).map(action => [`repository:${action}`, [2, 2] as [number, number]])),
   "delivery-link:withdraw": [3, 3], "delivery-link:show": [3, 3],
-  "integration:observe": [2, 2], "integration:authorize": [2, 2], "integration:consume": [2, 2], "integration:landing": [2, 2], "integration:show": [2, 3],
   "delivery-link:record": [2, 2],
   "trace:": [1, 1],
   "init:": [1, 1],
@@ -444,8 +399,6 @@ const positionalBounds: Record<string, [number, number]> = {
   "db:status": [2, 2], "db:test": [2, 2], "db:migrate": [2, 2],
   "repository:register": [2, 2], "repository:resolve": [2, 2], "repository:list": [2, 2], "repository:show": [2, 3], "repository:move": [2, 3], "repository:alias-add": [2, 3], "repository:alias-retire": [2, 3],
   "requirement:list": [2, 2], "requirement:show": [2, 3],
-  "completion:show": [2, 2], "completion:record": [2, 2], "completion:reopen": [2, 2],
-  "selection:inspect": [2, 2], "selection:show": [2, 2], "selection:set": [2, 2], "selection:clear": [2, 2], "selection:materialize": [2, 2],
   "issue:list": [2, 2], "issue:show": [2, 3],
   "devrun:sync-status": [2, 3], "devrun:sync-show": [2, 3], "devrun:sync": [2, 3], "devrun:sync-complete": [2, 3], "devrun:sync-abandon": [2, 3],
   "devrun:continue": [2, 2], "devrun:plan": [2, 2], "devrun:inspect-workspace": [2, 3], "devrun:start": [2, 3], "devrun:context": [2, 3], "devrun:abandon": [2, 3], "devrun:cleanup": [2, 3], "devrun:list": [2, 2], "devrun:show": [2, 3], "devrun:reconcile": [2, 3], "devrun:uncommitted": [2, 2], "devrun:prepare": [2, 3], "devrun:admit": [2, 3],
@@ -957,9 +910,9 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
       }
       return { result_type: "patchledger.result.help/v1", command: "help", usage: formatCommandHelp(commandHelp(helpGroup, helpAction)) };
     }
-    return { result_type: "patchledger.result.help/v1", command: "help", usage: "grounds doctor | task | work | grade | install skill [path] | init | review [candidate-id] | trace | delivery-link | integration | requirement | repository | issue | devrun | preflight | candidate | selection | completion | verification | ledger | env | db | config" };
+    return { result_type: "patchledger.result.help/v1", command: "help", usage: "grounds doctor | task | work | grade | install skill [path] | init | review [candidate-id] | trace | delivery-link | requirement | repository | issue | devrun | preflight | candidate | verification | ledger | env | db | config" };
   }
-  if (!group) throw validation("command", "expected install, init, review, config, db, repository, requirement, issue, devrun, candidate, selection, verification, or ledger");
+  if (!group) throw validation("command", "expected install, init, review, config, db, repository, requirement, issue, devrun, candidate, verification, or ledger");
   if (group === "doctor") {
     validateCommandArguments(args, group, action);
     if (action) throw validation("command", "doctor does not take an action");
@@ -1050,59 +1003,16 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
   try {
     return await (async () => {
     if (group === "repository" && Object.hasOwn(repositoryArchiveCommands, action)) return executeRepositoryArchive({ action: action as keyof typeof repositoryArchiveCommands, args, store: opened.store, attribution: actor, operationID: () => operationID(args, io) });
-    if (group === "integration") {
-      const integration = new IntegrationService(opened.store, cwd);
-      const who = () => ({ operation_id: operationID(args, io), attribution: actor() });
-      const record = action === "observe" ? await integration.observe({ candidate_id: required(args, "candidate"), selection_id: required(args, "selection"), selection_version: integerValue(args, "selection-version", 1), source: { remote: required(args, "source-remote"), ref: required(args, "source-ref") }, source_commit: required(args, "source-commit"), refresh: bool(args, "refresh") }, who())
-        : action === "authorize" ? await integration.authorize(required(args, "observation"), required(args, "reason"), who())
-        : action === "consume" ? await integration.consume(required(args, "authorization"), who())
-        : action === "landing" ? await integration.landing(required(args, "observation"), { ...(hasOption(args, "commit") ? { commit: required(args, "commit") } : {}), ...(hasOption(args, "provenance") ? { provenance: required(args, "provenance") as LandingSource } : {}), refresh: bool(args, "refresh"), ...(hasOption(args, "adoption-file") ? { adoption: JSON.parse(safeRead(resolve(cwd, required(args, "adoption-file")), 16 * 1024).toString()) } : {}) }, who())
-        : action === "show" ? await integration.show(resourceID(args, "record", "integration")) : undefined;
-      if (!record) throw validation("command", "unknown integration action");
-      let landing_archive: unknown;
-      if (record.kind === "landing" && record.landing?.actual_landing && action === "landing") {
-        // Adoption is already durably recorded. Archival can remain pending without undoing that fact.
-        const landed = record.landing.actual_landing;
-        const predecessor = record.landing.target_predecessor;
-        const archives = new CandidateArchiveService(opened.store, cwd);
-        if (predecessor?.state !== "confirmed" || !predecessor.commit) {
-          landing_archive = { status: predecessor?.state === "conflict" ? "unknown" : "pending", operation_id: record.id,
-            reason: predecessor?.state === "conflict" ? "actual_target_predecessor_conflict" : "actual_target_predecessor_unknown" };
-        } else try {
-          const descriptor = await module.candidateArtifactDescriptor(record.candidate_id);
-          const repository = await module.showRepository(descriptor.repository_id!);
-          let row = await archives.prepare({ operation_id: record.id, purpose: "landing", owner_id: record.candidate_id, candidate_id: record.candidate_id,
-            request: { landing_record_id: record.id, landed_commit: landed.oid, target_predecessor: predecessor.commit.oid }, attribution: actor(),
-            binding: () => ({ repository_id: descriptor.repository_id!, canonical_remote: repository.canonical_remote, archive_ref: `refs/tags/grounds/deliveries/${record.id}`, source_commit: landed.oid, ordered_parents: landed.parents, result_tree: landed.tree_oid, base_commit: predecessor.commit.oid, retained_commits: [predecessor.commit.oid] }) });
-          if (value(args, "archive-policy") || process.env.GROUNDS_ARCHIVE_POLICY || (await new RepositoryArchiveAccess(opened.store).status(descriptor.repository_id!)).binding) {
-            const verified = await archives.verify(record.id, archivePolicyFor(opened.store, cwd, value(args, "archive-policy")));
-            row = await archives.committed(record.id, { landing_record_id: record.id, receipt: verified.artifact.receipt });
-          }
-          landing_archive = { status: archiveOperation(row).phase === "committed" ? "confirmed" : "pending", operation_id: record.id, operation: row };
-        } catch (error) { landing_archive = { status: "unknown", operation_id: record.id, reason: "adoption_recorded_but_archive_requires_reconciliation", ...(error instanceof DomainError && error.details.protection_diagnosis ? { protection_diagnosis: error.details.protection_diagnosis } : {}) }; }
-      }
-      if (record.kind === "landing" && record.landing?.actual_landing && action === "show") {
-        const row = await opened.store.read(tx => tx.getRuntimeRecord("runtime_operation", record.id));
-        const predecessor = record.landing.target_predecessor;
-        landing_archive = predecessor?.state !== "confirmed" || !predecessor.commit
-          ? {status: predecessor?.state === "conflict" ? "unknown" : "pending", operation_id: record.id, ...(row ? {operation: row} : {}), reason: predecessor?.state === "conflict" ? "actual_target_predecessor_conflict" : "actual_target_predecessor_unknown"}
-          : row?.data.format === "grounds.candidate-archive-operation/v1"
-            ? {status: archiveOperation(row).phase === "committed" ? "confirmed" : archiveOperation(row).phase === "unknown" ? "unknown" : "pending", operation_id: record.id, operation: row}
-            : {status: "pending", operation_id: record.id};
-      }
-      return { result_type: "patchledger.result.integration/v1", command: `integration.${action}`, record, ...(landing_archive ? { landing_archive } : {}),
-        ...(record.kind === "authorization" ? { authorization_state: await integration.authorizationState(record.id) } : {}) };
-    }
     if (group === "delivery-link" && action === "show") return module.showDeliveryLink(args.positionals[2], hasOption(args, "version") ? integerValue(args, "version", 1) : undefined);
     if (group === "delivery-link" && action === "withdraw") return module.withdrawDeliveryLink({ link_id: args.positionals[2], operation_id: operationID(args, io), expected_version: integerValue(args, "expected-version", 0), reason: required(args, "reason"), attribution: actor() });
     if (group === "delivery-link" && action === "record") {
       const operation = operationID(args, io), expected = integerValue(args, "expected-version", 0);
       const caller = actor(), commit = required(args, "commit");
       const repository = await resolveCurrentRepository(module, args, cwd);
-      const candidate = value(args, "candidate") || undefined;
+      const candidate = required(args, "candidate");
       const replay = await module.completedDeliveryLinkOperation({ operation_id: operation, expected_version: expected, attribution: caller, repository_id: repository.id, candidate_id: candidate, commit_oid: commit });
       if (replay) return replay;
-      const proof = await withHistoryRead(async () => deliveryProof(module, cwd, repository.id, candidate ?? await candidateFromReceipt(module, cwd, repository.id, opened.config.database.expected_database_id), commit));
+      const proof = await withHistoryRead(async () => deliveryProof(module, cwd, repository.id, candidate, commit));
       return module.recordDeliveryLink({ operation_id: operation, expected_version: expected, attribution: caller, proof });
     }
     if (group === "trace") {
@@ -1572,105 +1482,12 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
       const submitted = await devWorktrees.submit(runID, capture);
       return { ...submitted, warnings: languageWarnings };
     }
-    if (group === "completion") {
-      const issue = required(args, "issue"), version = integerValue(args, "issue-version", 1);
-      if (action === "show") return module.showCompletion(issue, version);
-      const input = { issue_id: issue, issue_version: version, expected_version: integerValue(args, "expected-version", 0), operation_id: operationID(args, io), attribution: attribution(args, cwd) };
-      if (action === "reopen") return module.reopenCompletion({ ...input, reason: required(args, "reason") });
-      let completion: CompletionInput;
-      try { completion = JSON.parse(decodeFile(resolve(cwd, required(args, "file"))).toString("utf8")) as CompletionInput; }
-      catch { throw validation("file", "requires readable completion input JSON"); }
-      return module.recordCompletion({ ...input, completion });
-    }
-    if (group === "selection") {
-      const issueId = required(args, "issue");
-      const parseVersion = (key: string, minimum: number): number => {
-        const raw = required(args, key);
-        const number = Number(raw);
-        if (!/^(0|[1-9][0-9]*)$/.test(raw) || !Number.isSafeInteger(number) || number < minimum || number > 2147483646) throw validation(key, `must be an integer between ${minimum} and 2147483646`);
-        return number;
-      };
-      if (action === "show") return module.showSelection(issueId, hasOption(args, "issue-version") ? parseVersion("issue-version", 1) : undefined);
-      if (action === "inspect") {
-        if (hasOption(args, "path") && (!value(args, "path").trim() || [...resolve(cwd, value(args, "path"))].length > 32768)) throw validation("path", "must be nonempty and at most 32768 characters");
-        const selection = await module.showSelection(issueId, hasOption(args, "issue-version") ? parseVersion("issue-version", 1) : undefined);
-        const detail = await module.showIssue(issueId);
-        await validateRepositoryClone(module, cwd, detail.repository.id);
-        const worktrees = new DeliveryWorktreeModule(cwd, opened.config.database.expected_database_id).inspect(selection, hasOption(args, "path") ? value(args, "path") : undefined);
-        for (const item of worktrees) if (item.recommended_argv.length) item.recommended_argv.push("--config", configPath(value(args, "config")));
-        return { result_type: "patchledger.result.selection-inspect/v1", command: "selection.inspect", issue: selection.issue, selection: selection.selection, discovery_scope: "current_clone", worktrees };
-      }
-      const issueVersion = parseVersion("issue-version", 1);
-      const expectedVersion = parseVersion("expected-version", 0);
-      if (action === "set" || action === "clear") {
-        const input = { issue_id: issueId, issue_version: issueVersion, expected_version: expectedVersion, operation_id: operationID(args, io), attribution: attribution(args, cwd), ...(hasOption(args, "reason") ? { reason: value(args, "reason") } : {}) };
-        return action === "set" ? module.setSelection({ ...input, candidate_id: required(args, "candidate") }) : module.clearSelection(input);
-      }
-      const path = required(args, "path");
-      if (!path.trim() || [...resolve(cwd, path)].length > 32768) throw validation("path", "must be nonempty and at most 32768 characters");
-      if (hasOption(args, "branch") && !value(args, "branch").trim()) throw validation("branch", "must not be empty");
-      try {
-        const initial = await module.loadSelectionMaterialization(issueId, issueVersion, expectedVersion);
-        await validateRepositoryClone(module, cwd, initial.materialization.repository_id);
-        const branch = value(args, "branch") || `grounds/candidate/${initial.materialization.candidate_id}`;
-        return await new DeliveryWorktreeModule(cwd, opened.config.database.expected_database_id).prepare(path, branch, async () => {
-          const { selection, materialization } = await module.loadSelectionMaterialization(issueId, issueVersion, expectedVersion);
-          let decision: string | undefined, observedTarget: string | undefined;
-          const detail = await module.showIssueVersion(issueId, issueVersion), target = detail.issue.target_branch;
-          const managed = await opened.store.read(async tx => {
-            const ref = await tx.findCandidateArtifactRef({ candidate_id: materialization.candidate_id });
-            return !!(ref && (await tx.getDevRun(ref.dev_run_id)).development);
-          });
-          if (managed && !target) throw validation("target", "managed Candidate requires its fixed contract target");
-          if (materialization.source && target) {
-            const observation = observeBranch(cwd, target, [materialization.canonical_remote], true);
-            if (!observation.refreshed || !observation.commit) throw worktreeMismatch(materialization.candidate_id, "target refresh failed; delivery remains unknown");
-            observedTarget = observation.commit.oid;
-            const relation = targetRelation(cwd, materialization.baseline.git_oid, observedTarget);
-            if (!["equal", "advanced"].includes(relation) || inspectCandidateSource(cwd, materialization.candidate_id, materialization.source).status !== "present" || readCommit(cwd, materialization.source.commit).tree_oid !== materialization.result_tree_oid) throw worktreeMismatch(materialization.candidate_id, "target was rewritten/unknown or fixed source is missing/inconsistent; no unverified exception can waive these facts");
-            const needsException = relation === "advanced" || selection.selection.current_verification?.standing !== "qualified";
-            if (needsException && !bool(args, "allow-unverified")) throw new DomainError("STATE_CONFLICT", relation === "advanced" ? "target advanced; sync the managed route, archive a new Candidate and independently verify before preparing delivery" : "fixed delivery commit is unverified; pause for an explicit single preparation decision", false, { candidate_id: materialization.candidate_id, source_commit: materialization.source.commit, target_commit: observedTarget });
-            // Explicit same-operation retries retain and revalidate an old decision even
-            // after qualification. A new qualified/equal request creates no exception.
-            if (bool(args, "allow-unverified")) {
-              decision = await module.recordDeliveryException({ operation_id: required(args, "operation-id"), issue_id: issueId, issue_version: issueVersion, selection_id: selection.selection.id!, selection_version: selection.selection.version, candidate_id: materialization.candidate_id,
-                source_commit: materialization.source.commit, target_commit: observedTarget, reason: required(args, "reason"), attribution: actor() }, !needsException);
-            }
-          }
-          const receipt: DeliveryReceipt = {
-            ...(observedTarget ? { observed_target_commit: observedTarget } : {}), ...(decision ? { delivery_decision_id: decision } : {}),
-            format: materialization.source ? "grounds.delivery-worktree/v2" : "patchledger.delivery-worktree/v1", ...(materialization.source ? { source_commit: materialization.source.commit } : {}), database_id: opened.config.database.expected_database_id,
-            issue: selection.issue, selection_id: selection.selection.id!, selection_version: selection.selection.version,
-            candidate_id: materialization.candidate_id, repository_id: materialization.repository_id,
-            baseline_oid: materialization.baseline.git_oid, patch_digest: materialization.patch_digest, result_tree_oid: materialization.result_tree_oid,
-          };
-          return { receipt, ...(materialization.source ? { source: materialization.source } : {}), patch: materialization.patch, warnings: selection.selection.warnings };
-        });
-      } catch (error) {
-        if (error instanceof DomainError) { error.details.target_path = resolve(cwd, path); error.details.inspect_argv = ["selection", "inspect", "--issue", issueId, "--issue-version", String(issueVersion), "--path", resolve(cwd, path), "--cwd", cwd, "--config", configPath(value(args, "config"))]; }
-        throw error;
-      }
-    }
     if (group === "candidate" && action === "materialize") {
       const candidateID = resourceID(args, "candidate", "candidate");
       const mode = value(args, "mode", "existing") as WorktreeMode;
-      if (!(["existing", "review", "delivery"] as string[]).includes(mode)) throw validation("mode", "must be existing, review, or delivery");
-      if (mode === "delivery" && args.values.path === undefined) throw validation("path", "is required in delivery mode");
-      const branchOption = value(args, "branch");
-      if (hasOption(args, "branch") && !branchOption.trim()) throw validation("branch", "must not be empty");
-      let branch = branchOption;
-      if (mode === "existing" && hasOption(args, "branch")) throw validation("branch", "is only valid in delivery mode");
-      if (mode === "review" && branch !== "") throw validation("branch", "is only valid in delivery mode");
-      if (mode === "delivery" && !branch) branch = `grounds/candidate/${candidateID}`;
+      if (!(["existing", "review"] as string[]).includes(mode)) throw validation("mode", "must be existing or review");
       if (hasOption(args, "path") && !value(args, "path").trim()) throw validation("path", "must not be empty");
       const materialization = await module.loadCandidateMaterialization(candidateID);
-      if (mode === "delivery") {
-        const gated = await opened.store.read(async tx => {
-          const ref = await tx.findCandidateArtifactRef({ candidate_id: candidateID });
-          return !!(ref && ((await tx.getDevRun(ref.dev_run_id)).development || (await tx.getIssueRevisionById(ref.issue_revision_id)).target_branch));
-        });
-        if (gated) throw validation("mode", "target-bound Candidate delivery requires Selection and its refreshed target/source/Verification gate; use selection materialize");
-      }
       // Review mode without --path gets a CLI-named session so verification material has one predictable home.
       const sessions = mode === "review" && args.values.path === undefined ? new ReviewSessions(commonRepositoryRoot(cwd)) : undefined;
       if (mode === "existing") await validateMaterializationTarget(module, resolve(value(args, "path", cwd)), materialization.repository_id, materialization.baseline.git_oid);
@@ -1679,9 +1496,9 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
       const targetPath = session ? session.worktree : resolve(value(args, "path", cwd));
       const reviewMarker: ReviewWorktreeMarker | undefined = mode === "review" ? { format: "patchledger.review-worktree/v1", database_id: opened.config.database.expected_database_id, candidate_id: materialization.candidate_id, repository_id: materialization.repository_id, baseline_oid: materialization.baseline.git_oid, result_tree_oid: materialization.result_tree_oid, patch_digest: materialization.patch_digest } : undefined;
       let created;
-      try { created = materializeCandidateWorktree({ source_path: cwd, target_path: targetPath, mode, ...(branch ? { branch } : {}), source_commit: materialization.source?.commit, baseline_oid: materialization.baseline.git_oid, patch: materialization.patch, expected_tree_oid: materialization.result_tree_oid, ...(reviewMarker ? { review_marker: reviewMarker } : {}) }); }
+      try { created = materializeCandidateWorktree({ source_path: cwd, target_path: targetPath, mode, source_commit: materialization.source?.commit, baseline_oid: materialization.baseline.git_oid, patch: materialization.patch, expected_tree_oid: materialization.result_tree_oid, ...(reviewMarker ? { review_marker: reviewMarker } : {}) }); }
       catch (error) { if (session) sessions?.discard(session.directory); throw error; }
-      return { result_type: "patchledger.result.candidate-materialize/v1", command: "candidate.materialize", candidate_id: materialization.candidate_id, result_tree_oid: materialization.result_tree_oid, target_path: created.target_path, materialization_mode: created.mode, ...(created.branch ? { branch: created.branch } : {}), ...(session ? { review_session_id: session.session_id } : {}) };
+      return { result_type: "patchledger.result.candidate-materialize/v1", command: "candidate.materialize", candidate_id: materialization.candidate_id, result_tree_oid: materialization.result_tree_oid, target_path: created.target_path, materialization_mode: created.mode, ...(session ? { review_session_id: session.session_id } : {}) };
     }
     if (group === "candidate" && action === "artifact") {
       const { candidate_id, ...artifact } = await module.candidateArtifactDescriptor(resourceID(args, "candidate", "candidate"));
@@ -1693,10 +1510,7 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
       return { result_type: "patchledger.result.candidate-artifact/v1", command: "candidate.artifact", candidate_id, artifact, ...(retention ? { source_retention: { scope: "current_clone", ...retention } } : {}) };
     }
     if (group === "candidate" && action === "replay-check") {
-      const hasCandidate = hasOption(args, "candidate"), hasIssue = hasOption(args, "issue"), hasVersion = hasOption(args, "issue-version");
-      if (hasCandidate && (hasIssue || hasVersion)) throw validation("candidate", "use either --candidate or --issue with --issue-version, not both");
-      if (!hasCandidate && !(hasIssue && hasVersion)) throw validation(hasIssue ? "issue-version" : "candidate", "provide --candidate, or --issue together with --issue-version");
-      const subject = await module.replaySubject(hasCandidate ? { candidate_id: required(args, "candidate") } : { issue_id: required(args, "issue"), issue_version: integerValue(args, "issue-version", 1) });
+      const subject = await module.replaySubject(required(args, "candidate"));
       await validateRepositoryClone(module, cwd, subject.repository_id);
       const { patch: _patch, registered_remotes: _remotes, repository_id: _repository, ...reference } = subject;
       return { result_type: "patchledger.result.candidate-replay-check/v1", command: "candidate.replay-check", ...reference, ...replayCheck(cwd, subject, { refresh: bool(args, "refresh") }) };
@@ -1848,13 +1662,8 @@ export const exitCode = (error: DomainError): number => ({ VALIDATION_ERROR: 2, 
 
 const writeCommands = new Set([
   "repository:archive-bind",
-  "integration:observe", "integration:authorize", "integration:consume", "integration:landing",
   "delivery-link:withdraw",
   "delivery-link:record",
-  "completion:record",
-  "completion:reopen",
-  "selection:set",
-  "selection:clear",
   "repository:register",
   "repository:move",
   "repository:alias-add",
@@ -1881,7 +1690,7 @@ const assessmentView = (record: RuntimeRecord): Record<string, unknown> => {
 };
 
 export const commandNeedsOperationID = (args: ParsedArgs): boolean =>
-  !(args.positionals[0] === "candidate" && args.positionals[1] === "archive" && bool(args, "dry-run")) && (args.positionals[0] === "selection" && args.positionals[1] === "materialize" && bool(args, "allow-unverified")) || writeCommands.has(`${args.positionals[0] ?? "help"}:${args.positionals[1] ?? ""}`) || WORK_WRITE_ACTIONS.has(`${args.positionals[0] ?? ""}:${args.positionals[1] ?? ""}`);
+  writeCommands.has(`${args.positionals[0] ?? "help"}:${args.positionals[1] ?? ""}`) || WORK_WRITE_ACTIONS.has(`${args.positionals[0] ?? ""}:${args.positionals[1] ?? ""}`);
 
 export const runCLI = async (argv: string[], io: CLIIO = {}): Promise<number> => {
   const args = parseArgs(argv);

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://patchledger.dev/contracts/v1/selection.schema.json",
   "title": "当前 Selection 与选择命令结果",
-  "$ref": "#/$defs/result",
+  "$ref": "#/$defs/view",
   "$defs": {
     "view": {
       "type": "object",
@@ -188,48 +188,6 @@
           }
         }
       ]
-    },
-    "result": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "result_type",
-        "command",
-        "issue",
-        "selection"
-      ],
-      "properties": {
-        "result_type": {
-          "const": "patchledger.result.selection/v1"
-        },
-        "command": {
-          "enum": [
-            "selection.show",
-            "selection.set",
-            "selection.clear"
-          ]
-        },
-        "issue": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "id",
-            "version"
-          ],
-          "properties": {
-            "id": {
-              "$ref": "common.schema.json#/$defs/id"
-            },
-            "version": {
-              "type": "integer",
-              "minimum": 1
-            }
-          }
-        },
-        "selection": {
-          "$ref": "#/$defs/view"
-        }
-      }
     }
   }
 }

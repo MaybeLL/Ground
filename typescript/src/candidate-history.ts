@@ -1,7 +1,7 @@
 import type { ReadTx, CandidateRecord } from "./store-types.js";
 import type { ArchiveOperation } from "./candidate-archive-service.js";
 import { archiveOperation } from "./candidate-archive-service.js";
-import type { IntegrationRecord } from "./integration-service.js";
+import type { IntegrationRecord } from "./integration-record.js";
 import { DomainError } from "./errors.js";
 import { sha256 } from "./canonical-json.js";
 

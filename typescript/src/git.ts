@@ -1,5 +1,4 @@
 import { assertNoTrackedGroundsRuntime, isPrivateGroundsPath } from "./grounds-exclude.js";
-import type { DeliveryReceipt } from "./selection.js";
 import { runGit as git, runGitWithEnv } from "./git-command.js";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { isIP } from "node:net";
@@ -22,7 +21,7 @@ export interface LocalRepository {
   remotes: GitRemote[];
 }
 
-export type WorktreeMode = "existing" | "review" | "delivery";
+export type WorktreeMode = "existing" | "review";
 export interface ReviewWorktreeMarker {
   format: "patchledger.review-worktree/v1";
   database_id: string;
@@ -32,8 +31,8 @@ export interface ReviewWorktreeMarker {
   result_tree_oid: string;
   patch_digest: string;
 }
-export interface MaterializeWorktreeOptions { source_commit?: string; source_path: string; target_path: string; mode: WorktreeMode; branch?: string; baseline_oid: string; patch: Buffer; expected_tree_oid: string; review_marker?: ReviewWorktreeMarker }
-export interface MaterializedWorktree { target_path: string; mode: WorktreeMode; branch?: string }
+export interface MaterializeWorktreeOptions { source_commit?: string; source_path: string; target_path: string; mode: WorktreeMode; baseline_oid: string; patch: Buffer; expected_tree_oid: string; review_marker?: ReviewWorktreeMarker }
+export interface MaterializedWorktree { target_path: string; mode: WorktreeMode }
 
 const gitText = (cwd: string, args: string[], indexPath?: string): string => git(cwd, args, indexPath).toString("utf8");
 
@@ -96,23 +95,6 @@ const writeReviewWorktreeMarker = (worktreePath: string, marker: ReviewWorktreeM
   }
 };
 
-/** Stored under the worktree-specific Git directory, never in captured source. */
-export const writeDeliveryReceipt = (worktreePath: string, receipt: DeliveryReceipt): string => {
-  try {
-    const root = discoverRepository(worktreePath).root;
-    const raw = gitText(root, ["rev-parse", "--git-path", "grounds-delivery.json"]).trim();
-    if (!raw) throw new Error("Git did not resolve the receipt path");
-    const path = resolve(root, raw);
-    const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
-    try {
-      writeFileSync(temporary, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-      renameSync(temporary, path);
-    } finally { if (existsSync(temporary)) rmSync(temporary); }
-    return path;
-  } catch {
-    throw worktreeMismatch(receipt.candidate_id, `Delivery worktree was created at ${worktreePath}, but its receipt could not be saved. The directory is retained; do not treat delivery preparation as complete.`);
-  }
-};
 
 const scpLike = (value: string): boolean => !value.includes("://") && (value.match(/@/g) ?? []).length === 1 && value.indexOf(":") > value.indexOf("@");
 
@@ -624,9 +606,9 @@ export const materializeCandidateWorktree = (options: MaterializeWorktreeOptions
   if (!options.source_commit) throw new DomainError("UNSUPPORTED_CANDIDATE_ARTIFACT", "Candidate restoration requires a fixed Git source commit");
   if (!isGitOID(options.source_commit)) throw validation("source_commit", "requires a qualified Git OID");
   if (typeof options.expected_tree_oid !== "string") throw validation("result_tree_oid", "must be a string");
-  if (options.branch !== undefined && typeof options.branch !== "string") throw validation("branch", "must be a string");
+  if ("branch" in options && options.branch !== undefined) throw validation("branch", "not supported for Candidate restoration");
   if (options.review_marker !== undefined && options.mode !== "review") throw validation("review_marker", "is only valid in review mode");
-  if (!(["existing", "review", "delivery"] as string[]).includes(options.mode)) throw validation("mode", "must be existing, review, or delivery");
+  if (!(["existing", "review"] as string[]).includes(options.mode)) throw validation("mode", "must be existing or review");
   if (!options.target_path || !options.target_path.trim()) throw validation("path", "must not be empty");
   // target_path is part of the command-result contract for every
   // materialization mode, including an existing worktree. Validate before
@@ -635,13 +617,6 @@ export const materializeCandidateWorktree = (options: MaterializeWorktreeOptions
   if ([...options.target_path].length > 32768) throw validation("path", "must not exceed 32768 characters");
   const target = resolve(options.target_path);
   if ([...target].length > 32768) throw validation("path", "must not exceed 32768 characters");
-  if (options.mode === "delivery") {
-    if (!options.branch) throw validation("branch", "is required in delivery mode");
-    if ([...options.branch].length > 1024) throw validation("branch", "must not exceed 1024 characters");
-    if (Buffer.from(options.branch, "utf8").toString("utf8") !== options.branch) throw validation("branch", "must be valid UTF-8 text");
-  } else if (options.branch !== undefined) {
-    throw validation("branch", "is only valid in delivery mode");
-  }
   if (options.mode === "existing") {
     if (resolveBaseline(target, "HEAD") !== options.source_commit || git(target, ["status", "--porcelain=v1", "-z"]).length || qualifiedOID(options.source_commit.split(":")[0], gitText(target, ["rev-parse", "HEAD^{tree}"]).trim()) !== options.expected_tree_oid) throw worktreeMismatch("", "existing worktree differs from the fixed Git Candidate; preserve it");
     return { target_path: target, mode: options.mode };
@@ -655,18 +630,11 @@ export const materializeCandidateWorktree = (options: MaterializeWorktreeOptions
     if (error instanceof DomainError) throw error;
     if (!(error && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "ENOENT")) throw error;
   }
-  if (options.mode === "review" && options.branch !== undefined) throw validation("branch", "is only valid in delivery mode");
   const source = discoverRepository(options.source_path).root;
   const baseline = plainOID(options.source_commit);
   if (captureCommittedArtifact(source, options.baseline_oid, options.source_commit).result_tree_oid !== options.expected_tree_oid) throw new DomainError("ARTIFACT_INTEGRITY_ERROR", "fixed Candidate source tree differs from recorded tree");
-  if (options.mode === "delivery") {
-    try { git(source, ["check-ref-format", "--branch", options.branch!]); }
-    catch { throw validation("branch", "is not a valid Git branch name"); }
-  }
   mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
-  const worktreeArguments = options.mode === "review"
-    ? ["worktree", "add", "--detach", target, baseline]
-    : ["worktree", "add", "-b", options.branch!, target, baseline];
+  const worktreeArguments = ["worktree", "add", "--detach", target, baseline];
   try { git(source, worktreeArguments); }
   catch { throw worktreeMismatch("", "Git could not create the requested worktree from the Candidate baseline"); }
 
@@ -675,13 +643,10 @@ export const materializeCandidateWorktree = (options: MaterializeWorktreeOptions
     if (resolveBaseline(target, "HEAD") !== options.source_commit || git(target, ["status", "--porcelain=v1", "-z"]).length || qualifiedOID(options.source_commit.split(":")[0], gitText(target, ["rev-parse", "HEAD^{tree}"]).trim()) !== options.expected_tree_oid) throw worktreeMismatch("", "existing worktree differs from the fixed Git Candidate; preserve it");
     if (options.review_marker) writeReviewWorktreeMarker(target, options.review_marker);
     materialized = true;
-    return { target_path: target, mode: options.mode, ...(options.branch ? { branch: options.branch } : {}) };
+    return { target_path: target, mode: options.mode };
   } finally {
     if (!materialized) {
       try { git(source, ["worktree", "remove", "--force", target]); } catch { /* best-effort cleanup of only the worktree created above */ }
-      if (options.mode === "delivery") {
-        try { git(source, ["branch", "-D", options.branch!]); } catch { /* the branch was created by this operation */ }
-      }
     }
   }
 };

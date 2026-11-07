@@ -42,7 +42,7 @@ export type LedgerDevRunState = "open" | "submitted" | "abandoned";
 export type FindingCode =
   | "open_local_ready" | "open_local_missing" | "open_local_removed" | "local_invalid" | "ledger_local_lifecycle_mismatch"
   | "sync_in_progress" | "sync_interrupted" | "sync_recovery_retained"
-  | "submitted_local_dirty" | "abandoned_local_dirty" | "local_state_unrecognized" | "delivery_changed" | "route_leased";
+  | "submitted_local_dirty" | "abandoned_local_dirty" | "local_state_unrecognized" | "route_leased";
 export type FindingSeverity = "info" | "attention" | "needs_inspection";
 export type Overall = "consistent" | "attention" | "needs_inspection";
 
@@ -50,7 +50,7 @@ export interface NextAction { action: string; description: string; requires: "no
 export interface Finding {
   code: FindingCode;
   severity: FindingSeverity;
-  sources: Array<"ledger" | "local_worktree" | "delivery">;
+  sources: Array<"ledger" | "local_worktree">;
   fields: Record<string, string | number | boolean>;
   next_actions: NextAction[];
 }
@@ -73,7 +73,6 @@ export interface ExecutionFacts {
   route_leased: boolean;
 }
 
-export interface DeliveryFacts { worktrees: Array<{ target_path: string; status: string; reason: string; branch?: string }> }
 
 const bounded = (value: string, limit = 256): string => [...value].slice(0, limit).join("");
 
@@ -110,8 +109,8 @@ export const riskReasons = (local: LocalFacts): Array<"uncaptured_changes" | "ig
 export const riskSummary = (devRunID: string, local: LocalFacts): string =>
   `DevRun ${devRunID} has work that exists only on this machine and is not visible in the ledger: ${local.work?.tracked_modified ?? 0} tracked modification(s), ${local.work?.untracked ?? 0} untracked file(s), ${local.work?.ignored ?? 0} ignored file(s)${local.sync_recovery ? `; ${local.sync_recovery.count} retained sync recovery directory/directories at ${local.sync_recovery.directory}` : ""}.`;
 
-export const computeFindings = (input: { ledger: LedgerDevRunState; local: LocalFacts; execution: ExecutionFacts; delivery: DeliveryFacts }): { overall: Overall; findings: Finding[] } => {
-  const { ledger, local, execution, delivery } = input;
+export const computeFindings = (input: { ledger: LedgerDevRunState; local: LocalFacts; execution: ExecutionFacts }): { overall: Overall; findings: Finding[] } => {
+  const { ledger, local, execution } = input;
   const findings: Finding[] = [];
   const journal = local.journal;
   const add = (finding: Finding) => findings.push(finding);
@@ -138,9 +137,6 @@ export const computeFindings = (input: { ledger: LedgerDevRunState; local: Local
     add({ code: "abandoned_local_dirty", severity: "attention", sources: ["ledger", "local_worktree"], fields: { ledger_state: ledger, ...counts }, next_actions: [action("export_changes", "Export anything worth keeping before cleanup."), action("cleanup_discard_changes", "Remove the worktree and discard these local changes.", "authorization")] });
   if (journal && !journal.recognized)
     add({ code: "local_state_unrecognized", severity: "needs_inspection", sources: ["local_worktree"], fields: { journal_lifecycle: journal.lifecycle }, next_actions: [action("inspect_manually", "This version does not recognise the local lifecycle value; inspect it, possibly with a newer Grounds, before acting.")] });
-  const changedDelivery = delivery.worktrees.filter((worktree) => worktree.status === "changed" || worktree.status === "invalid");
-  if (changedDelivery.length)
-    add({ code: "delivery_changed", severity: "attention", sources: ["delivery"], fields: { count: changedDelivery.length, first_target_path: changedDelivery[0].target_path, first_status: changedDelivery[0].status }, next_actions: [action("inspect_delivery", "Run `selection inspect` for the delivery directory and preserve user work.")] });
   if (execution.route_leased) add({ code: "route_leased", severity: "attention", sources: ["local_worktree"], fields: { ledger_state: ledger }, next_actions: [action("resolve_execution", "wait for the running execution to finish, or cancel it with env cancel, before changing this route")] });
   const overall: Overall = findings.some((f) => f.severity === "needs_inspection") ? "needs_inspection" : findings.some((f) => f.severity === "attention") ? "attention" : "consistent";
   return { overall, findings };

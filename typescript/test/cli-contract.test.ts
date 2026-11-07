@@ -169,8 +169,8 @@ test("help rejects non-boolean help values", async () => {
   assert.equal(envelope.error?.details?.field, "help");
 });
 
-test("retired authoring commands are unavailable, including through help", async () => {
-  for (const command of [["workspace", "edit"], ["draft", "migrate"], ["draft", "new"], ["workspace", "publish"], ["contract", "render"], ["quickstart", "create"], ["requirement", "create"], ["requirement", "revise"], ["issue", "create"], ["issue", "revise"]]) {
+test("retired authoring and delivery commands are unavailable, including through help", async () => {
+  for (const command of [["selection", "set"], ["selection", "materialize"], ["completion", "record"], ["integration", "observe"], ["workspace", "edit"], ["draft", "migrate"], ["draft", "new"], ["workspace", "publish"], ["contract", "render"], ["quickstart", "create"], ["requirement", "create"], ["requirement", "revise"], ["issue", "create"], ["issue", "revise"]]) {
     for (const suffix of [[], ["--help"]]) {
       const output: string[] = [];
       assert.equal(await runCLI([...command, ...suffix, "--json"], { stdout: (line) => output.push(line), stderr: () => undefined }), 2);
@@ -677,18 +677,4 @@ test("candidate artifact help advertises only supported Git artifacts", async ()
     assert.match(help, /historical patch-only Candidates are unsupported/);
     assert.doesNotMatch(help, /legacy base\/SQL patch\/tree/);
   }
-});
-
-test("integration source help requires exact Git history and retires patch-only", async () => {
-  for (const json of [false, true]) {
-    const output: string[] = [];
-    assert.equal(await runCLI(["integration", "observe", "--help", ...(json ? ["--json"] : [])], {
-      stdout: (line) => output.push(line), stderr: () => undefined,
-    }), 0);
-    const usage = json ? JSON.stringify(JSON.parse(output[0]).data) : output.join("\n");
-    assert.match(usage, /managed source must match archived commit\/ordered parents\/result tree and contain Candidate base/);
-    assert.match(usage, /requires the exact source commit of the Git artifact/);
-    assert.doesNotMatch(usage, /single parent must equal Candidate base/);
-  }
-
 });

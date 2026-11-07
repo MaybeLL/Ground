@@ -8,12 +8,12 @@ The canonical source and automation are hosted at [MaybeLL/Ground on GitHub](htt
 
 ## How it works
 
-Grounds keeps a record of the path from a requirement to delivery: an issue version defines the work, a development run produces an immutable candidate, and independent verification records evidence for review. A person can then select a candidate and prepare it for delivery. A recorded claim, a verification result, and an actual delivery are distinct events.
+A Task defines the acceptance criteria. A worker freezes its delivery, an independent evaluator grades it, and a person selects the outcome and closes the work.
 
-- The **CLI** manages the SQL ledger, development runs, candidates, verification, and delivery records.
+- The **CLI** records task revisions, work runs, frozen deliveries and independent grades.
 - The **development skill** guides the new `task / work / grade` loop, including a fresh independent evaluator. Start with the [Grounds workflow skill](plugins/grounds/skills/grounds/SKILL.md).
 
-**Source cutover status:** Legacy draft publication, contract editing and static rendering have been retired. For new contracts, use `grounds task create`. The legacy `eval` CLI, QA authoring/capture workflow, evaluation TUI and evaluation/knowledge skills have been removed under D149. The remaining legacy Candidate TUI package has also been retired, including its build and release entries. A new work-model TUI is not implemented; use the CLI and development skill. The old `code-workspace` container routes, repository environment defaults, image preparation and service/volume cleanup commands have also been retired; standalone `env` remains. New evaluation assets and managed experiments remain planned for P3–P5. This source-tree status does not change previously published npm packages.
+**Source cutover status:** Legacy draft publication, contract editing and static rendering have been retired. Candidate selection, completion recording and delivery preparation have also been retired. Use `grounds work select` and `grounds work close` for everyday work. For new contracts, use `grounds task create`. The legacy `eval` CLI, QA authoring/capture workflow, evaluation TUI and evaluation/knowledge skills have been removed under D149. The remaining legacy Candidate TUI package has also been retired, including its build and release entries. A new work-model TUI is not implemented; use the CLI and development skill. The old `code-workspace` container routes, repository environment defaults, image preparation and service/volume cleanup commands have also been retired; standalone `env` remains. New evaluation assets and managed experiments remain planned for P3–P5. This source-tree status does not change previously published npm packages.
 
 Candidate Git artifacts are archived remotely under protected namespaces. GitHub and GitLab repositories can be onboarded; archive protection and authorization must be verifiable when a candidate is submitted.
 

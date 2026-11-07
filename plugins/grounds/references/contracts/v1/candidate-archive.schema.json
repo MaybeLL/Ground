@@ -710,39 +710,6 @@
         }
       ]
     },
-    "landingArchive": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "status",
-        "operation_id"
-      ],
-      "properties": {
-        "status": {
-          "enum": [
-            "confirmed",
-            "pending",
-            "unknown"
-          ]
-        },
-        "operation_id": {
-          "$ref": "common.schema.json#/$defs/id"
-        },
-        "operation": {
-          "$ref": "#/$defs/operationRecord"
-        },
-        "reason": {
-          "enum": [
-            "actual_target_predecessor_unknown",
-            "actual_target_predecessor_conflict",
-            "adoption_recorded_but_archive_requires_reconciliation"
-          ]
-        },
-        "protection_diagnosis": {
-          "$ref": "#/$defs/protectionDiagnosis"
-        }
-      }
-    },
     "fixedDiff": {
       "type": "object",
       "additionalProperties": false,

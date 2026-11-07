@@ -5,22 +5,10 @@ import { indexCandidateChanges, matchChangeLine } from "./change-index.js";
 import type { Module } from "./module.js";
 import type { DeliveryProof, DeliveryUnit } from "./delivery-link.js";
 import { baselineUnavailable, validation, worktreeMismatch } from "./errors.js";
-import { validDeliveryReceipt } from "./delivery-worktree.js";
 
 export { rawOID, withHistoryRead, assertHistoryBudget, historyBytes, historyGit, assertHistoryRepository } from "./git-history-read.js";
 import { rawOID, historyBytes, historyGit, assertHistoryRepository, assertHistoryBudget } from "./git-history-read.js";
 
-export async function candidateFromReceipt(module: Module, cwd: string, repositoryId: string, databaseId: string): Promise<string> {
-  const path = resolve(cwd, historyGit(cwd, ["rev-parse", "--git-path", "grounds-delivery.json"]));
-  if (!existsSync(path)) throw validation("candidate", "requires an explicit Candidate or a valid delivery receipt");
-  if (statSync(path).size > 64 * 1024) throw worktreeMismatch("", "Delivery receipt exceeds its size limit");
-  let receipt: unknown;
-  try { receipt = JSON.parse(readFileSync(path, "utf8")); } catch { throw worktreeMismatch("", "Delivery receipt is invalid"); }
-  if (!validDeliveryReceipt(receipt) || receipt.database_id !== databaseId || receipt.repository_id !== repositoryId) throw worktreeMismatch("", "Delivery receipt identity does not match this ledger and Repository");
-  const { record, issue, repository_id } = await module.historyCandidate(receipt.candidate_id);
-  if (repository_id !== repositoryId || receipt.baseline_oid !== (record.candidate.base_commit ?? issue.baseline.git_oid) || receipt.result_tree_oid !== record.candidate.result_tree_oid || receipt.patch_digest !== record.candidate.patch_digest || receipt.issue.id !== issue.issue_id || receipt.issue.version !== issue.revision_number) throw worktreeMismatch(receipt.candidate_id, "Delivery receipt does not match the immutable Candidate");
-  return receipt.candidate_id;
-}
 
 export function assertNoHistoryFilters(cwd: string): void {
   const paths = historyGit(cwd, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"]);

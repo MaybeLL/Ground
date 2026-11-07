@@ -109,7 +109,6 @@ test("Historical patch-only rows are unsupported at every use boundary and are n
       criterion.final = { verdict: "qualified", explanation: "Meets criterion" };
     }
     const verification = await f.fixture.module.submitVerification({ operation_id: newUUIDv7(), attribution: testVerifier, report: template.report });
-    await f.fixture.module.setSelection({ operation_id: newUUIDv7(), issue_id: f.fixture.issue.issue_id, issue_version: 1, candidate_id: f.candidateId, expected_version: 0, attribution: testAgent });
     const database = new DatabaseSync(f.path);
     database.prepare("UPDATE candidates SET artifact_format = ? WHERE id = ?").run("patchledger.git-full-index-binary-patch/v1", f.candidateId);
     const before = database.prepare("SELECT * FROM candidates WHERE id = ?").get(f.candidateId);
@@ -122,7 +121,6 @@ test("Historical patch-only rows are unsupported at every use boundary and are n
     await assert.rejects(f.fixture.module.loadCandidateMaterialization(f.candidateId), unsupported);
     await assert.rejects(f.fixture.module.verificationContext(f.candidateId), unsupported);
     await assert.rejects(f.fixture.module.showVerification(verification.verification_id), unsupported);
-    await assert.rejects(f.fixture.module.showSelection(f.fixture.issue.issue_id), unsupported);
     await assert.rejects(f.fixture.store.write(tx => tx.putCandidateGitArtifact(f.candidateId, f.git)), unsupported);
     assert.equal((await f.fixture.store.inspectIntegrity()).report.valid, true);
     assert.deepEqual(database.prepare("SELECT * FROM candidates WHERE id = ?").get(f.candidateId), before);

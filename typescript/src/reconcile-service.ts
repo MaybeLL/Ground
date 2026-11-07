@@ -1,6 +1,5 @@
 import { DevWorktreeModule } from "./dev-worktree.js";
 import { isRouteLeased } from "./env-route-lease.js";
-import { DeliveryWorktreeModule } from "./delivery-worktree.js";
 import { DomainError } from "./errors.js";
 import { newUUIDv7 } from "./identity.js";
 import type { Module, Warning } from "./module.js";
@@ -15,13 +14,12 @@ const localSnapshot = async (module: Module, dev: DevWorktreeModule, runID: stri
   return { ledger, local };
 };
 
-/** `devrun reconcile`: one read-only view over ledger, local worktree (with its route lease) and delivery directories. */
+/** `devrun reconcile`: one read-only view over ledger, local worktree (with its route lease). */
 export const reconcileDevRun = async (module: Module, databaseID: string, cwd: string, runID: string): Promise<Record<string, unknown>> => {
   const dev = new DevWorktreeModule(cwd, databaseID, newUUIDv7);
   const { ledger, local } = await localSnapshot(module, dev, runID);
-  const delivery = ledger.candidate ? { worktrees: new DeliveryWorktreeModule(cwd, databaseID).inspectCandidate(ledger.candidate.candidate_id) } : { worktrees: [] };
   const routeLeased = local.path !== undefined && isRouteLeased(local.path);
-  const { overall, findings } = computeFindings({ ledger: ledger.dev_run.state, local, execution: { route_leased: routeLeased }, delivery });
+  const { overall, findings } = computeFindings({ ledger: ledger.dev_run.state, local, execution: { route_leased: routeLeased } });
   return {
     result_type: "patchledger.result.devrun-reconcile/v1",
     command: "devrun.reconcile",
@@ -43,7 +41,6 @@ export const reconcileDevRun = async (module: Module, databaseID: string, cwd: s
       ...(local.uncaptured_changes === undefined ? {} : { uncaptured_changes: local.uncaptured_changes }),
     },
     route_lease: { held: routeLeased },
-    delivery: { source: "delivery", worktrees: delivery.worktrees },
   };
 };
 

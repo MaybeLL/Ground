@@ -1,6 +1,6 @@
 # Grounds CLI
 
-Grounds records requirements, candidate changes, verification evidence, and delivery decisions for people and coding agents. The CLI and terminal UI use matching versions.
+Grounds records requirements, candidate changes, verification evidence, and delivery decisions for people and coding agents. Use the task, work and grade commands to define, deliver and evaluate new work.
 
 See the [documentation](https://github.com/MaybeLL/grounds-open/blob/main/docs/README.md), [source build instructions](https://github.com/MaybeLL/grounds-open/blob/main/README.md#build-from-source), and [release guide](https://github.com/MaybeLL/grounds-open/blob/main/docs/releases.md). Node.js 22.13 or later is required.
 

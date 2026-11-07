@@ -39,7 +39,7 @@ export class CandidateArchiveService {
     archiveOperation(row); return row;
   }
 
-  async prepare(input: { operation_id: string; purpose: ArchiveOperation["purpose"]; owner_id: string; candidate_id?: string; request: unknown; binding: (candidateId: string) => GitArchiveBinding; attribution: Attribution }): Promise<RuntimeRecord> {
+  async prepare(input: { operation_id: string; purpose: "candidate_submit" | "candidate_backfill"; owner_id: string; candidate_id?: string; request: unknown; binding: (candidateId: string) => GitArchiveBinding; attribution: Attribution }): Promise<RuntimeRecord> {
     if (!isUUIDv7(input.operation_id) || !isUUIDv7(input.owner_id) || (input.candidate_id && !isUUIDv7(input.candidate_id))) throw validation("archive", "fixed operation, owner and Candidate identities required");
     return this.store.write(async tx => {
       if (input.purpose === "candidate_submit") await tx.lockDevRun(input.owner_id);

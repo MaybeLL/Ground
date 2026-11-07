@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { SQLStore } from "../src/sql-store.js";
 import { DomainError } from "../src/errors.js";
 import { newUUIDv7 } from "../src/identity.js";
+import { verificationSetSummary } from "../src/module.js";
 import type { IssueWriteResult, RepositoryWriteResult, RequirementWriteResult } from "../src/module.js";
 import { execute, runCLI } from "../src/cli.js";
 import { LedgerFixture, testAgent, testBaseline } from "./fixture.js";
@@ -50,7 +51,12 @@ const seed = async (f: LedgerFixture) => {
   const selectedCandidate = await f.submitCandidate("two", undefined, [], false, undefined, selected);
   await f.verify(selectedCandidate, "qualified");
   await tick();
-  await f.module.setSelection({ operation_id: newUUIDv7(), attribution: testAgent, issue_id: selected.issue_id, issue_version: 1, candidate_id: selectedCandidate.candidate.candidate_id, expected_version: 0, reason: "best" } as never);
+  await f.store.write(async tx => {
+    const candidateId = selectedCandidate.candidate.candidate_id;
+    await tx.saveSelection({ id: newUUIDv7(), issue_revision_id: selected.issue_revision_id,
+      version: 1, candidate_id: candidateId, updated_at: await tx.now(), attribution: testAgent,
+      verification_at_selection: await verificationSetSummary(tx, candidateId) }, 0);
+  });
   await tick();
   const dropped = await openRun(f, abandoned, r2);
   await tick();
@@ -140,12 +146,38 @@ for (const backend of ["sqlite", "mysql", "postgres"] as const) {
     assert.deepEqual(await f.module.listIssues("", { sort: "activity" }), list);
   });
 
+  backendTest("historical completion is visible on the exact Issue version and its Requirement", async f => {
+    await f.store.write(async tx => {
+      const at = "2026-10-16T04:00:00.123Z";
+      await tx.appendCompletion(f.issue.issue_revision_id, {
+        version: 1, state: "completed", recorded_at: at, attribution: testAgent, evidence_status: "asserted_not_checked",
+        completion: { format: "grounds.issue-completion-input/v1", origin: "historical",
+          repository_id: f.repository.repository_id, target_branch: "refs/heads/main",
+          landed_commit: `sha1:${"a".repeat(40)}`, adoption_evidence: { reference: "fixture", description: "Recorded merge" },
+          release: { status: "not_applicable", reason: "Documentation" }, completed_at: at },
+      }, 0);
+    });
+    const detail = await f.module.showIssueVersion(f.issue.issue_id, 1);
+    assertContract("query-results.schema.json", detail);
+    assert.equal(detail.board.status, "completed");
+    assert.equal(detail.board.next_action, null);
+    assert.equal(detail.board.completion.record?.evidence_status, "asserted_not_checked");
+    const requirement = await f.module.showRequirement(f.requirement.requirement_id);
+    assertContract("query-results.schema.json", requirement);
+    assert.equal(requirement.aggregates.completed_issue_count, 1);
+    assert.equal(requirement.aggregates.completion_status, "completed");
+  });
+
   backendTest("issue list follows Selection changes without touching Candidate facts", async f => {
     const s = await seed(f);
     const status = async () => (await f.module.listIssues("", { repository_id: s.r1.repository_id })).resources.find(item => item.resource_id === s.selected.issue_id)!;
     assert.equal((await status()).board?.status, "candidate_selected");
     assert.equal((await status()).board?.selection.version, 1);
-    await f.module.clearSelection({ operation_id: newUUIDv7(), attribution: testAgent, issue_id: s.selected.issue_id, issue_version: 1, expected_version: 1, reason: "reconsidered" } as never);
+    await f.store.write(async tx => {
+      const previous = (await tx.getSelection(s.selected.issue_revision_id))!;
+      await tx.saveSelection({ id: previous.id, issue_revision_id: previous.issue_revision_id,
+        version: 2, updated_at: await tx.now(), attribution: testAgent }, 1);
+    });
     const cleared = await status();
     assert.equal(cleared.board?.status, "candidates_available"); assert.equal(cleared.board?.next_action, "review_candidates");
     assert.deepEqual(cleared.board?.selection, { state: "unselected", version: 2 });

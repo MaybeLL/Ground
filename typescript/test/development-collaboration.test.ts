@@ -13,7 +13,6 @@ import { SQLStore, SCHEMA_VERSION } from "../src/sql-store.js";
 import { newUUIDv7 } from "../src/identity.js";
 import { resolveBaseline } from "../src/git.js";
 import { runCLI, parseArgs, commandNeedsOperationID } from "../src/cli.js";
-import { IntegrationService } from "../src/integration-service.js";
 import { DevRunSyncService } from "../src/devrun-sync-service.js";
 import { DevWorktreeModule } from "../src/dev-worktree.js";
 import { captureCommittedDevelopment, createDevelopmentPlan, developmentPath, type DevelopmentPlan } from "../src/development-branch.js";
@@ -59,18 +58,6 @@ test("cleanup three choices preserve archives, refuse other checkout and restore
  const worktree=await a.trees.cleanup(a.run,"submitted",false,record.candidate.result_tree_oid,{...actor()},"worktree");assert.equal(worktree.removed,true);assert.equal(existsSync(a.path),false);assert.equal(resolveBaseline(x.cwd,p.branch),c.source!.commit);
  const resumed=await directStart(x,p,{candidate_id:c.candidate_id,result_tree_oid:record.candidate.result_tree_oid,patch:record.artifact.patch,run_id:a.run});assert.equal(readFileSync(join(resumed.path,"feature"),"utf8"),"a\n");const c2=await submit(x,resumed,p);await resumed.trees.cleanup(resumed.run,"submitted",false,c2.result_tree_oid,{...actor()},"worktree-and-branch");assert.equal(existsSync(resumed.path),false);assert.throws(()=>resolveBaseline(x.cwd,p.branch));assert.equal((await x.f.store.read(tx=>tx.getCandidate(c.candidate_id))).candidate.source!.commit,c.source!.commit);
 });
-test("public delivery pauses unverified source, exception binds facts, and no-ff/side-parent adoption uses actual landing",async t=>{
- const x=await fixture(t),p=plan(x),a=await directStart(x,p);commit(a.path,"feature","a\n");commit(a.path,"other","two\n");const c=await submit(x,a,p);const selection=await x.invoke("selection","set","--issue",x.f.issue.issue_id,"--issue-version","2","--candidate",c.candidate_id,"--expected-version","0","--reason","Explicitly select unverified fixture");
- const delivery=join(x.root,"delivery"),output:string[]=[];
- assert.equal(await runCLI(["selection","materialize","--issue",x.f.issue.issue_id,"--issue-version","2","--expected-version","1","--path",delivery,"--config",x.config,"--json"],{cwd:x.cwd,stdout:s=>output.push(s),stderr:()=>{}}),4);assert.equal(existsSync(delivery),false);
- const exceptionOp=newUUIDv7();const prepared=await x.invoke("selection","materialize","--issue",x.f.issue.issue_id,"--issue-version","2","--expected-version","1","--path",delivery,"--allow-unverified","--reason","User accepts this one preparation only","--operation-id",exceptionOp);assert.equal(resolveBaseline(delivery,"HEAD"),c.source!.commit);assert.equal(prepared.receipt.delivery_decision_id,exceptionOp);assert.equal((await x.f.module.showCandidate(c.candidate_id)).candidate.standing,"unverified");
- commit(a.path,"future","later\n");assert.equal(resolveBaseline(delivery,"HEAD"),c.source!.commit);git(x.cwd,"push",x.remote,`${c.source!.commit.slice(5)}:refs/heads/feature`);
- const gate=await x.invoke("integration","observe","--candidate",c.candidate_id,"--selection",selection.selection.id,"--selection-version","1","--source-remote","origin","--source-ref","refs/heads/feature","--source-commit",c.source!.commit,"--refresh","--operation-id",newUUIDv7());assert.equal(gate.record.gate.decision.consistency,"ready");
- git(x.cwd,"merge","--no-ff",c.source!.commit.slice(5),"-m","actual target merge");const landed=resolveBaseline(x.cwd,"HEAD");git(x.cwd,"push",x.remote,"HEAD:refs/heads/main");
- const adoptionFile=join(x.root,"adoption.json"),binding={format:"grounds.adoption-binding/v1",repository_id:x.f.repository.repository_id,candidate_id:c.candidate_id,source_commit:c.source!.commit,landed_commit:landed,target:{remote:"origin",ref:"refs/heads/main"},method:"merge",source:{kind:"user_confirmation",reference:"User confirmed this exact temporary target merge"}};writeFileSync(adoptionFile,JSON.stringify(binding));
- const actual=await x.invoke("integration","landing","--observation",gate.record.id,"--commit",c.source!.commit,"--provenance","user","--adoption-file",adoptionFile,"--refresh","--operation-id",newUUIDv7());assert.equal(actual.record.landing.decision.identity,"trusted");assert.equal(actual.record.landing.actual_landing.oid,landed);assert.equal(actual.record.landing.decision.tree_matches,true);assert.equal(actual.record.landing.history_sensitive_verification,"requires_landing_context");
- writeFileSync(adoptionFile,JSON.stringify({...binding,landed_commit:c.source!.commit}));const wrong=await x.invoke("integration","landing","--observation",gate.record.id,"--commit",c.source!.commit,"--provenance","user","--adoption-file",adoptionFile,"--refresh","--operation-id",newUUIDv7());assert.equal(wrong.record.landing.decision.identity,"unknown");assert.equal(wrong.record.landing.actual_landing,undefined);
-});
 const persistsSourceFacts=async(t:Parameters<typeof fixture>[0],backend:"mysql"|"postgres"):Promise<void>=>{
  const x=await fixture(t,backend),p=plan(x),a=await directStart(x,p);commit(a.path,"feature","a\n");const c=await submit(x,a,p);const source=(await x.f.store.read(tx=>tx.getCandidate(c.candidate_id))).candidate.source;assert.deepEqual(source,c.source);assert.deepEqual((await x.f.store.read(tx=>tx.getDevRun(a.run))).development,{format:p.format,workspace_id:p.workspace_id,branch:p.branch});assert.equal((await x.f.store.inspect()).schema_version,SCHEMA_VERSION);const oldDigest=(await x.f.module.verificationContext(c.candidate_id,"blind")).context.blind_context_digest;commit(a.path,"later","later\n");assert.equal((await x.f.module.verificationContext(c.candidate_id,"blind")).context.blind_context_digest,oldDigest);
 };
@@ -110,25 +97,6 @@ test("new target starts require a plan while an original legacy target operation
  const old=await trees.start({operation_id:op,repository_id:x.f.repository.repository_id,issue_revision_id:x.revised.result.issue_revision_id,baseline_oid:x.base},async id=>{const value=await x.f.module.startDevRun({operation_id:op,dev_run_id:id,issue_id:x.f.issue.issue_id,issue_revision_id:x.revised.result.issue_revision_id,issue_revision_explicit:false,base_commit:x.base,repository_remote_snapshot:x.f.repository.canonical_remote,attribution:{kind:"agent",agent_id:"collaboration-test",display_name:"Collaboration Test"}});return{value,dev_run_id:id};});
  const replay=await x.invoke("devrun","start","--issue",x.f.issue.issue_id,"--operation-id",op);assert.deepEqual(replay.context,old.value.result.context);assert.equal(replay.local_worktree.path,old.local_worktree.path);assert.equal(replay.context.dev_run.development,undefined);
 });
-for (const method of ['ff','squash'] as const) test(`${method} adoption separates original source/history from exact code trees`,async t=>{
- const x=await fixture(t),p=plan(x),a=await directStart(x,p);commit(a.path,"feature","a\n");commit(a.path,"second","b\n");const c=await submit(x,a,p),selection=await x.f.module.setSelection({...actor(),issue_id:x.f.issue.issue_id,issue_version:2,expected_version:0,candidate_id:c.candidate_id,reason:"Select unverified fixed artifact for test"});git(x.cwd,"push",x.remote,`${c.source!.commit.slice(5)}:refs/heads/feature`);
- const service=new IntegrationService(x.f.store,x.cwd),gate=await service.observe({candidate_id:c.candidate_id,selection_id:selection.selection.id!,selection_version:1,source:{remote:"origin",ref:"refs/heads/feature"},source_commit:c.source!.commit,refresh:true},actor());assert.equal(gate.gate!.decision.consistency,"ready");
- if(method==='ff')git(x.cwd,"merge","--ff-only",c.source!.commit.slice(5));else{git(x.cwd,"merge","--squash",c.source!.commit.slice(5));git(x.cwd,"commit","-qm","squashed adoption");}const landed=resolveBaseline(x.cwd,"HEAD");git(x.cwd,"push",x.remote,"HEAD:refs/heads/main");
- const binding={format:"grounds.adoption-binding/v1" as const,repository_id:x.f.repository.repository_id,candidate_id:c.candidate_id,source_commit:c.source!.commit,landed_commit:landed,target:{remote:"origin",ref:"refs/heads/main"},method,source:{kind:"user_confirmation" as const,reference:"Explicit fixture adoption of this exact source at this target commit"}};
- const adoption=await service.landing(gate.id,{commit:landed,provenance:"user",refresh:true,adoption:binding},actor());assert.equal(adoption.landing!.decision.identity,"trusted");assert.equal(adoption.landing!.decision.code_consistency,"candidate_tree");assert.equal(adoption.landing!.decision.source_matches,method==='ff');assert.equal(adoption.landing!.decision.outcome,method==='ff'?'exact_artifact':'same_content_different_history');assert.equal(adoption.landing!.decision.delivery_link_commit,undefined);assert.equal(adoption.landing!.history_sensitive_verification,method==='ff'?'candidate_context':'requires_landing_context');assert.equal(adoption.landing!.verification.current_verification.standing,"unverified");
- const mr=await service.landing(gate.id,{commit:landed,provenance:"merge_result",refresh:true,adoption:{...binding,source:{kind:"merged_mr",reference:"Explicit supplied temporary MR result; provider state not queried"}}},actor());assert.equal(mr.landing!.decision.identity,"trusted");assert.equal(mr.landing!.actual_landing!.oid,landed);
- if(method==='squash'){
-  const clone=join(x.root,"target-only-clone");git(x.root,"clone","--no-local","--single-branch","--branch","main",x.remote,clone);
-  git(clone,"remote","set-url","origin","ssh://git@example.test/team/repo");git(clone,"config",`url.file://${x.remote}.insteadOf`,"ssh://git@example.test/team/repo");
-  assert.throws(()=>git(clone,"cat-file","-e",`${c.source!.commit.slice(5)}^{commit}`));
-  assert.equal(git(clone,"rev-parse",`${landed.slice(5)}^{tree}`),c.result_tree_oid.slice(5));
-  const missing=new IntegrationService(x.f.store,clone),mrBinding={...binding,source:{kind:"merged_mr" as const,reference:"Supplied fixture squash MR result"}};
-  const noSource=await missing.landing(gate.id,{commit:landed,provenance:"merge_result",refresh:true,adoption:mrBinding},actor());
-  assert.equal(noSource.landing!.decision.identity,"unknown");assert.equal(noSource.landing!.actual_landing,undefined);
- }
- const wrongTarget=await service.landing(gate.id,{commit:landed,provenance:"user",refresh:true,adoption:{...binding,target:{remote:"origin",ref:"refs/heads/other"},source:{kind:"merged_mr",reference:"MR already merged to another target"}}},actor());assert.equal(wrongTarget.landing!.decision.identity,"unknown");
- await assert.rejects(service.landing(gate.id,{refresh:false,adoption:{format:"invalid"} as any},actor()),{code:"VALIDATION_ERROR"});
-});
 test("author pause/explicit parallel and live HEAD standing never borrow an old qualified fixture report",async t=>{
  const x=await fixture(t),p=plan(x),a=await directStart(x,p);commit(a.path,"feature","a\n");const c=await submit(x,a,p),record=(await x.f.module.historyCandidate(c.candidate_id)).record,context=await x.f.module.candidateSubmitContext(a.run),goal=context.context.issue.goals[0]!;
  // This synthetically qualified fixture tests projection semantics, not real independent acceptance.
@@ -136,45 +104,4 @@ test("author pause/explicit parallel and live HEAD standing never borrow an old 
  const before=await x.invoke("devrun","show","--dev-run",a.run);assert.equal(before.local_worktree.continuation,"paused");assert.equal(before.current_head.standing,"qualified");
  const decision=await x.invoke("devrun","continue","--dev-run",a.run,"--expected-version","2","--expected-head",c.source!.commit,"--policy","parallel","--operation-id",newUUIDv7());assert.equal(decision.policy,"parallel");writeFileSync(join(a.path,"feature"),"uncommitted\n");const dirty=await x.invoke("devrun","show","--dev-run",a.run);assert.equal(dirty.local_worktree.working_tree_dirty,true);assert.equal(dirty.current_head.standing,"qualified");writeFileSync(join(a.path,"feature"),"a\n");git(a.path,"commit","--allow-empty","-qm","same code new source");
  const after=await x.invoke("devrun","show","--dev-run",a.run);assert.equal(after.current_head.standing,"unverified");assert.equal(after.local_worktree.working_tree_dirty,false);assert.equal((await x.f.module.showCandidate(c.candidate_id)).candidate.standing,"qualified");
-});
-
-
-test("public merged MR adoption requires matching provenance and exact reachable Git binding", async t => {
-  const x = await fixture(t), p = plan(x), a = await directStart(x, p);
-  commit(a.path, "feature", "MR candidate\n"); commit(a.path, "checkpoint", "second commit\n");
-  const c = await submit(x, a, p);
-  const selected = await x.invoke("selection", "set", "--issue", x.f.issue.issue_id, "--issue-version", "2", "--candidate", c.candidate_id, "--expected-version", "0", "--reason", "Temporary MR adoption fixture");
-  git(x.cwd, "push", x.remote, `${c.source!.commit.slice(5)}:refs/heads/feature`);
-  const gate = await x.invoke("integration", "observe", "--candidate", c.candidate_id, "--selection", selected.selection.id, "--selection-version", "1", "--source-remote", "origin", "--source-ref", "refs/heads/feature", "--source-commit", c.source!.commit, "--refresh", "--operation-id", newUUIDv7());
-  git(x.cwd, "merge", "--no-ff", c.source!.commit.slice(5), "-m", "target adoption");
-  const landed = resolveBaseline(x.cwd, "HEAD"); git(x.cwd, "push", x.remote, "HEAD:refs/heads/main");
-  const binding = { format: "grounds.adoption-binding/v1", repository_id: x.f.repository.repository_id, candidate_id: c.candidate_id, source_commit: c.source!.commit,
-    landed_commit: landed, target: { remote: "origin", ref: "refs/heads/main" }, method: "merge", source: { kind: "merged_mr", reference: "https://example.test/team/repo/merge_requests/7 (supplied fixture result; no provider API verification)" } };
-  const file = join(x.root, "mr-adoption.json");
-  const landing = async (value: typeof binding, provenance = "merge_result", refresh = true) => {
-    writeFileSync(file, JSON.stringify(value));
-    return (await x.invoke("integration", "landing", "--observation", gate.record.id, "--commit", value.landed_commit, "--provenance", provenance,
-      "--adoption-file", file, ...(refresh ? ["--refresh"] : []), "--operation-id", newUUIDv7())).record.landing;
-  };
-  const adopted = await landing(binding);
-  assert.equal(adopted.decision.identity, "trusted"); assert.equal(adopted.actual_landing.oid, landed);
-  assert.equal(adopted.adoption.source.reference, binding.source.reference);
-  for (const value of [{ ...binding, target: { ...binding.target, ref: "refs/heads/other" } }, { ...binding, source_commit: x.base }, { ...binding, candidate_id: newUUIDv7() }]) {
-    const wrong = await landing(value); assert.equal(wrong.decision.identity, "unknown"); assert.equal(wrong.actual_landing, undefined);
-  }
-  assert.equal((await landing(binding, "user")).decision.identity, "unknown");
-  assert.equal((await landing({ ...binding, source: { kind: "user_confirmation", reference: "Explicit user adoption" } }, "merge_result")).decision.identity, "unknown");
-  assert.equal((await landing(binding, "merge_result", false)).decision.identity, "unknown");
-  const tree = git(x.cwd, "rev-parse", `${c.source!.commit.slice(5)}^{tree}`);
-  const isolated = `sha1:${git(x.cwd, "commit-tree", tree, "-p", x.base.slice(5), "-p", c.source!.commit.slice(5), "-m", "same-tree isolated merge")}`;
-  assert.equal((await landing({ ...binding, landed_commit: isolated })).decision.identity, "unknown");
-  const shallow = join(x.cwd, git(x.cwd, "rev-parse", "--git-path", "shallow"));
-  writeFileSync(shallow, `${c.source!.commit.slice(5)}\n`);
-  try {
-    writeFileSync(file, JSON.stringify(binding));
-    const output:string[]=[];
-    const exit=await runCLI(["integration","landing","--observation",gate.record.id,"--commit",binding.landed_commit,"--provenance","merge_result","--adoption-file",file,"--refresh","--operation-id",newUUIDv7(),"--agent-id","collaboration-test","--agent-name","Collaboration Test","--config",x.config,"--json"],{cwd:x.cwd,stdout:value=>output.push(value),stderr:()=>{}});
-    assert.equal(exit,6); const error=JSON.parse(output.join("\n")).error;
-    assert.equal(error.code,"ARTIFACT_INTEGRITY_ERROR"); assert.equal(error.details.reason,"local_objects_incomplete");
-  } finally { rmSync(shallow); }
 });

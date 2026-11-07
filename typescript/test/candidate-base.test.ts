@@ -73,7 +73,7 @@ test("Candidate base different from snapshot survives capture, SQL, blind contex
   const id = submitted.candidate_id;
   const descriptor = await x.f.module.candidateArtifactDescriptor(id);
   assert.equal(descriptor.base_commit, x.base); assert.equal(descriptor.base_commit_source, "candidate");
-  assert.equal((await x.f.module.replaySubject({ candidate_id: id })).base_commit, x.base);
+  assert.equal((await x.f.module.replaySubject(id)).base_commit, x.base);
   const blind = (await x.f.module.verificationContext(id, "blind")).context;
   assert.equal(blind.phase, "blind");
   if (blind.phase !== "blind") throw new Error("expected blind context");
@@ -107,9 +107,10 @@ test("Candidate base different from snapshot survives capture, SQL, blind contex
   assertContract("query-results.schema.json", review);
   const material = await x.f.module.loadCandidateMaterialization(id);
   assert.equal(material.baseline.git_oid, x.base);
-  for (const mode of ["review", "delivery"] as const) {
+  {
+    const mode = "review";
     const output = join(x.root, mode);
-    materializeCandidateWorktree({ source_path: x.cwd, target_path: output, mode, ...(mode === "delivery" ? { branch: "delivery" } : {}), source_commit: material.source?.commit, baseline_oid: material.baseline.git_oid, patch: material.patch, expected_tree_oid: material.result_tree_oid });
+    materializeCandidateWorktree({ source_path: x.cwd, target_path: output, mode, source_commit: material.source?.commit, baseline_oid: material.baseline.git_oid, patch: material.patch, expected_tree_oid: material.result_tree_oid });
     assert.equal(readFileSync(join(output, "upstream"), "utf8"), "upstream change\n");
     assert.equal(readFileSync(join(output, "feature"), "utf8"), "new\n");
     assert.equal(execFileSync("git", ["rev-parse", "HEAD"], { cwd: output, encoding: "utf8" }).trim(), fixedSource.commit.slice(5));

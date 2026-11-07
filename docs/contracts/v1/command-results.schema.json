@@ -12,9 +12,6 @@
       "$ref": "environment.schema.json"
     },
     {
-      "$ref": "#/$defs/selectionMaterialize"
-    },
-    {
       "$ref": "#/$defs/helpResult"
     },
     {
@@ -100,72 +97,6 @@
     }
   ],
   "$defs": {
-    "selectionMaterialize": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "result_type",
-        "command",
-        "receipt",
-        "receipt_path",
-        "target_path",
-        "branch",
-        "materialization_mode",
-        "selection_warnings"
-      ],
-      "properties": {
-        "result_type": {
-          "const": "patchledger.result.selection-materialize/v1"
-        },
-        "command": {
-          "const": "selection.materialize"
-        },
-        "receipt": {
-          "$ref": "delivery-worktree.schema.json"
-        },
-        "receipt_path": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 32768
-        },
-        "target_path": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 32768
-        },
-        "branch": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 1024
-        },
-        "materialization_mode": {
-          "const": "delivery"
-        },
-        "selection_warnings": {
-          "type": "array",
-          "maxItems": 2,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "code",
-              "message"
-            ],
-            "properties": {
-              "code": {
-                "type": "string",
-                "pattern": "^[A-Z][A-Z0-9_]{0,127}$"
-              },
-              "message": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 4096
-              }
-            }
-          }
-        }
-      }
-    },
     "versionReference": {
       "type": "object",
       "additionalProperties": false,
@@ -675,16 +606,10 @@
         "candidate_id": { "$ref": "common.schema.json#/$defs/id" },
         "result_tree_oid": { "$ref": "common.schema.json#/$defs/gitOid" },
         "target_path": { "type": "string", "minLength": 1, "maxLength": 32768 },
-        "materialization_mode": { "enum": ["existing", "review", "delivery"] },
-        "branch": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "materialization_mode": { "enum": ["existing", "review"] },
         "review_session_id": { "$ref": "common.schema.json#/$defs/id" }
       },
       "allOf": [
-        {
-          "if": { "properties": { "materialization_mode": { "const": "delivery" } }, "required": ["materialization_mode"] },
-          "then": { "required": ["branch"] },
-          "else": { "not": { "required": ["branch"] } }
-        },
         {
           "if": { "required": ["review_session_id"] },
           "then": { "properties": { "materialization_mode": { "const": "review" } } }
@@ -832,7 +757,6 @@
         "start_devrun",
         "resume_devrun",
         "review_candidates",
-        "prepare_delivery",
         null
       ]
     },

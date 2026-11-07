@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { DatabaseSync, sqliteClient, type SQLClient } from "../src/sql-client.js";
 import { sqliteDialect } from "../src/sql-dialects.js";
+import { LedgerFixture } from "./fixture.js";
 import { SQLStore, SCHEMA_VERSION } from "../src/sql-store.js";
 
 const withDirectory = async (run: (directory: string) => Promise<void>): Promise<void> => {
@@ -144,5 +145,26 @@ test("an older existing database migrates to exactly the structure a new databas
     assert.ok(spy.statements.some((statement) => WRITE.test(statement)), "the spy must observe DDL/DML when a migration really runs");
 
     assert.deepEqual(structure(legacyPath), structure(freshPath));
+  });
+});
+
+test("the schema 22 upgrade preserves the blind context and leaves completion unrecorded", async () => {
+  await withDirectory(async directory => {
+    const path = join(directory, "ledger.db");
+    const store = SQLStore.sqlite(path);
+    const f = await LedgerFixture.createWithStore(store);
+    try {
+      const candidate = await f.submitCandidate();
+      const context = () => f.module.verificationContext(candidate.candidate.candidate_id, "blind");
+      const before = await context();
+      const db = new DatabaseSync(path);
+      try {
+        db.exec("DROP TABLE issue_completion_versions; UPDATE schema_metadata SET schema_version=22");
+      } finally { db.close(); }
+      await assert.rejects(store.open(), { code: "SCHEMA_INCOMPATIBLE" });
+      assert.equal((await store.migrate()).schema_version, SCHEMA_VERSION);
+      assert.deepEqual(await context(), before);
+      assert.equal((await f.module.showIssue(f.issue.issue_id)).board.completion.state, "unrecorded");
+    } finally { await f.close(); }
   });
 });
