@@ -148,7 +148,7 @@ for (const backend of ["sqlite", "mysql", "postgres"] as const) {
 
   backendTest("historical completion is visible on the exact Issue version and its Requirement", async f => {
     await f.store.write(async tx => {
-      const at = await tx.now();
+      const at = "2026-10-16T04:00:00.123Z";
       await tx.appendCompletion(f.issue.issue_revision_id, {
         version: 1, state: "completed", recorded_at: at, attribution: testAgent, evidence_status: "asserted_not_checked",
         completion: { format: "grounds.issue-completion-input/v1", origin: "historical",
