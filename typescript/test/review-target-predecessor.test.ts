@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { renderReviewMarkdown, renderReviewTrace } from "../src/review.js";
-import type { IntegrationRecord } from "../src/integration-service.js";
+import type { IntegrationRecord } from "../src/integration-record.js";
 import { newUUIDv7 } from "../src/identity.js";
 import { LedgerFixture, testAgent } from "./fixture.js";
 import { assertContract } from "./schema-fixture.js";

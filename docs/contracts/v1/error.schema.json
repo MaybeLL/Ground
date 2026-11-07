@@ -50,18 +50,6 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "target_path": {
-          "type": "string",
-          "maxLength": 32768
-        },
-        "inspect_argv": {
-          "type": "array",
-          "maxItems": 20,
-          "items": {
-            "type": "string",
-            "maxLength": 32768
-          }
-        },
         "resource_type": {
           "enum": [
             "config",

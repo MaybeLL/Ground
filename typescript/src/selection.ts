@@ -21,37 +21,6 @@ export interface SelectionView extends Omit<SelectionRecord, "issue_revision_id"
   verification_changed: boolean;
   warnings: { code: string; message: string }[];
 }
-export interface SelectionResult {
-  result_type: "patchledger.result.selection/v1";
-  command: "selection.show" | "selection.set" | "selection.clear";
-  issue: { id: string; version: number };
-  selection: SelectionView;
-}
-export interface SelectionWriteCommand {
-  operation_id: string;
-  issue_id: string;
-  issue_version: number;
-  expected_version: number;
-  candidate_id?: string;
-  attribution: Attribution;
-  reason?: string;
-}
-export interface DeliveryReceipt {
-  format: "patchledger.delivery-worktree/v1" | "grounds.delivery-worktree/v2";
-  source_commit?: string;
-  observed_target_commit?: string;
-  delivery_decision_id?: string;
-  database_id: string;
-  issue: { id: string; version: number };
-  selection_id: string;
-  selection_version: number;
-  candidate_id: string;
-  repository_id: string;
-  baseline_oid: string;
-  patch_digest: string;
-  result_tree_oid: string;
-}
-
 /** Validate stored snapshots before exposing them as decision-time evidence. */
 export const validSelectionSnapshot = (value: unknown): value is VerificationSetSummary => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;

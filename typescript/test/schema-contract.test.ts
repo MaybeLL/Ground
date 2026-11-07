@@ -84,12 +84,12 @@ test("candidate materialization modes satisfy the command result contract", () =
     target_path: "/tmp/grounds-review",
     materialization_mode: "review",
   });
-  assertContract("command-results.schema.json", {
+  assert.throws(() => assertContract("command-results.schema.json", {
     ...common,
     target_path: "/tmp/grounds-delivery",
     materialization_mode: "delivery",
     branch: "grounds/candidate/example",
-  });
+  }));
 });
 
 test("local DevRun worktree statuses and cleanup satisfy the command result contract", () => {

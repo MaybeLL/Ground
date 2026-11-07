@@ -119,7 +119,7 @@ export interface ReviewTraceResult {
     comparison_basis?: { left_commit: string; right_commit?: string; right_tree: string; purpose: "candidate_changes"; generator_version: "grounds.canonical-git-diff/v1"; diff_state: "inline" | "not_requested" | "omitted_size" | "binary" };
     lineage?: import("./candidate-history.js").CandidateLineage;
     archive_history?: import("./candidate-archive-service.js").ArchiveOperation[];
-    adoption?: import("./integration-service.js").IntegrationRecord[];
+    adoption?: import("./integration-record.js").IntegrationRecord[];
     upstream_changes?: import("./comparison.js").UpstreamChanges;
     sync_records?: import("./devrun-sync-record.js").SyncReview[];
     format: "patchledger.review-trace/v3";

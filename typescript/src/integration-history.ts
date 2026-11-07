@@ -46,59 +46,6 @@ export function readCommit(cwd: string, commit: string): CommitIdentity {
   return { oid: qualified(commitOid), parents: headers.filter(line => line.startsWith("parent ")).map(line => qualified(line.slice(7))), tree_oid: qualified(tree) };
 }
 
-export interface FirstParentLocation {
-  on_first_parent: boolean | null;
-  landed?: CommitIdentity;
-  first_parent_landing?: CommitIdentity;
-}
-
-/** Locate only the supplied OID, never a same-parent/same-tree lookalike. No adoption inference. */
-export function locateFirstParentLanding(cwd: string, target: string, supplied: string): FirstParentLocation {
-  const head = oid(target), candidate = oid(supplied);
-  try {
-    assertHistoryRepository(cwd);
-    const landed = readCommit(cwd, candidate);
-    const firstParents = text(cwd, ["rev-list", "--first-parent", head]).split("\n");
-    if (firstParents.includes(candidate)) return { on_first_parent: true, landed };
-    // Oldest first-parent entry containing the exact supplied commit is the actual merge entry.
-    // rev-list --ancestry-path is successful even for unrelated commits (empty output).
-    const descendants = new Set(text(cwd, ["rev-list", "--ancestry-path", `${candidate}..${head}`]).split("\n"));
-    const actual = [...firstParents].reverse().find(commit => descendants.has(commit));
-    return { on_first_parent: false, landed, ...(actual ? { first_parent_landing: readCommit(cwd, actual) } : {}) };
-  } catch { return { on_first_parent: null }; }
-}
-
-/** Actual target ref transition boundary, distinct from L's first Git parent. */
 export type LandingTargetPredecessor =
   | { state: "confirmed"; commit: CommitIdentity; source: "adoption_binding" | "landing_first_parent"; reason?: string }
   | { state: "unknown" | "conflict"; commit?: undefined; source?: "adoption_binding" | "landing_first_parent"; reason?: string };
-
-/** Inspect supplied transition evidence without moving refs or inventing a gate-based predecessor. */
-export function inspectLandingTargetPredecessor(cwd: string, input: {
-  landed?: CommitIdentity;
-  method?: "ff" | "merge" | "squash";
-  adoption_bound: boolean;
-  supplied_predecessor?: string;
-}): LandingTargetPredecessor {
-  if (!input.adoption_bound || !input.landed || !input.method) return { state: "unknown", reason: "actual_adoption_or_method_unconfirmed" };
-  const { landed, method, supplied_predecessor: supplied } = input;
-  if (method === "ff" && !supplied) return { state: "unknown", reason: "ff_requires_explicit_target_predecessor" };
-  const inferred = method === "ff" ? undefined : landed.parents[0];
-  const source = supplied ? "adoption_binding" as const : "landing_first_parent" as const;
-  if (supplied === landed.oid) return { state: "conflict", source, reason: "target_predecessor_equals_landing_no_update" };
-  if (!supplied && !inferred) return { state: "unknown", reason: "landing_has_no_target_parent" };
-  // A merge/squash's target parent follows from the claimed merge method and
-  // actual ordered parents. An explicit inconsistent assertion remains a conflict.
-  if (method !== "ff" && supplied && supplied !== inferred) return { state: "conflict", source, reason: "supplied_predecessor_differs_from_landing_first_parent" };
-  try {
-    assertHistoryRepository(cwd);
-    const predecessor = readCommit(cwd, supplied ?? inferred!);
-    // Verify all trees/blobs and all parent paths; do not restrict FF ancestry
-    // to first-parent history (a target can fast-forward into a merge side).
-    text(cwd, ["rev-list", "--objects", "--missing=error", oid(landed.oid), oid(predecessor.oid)]);
-    text(cwd, ["fsck", "--full", "--strict", "--no-reflogs", "--no-dangling", oid(landed.oid), oid(predecessor.oid)]);
-    const ancestors = text(cwd, ["rev-list", oid(landed.oid)]).split("\n");
-    if (!ancestors.includes(oid(predecessor.oid))) return { state: "conflict", source, reason: "target_predecessor_is_not_landing_ancestor" };
-    return { state: "confirmed", source, commit: predecessor };
-  } catch { return { state: "unknown", source, reason: "target_predecessor_objects_or_history_unavailable" }; }
-}

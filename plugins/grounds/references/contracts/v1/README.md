@@ -32,7 +32,7 @@ CandidateSubmission v1/v2 的 Criterion Claim 支持可选 `self_verification`�
 | 历史/固定起点盲验对象 | [`blind-subject.schema.json`](blind-subject.schema.json) | CLI 内部稳定 v1 哈希投影 |
 | 目标 Candidate 盲验对象 | [`blind-subject-v2.schema.json`](blind-subject-v2.schema.json) | 同时绑定契约快照、目标声明与自身基础 |
 | DevRun 可恢复同步 | [`devrun-sync.schema.json`](devrun-sync.schema.json) | CLI 同步状态/记录与 Review 投影 |
-| 交付门禁、单次授权与落地 | [`integration.schema.json`](integration.schema.json) | CLI → 调用者；观察/授权/消费/落地追加审计 |
+| 历史交付门禁与落地记录 | [`integration.schema.json`](integration.schema.json) | Candidate 查询 → 历史记录 |
 | 目标新鲜度与契约适用性预检 | [`preflight.schema.json`](preflight.schema.json) | `preflight observe/assess/show`、`devrun.admit`、`devrun.show`/`issue.show` 的预检读模型 |
 
 [`common.schema.json`](common.schema.json) 定义共享的 ID、digest、Git OID、Evidence、目标和 Claim 结构。Schema 使用 JSON Schema Draft 2020-12。
@@ -126,7 +126,6 @@ Issue 的可选 `target_branch:{remote,ref}` 随版本封存，remote 最多 256
 
 新代码 Workspace 路线沿用上述同步结果，不新增 SQL schema。必须从登记的路线根目录、执行已停止的准备窗口操作；运行/暂停执行和其他未决 Git 请求均不允许同步。Workspace 基线保持固定，路线 base_commit 绑定创建时 initial_base_commit；同步推进 DevRun 当前 base_commit，并使旧准入失效。sync-status 不伪造旧 local_worktree 状态；该可选字段在新路线结果中省略。冲突由可信宿主编辑/暂存后提供完整 decisions，当前容器通道不接同步。恢复目录与原 sync 绑定；终态前保留独占及恢复材料。Candidate、回收和新实例续作沿用候选自己的当前 base，不能替换成上下文的初始基线。
 
-`patchledger.result.integration/v1` 返回追加 record（gate/authorization/consumption/landing）及适用时的 authorization_state。gate 分开核对目标、源提交、Selection 与 Verification；ready 不代表 qualified，离线观察必为 unknown。只有刷新后单独目标前进导致 expired 才允许用户明确接受一次降级，授权绑定固定 Candidate/Selection/源/目标，consume 再刷新核对且只能消费一次，不执行 merge。landing 检查可信身份、首父位置、父提交及树；same_content_different_base 和 merge_landing 不自动取得 exact Delivery Link。详细流程与字段见总设计 §4.4、§11.3、§11.6。
 
 ## 目标新鲜度与契约适用性预检
 
@@ -138,7 +137,7 @@ Issue 的可选 `target_branch:{remote,ref}` 随版本封存，remote 最多 256
 
 CandidateSubmission 不提交 Candidate ID、artifact bytes、result tree 或 verdict。v2 的 `change_index` 只提交 Artifact/units fingerprint，Change Units 由 CLI 重建而非由作者声明。VerificationReport 也不提交 target/overall verdict：Work Module 由 Criterion verdict 派生，优先级为 `rejected > inconclusive > qualified`。
 
-IdempotencyRecord 保存首次完成命令的整个 `patchledger.cli/v1` success envelope 及其 contract version；同 operation ID、command 和 request hash 的重试通常逐字段重放该结构化结果。`integration consume` 是单次许可消费，已消费后的同操作重试或换 operation ID 再消费均拒绝；未知合并结果须检查实际落地，不能以幂等重放重新合并。诊断日志、stderr 早期 operation ID 提示和人类渲染文本不属于重放结果。
+IdempotencyRecord 保存首次完成命令的整个 `patchledger.cli/v1` success envelope 及其 contract version；同 operation ID、command 和 request hash 的重试通常逐字段重放该结构化结果。诊断日志、stderr 早期 operation ID 提示和人类渲染文本不属于重放结果。
 
 每个公开 success `data` 都有 versioned `result_type` 和 `command` discriminator，并由 `command-results.schema.json` 校验。`devrun.start/context` 和 `verification.context` 直接在 `data.context` 中嵌入相应版本化 Context，公开的 `devrun.start/context` 还通过 `local_worktree` 报告本机目录的 `available/missing/invalid/removed` 状态，路径只在 available 时出现。`devrun.cleanup` 是无 operation ID、无 Attribution、无 Ledger Event 的本地幂等操作。list 只返回资源摘要，show/compare/ledger 使用 `query-results.schema.json` 的专门结构。Schema 中保留的早期单资源结果只服务 Work Module 内部兼容与历史幂等重放，不代表公开 CLI 命令。Agent 不从人类 label 或 stderr 提取身份。
 
@@ -162,17 +161,16 @@ Schema 只能验证结构。Candidate Claim 是否真实、Verifier 是否真正
 
 游标绑定资源类别、准确筛选（如 `--requirement`、`--repository`、`--status`、`--has-open-devrun`、`--issue`、`--issue-version`、`--state`、`--standing`、`--selected`、`--candidate`、`--verdict`）、排序、最后位置和首页读取的账本高水位。其他筛选、不同列表或被改游标为 `VALIDATION_ERROR`（`field: cursor`），无效 `--limit` 为 `VALIDATION_ERROR`（`field: limit`）。首页后任何账本写入使下一页返回可重试 `LIST_CHANGED`，丢弃游标从首页开始。分页不漏/重条目，不跨变化宣称完整，仍校验每条存储行。Verification 专属分页（`--paged --candidate`）和 `ledger list --after` 保持自身游标/语义。
 
-## Selection 协议
+## 历史选择与完成记录
 
-`selection.schema.json` 定义当前选择及 show/set/clear 结果；`delivery-worktree.schema.json` 定义本地交付凭据。`selection materialize` 结果包含该凭据、目录、分支和读取时的警告。`board.selection` 与 Candidate show/list/compare 的 `is_selected` 为新增查询字段，历史记录缺省表示未记录，不从其他数据猜测。Candidate/Verification/Review Trace 协议不变，CLI envelope 仍为 v1；数据库 schema 升至 11，通过现有显式迁移和 schema 相等门禁隔离旧客户端。具体行为见 Selection 设计。
+Issue 和 Candidate 查询可展示旧账本中的选择与完成记录。日常任务通过 `work select` 选择冻结交付，再通过 `work close` 关闭工作。
 
 `command-results.schema.json` 中 `candidateMaterializeResult.review_session_id`、`verificationContextResult.output_path`、两个 handoff 结果的 `output_path` 与 `devRunWorktreeCleanupResult.deletion_summary` 均为可选字段：只在 review 会话、落盘输出或实际删除受管工作树时出现。
 
-`selection-inspect.schema.json` 定义当前 clone 的交付检查结果。`selection inspect` 只读；`selection materialize` 可安全重试匹配准备。恢复错误可带 `target_path` 和 `inspect_argv`，后者是参数数组，不是 shell 命令。
 
 ## 当前代码历史查询
 
-[code-history.schema.json](code-history.schema.json) 定义 `trace` 与 `delivery-link record/show/withdraw` 的结果。来源身份和内容吻合分开返回，包含当前/历史行范围、精确契约版本、可继续读取的 `review_argv`、未解释范围及预算缺口。交付关联需要 schema 14；只读查询不会自动迁移数据库。
+[code-history.schema.json](code-history.schema.json) 定义 `trace` 与 `delivery-link record/show/withdraw` 的结果。来源身份和内容吻合分开返回，包含当前/历史行范围、精确契约版本、可继续读取的 `review_argv`、未解释范围及预算缺口。登记交付关联需要显式提供 `--candidate`。交付关联需要 schema 14；只读查询不会自动迁移数据库。
 
 `trace.source.index.staged_paths` 与 `unmerged_paths` 描述本次命中文件的暂存/冲突状态；未解决冲突通过 `unresolved_index_conflict` 明确阻止该文件的来源追溯。
 
@@ -217,7 +215,7 @@ Git 是新工件的代码真源，DB 保存工件绑定及业务事实；固定 
 
 ## 实际目标更新前驱
 
-采用绑定可带 `target_predecessor` 完整 OID；字段对旧数据可缺省，新 FF 确认 P 需显式采用来源证据并进行对象/历史/祖先核对。`integration.landing.target_predecessor` 的 state 为 confirmed/unknown/conflict，confirmed 带 commit 和 source（adoption_binding/landing_first_parent）。P 是目标引用更新前驱，FF 多提交时可能不同于 L 的 Git 首父。旧字段缺失按 unknown 解释，不改写旧事件 digest。采用事实与 P 证据、L 归档分开；P 未知/冲突分别返回 landing_archive pending/unknown 和 `actual_target_predecessor_unknown` / `actual_target_predecessor_conflict`，landing diff 为 STATE_CONFLICT。只有 confirmed P 可用于归档 base、retained端点和 landing diff 左端。
+历史采用绑定可带 `target_predecessor` 完整 OID；字段对旧数据可缺省，新 FF 确认 P 需显式采用来源证据并进行对象/历史/祖先核对。`integration.landing.target_predecessor` 的 state 为 confirmed/unknown/conflict，confirmed 带 commit 和 source（adoption_binding/landing_first_parent）。P 是目标引用更新前驱，FF 多提交时可能不同于 L 的 Git 首父。旧字段缺失按 unknown 解释，不改写旧事件 digest。采用事实与 P 证据、L 归档分开；P 未知/冲突分别返回 landing_archive pending/unknown 和 `actual_target_predecessor_unknown` / `actual_target_predecessor_conflict`，landing diff 为 STATE_CONFLICT。只有 confirmed P 可用于归档 base、retained端点和 landing diff 左端。
 
 统一环境 `up` 可显式绑定 `--input-commit`、`--branch`、`--material-scope development|blind`、`--fixed-inputs-file`；`run` 接收 `--argv-file`、`--timeout-seconds`、`--requires-network` 和重复 `--artifact`。固定输入 `/inputs` 只读；显式产物仅来自 `/output` 的单个常规文件，每个至多 16 MiB，缺失或超限阻止回收。`down` 后 receipt 的 `directory` 保留摘要、日志和收集产物。`handoff` 只保活固定 Git 对象，协调者另行更新业务分支/提交账本。
 

@@ -83,7 +83,7 @@ test("historical target operation replays and submits without changing its contr
       preflightCoordinator: new PreflightService(store, repository).coordinator({ refresh: true }),
     });
     const issueId = fixture.issue.issue_id;
-    const revised = await reviseTargetIssue(fixture.module, store, repository, {
+    await reviseTargetIssue(fixture.module, store, repository, {
       attribution: testAgent, issue_id: issueId, expected_predecessor_id: fixture.issue.issue_revision_id,
       requirement_revision_id: fixture.requirement.requirement_revision_id, requirement_revision_explicit: true,
       baseline: { git_oid: `sha1:${snapshot}`, reachability: "remote_tracking_reachable" },
@@ -130,30 +130,5 @@ test("historical target operation replays and submits without changing its contr
     assert.deepEqual(blind.envelope.data.context.snapshot_relation, context.snapshot_relation);
     assertContract("verification-context.schema.json", blind.envelope.data.context);
 
-    const remote = originRemote;
-    git(repository, "push", remote, `${base}:refs/heads/main`);
-    const source = `sha1:${git(worktree, "rev-parse", "HEAD")}`;
-    git(repository, "push", remote, `${source.slice(5)}:refs/heads/feature`);
-    const selected = await run(["selection", "set", "--issue", issueId, "--issue-version", String(revised.result.revision_number), "--candidate", submitted.envelope.data.candidate_id, "--expected-version", "0", "--reason", "测试中明确选择尚未验证的候选", "--config", config, "--json"], repository);
-    assert.equal(selected.code, 0, JSON.stringify(selected.envelope));
-    const observed = await run(["integration", "observe", "--candidate", submitted.envelope.data.candidate_id, "--selection", selected.envelope.data.selection.id, "--selection-version", "1", "--source-remote", "origin", "--source-ref", "refs/heads/feature", "--source-commit", source, "--refresh", "--config", config, "--json"], repository);
-    assert.equal(observed.code, 0, JSON.stringify(observed.envelope));
-    assertContract("cli-envelope.schema.json", observed.envelope);
-    assert.equal(observed.envelope.data.record.gate.decision.consistency, "ready");
-    assert.equal(observed.envelope.data.record.gate.verification.current_verification.standing, "unverified");
-    const shown = await run(["integration", "show", observed.envelope.data.record.id, "--config", config, "--json"], repository);
-    assert.equal(shown.code, 0, JSON.stringify(shown.envelope));
-    assert.deepEqual(shown.envelope.data.record, observed.envelope.data.record);
-    git(repository, "push", remote, `${source.slice(5)}:refs/heads/main`);
-    const adoption = join(root, "adoption.json");
-    writeFileSync(adoption, JSON.stringify({ format: "grounds.adoption-binding/v1", repository_id: context.repository.id, candidate_id: submitted.envelope.data.candidate_id, source_commit: source, landed_commit: source, target: { remote: "origin", ref: "refs/heads/main" }, method: "ff", target_predecessor: `sha1:${base}`, source: { kind: "user_confirmation", reference: "Controlled temporary target fast-forward" } }));
-    const landing = await run(["integration", "landing", "--observation", observed.envelope.data.record.id, "--commit", source, "--provenance", "user", "--adoption-file", adoption, "--refresh", "--config", config, "--json"], repository);
-    assert.equal(landing.code, 0, JSON.stringify(landing.envelope)); assertContract("cli-envelope.schema.json", landing.envelope);
-    assert.equal(landing.envelope.data.record.landing.decision.delivery_link_commit, source);
-    const linked = await run(["delivery-link", "record", "--candidate", submitted.envelope.data.candidate_id, "--commit", source.slice(5), "--expected-version", "0", "--config", config, "--json"], repository);
-    assert.equal(linked.code, 0, JSON.stringify(linked.envelope));
-    const trace = await run(["trace", "--at", "a.txt:1", "--config", config, "--json"], worktree);
-    assert.equal(trace.code, 0, JSON.stringify(trace.envelope));
-    assert.match(JSON.stringify(trace.envelope.data), new RegExp(submitted.envelope.data.candidate_id));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

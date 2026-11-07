@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { SQLStore } from "../src/sql-store.js";
 import { DomainError } from "../src/errors.js";
 import { newUUIDv7 } from "../src/identity.js";
+import { verificationSetSummary } from "../src/module.js";
 import type { IssueWriteResult, RepositoryWriteResult, RequirementWriteResult } from "../src/module.js";
 import { execute, runCLI } from "../src/cli.js";
 import { LedgerFixture, testAgent, testBaseline } from "./fixture.js";
@@ -50,7 +51,12 @@ const seed = async (f: LedgerFixture) => {
   const selectedCandidate = await f.submitCandidate("two", undefined, [], false, undefined, selected);
   await f.verify(selectedCandidate, "qualified");
   await tick();
-  await f.module.setSelection({ operation_id: newUUIDv7(), attribution: testAgent, issue_id: selected.issue_id, issue_version: 1, candidate_id: selectedCandidate.candidate.candidate_id, expected_version: 0, reason: "best" } as never);
+  await f.store.write(async tx => {
+    const candidateId = selectedCandidate.candidate.candidate_id;
+    await tx.saveSelection({ id: newUUIDv7(), issue_revision_id: selected.issue_revision_id,
+      version: 1, candidate_id: candidateId, updated_at: await tx.now(), attribution: testAgent,
+      verification_at_selection: await verificationSetSummary(tx, candidateId) }, 0);
+  });
   await tick();
   const dropped = await openRun(f, abandoned, r2);
   await tick();
@@ -145,7 +151,11 @@ for (const backend of ["sqlite", "mysql", "postgres"] as const) {
     const status = async () => (await f.module.listIssues("", { repository_id: s.r1.repository_id })).resources.find(item => item.resource_id === s.selected.issue_id)!;
     assert.equal((await status()).board?.status, "candidate_selected");
     assert.equal((await status()).board?.selection.version, 1);
-    await f.module.clearSelection({ operation_id: newUUIDv7(), attribution: testAgent, issue_id: s.selected.issue_id, issue_version: 1, expected_version: 1, reason: "reconsidered" } as never);
+    await f.store.write(async tx => {
+      const previous = (await tx.getSelection(s.selected.issue_revision_id))!;
+      await tx.saveSelection({ id: previous.id, issue_revision_id: previous.issue_revision_id,
+        version: 2, updated_at: await tx.now(), attribution: testAgent }, 1);
+    });
     const cleared = await status();
     assert.equal(cleared.board?.status, "candidates_available"); assert.equal(cleared.board?.next_action, "review_candidates");
     assert.deepEqual(cleared.board?.selection, { state: "unselected", version: 2 });

@@ -75,11 +75,11 @@ try {
     if (!entries.includes(required)) throw new Error(`tarball is missing ${required}`);
   }
   // Exercise the extracted package's public executable, not source imports, for
-  // every CLI step of the GitLab binding -> Candidate -> actual landing journey.
+  // every CLI step of the GitLab binding and Candidate archive workflow.
   const archiveSmoke = execFileSync(process.execPath, ["--import", "tsx", "--test", "--test-concurrency=1", "--test-name-pattern", "GitLab onboarding", "test/candidate-archive-cli.test.ts"], {
     cwd: root, encoding: "utf8", timeout: 600_000, maxBuffer: 4 * 1024 * 1024,
     env: { ...process.env, GROUNDS_ARCHIVE_TEST_CLI: join(output, "package/dist/src/bin.js"), GROUNDS_ARCHIVE_TEST_TRANSCRIPT: process.env.GROUNDS_ARCHIVE_TEST_TRANSCRIPT ?? join(output, "archive-api-transcript.json") },
   });
   process.stdout.write(archiveSmoke);
-  console.log(`package-test: ${packed[0].filename} exposes only grounds, contains the Grounds Skill bundle and passes packaged GitLab onboarding/Candidate/landing archival.`);
+  console.log(`package-test: ${packed[0].filename} exposes only grounds, contains the Grounds Skill bundle and passes packaged GitLab onboarding and Candidate archival.`);
 } finally { rmSync(output, { recursive: true, force: true }); }

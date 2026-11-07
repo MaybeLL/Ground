@@ -31,22 +31,6 @@ export interface CompletionView {
   state: 'unrecorded' | 'completed' | 'reopened';
   record?: CompletionRecord;
 }
-export interface CompletionResult {
-  result_type: 'grounds.result.issue-completion/v1';
-  command: 'completion.record' | 'completion.reopen' | 'completion.show';
-  issue: { id: string; version: number };
-  completion: CompletionView;
-  history?: CompletionRecord[];
-  current_verification?: import('./review.js').VerificationSetSummary;
-  warnings: { code: string; message: string }[];
-}
-export interface CompletionWriteCommand {
-  operation_id: string;
-  issue_id: string;
-  issue_version: number;
-  expected_version: number;
-  attribution: Attribution;
-}
 export function completionText(value: unknown, field: string, limit = 4096): asserts value is string {
   if (typeof value !== 'string' || !value.trim() || value.length > limit || /\u0000/.test(value)) throw validation(field, `requires nonempty text of at most ${limit} characters`);
 }

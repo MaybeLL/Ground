@@ -2,15 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://patchledger.dev/contracts/v1/integration.schema.json",
   "title": "Grounds 门禁、单次授权与落地记录",
-  "type": "object", "additionalProperties": false,
-  "required": ["result_type", "command", "record"],
-  "properties": {
-    "result_type": { "const": "patchledger.result.integration/v1" },
-    "command": { "enum": ["integration.observe", "integration.authorize", "integration.consume", "integration.landing", "integration.show"] },
-    "record": { "$ref": "#/$defs/record" },
-    "landing_archive": { "$ref": "candidate-archive.schema.json#/$defs/landingArchive" },
-    "authorization_state": { "enum": ["available", "consumed"] }
-  },
+  "$ref": "#/$defs/record",
   "$defs": {
     "oid": { "$ref": "common.schema.json#/$defs/gitOid" },
     "id": { "$ref": "common.schema.json#/$defs/id" },

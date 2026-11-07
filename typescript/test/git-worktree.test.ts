@@ -32,7 +32,7 @@ const repositoryFixture = (): { root: string; repository: string; baseline: stri
   return { root, repository, baseline, source, artifact };
 };
 
-test("materialization creates detached review and named delivery worktrees", () => {
+test("materialization creates detached review worktrees", () => {
   const fixture = repositoryFixture();
   try {
     const reviewPath = join(fixture.root, "review");
@@ -42,11 +42,6 @@ test("materialization creates detached review and named delivery worktrees", () 
     assert.equal(git(reviewPath, "branch", "--show-current"), "");
     assert.match(git(reviewPath, "diff", fixture.baseline.slice(5), "HEAD", "--", "file.txt"), /\+candidate/);
 
-    const deliveryPath = join(fixture.root, "delivery");
-    const branch = "grounds/candidate/test";
-    const delivery = materializeCandidateWorktree({ source_path: fixture.repository, source_commit: fixture.source, target_path: deliveryPath, mode: "delivery", branch, baseline_oid: fixture.baseline, patch: fixture.artifact.patch, expected_tree_oid: fixture.artifact.result_tree_oid });
-    assert.equal(delivery.branch, branch);
-    assert.equal(git(deliveryPath, "branch", "--show-current"), branch);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
@@ -90,11 +85,6 @@ test("failed materialization removes the worktree it created", () => {
     assert.throws(() => materializeCandidateWorktree({ source_path: fixture.repository, source_commit: fixture.source, target_path: target, mode: "review", baseline_oid: fixture.baseline, patch: fixture.artifact.patch, expected_tree_oid: `sha1:${"0".repeat(40)}` }));
     assert.equal(existsSync(target), false);
 
-    const deliveryTarget = join(fixture.root, "failed-delivery");
-    const branch = "grounds/candidate/failed";
-    assert.throws(() => materializeCandidateWorktree({ source_path: fixture.repository, source_commit: fixture.source, target_path: deliveryTarget, mode: "delivery", branch, baseline_oid: fixture.baseline, patch: fixture.artifact.patch, expected_tree_oid: `sha1:${"0".repeat(40)}` }));
-    assert.equal(existsSync(deliveryTarget), false);
-    assert.throws(() => git(fixture.repository, "show-ref", "--verify", "--quiet", `refs/heads/${branch}`));
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }

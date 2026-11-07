@@ -3,7 +3,6 @@
   "$id": "https://patchledger.dev/contracts/v1/query-results.schema.json",
   "title": "Grounds 详情查询结果 v1",
   "oneOf": [
-    { "$ref": "completion.schema.json" },
     { "$ref": "candidate-archive.schema.json#/$defs/diffResult" },
     { "$ref": "candidate-archive.schema.json#/$defs/operationResult" },
     { "$ref": "candidate-archive.schema.json#/$defs/fetchResult" },
@@ -12,10 +11,7 @@
     { "$ref": "candidate-archive.schema.json#/$defs/archiveStatus" },
     { "$ref": "candidate-archive.schema.json#/$defs/lineageResult" },
     { "$ref": "code-history.schema.json" },
-    { "$ref": "integration.schema.json" },
     { "$ref": "devrun-sync.schema.json" },
-    { "$ref": "selection-inspect.schema.json" },
-    { "$ref": "selection.schema.json" },
     { "$ref": "#/$defs/reviewSummary" },
     { "$ref": "#/$defs/verificationPage" },
     { "$ref": "#/$defs/repositoryDetail" },
@@ -111,7 +107,6 @@
             "sync_in_progress",
             "sync_interrupted",
             "sync_recovery_retained",
-            "delivery_changed",
             "route_leased"
           ]
         },
@@ -129,8 +124,7 @@
           "items": {
             "enum": [
               "ledger",
-              "local_worktree",
-              "delivery"
+              "local_worktree"
             ]
           }
         },
@@ -164,8 +158,7 @@
         "next_actions",
         "ledger",
         "local_worktree",
-        "route_lease",
-        "delivery"
+        "route_lease"
       ],
       "properties": {
         "result_type": {
@@ -350,58 +343,6 @@
           "properties": {
             "held": {
               "type": "boolean"
-            }
-          }
-        },
-        "delivery": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "source",
-            "worktrees"
-          ],
-          "properties": {
-            "source": {
-              "const": "delivery"
-            },
-            "worktrees": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "target_path",
-                  "status",
-                  "reason"
-                ],
-                "properties": {
-                  "target_path": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 32768
-                  },
-                  "status": {
-                    "enum": [
-                      "not_found",
-                      "incomplete",
-                      "ready",
-                      "missing",
-                      "changed",
-                      "invalid"
-                    ]
-                  },
-                  "reason": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 4096
-                  },
-                  "branch": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 1024
-                  }
-                }
-              }
             }
           }
         }
@@ -1129,7 +1070,6 @@
             "start_devrun",
             "resume_devrun",
             "review_candidates",
-            "prepare_delivery",
             null
           ]
         },

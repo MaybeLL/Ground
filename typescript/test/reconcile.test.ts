@@ -185,7 +185,7 @@ test("reconcile classifies every local/ledger combination without changing anyth
   } finally { await w.close(); }
 });
 
-test("reconcile reports an abandoned DevRun and a changed delivery directory", async () => {
+test("reconcile reports an abandoned DevRun after cleanup", async () => {
   const w = await world();
   try {
     const run = await w.startRun();
@@ -203,22 +203,6 @@ test("reconcile reports an abandoned DevRun and a changed delivery directory", a
     data = await reconcile(w, run.id);
     assert.equal(data.overall, "consistent"); assert.deepEqual(codes(data), []);
 
-    // Delivery directory prepared for a selected Candidate, then edited by someone.
-    const second = await w.startRun();
-    writeFileSync(join(second.path, "file.txt"), "deliver\n");
-    const candidateID = await w.submit(second.id);
-    const set = await w.invoke(["selection", "set", "--issue", w.f.issue.issue_id, "--issue-version", String(w.issueVersion), "--candidate", candidateID, "--expected-version", "0", "--reason", "Reviewed"]);
-    assert.equal(set.code, 0, JSON.stringify(set.envelope));
-    const target = join(w.root, "delivery");
-    const made = await w.invoke(["selection", "materialize", "--issue", w.f.issue.issue_id, "--issue-version", String(w.issueVersion), "--expected-version", "1", "--path", target]);
-    assert.equal(made.code, 0, JSON.stringify(made.envelope));
-    data = await reconcile(w, second.id);
-    assert.deepEqual(codes(data), []); assert.equal(data.delivery.worktrees[0].status, "ready");
-    writeFileSync(join(target, "file.txt"), "edited by hand\n");
-    const afterEdit = snapshot(w.repo, [target]);
-    data = await reconcile(w, second.id);
-    assert.deepEqual(codes(data), ["delivery_changed"]); assert.equal(data.delivery.worktrees[0].status, "changed");
-    assert.equal(snapshot(w.repo, [target]), afterEdit);
   } finally { await w.close(); }
 });
 
@@ -263,12 +247,6 @@ test("replay-check follows the documented decision rules", async () => {
     assert.deepEqual(result.envelope.data.checked_refs.map((ref: any) => [ref.ref, ref.contains_base_commit]), [["refs/remotes/origin/main", true]]);
     assert.equal(snapshot(w.repo), before);
 
-    // Selecting by Issue and public version needs a selected Candidate.
-    const noSelection = await w.invoke(["candidate", "replay-check", "--issue", w.f.issue.issue_id, "--issue-version", String(w.issueVersion)]);
-    assert.equal(noSelection.code, 4, JSON.stringify(noSelection.envelope));
-    assert.equal((await w.invoke(["selection", "set", "--issue", w.f.issue.issue_id, "--issue-version", String(w.issueVersion), "--candidate", candidateID, "--expected-version", "0", "--reason", "Reviewed"])).code, 0);
-    const bySelection = await w.invoke(["candidate", "replay-check", "--issue", w.f.issue.issue_id, "--issue-version", String(w.issueVersion)]);
-    assert.equal(bySelection.code, 0); assert.equal(bySelection.envelope.data.candidate_id, candidateID);
     for (const args of [[], ["--issue", w.f.issue.issue_id], ["--issue-version", "1"], ["--candidate", candidateID, "--issue", w.f.issue.issue_id, "--issue-version", "1"]]) assert.equal((await w.invoke(["candidate", "replay-check", ...args])).code, 2);
 
     // The target branch was rewritten: no remote-tracking ref contains the base commit any more.

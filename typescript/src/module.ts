@@ -1,13 +1,13 @@
 import { timestampOrderKey } from "./sql-shared.js";
 import { encodeVerificationCursor } from "./verification-cursor.js";
 import { validateModeSelection } from "./development-mode.js";
-import { completionView, completionProgress, completionText, validateCompletionInput, type CompletionInput, type CompletionRecord, type CompletionView, type CompletionResult, type CompletionWriteCommand } from './completion.js';
+import { completionView, completionProgress, type CompletionView } from './completion.js';
 import { candidateHistoryProjection, type CandidateHistoryProjection } from "./candidate-history.js";
 import { GIT_CANDIDATE_ARTIFACT_FORMAT, validateGitArtifactCandidateBinding, type GitCommitArtifact } from "./git-artifact-storage.js";
 import { validateDevelopment, validateSourceIdentity } from "./development-branch.js";
 import { startDevRunInTransaction, abandonDevRunInTransaction, validateContextSize as contextSize } from './devrun-lifecycle.js';
 import { validateDeliveryProof, validateDeliveryLink } from "./delivery-link.js";
-import type { SelectionRecord, SelectionView, SelectionResult, SelectionWriteCommand } from "./selection.js";
+import type { SelectionView } from "./selection.js";
 import { createHash } from "node:crypto";
 import { canonicalBytes, sha256, sha256Bytes } from "./canonical-json.js";
 import {
@@ -133,7 +133,7 @@ export interface VerificationListOptions { verdict?: string }
 export type VerificationRole = "contract" | "quality";
 export interface RepositoryReference { id: string; canonical_remote: string }
 export interface CurrentIssueRevisionReference { id: string; revision_number: number; predecessor_revision_id?: string; requirement_revision_id: string; summary: string }
-export interface IssueBoard { status: string; next_action: "start_devrun" | "resume_devrun" | "review_candidates" | "prepare_delivery" | null; completion: CompletionView; selection: SelectionView; open_dev_run_count: number; candidate_count: number }
+export interface IssueBoard { status: string; next_action: "start_devrun" | "resume_devrun" | "review_candidates" | null; completion: CompletionView; selection: SelectionView; open_dev_run_count: number; candidate_count: number }
 export interface RequirementIssueSummary { issue_id: string; repository: RepositoryReference; baseline: Baseline; current_issue_revision: CurrentIssueRevisionReference; bound_to_selected_revision: boolean; board: IssueBoard }
 export interface RequirementAggregates { repository_count: number; issue_count: number; open_dev_run_count: number; candidate_count: number; bound_to_selected_revision_issue_count: number; other_requirement_revision_issue_count: number; completion_status: "completed" | "incomplete" | "no_issues"; completed_issue_count: number; candidate_standing_counts: Record<string, number> }
 export interface InternalRequirementDetailResult { result_type: string; command: string; requirement_revision: RequirementRevision; issues: RequirementIssueSummary[]; issues_omitted: boolean; issues_next_cursor?: string; aggregates: RequirementAggregates }
@@ -297,7 +297,7 @@ const requireIssueReadyRequirement = (revision: RequirementRevision): void => { 
 const hashableIssueRevision = (revision: IssueRevision): Record<string, unknown> => ({ id: revision.id, issue_id: revision.issue_id, requirement_revision_id: revision.requirement_revision_id, revision_number: revision.revision_number, ...(revision.predecessor_revision_id ? { predecessor_revision_id: revision.predecessor_revision_id } : {}), ...(revision.target_branch ? { target_branch: revision.target_branch } : {}), summary: revision.summary, ...(revision.context ? { context: revision.context } : {}), ...(revision.plan ? { plan: revision.plan } : {}), goals: revision.goals, constraints: revision.constraints });
 const standing = (total: number, qualified: number, rejected: number): string => total === 0 ? "unverified" : qualified > 0 && rejected > 0 ? "disputed" : qualified > 0 ? "qualified" : rejected > 0 ? "rejected" : "inconclusive";
 const deriveIssueBoard = (selectionState: string, candidates: number, open: number, completed = false): { status: string; next_action: IssueBoard["next_action"] } =>
-  completed ? { status: "completed", next_action: null } : selectionState === "selected" ? { status: "candidate_selected", next_action: "prepare_delivery" } : candidates > 0 ? { status: "candidates_available", next_action: "review_candidates" } : open > 0 ? { status: "exploring", next_action: "resume_devrun" } : { status: "ready", next_action: "start_devrun" };
+  completed ? { status: "completed", next_action: null } : selectionState === "selected" ? { status: "candidate_selected", next_action: null } : candidates > 0 ? { status: "candidates_available", next_action: "review_candidates" } : open > 0 ? { status: "exploring", next_action: "resume_devrun" } : { status: "ready", next_action: "start_devrun" };
 const oneOf = <T extends string>(field: string, value: string | undefined, allowed: readonly T[]): T | undefined => {
   if (value === undefined) return undefined;
   if (!(allowed as readonly string[]).includes(value)) throw validation(field, `must be one of: ${allowed.join(", ")}`);
@@ -1087,17 +1087,9 @@ export class Module {
   }
 
   /** Everything `candidate replay-check` needs from the ledger; damaged artifacts are reported, not thrown. */
-  async replaySubject(selector: { candidate_id: string } | { issue_id: string; issue_version: number }): Promise<ReplaySubject> {
-    if ("candidate_id" in selector) ensureID("candidate_id", selector.candidate_id); else { ensureID("issue_id", selector.issue_id); this.validateSelectionVersion("issue_version", selector.issue_version); }
-    return this.store.read(async (tx) => {
-      let candidateId: string;
-      if ("candidate_id" in selector) candidateId = selector.candidate_id;
-      else {
-        const revision = await tx.getIssueRevisionByNumber(selector.issue_id, selector.issue_version);
-        const selected = (await tx.getSelection(revision.id))?.candidate_id;
-        if (!selected) throw stateConflict("issue", selector.issue_id, "the Issue Version has no selected Candidate");
-        candidateId = selected;
-      }
+  async replaySubject(candidateId: string): Promise<ReplaySubject> {
+    ensureID("candidate_id", candidateId);
+    return this.store.read(async tx => {
       const ref = await tx.findCandidateArtifactRef({ candidate_id: candidateId });
       if (!ref) throw notFound("candidate", candidateId);
       const revision = await tx.getIssueRevisionById(ref.issue_revision_id);
@@ -1122,33 +1114,6 @@ export class Module {
         result_tree_oid: ref.result_tree_oid,
         patch,
       };
-    });
-  }
-
-  async recordDeliveryException(input: { operation_id: string; issue_id: string; issue_version: number; selection_id: string; selection_version: number; candidate_id: string; source_commit: string; target_commit: string; reason: string; attribution: Attribution }, onlyIfRecorded = false): Promise<string | undefined> {
-    ensureID("operation_id", input.operation_id); validateAttribution(input.attribution);
-    if (!input.reason.trim() || input.reason.length > 4096 || !isGitOID(input.source_commit) || !isGitOID(input.target_commit)) throw validation("delivery_exception", "explicit bounded reason and fixed source/target commits required");
-    return this.store.write(async tx => {
-      // A prior SQL receipt is historical evidence, not enduring preparation eligibility.
-      // Lock the operation before aggregate locks, including the no-new-decision path.
-      const existing = onlyIfRecorded ? await tx.getOperation(input.operation_id, true) : undefined;
-      const replay = !onlyIfRecorded || existing
-        ? await tx.reserveOperation({ id: input.operation_id, command: "selection.delivery-exception", request_hash: sha256(input) }) : undefined;
-      const revision = await tx.getIssueRevisionByNumber(input.issue_id, input.issue_version);
-      await tx.lockIssueSelection(revision.id); await tx.lockCandidateVerifications(input.candidate_id);
-      const selection = await tx.getSelection(revision.id), record = await tx.getCandidate(input.candidate_id);
-      if (selection?.id !== input.selection_id || selection.version !== input.selection_version || selection.candidate_id !== input.candidate_id || record.candidate.issue_revision_id !== revision.id || record.candidate.source?.commit !== input.source_commit) throw stateConflict("selection", input.selection_id, "Selection or fixed source changed before delivery decision");
-      const standing = await tx.candidateStanding(input.candidate_id);
-      if (!["unverified", "qualified"].includes(standing)) throw stateConflict("candidate", input.candidate_id, "the complete rejected/disputed/inconclusive Verification set cannot be waived as unverified");
-      if (replay) return JSON.parse(replay.result_json).data.decision_id;
-      if (onlyIfRecorded) {
-        if (standing !== "qualified" || input.target_commit !== (record.candidate.base_commit ?? revision.baseline.git_oid)) throw stateConflict("candidate", input.candidate_id, "preparation facts changed; refresh and request an explicit new delivery decision");
-        return undefined;
-      }
-      const issue = await tx.getIssue(input.issue_id), now = await tx.now();
-      await tx.appendLedgerEvent(event(this.newId(), "selection.delivery_exception", input.operation_id, "selection", input.selection_id, issue.repository_id, input.selection_version, now, input.attribution,
-        { candidate_id: input.candidate_id, source_commit: input.source_commit, target_commit: input.target_commit, disclosure: "landed_code_is_unverified", reason: input.reason }));
-      await tx.completeOperation(input.operation_id, JSON.stringify(envelopeData({ result_type: "grounds.result.delivery-exception/v1", command: "selection.delivery-exception", decision_id: input.operation_id }, input.operation_id, []))); return input.operation_id;
     });
   }
 
@@ -1320,147 +1285,6 @@ export class Module {
 
   private validateSelectionVersion(field: string, version: number, minimum = 1): void {
     if (!Number.isSafeInteger(version) || version < minimum || version > 2147483646) throw validation(field, `must be an integer between ${minimum} and 2147483646`);
-  }
-
-  async showSelection(issueId: string, issueVersion?: number): Promise<SelectionResult> {
-    ensureID("issue_id", issueId);
-    if (issueVersion !== undefined) this.validateSelectionVersion("issue_version", issueVersion);
-    return this.store.read(async tx => {
-      const revision = issueVersion === undefined ? await tx.getCurrentIssueRevision(issueId) : await tx.getIssueRevisionByNumber(issueId, issueVersion);
-      return { result_type: "patchledger.result.selection/v1", command: "selection.show", issue: { id: issueId, version: revision.revision_number }, selection: await this.selectionView(tx, revision.id) };
-    });
-  }
-
-  async showCompletion(issueId: string, issueVersion: number): Promise<CompletionResult> {
-    ensureID('issue_id', issueId); this.validateSelectionVersion('issue_version', issueVersion);
-    return resultSize('Completion detail', await this.store.read(async tx => {
-      const revision = await tx.getIssueRevisionByNumber(issueId, issueVersion);
-      const history = await tx.completionHistory(revision.id);
-      return { ...await this.completionResult(tx, issueId, issueVersion, 'completion.show', history.at(-1)), history };
-    }));
-  }
-
-  private async completionResult(tx: Tx, issueId: string, issueVersion: number, command: CompletionResult['command'], record?: CompletionRecord): Promise<CompletionResult> {
-    const verification = record?.completion.candidate_id ? await verificationSetSummary(tx, record.completion.candidate_id) : undefined;
-    return { result_type: 'grounds.result.issue-completion/v1', command, issue: { id: issueId, version: issueVersion }, completion: completionView(record),
-      ...(verification ? { current_verification: verification } : {}),
-      warnings: record ? [{ code: 'COMPLETION_EXTERNAL_FACTS_ASSERTED', message: 'External delivery facts are asserted by the recorder; Grounds has not checked references or performed delivery.' },
-        ...(verification && verification.standing !== 'qualified' ? [{ code: 'COMPLETION_VERIFICATION_RISK', message: `Completed delivery does not change Candidate verification: ${verification.standing}.` }] : [])] : [] };
-  }
-
-  async recordCompletion(input: CompletionWriteCommand & { completion: CompletionInput }): Promise<CompletionResult> {
-    validateCompletionInput(input.completion);
-    return this.writeCompletion(input, input.completion);
-  }
-
-  async reopenCompletion(input: CompletionWriteCommand & { reason: string }): Promise<CompletionResult> {
-    completionText(input.reason, 'reason');
-    return this.writeCompletion(input, undefined, input.reason);
-  }
-
-  private async writeCompletion(input: CompletionWriteCommand, completion?: CompletionInput, reason?: string): Promise<CompletionResult> {
-    ensureID('issue_id', input.issue_id); this.validateSelectionVersion('issue_version', input.issue_version);
-    this.validateSelectionVersion('expected_version', input.expected_version, 0); validateAttribution(input.attribution);
-    const op = opID(input.operation_id), name = completion ? 'completion.record' : 'completion.reopen';
-    const hash = operationHash(name, { ...input, ...(completion ? { completion } : { reason }) }, input.attribution, {}, { expected_version: input.expected_version });
-    return this.store.write(async tx => {
-      const replay = await tx.reserveOperation({ id: op, command: name, request_hash: hash });
-      if (replay) return decodeReplay<CompletionResult>(replay).data;
-      const revision = await tx.getIssueRevisionByNumber(input.issue_id, input.issue_version);
-      await tx.lockIssueSelection(revision.id);
-      const previous = await tx.getCompletion(revision.id);
-      if ((previous?.version ?? 0) !== input.expected_version) throw versionConflict('completion', input.issue_id, input.expected_version, previous?.version ?? 0);
-      if (completion ? previous?.state === 'completed' : previous?.state !== 'completed') throw stateConflict('completion', input.issue_id, completion ? 'reopen the completed record before correcting it' : 'there is no completed record to reopen');
-      const issue = await tx.getIssue(input.issue_id);
-      const now = new Date(await tx.now()).toISOString();
-      if (completion) {
-        if (completion.repository_id !== issue.repository_id) throw validation('repository_id', 'must match the Issue Repository');
-        if (revision.target_branch && completion.target_branch !== revision.target_branch.ref) throw validation('target_branch', 'must match the Issue target branch');
-        if (Date.parse(completion.completed_at) > Date.parse(now)) throw validation('completed_at', 'completion cannot be in the future');
-        if (completion.candidate_id) {
-          const candidate = await tx.getCandidate(completion.candidate_id);
-          if (candidate.candidate.issue_revision_id !== revision.id) throw validation('candidate_id', 'must belong to the exact Issue Version');
-        }
-      }
-      const record: CompletionRecord = { version: input.expected_version + 1, state: completion ? 'completed' : 'reopened', recorded_at: now, attribution: input.attribution, evidence_status: 'asserted_not_checked', completion: completion ?? previous!.completion, ...(reason ? { reason } : {}) };
-      await tx.appendCompletion(revision.id, record, input.expected_version);
-      await tx.appendLedgerEvent(event(this.newId(), completion ? 'completion.recorded' : 'completion.reopened', op, 'issue_completion', revision.id, issue.repository_id, record.version, now, input.attribution, { issue_id: input.issue_id, issue_version: String(input.issue_version), record_digest: sha256(record) }));
-      const result = await this.completionResult(tx, input.issue_id, input.issue_version, name, record);
-      await tx.completeOperation(op, JSON.stringify(envelopeData(result, op)));
-      return result;
-    });
-  }
-
-  async setSelection(input: SelectionWriteCommand & { candidate_id: string }): Promise<SelectionResult> {
-    ensureID("candidate_id", input.candidate_id);
-    return this.writeSelection(input, false);
-  }
-
-  async clearSelection(input: SelectionWriteCommand): Promise<SelectionResult> {
-    if (input.candidate_id !== undefined) throw validation("candidate_id", "is not accepted when clearing a selection");
-    return this.writeSelection(input, true);
-  }
-
-  private async writeSelection(input: SelectionWriteCommand, clear: boolean): Promise<SelectionResult> {
-    ensureID("issue_id", input.issue_id);
-    this.validateSelectionVersion("issue_version", input.issue_version);
-    this.validateSelectionVersion("expected_version", input.expected_version, 0);
-    validateAttribution(input.attribution);
-    validateOptionalLongText("reason", input.reason);
-    if (input.reason !== undefined && [...input.reason].length > 4096) throw validation("reason", "must not exceed 4096 characters");
-    const op = opID(input.operation_id);
-    const name = clear ? "selection.clear" : "selection.set";
-    // Only explicit, stable request inputs enter the hash. Later Verifications
-    // or a changed current Selection must not invalidate operation replay.
-    const hash = operationHash(name, input, input.attribution, {}, { expected_version: input.expected_version });
-    return this.store.write(async tx => {
-      const replay = await tx.reserveOperation({ id: op, command: name, request_hash: hash });
-      if (replay) return decodeReplay<SelectionResult>(replay).data;
-      const revision = await tx.getIssueRevisionByNumber(input.issue_id, input.issue_version);
-      await tx.lockIssueSelection(revision.id);
-      const before = await tx.getSelection(revision.id);
-      if ((before?.version ?? 0) !== input.expected_version) throw versionConflict("selection", before?.id ?? input.issue_id, input.expected_version, before?.version ?? 0);
-      if (clear && !before?.candidate_id) throw stateConflict("selection", before?.id ?? input.issue_id, "there is no current selection to clear");
-      const issue = await tx.getIssue(input.issue_id);
-      let snapshot: VerificationSetSummary | undefined;
-      if (!clear) {
-        const candidate = await tx.getCandidate(input.candidate_id!);
-        if (candidate.candidate.issue_revision_id !== revision.id) throw validation("candidate_id", "must belong to the requested Issue Version");
-        await tx.lockCandidateVerifications(input.candidate_id!);
-        snapshot = await verificationSetSummary(tx, input.candidate_id!);
-        if (snapshot.standing !== "qualified" && !input.reason?.trim()) throw validation("reason", `is required to select a ${snapshot.standing} Candidate`);
-      }
-      const record: SelectionRecord = {
-        id: before?.id ?? this.newId(), issue_revision_id: revision.id, version: input.expected_version + 1,
-        updated_at: await tx.now(), attribution: input.attribution,
-        ...(input.reason === undefined ? {} : { reason: input.reason }),
-        ...(!clear ? { candidate_id: input.candidate_id!, verification_at_selection: snapshot! } : {}),
-      };
-      await tx.saveSelection(record, input.expected_version);
-      await tx.appendLedgerEvent(event(this.newId(), clear ? "selection.cleared" : "selection.set", op, "selection", record.id, issue.repository_id, record.version, record.updated_at, input.attribution, {
-        issue_id: input.issue_id, issue_version: String(input.issue_version), previous_version: String(input.expected_version), version: String(record.version),
-        ...(before?.candidate_id ? { previous_candidate_id: before.candidate_id } : {}),
-        ...(record.candidate_id ? { candidate_id: record.candidate_id } : {}),
-        ...(input.reason === undefined ? {} : { reason: input.reason }),
-        ...(snapshot ? { verification_at_selection: JSON.stringify(snapshot) } : {}),
-      }));
-      const result: SelectionResult = { result_type: "patchledger.result.selection/v1", command: name, issue: { id: input.issue_id, version: input.issue_version }, selection: await this.selectionView(tx, revision.id) };
-      await tx.completeOperation(op, JSON.stringify(envelopeData(result, op)));
-      return result;
-    });
-  }
-
-  async loadSelectionMaterialization(issueId: string, issueVersion: number, expectedVersion: number): Promise<{ selection: SelectionResult; materialization: CandidateMaterialization }> {
-    ensureID("issue_id", issueId);
-    this.validateSelectionVersion("issue_version", issueVersion);
-    this.validateSelectionVersion("expected_version", expectedVersion, 0);
-    return this.store.read(async tx => {
-      const revision = await tx.getIssueRevisionByNumber(issueId, issueVersion);
-      const selection = await this.selectionView(tx, revision.id);
-      if (selection.version !== expectedVersion) throw versionConflict("selection", selection.id ?? issueId, expectedVersion, selection.version);
-      if (!selection.candidate_id) throw stateConflict("selection", selection.id ?? issueId, "select a Candidate before preparing delivery");
-      return { selection: { result_type: "patchledger.result.selection/v1", command: "selection.show", issue: { id: issueId, version: issueVersion }, selection }, materialization: await this.candidateMaterialization(tx, selection.candidate_id) };
-    });
   }
 
   async showCandidate(candidateId: string, manifestCursor = "", verificationCursor = ""): Promise<CandidateDetailResult> {
