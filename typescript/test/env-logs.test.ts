@@ -8,7 +8,8 @@ import { cancelRun, reconcileRun, startRun } from "../src/env-run.js";
 import { environmentDown, environmentUp } from "../src/env-environment.js";
 import { environmentDefinitionOf, implicitHostDefinition } from "../src/env-definition.js";
 import { registerCredentialGrant } from "../src/env-credentials.js";
-import { temporary } from "./env-test-helpers.js";
+import { resolveEnvironmentRepository } from "../src/env-repository.js";
+import { temporary, repository } from "./env-test-helpers.js";
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -49,12 +50,13 @@ test("host output is durable before command exit and survives controller death",
 }));
 
 test("live log snapshots redact credentials split across output chunks", async () => temporary(async (root, workspace) => {
+  repository(workspace);
   const token = "s3cr3t-abcdef";
   const source = join(root, "auth.json");
   writeFileSync(source, JSON.stringify({ account: "test", token }));
-  registerCredentialGrant({ name: "model", repository_id: "repo", environment: "dev", source_file: source, account: "test", method: "oauth", access: "model", identity_fields: ["account"] });
+  registerCredentialGrant({ name: "model", repository: resolveEnvironmentRepository(workspace), environment: "dev", source_file: source, account: "test", method: "oauth", access: "model", identity_fields: ["account"] });
   const environment = await environmentUp({
-    workspace, taskRepositoryId: "repo", resolvedRepositoryId: "repo",
+    workspace,
     definition: environmentDefinitionOf({ ...implicitHostDefinition(), name: "dev", credentials: [{ name: "model" }] }),
   });
   const script = `const fs=require('fs');const token=JSON.parse(fs.readFileSync(process.env.GROUNDS_CREDENTIAL_MODEL_FILE)).token;process.stdout.write(token.slice(0,6));fs.writeFileSync('partial','ready');setTimeout(()=>process.stdout.write(token.slice(6)+'\\n'),600);`;

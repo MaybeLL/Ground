@@ -220,9 +220,19 @@ Schema 只能验证结构。Candidate Claim 是否真实、Verifier 是否真正
 
 [`environment-definition.schema.json`](environment-definition.schema.json) 定义仓库 YAML 的非敏感声明。单仓库、多变体，`repositories` 最多一项且 path 为 `.`；Docker 必须提供 `base.image` 配方。声明可版本化，凭据声明不构成宿主授权。
 
-`grounds env up|list|show|reconcile|handoff|down|run|cancel|logs|credential-grant|credential-occupancy|service-register` 的结果符合 [`environment.schema.json`](environment.schema.json)，`result_type` 为 `grounds.result.environment/v1`。任务实例（`grounds.environment/v1`）及运行记录（`grounds.environment-run/v1`）保存在本机运行根，不取得真实业务账本。可信 host 支持 macOS/Linux，没有操作系统级文件、网络或进程隔离；Docker 为完整任务 Agent 提供单仓库、独立普通 Git 与私有运行资源。只执行容器内测试不构成 Agent 隔离。
+`grounds env repository|up|list|show|reconcile|handoff|down|run|cancel|logs|credential-grant|credential-occupancy|service-register` 的结果符合 [`environment.schema.json`](environment.schema.json)，`result_type` 为 `grounds.result.environment/v1`。任务实例（`grounds.environment/v1`）及运行记录（`grounds.environment-run/v1`）保存在本机运行根，不取得真实业务账本。可信 host 支持 macOS/Linux，没有操作系统级文件、网络或进程隔离；Docker 为完整任务 Agent 提供单仓库、独立普通 Git 与私有运行资源。只执行容器内测试不构成 Agent 隔离。
 
-协调者负责 Repository 身份、授权、目标新鲜度/准入、角色/阶段材料、Agent 创建/续接、Git 对象交接和 CLI 上报。环境不自动追随目标、推进验证或重跑 Agent；停止证明、成果交接、安全收尾及业务提交分别判断。能力不足 `ENVIRONMENT_CAPABILITY_UNSUPPORTED`，准备失败 `ENVIRONMENT_SETUP_FAILED`，不静默改用 host。声明及非敏感构建输入可版本化，私有凭据、控制记录、日志和报告 handoff 不进入候选树。配置固定范围与引用，认证组件可在同源同账号内续期；环境不自行刷新或扩权。
+`env` 不依赖 SQL，不承担 TaskRun 业务准入。旧 `--dev-run` 参数和带 `dev_run_id` / `repository_id` 的持久环境禁止执行，旧授权文件不自动转换。调用者负责目标新鲜度、角色/阶段材料、Agent 创建/续接、Git 对象交接和 CLI 上报。环境不自动追随目标、推进验证或重跑 Agent；停止证明、成果交接、安全收尾及业务提交分别判断。能力不足 `ENVIRONMENT_CAPABILITY_UNSUPPORTED`，准备失败 `ENVIRONMENT_SETUP_FAILED`，不静默改用 host。声明及非敏感构建输入可版本化，私有凭据、控制记录、日志和报告 handoff 不进入候选树。配置固定范围与引用，认证组件可在同源同账号内续期；环境不自行刷新或扩权。
+
+### 独立仓库授权
+
+先在实际工作区运行 `grounds env repository --workspace DIR --json`，将 `data.repository` 对象原样填入凭据 grant 或共享服务登记的 `repository` 字段。其结构为 `{git_common_dir, device, inode}`：Git common directory 的规范绝对路径及文件系统设备/inode 字符串。同一仓库的 linked worktree 共享授权，独立 clone、另一个仓库或原路径下重新创建的目录不自动继承。此身份是本机授权范围，不是远端仓库 ID、业务身份或操作系统隔离；不得用任意旧 `repository_id` 替代。更换机器/clone/目录实例后须显式重新授权，不做迁移。
+
+`env credential-grant --grant-file FILE` 仍要求名称、环境、来源文件、账号、认证方式和允许的访问类型；凭据声明不构成授权。授权形状见 `environment.schema.json#/$defs/credentialGrant`。`env service-register --service-file FILE` 仍需固定容器/网络 ID、host、port、kind、name、environment，以及同样的 `repository` 对象，见 `#/$defs/sharedService`。只有仓库、环境、名称和服务种类均匹配时才使用共享服务。查询仓库身份和登记授权不连接远端或打开账本。
+
+准备需要凭据或共享服务的环境时，从工作区实际 Git 元数据解析身份，不接受调用者自报身份。准备期间及每次启动命令前重新核对仓库实例；身份改变或旧绑定出现时，在产生新 run 或启动进程前拒绝。无凭据、无共享服务的独立 host 目录无需是 Git 仓库。Git 配置解析清除外部 `GIT_*` 覆盖；本机拥有者仍可改动文件和授权，检查不提供对恶意同用户进程的强隔离。
+
+旧受管目录旁的 `owner.json` / `state.json`、外部工作区注册预约、旧路线保留标记和损坏私有 Git 指针仍作为拒绝依据；检查覆盖子目录，未知或损坏状态不会授予执行，也不修改这些记录；即使损坏记录的目录不重叠，也必须拒绝。只读查询不会创建注册根目录或更改其权限。host 运行的最终预约检查与 env lease 发布在同一个 `directory-registry` 文件锁内执行，与尚未退役的 DevRun 发布互斥；锁被占用时明确失败，不等待或重试执行命令。此保护不恢复旧 DevRun 执行功能。
 
 <a id="external-workspaces"></a>
 

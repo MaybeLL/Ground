@@ -3,25 +3,26 @@ import { basename, join, resolve } from "node:path";
 import { assertCapabilities, hostCapabilities, dockerCapabilities, effectiveRequirements, type CapabilityMatrix } from "./env-capabilities.js";
 import { materializeBase } from "./env-base.js";
 import { environmentDefinitionOf, type EnvironmentBackendKind, type EnvironmentDefinition, type EnvironmentRequirements } from "./env-definition.js";
-import { isRouteWorkspace, isRouteLeased, releaseRouteLease } from "./env-route-lease.js";
+import { isRouteWorkspace, isRouteLeased, releaseRouteLease, assertIndependentWorkspace } from "./env-route-lease.js";
 import { stateConflict, validation } from "./errors.js";
 import { environmentDirectory, instanceDirectories, readRecord, requireId, runFilesOf, writeRecord, withEnvironmentOperation } from "./env-store.js";
 import { newUUIDv7 } from "./identity.js";
 import { privateDirectory, atomicPrivateWrite, safeRead, digestBytes } from "./runtime-files.js";
 import { initializeTaskRepository, type MaterialScope } from "./env-seed.js";
 import { authorizeCredentials, injectCredentials, syncCredentials, credentialRedactions, withCredentialPreparation, type CredentialBinding } from "./env-credentials.js";
-import { createTaskNetwork, prepareServices, releaseServices, removeTaskNetwork, type PreparedService } from "./env-services.js";
+import { createTaskNetwork, prepareServices, releaseServices, removeTaskNetwork, authorizedSharedService, type PreparedService } from "./env-services.js";
 import { inspectTaskGit, type RouteReport } from "./env-route-exit.js";
 import { docker, inspectOwnedContainer, removeOwnedContainer, resourceArguments } from "./env-docker.js";
 import { reconcileRun, type RunRecord } from "./env-run.js";
 import { receiveDevelopmentObjects } from "./development-branch.js";
 import { git } from "./env-git.js";
+import { resolveEnvironmentRepository, sameEnvironmentRepository, type EnvironmentRepository } from "./env-repository.js";
 export const ENVIRONMENT_FORMAT = "grounds.environment/v1";
 export interface EnvironmentRecord {
   format: typeof ENVIRONMENT_FORMAT; id: string; directory: string; definition: { name: string; digest: string; implicit: boolean }; definition_snapshot: EnvironmentDefinition;
   backend: EnvironmentBackendKind; requirements: EnvironmentRequirements; base_digest: string; image?: string; engine_id?: string;
   workspace: string; original_workspace: string; route: boolean; created_at: string; state: "preparing"|"ready"|"blocked"|"released";
-  trust: "trusted_host"|"container"; disclosure: string; repository_id?: string; dev_run_id?: string;
+  trust: "trusted_host"|"container"; disclosure: string; repository?: EnvironmentRepository;
   input?: { source_commit: string; commit: string; tree: string; scope: MaterialScope; branch: string };
   credentials: CredentialBinding[]; services: PreparedService[]; network_id?: string; artifacts: string[]; inputs: {name:string;digest:string}[];
   handoff?: { target: string; source_commit: string; tree: string; parents: string[]; ref: string };
@@ -33,10 +34,12 @@ export const saveEnvironment = (record: EnvironmentRecord): void => writeRecord(
 export const environmentPrivateDirectory = (id: string): string => join(environmentDirectory(id),"private");
 export interface EnvironmentUpInput {
   definition: EnvironmentDefinition; workspace: string; capabilities?: CapabilityMatrix; inputCommit?: string; branch?: string; materialScope?: MaterialScope;
-  taskRepositoryId?: string; resolvedRepositoryId?: string; devRunId?: string; fixedInputs?: { name: string; path: string }[];
+  fixedInputs?: { name: string; path: string }[];
 }
 export const environmentUp = async (input: EnvironmentUpInput): Promise<EnvironmentRecord> => {
+  if (["taskRepositoryId", "resolvedRepositoryId", "devRunId"].some(key => Object.hasOwn(input, key))) throw validation("environment", "retired ledger identity is not accepted");
   const workspace = realpathSync(input.workspace);
+  assertIndependentWorkspace(workspace);
   if (!statSync(workspace).isDirectory()) throw validation("workspace", "requires existing directory");
   const definition = environmentDefinitionOf(input.definition);
   if (definition.repositories.length !== 1 || definition.repositories[0].path !== ".") throw validation("repositories","only the current task repository is supported");
@@ -47,8 +50,10 @@ export const environmentUp = async (input: EnvironmentUpInput): Promise<Environm
   if (definition.backend === "host" && definition.services.length) throw validation("services","managed services require Docker; host has no service isolation");
   if (requirements.network === "none" && definition.services.length) throw validation("services","network-none tasks cannot connect dependency services");
   if (definition.backend === "docker" && !input.inputCommit) throw validation("input_commit","Docker requires an explicit fixed input commit supplied by the coordinator");
-  const credentials = authorizeCredentials({ declarations: definition.credentials, environment: definition.name, taskRepositoryId: input.taskRepositoryId, resolvedRepositoryId: input.resolvedRepositoryId });
-  if (definition.services.some(s=>s.shared) && (!input.taskRepositoryId || input.taskRepositoryId!==input.resolvedRepositoryId)) throw validation("repository","shared services require matching task repository resolution");
+  const needsRepository = definition.credentials.length > 0 || definition.services.some(service => service.shared);
+  const repository = needsRepository ? resolveEnvironmentRepository(workspace) : undefined;
+  const credentials = authorizeCredentials({ declarations: definition.credentials, environment: definition.name, repository });
+  for (const service of definition.services) if (service.shared) authorizedSharedService(service.shared, service.kind, repository, definition.name);
   const fixedInputs = (input.fixedInputs ?? []).map(item=> {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(item.name)) throw validation("fixed_inputs","each fixed input must be one named regular file");
     return { name:item.name,bytes:safeRead(item.path,16*1024*1024) };
@@ -56,12 +61,14 @@ export const environmentUp = async (input: EnvironmentUpInput): Promise<Environm
   if (new Set(fixedInputs.map(i=>i.name)).size !== fixedInputs.length) throw validation("fixed_inputs","duplicate input names");
   const base = await materializeBase(definition,workspace);
   const prepared = withCredentialPreparation(credentials, () => {
+    assertIndependentWorkspace(workspace);
+    if (repository && !sameEnvironmentRepository(repository, resolveEnvironmentRepository(workspace))) throw validation("repository", "workspace identity changed during preparation");
     const id = newUUIDv7();
     const directory = environmentDirectory(id);
     const privateDir = environmentPrivateDirectory(id);
     for (const name of ["home","tmp","out","credentials","inputs"]) privateDirectory(join(privateDir,name));
     privateDirectory(join(directory,"runs"));
-    const record: EnvironmentRecord = { format: ENVIRONMENT_FORMAT,id,directory,definition:{name:definition.name,digest:definition.digest,implicit:input.definition.implicit===true},definition_snapshot:definition,backend:definition.backend,requirements,base_digest:base.identity,...(base.image?{image:base.image,engine_id:docker(["info","--format","{{.ID}}"]) }:{}),workspace:definition.backend==="host"?workspace:join(privateDir,"workspace"),original_workspace:workspace,route:existsSync(join(workspace,".git")),created_at:new Date().toISOString(),state:"preparing",trust:definition.backend==="host"?"trusted_host":"container",disclosure:definition.backend==="host"?"Trusted local execution: no enforced file, network, process or resource isolation; declared setup also runs with host permissions.":"Container task: private repository and files, bounded resources; normal outbound network is not an exfiltration filter. Authorized programs can read supplied credentials.",...(input.taskRepositoryId?{repository_id:input.taskRepositoryId}:{}),...(input.devRunId?{dev_run_id:input.devRunId}:{}),credentials,services:[],artifacts:definition.artifacts??[],inputs:fixedInputs.map(i=>({name:i.name,digest:digestBytes(i.bytes)})),cleanup:{state:"pending"} };
+    const record: EnvironmentRecord = { format: ENVIRONMENT_FORMAT,id,directory,definition:{name:definition.name,digest:definition.digest,implicit:input.definition.implicit===true},definition_snapshot:definition,backend:definition.backend,requirements,base_digest:base.identity,...(base.image?{image:base.image,engine_id:docker(["info","--format","{{.ID}}"]) }:{}),workspace:definition.backend==="host"?workspace:join(privateDir,"workspace"),original_workspace:workspace,route:existsSync(join(workspace,".git")),created_at:new Date().toISOString(),state:"preparing",trust:definition.backend==="host"?"trusted_host":"container",disclosure:definition.backend==="host"?"Trusted local execution: no enforced file, network, process or resource isolation; declared setup also runs with host permissions.":"Container task: private repository and files, bounded resources; normal outbound network is not an exfiltration filter. Authorized programs can read supplied credentials.",...(repository ? { repository } : {}),credentials,services:[],artifacts:definition.artifacts??[],inputs:fixedInputs.map(i=>({name:i.name,digest:digestBytes(i.bytes)})),cleanup:{state:"pending"} };
     saveEnvironment(record);
     return { id, privateDir, record };
   });
@@ -72,7 +79,7 @@ export const environmentUp = async (input: EnvironmentUpInput): Promise<Environm
       const branch = input.branch ?? "grounds/task/"+id;
       const initialized = initializeTaskRepository({ source:workspace,commit:input.inputCommit!,destination:record.workspace,branch,scope:input.materialScope??"development" });
       record.input={...initialized,scope:input.materialScope??"development",branch};saveEnvironment(record);
-      if (definition.services.length) { record.network_id=createTaskNetwork(id);saveEnvironment(record); record.services=await prepareServices({ environmentId:id, networkId:record.network_id,declarations:definition.services,requirements,repositoryId:input.taskRepositoryId,environment:definition.name,checkpoint:services=>{record.services=[...services];saveEnvironment(record);} }); }
+      if (definition.services.length) { record.network_id=createTaskNetwork(id);saveEnvironment(record); record.services=await prepareServices({ environmentId:id, networkId:record.network_id,declarations:definition.services,requirements,repository,environment:definition.name,checkpoint:services=>{record.services=[...services];saveEnvironment(record);} }); }
       // Preparation verifies every declared required CLI inside the fixed image, not on the host.
       const check = ["git",...(definition.tools??[])];
       docker(["run","--rm","--network","none","--read-only","--cap-drop","ALL","--security-opt","no-new-privileges",...resourceArguments(requirements),"--entrypoint","/bin/sh",base.image!,"-c",'for tool do command -v "$tool" >/dev/null || exit 127; done',"check",...check]);
@@ -80,9 +87,20 @@ export const environmentUp = async (input: EnvironmentUpInput): Promise<Environm
       for (const tool of definition.tools??[]) { const {execFileSync}=await import("node:child_process");execFileSync("/bin/sh",["-c",'command -v "$1" >/dev/null',"check",tool],{env:{PATH:join(base.cache,"bin")+":"+(process.env.PATH??"/usr/bin:/bin")}}); }
     }
     for (const item of fixedInputs) atomicPrivateWrite(join(privateDir,"inputs",item.name),item.bytes);
+    assertEnvironmentExecution(record);
     injectCredentials(join(privateDir,"credentials"),credentials);
     record.state="ready";saveEnvironment(record);return record;
   } catch (error) { record.state="blocked";record.error=error instanceof Error?error.message:String(error);saveEnvironment(record);throw stateConflict("environment",id,`preparation incomplete; resources retained: ${record.error}`); }
+};
+/** Shared by CLI and direct runners: no command may bypass this pre-spawn check. */
+export const assertEnvironmentExecution = (record: EnvironmentRecord): void => {
+  if (Object.hasOwn(record, "dev_run_id") || Object.hasOwn(record, "repository_id")) throw validation("environment", "retired ledger-bound environment cannot execute; prepare an independent environment");
+  assertIndependentWorkspace(record.original_workspace);
+  const needsRepository = record.credentials.length > 0 || record.definition_snapshot.services.some(service => service.shared);
+  if (record.repository || needsRepository) {
+    if (!sameEnvironmentRepository(record.repository, resolveEnvironmentRepository(record.original_workspace))) throw validation("repository", "workspace no longer matches the authorized local Git repository");
+    if (record.credentials.some(binding => !sameEnvironmentRepository(binding.grant.repository, record.repository))) throw validation("repository", "credential grant does not match the environment repository");
+  }
 };
 export const readEnvironment = (id: string): EnvironmentRecord => {
   try { return readRecord<EnvironmentRecord>(fileOf(requireId("environment_id",id))); }

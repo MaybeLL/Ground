@@ -11,7 +11,6 @@ import { loadConfig } from "../src/config.js";
 import { SQLStore } from "../src/sql-store.js";
 import { DevWorktreeModule } from "../src/dev-worktree.js";
 import { git } from "../src/env-git.js";
-import { executeEnvironmentCommand, type EnvironmentCommandContext } from "../src/env-cli.js";
 import { environmentDown, listEnvironments } from "../src/env-environment.js";
 import { withRuntimeDirectories } from "../src/runtime-files.js";
 const trustedGit=(cwd:string,args:string[])=>git(args,{cwd});
@@ -83,25 +82,17 @@ async function fixture(target = true, publicCLI = false) {
   } }));
   const directories={runtimeHome:join(root,"runtime"),directoryRegistryHome:join(root,"registry")};
   const scoped=<T>(action:()=>T):T=>withRuntimeDirectories(directories,action);
-  const context:EnvironmentCommandContext={resolveRepository:async(_workspace,id)=>{
-    assert.equal(id,runId);await f.module.assertDevelopmentAdmission(runId);
-    return {taskRepositoryId:f.repository.repository_id,resolvedRepositoryId:f.repository.repository_id,devRunId:runId,inputCommit:base};
-  }};
-  const up=()=>scoped(()=>executeEnvironmentCommand({positionals:["env","up"],values:{"dev-run":runId}},project,context)) as Promise<any>;
-  const run=async(environmentId:string)=>{
-    const argv=join(root,"argv.json");writeFileSync(argv,JSON.stringify(["sh","-c","echo dispatched > command-ran"]));
-    return scoped(()=>executeEnvironmentCommand({positionals:["env","run",environmentId],values:{"argv-file":argv}},project,context)) as Promise<any>;
-  };
-  return { f, runId, base, config, revisionId: issue.result.issue_revision_id, project, root, scoped, up, run,
+  const checkAdmission = () => f.module.assertDevelopmentAdmission(runId);
+  return { f, runId, base, config, revisionId: issue.result.issue_revision_id, project, root, scoped, checkAdmission,
     close: async () => { scoped(()=>{for(const environment of listEnvironments())environmentDown(environment.id);});await f.close();rmSync(root,{recursive:true,force:true}); } };
 
 }
 
-test("admitted target and historical no-target runs reach unified trusted-host dispatch", async () => {
+test("retained legacy admission permits admitted target and no-target runs", async () => {
   for (const target of [true, false]) {
-    const x=await fixture(target);
-    try { if(target)await admit(x);const prepared=await x.up();const executed=await x.run(prepared.environment.id);assert.equal(executed.run.state,"succeeded");assert.ok(existsSync(join(x.project,"command-ran"))); }
-    finally {await x.close();}
+    const x = await fixture(target);
+    try { if (target) await admit(x); await assert.doesNotReject(x.checkAdmission()); }
+    finally { await x.close(); }
   }
 });
 
@@ -112,7 +103,7 @@ test("new preparation revokes a grant and older/later-written grants cannot over
     await prepare(x, 6);
     await admit(x, 4);
     assert.equal(await x.f.store.read(tx => getCurrentAdmission(tx, x.runId)), undefined);
-    await assert.rejects(x.up(), /requires preflight admission/);
+    await assert.rejects(x.checkAdmission(), /requires preflight admission/);
     assert.equal(x.scoped(()=>listEnvironments().length),0);
   } finally { await x.close(); }
 });
@@ -173,31 +164,28 @@ for (const [label, owner, patch] of [
   });
 }
 
-test("new preparation blocks dispatch of an already prepared environment; safe release remains available", async () => {
-  const x=await fixture();
+test("new preparation revokes retained legacy development admission", async () => {
+  const x = await fixture();
   try {
-    await prepare(x,1);await assert.rejects(x.up(),/requires preflight admission/);
-    await admit(x,2);const prepared=await x.up();await prepare(x,3);
-    await assert.rejects(x.run(prepared.environment.id),/requires preflight admission/);
-    assert.equal(existsSync(join(x.project,"command-ran")),false);
-    x.scoped(()=>environmentDown(prepared.environment.id));
-    await assert.rejects(x.up(),/requires preflight admission/);
-  } finally {await x.close();}
+    await prepare(x, 1); await assert.rejects(x.checkAdmission(), /requires preflight admission/);
+    await admit(x, 2); await assert.doesNotReject(x.checkAdmission());
+    await prepare(x, 3); await assert.rejects(x.checkAdmission(), /requires preflight admission/);
+  } finally { await x.close(); }
 });
 
-test("target missing admission rejects environment preparation before side effects", async () => {
+test("target missing admission rejects legacy business execution", async () => {
   const x = await fixture();
   try {
     const denied = (error: unknown) => error instanceof Error && /admi|preflight/i.test(error.message)
       && "code" in error && error.code === "STATE_CONFLICT" && error.message.includes(x.runId);
-    await assert.rejects(x.up(), denied);
+    await assert.rejects(x.checkAdmission(), denied);
     assert.equal(x.scoped(()=>listEnvironments().length),0);
     assert.equal(existsSync(join(x.project,"command-ran")),false);
   } finally { await x.close(); }
 });
 
 
-test("public env up/run honors explicit --config and real DevRun admission before dispatch", async () => {
+test("public independent env rejects retired DevRun binding even when old admission is valid", async () => {
   const x = await fixture(true, true);
   try {
     const local = new DevWorktreeModule(x.project, loadConfig(x.config).database.expected_database_id, () => x.runId, x.f.store);
@@ -212,18 +200,14 @@ test("public env up/run honors explicit --config and real DevRun admission befor
     };
     const up = () => invoke(["env", "up", "--workspace", workspace, "--dev-run", x.runId]);
     const refused = await up();
-    assert.equal(refused.code, 4, JSON.stringify(refused.envelope));assert.equal(refused.envelope.error.code, "STATE_CONFLICT");
+    assert.equal(refused.envelope.error.code, "VALIDATION_ERROR");
     assert.equal(x.scoped(() => listEnvironments().length), 0);
     await admit(x, 1);
-    const prepared = await up();assert.equal(prepared.code, 0, JSON.stringify(prepared.envelope));
-    const argv = join(x.root, "public-argv.json");writeFileSync(argv, JSON.stringify(["sh", "-c", "echo dispatched >> public-command-ran"]));
-    const run = () => invoke(["env", "run", prepared.envelope.data.environment.id, "--dev-run", x.runId, "--argv-file", argv]);
-    const completed = await run();assert.equal(completed.code, 0, JSON.stringify(completed.envelope));assert.equal(completed.envelope.data.run.state, "succeeded");
-    assert.equal(readFileSync(join(workspace, "public-command-ran"), "utf8"), "dispatched\n");
-    await prepare(x, 2);
-    const revoked = await run();assert.equal(revoked.code, 4, JSON.stringify(revoked.envelope));assert.equal(revoked.envelope.error.code, "STATE_CONFLICT");
-    assert.equal(readFileSync(join(workspace, "public-command-ran"), "utf8"), "dispatched\n", "revoked admission must not dispatch another command");
-    assert.equal((await up()).code, 4);
-    assert.equal((await invoke(["env", "down", prepared.envelope.data.environment.id])).code, 0);
+    await assert.doesNotReject(x.checkAdmission());
+    assert.equal((await up()).envelope.error.code, "VALIDATION_ERROR");
+    const unbound = await invoke(["env", "up", "--workspace", workspace]);
+    assert.equal(unbound.envelope.error.code, "STATE_CONFLICT", "dropping --dev-run must not bypass the retained workspace owner");
+    assert.equal(x.scoped(() => listEnvironments().length), 0);
+    assert.equal(existsSync(join(workspace, "public-command-ran")), false);
   } finally { await x.close(); }
 });

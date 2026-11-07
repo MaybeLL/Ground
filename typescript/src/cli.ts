@@ -11,7 +11,7 @@ import { candidateDiff } from "./candidate-diff.js";
 import { createDevelopmentPlan, readDevelopmentPlan, developmentPath, developmentBranchName, captureCommittedCandidate, captureCommittedDevelopment, retainCandidateSource, inspectCandidateSource, type DevelopmentIdentity, type DevelopmentPlan } from "./development-branch.js";
 import { observeBranch, targetRelation } from "./integration-observation.js";
 import { executeEnvironmentCommand } from "./env-cli.js";
-import { isRouteWorkspace, isRouteLeased } from "./env-route-lease.js";
+import { isRouteLeased } from "./env-route-lease.js";
 import { renderContractReview } from "./contract-review.js";
 import { safeRead } from './runtime-files.js';
 import { runtimeError } from "./runtime-record.js";
@@ -990,32 +990,7 @@ const routeLeased = (cwd: string, databaseID: string, runID: string): boolean =>
 
 export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> => {
   const args = parseArgs(argv); const group = args.positionals[0] ?? ""; const action = args.positionals[1] ?? ""; const cwd = value(args, "cwd", io.cwd ?? process.cwd());
-  if (group === "env") return executeEnvironmentCommand(args, cwd, {
-    resolveRepository: async (workspace: string, devRunId?: string) => {
-      const opened = await openStore(value(args, "config"));
-      opened.store.setGitArtifactResolver(ref => {
-        if (!ref.git_artifact) throw validation("artifact", "Git artifact metadata required");
-        return deriveLocalGitArtifact(workspace, ref.git_artifact.binding);
-      });
-      try {
-        const coordinator = new PreflightService(opened.store, cwd).coordinator({ refresh: false });
-        const module = new Module(opened.store, newUUIDv7, undefined, undefined, coordinator);
-        const repository = await resolveCurrentRepository(module, args, workspace);
-        if (!devRunId) {
-          if (isRouteWorkspace(workspace)) throw validation("dev-run", "managed route requires its explicit DevRun identity before execution");
-          return { taskRepositoryId: repository.id, resolvedRepositoryId: repository.id };
-        }
-        const result = await module.devRunContext(devRunId, false, []);
-        const context = result.context;
-        if (context.repository.id !== repository.id) throw validation("repository", "DevRun and environment workspace resolve to different Repositories");
-        const local = new DevWorktreeModule(cwd, opened.config.database.expected_database_id, newUUIDv7, opened.store).inspect(devRunId);
-        if (local.status !== "available" || resolve(local.path) !== resolve(workspace)) throw validation("workspace", "workspace does not match the selected DevRun");
-        await module.assertDevelopmentAdmission(devRunId);
-        return { ...(context.dev_run.execution_mode ? { executionMode: context.dev_run.execution_mode.mode } : {}), taskRepositoryId: context.repository.id, resolvedRepositoryId: repository.id, devRunId,
-          inputCommit: resolveBaseline(workspace, "HEAD"), ...(context.dev_run.development ? { branch: context.dev_run.development.branch } : {}) };
-      } finally { await opened.store.close(); }
-    },
-  });
+  if (group === "env") return executeEnvironmentCommand(args, cwd);
 
   if (isVerificationRunCommand(args)) {
     if (bool(args, "help") || verificationRunSubcommand(args) === "help") return { result_type: "patchledger.result.help/v1", command: "help", usage: verificationRunHelp() };

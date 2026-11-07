@@ -8,15 +8,18 @@ import { environmentStoreRoot } from "../src/env-store.js";
 import { authorizeCredentials, credentialRedactions, injectCredentials, registerCredentialGrant, syncCredentials, type CredentialGrant } from "../src/env-credentials.js";
 import { DomainError } from "../src/errors.js";
 import { assertContract } from "./schema-fixture.js";
+import { repository } from "./env-test-helpers.js";
+import { resolveEnvironmentRepository } from "../src/env-repository.js";
 const rejectsFor = (reason: RegExp) => (error: unknown) => error instanceof DomainError && error.code === "VALIDATION_ERROR" && reason.test(String(error.details.reason));
 
 const fixture = async (action: (root: string, grant: CredentialGrant) => void) => {
   const root = mkdtempSync(join(homedir(), "tmp/grounds-env-v5-agent-identity-unit-"));
   try {
     await withRuntimeDirectories({ runtimeHome: join(root, "runtime"), directoryRegistryHome: join(root, "registry") }, () => {
+      repository(root);
       const source = join(root, "fixture-credential.json");
       writeFileSync(source, JSON.stringify({ tokens: { account_id: "fixture-account" }, auth_mode: "fixture-oauth", scope: "model-only", value: "temporary-unit-value" }), { mode: 0o600 });
-      action(root, { name: "model", repository_id: "fixture-repository", environment: "dev", source_file: source, account: "fixture-account", method: "fixture-oauth", access: "model", writeback: true, identity_fields: ["tokens.account_id", "auth_mode"] });
+      action(root, { name: "model", repository: resolveEnvironmentRepository(root), environment: "dev", source_file: source, account: "fixture-account", method: "fixture-oauth", access: "model", writeback: true, identity_fields: ["tokens.account_id", "auth_mode"] });
     });
   } finally { rmSync(root, { recursive: true, force: true }); }
 };
@@ -36,7 +39,7 @@ test("nested account and authentication method selectors validate the declared s
 
 test("bound account or method changes cannot write back, and same-identity renewal can", async () => fixture((root, grant) => {
   registerCredentialGrant(grant);
-  const bindings = authorizeCredentials({ declarations: [{ name: "model" }], environment: "dev", taskRepositoryId: grant.repository_id, resolvedRepositoryId: grant.repository_id });
+  const bindings = authorizeCredentials({ declarations: [{ name: "model" }], environment: "dev", repository: grant.repository });
   const copies = join(root, "private-copies"); injectCredentials(copies, bindings);
   const original = readFileSync(grant.source_file, "utf8");
   for (const change of ["account", "method"]) {
@@ -55,7 +58,7 @@ test("bound account or method changes cannot write back, and same-identity renew
 
 test("damaged private redaction history cannot echo credential bytes in diagnostics", async () => fixture((root, grant) => {
   registerCredentialGrant(grant);
-  const bindings = authorizeCredentials({ declarations: [{ name: "model" }], environment: "dev", taskRepositoryId: grant.repository_id, resolvedRepositoryId: grant.repository_id });
+  const bindings = authorizeCredentials({ declarations: [{ name: "model" }], environment: "dev", repository: grant.repository });
   const copies = join(root, "private-copies"); injectCredentials(copies, bindings);
   const secret = "temporary-private-history-value";
   writeFileSync(join(root, "credential-redactions.json"), secret);
@@ -69,7 +72,7 @@ test("damaged private redaction history cannot echo credential bytes in diagnost
 }));
 
 test("the credential contract requires both identity dimensions only when writeback is enabled", async () => fixture((_root, grant) => {
-  const value = { ...grant, repository_id: "01a0b3b8-8271-7225-99ea-1eea0d23f14a" };
+  const value = { ...grant };
   const check = (candidate: unknown) => assertContract("environment.schema.json#/$defs/credentialGrant", candidate);
   assert.doesNotThrow(() => check(value));
   for (const fields of [undefined, [], ["scope"], ["tokens.account_id"], ["auth_mode"]]) {
