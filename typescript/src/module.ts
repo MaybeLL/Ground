@@ -565,17 +565,7 @@ export class Module {
     return withPagingHint("requirement", async () => { const resources = await this.store.read(async (tx) => (await tx.listRequirements()).map(toResource)); return resultSize("Requirement list", { result_type: "patchledger.result.resource-list/v1", command: "requirement.list", resources }); });
   }
 
-  async currentRequirementRevision(requirementId: string): Promise<RequirementRevision> { ensureID("requirement_id", requirementId); return this.store.read((tx) => tx.getCurrentRequirementRevision(requirementId)); }
-
   async currentIssueRevision(issueId: string): Promise<IssueRevision> { ensureID("issue_id", issueId); return this.store.read((tx) => tx.getCurrentIssueRevision(issueId)); }
-
-  async contractRequirement(id: string, version?: number, revisionID?: string): Promise<RequirementRevision> {
-    ensureID("requirement_id", id);
-    if (version !== undefined) this.validateSelectionVersion("version", version);
-    if (revisionID) ensureID("revision_id", revisionID);
-    if (!version && !revisionID) throw validation("requirement", "an exact version is required");
-    return this.store.read(tx => revisionID ? tx.getRequirementRevision(id, revisionID) : tx.getRequirementRevisionByNumber(id, version!));
-  }
 
   async contractIssue(id: string, version: number) {
     ensureID("issue_id", id); this.validateSelectionVersion("version", version);
@@ -643,16 +633,6 @@ export class Module {
   }
   async showRepository(repositoryId: string): Promise<RepositoryDetailResult> { ensureID("repository_id", repositoryId); const result = await this.store.read(async (tx) => { const repository = await tx.getRepository(repositoryId); return { result_type: "patchledger.result.repository-detail/v1", command: "repository.show", repository_id: repository.id, version: repository.version, canonical_remote: repository.canonical_remote, aliases: await tx.listRepositoryRemotes(repositoryId) }; }); return resultSize("Repository detail", result); }
   async activeRepositoryRemotes(repositoryId: string): Promise<string[]> { ensureID("repository_id", repositoryId); return this.store.read(async (tx) => (await tx.listRepositoryRemotes(repositoryId)).filter((item) => item.state === "active").map((item) => item.remote)); }
-
-  /** Whether the given canonical remotes denote `repositoryId`.  Used by
-   * workspace open/issue checks so a clone bound over a different transport is
-   * still recognized, comparing Repository identity rather than URL spelling. */
-  async remotesBelongToRepository(repositoryId: string, remotes: readonly string[]): Promise<boolean> {
-    const matched = await this.store.read((tx) => matchRepositoriesByKey(tx, remotes));
-    if (matched.includes(repositoryId)) return true;
-    const active = await this.activeRepositoryRemotes(repositoryId);
-    return remotes.some((remote) => active.includes(remote));
-  }
 
   /** All active remotes (canonical + aliases) of the Repository `canonical`
    * denotes, by exact match then match key.  Target-branch validation compares a
