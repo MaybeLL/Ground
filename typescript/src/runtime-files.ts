@@ -1,5 +1,6 @@
 import { dataLayout } from "./data-layout.js";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { flockSync } from "fs-ext";
 import {
   constants,
   lstatSync,
@@ -159,6 +160,18 @@ export async function acquireRuntimeLease(root: string, key: string, mode: "excl
   }
   let released = false;
   return () => { if (!released) { released = true; closeSync(fd); } };
+}
+
+/** Nonblocking synchronous counterpart using the exact same lock file as
+ * withRuntimeLock. Keep the protected section short and never await inside it. */
+export function withRuntimeLockSync<T>(root: string, key: string, fn: () => T): T {
+  const path = join(privateDirectory(join(root, "locks")), createHash("sha256").update(key).digest("hex") + ".lock");
+  const fd = openSync(path, constants.O_CREAT | constants.O_RDWR | constants.O_NOFOLLOW, 0o600);
+  try {
+    try { flockSync(fd, "exnb"); }
+    catch { throw runtimeError("busy: another local controller holds the operation lock", undefined, "busy"); }
+    return fn();
+  } finally { closeSync(fd); }
 }
 
 export async function withRuntimeLock<T>(

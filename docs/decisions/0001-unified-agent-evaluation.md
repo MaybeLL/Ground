@@ -2025,7 +2025,7 @@ flowchart LR
 
 **接口选择：** 使用 `env repository` 从实际工作区解析 Git common directory，输出 `{git_common_dir, device, inode}`，分别为规范绝对路径及设备/inode 字符串。grant、共享服务登记和受保护环境保存同一 `repository` 对象。选择本机目录实例而不是 remote URL：remote 可由工作树配置改写，且多 remote / URL 别名会增加解析政策；本机身份让 linked worktree 共享授权，但不同 clone 或替换的目录不默认继承。这是本机信任边界，不是不可伪造的远端身份或强隔离；移动、更换仓库和文件系统后需要重新授权。
 
-**实现与验证状态：** `env-repository.ts` 负责身份解析/核验，`env-environment.ts` 在准备与执行前校验，直接 runner 与 CLI 走同一入口；CLI 不再注入旧 SQL/DevRun 回调。旧参数/持久绑定和旧 ID 授权拒绝；所有旧 marker/预约只读保护，不增加恢复路径。新公开字段及结果同步到 canonical/plugin schema。聚焦 79/79 通过、0 skip，覆盖无账本执行、授权身份不匹配、缺失授权、旧 DevRun 参数/持久绑定、受管目录/子目录、运行前身份变化、凭据锁/CAS/脱敏与共享服务授权；最终完整 CLI 151 文件、1380 测试的最近重跑为 1118 pass、1 fail、261 skip：macOS 宿主进程停止观察返回 unknown 而非 confirmed，完整验证尚未全绿，未放宽停止证明或声称修复。跳过不计验证；真实 Docker 路径未执行，待独立审查及后续验证。旧核心业务与表仍未删除，P1d 未完成。
+**实现与验证状态：** `env-repository.ts` 负责身份解析/核验，`env-environment.ts` 在准备与执行前校验，直接 runner 与 CLI 走同一入口；CLI 不再注入旧 SQL/DevRun 回调。旧参数/持久绑定和旧 ID 授权拒绝；所有旧 marker/预约只读保护，不增加恢复路径。新公开字段及结果同步到 canonical/plugin schema。审查修复补齐了不重叠损坏预约拒绝、只读目录无副作用，以及与旧 DevRun 共用目录注册锁的最终检查/发布。新增回归在修复前真实失败三项，修复后通过；包含 env、保留的旧准入、物理目录及工作区预约的聚焦 103/103 通过、0 skip，覆盖无账本执行、授权身份不匹配、缺失授权、旧 DevRun 参数/持久绑定、受管目录/子目录、运行前身份变化、凭据锁/CAS/脱敏与共享服务授权；审查修复后完整 CLI 152 文件、1384 测试的最近重跑为 1122 pass、1 fail、261 skip：`env-runtime` 中 macOS 宿主进程停止观察返回 unknown 而非 confirmed，完整验证尚未全绿，未放宽停止证明或声称修复。跳过不计验证；真实 Docker 路径未执行，待独立审查及后续验证。旧核心业务与表仍未删除，P1d 未完成。
 
 ## 3. 核心领域概念
 
