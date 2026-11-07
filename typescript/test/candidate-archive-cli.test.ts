@@ -177,10 +177,14 @@ test("landing diff reads the historical target predecessor and rejects a record 
         },
       };
       assertContract("integration.schema.json#/$defs/record", record);
+      const operation = newUUIDv7();
+      await tx.reserveOperation({ id: operation, command: "integration.landing", request_hash: sha256(record) });
       await tx.appendLedgerEvent({ event_id: id, event_type: "integration.landing", event_version: 1,
-        operation_id: newUUIDv7(), repository_id: x.f.repository.repository_id, subject_type: "candidate",
+        operation_id: operation, repository_id: x.f.repository.repository_id, subject_type: "candidate",
         subject_id: candidate.candidate_id, occurred_at: at, attribution: testAgent,
         facts: [{ name: "record", value: JSON.stringify(record) }, { name: "record_digest", value: sha256(record) }] });
+      await tx.completeOperation(operation, JSON.stringify({ format: "patchledger.cli/v1", ok: true, operation_id: operation,
+        data: { result_type: "patchledger.result.integration/v1", command: "integration.landing", record }, warnings: [] }));
     });
     const args = ["candidate", "diff", "--candidate", candidate.candidate_id, "--view", "landing", "--landing-record", id];
     if (confirmed) {
