@@ -36,9 +36,6 @@ jobs:
           git config --global init.defaultBranch main
       - run: npm ci --registry=https://registry.npmjs.org
         working-directory: typescript
-      - name: Install browser test runtime
-        run: npx playwright install --with-deps chromium
-        working-directory: typescript
       - run: npm run build
         working-directory: typescript
       - run: npm test

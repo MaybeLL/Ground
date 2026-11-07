@@ -18,27 +18,7 @@ try {
   for (const required of ["package/dist/src/bin.js", "package/dist/src/safe-tree.js", "package/binding.gyp", "package/native/peercred.c", "package/native/safe-tree.c", "package/dist/assets/grounds/skills/grounds/references/workflows/verify.md", "package/README.md"]) {
     if (!entries.includes(required)) throw new Error(`tarball is missing ${required}`);
   }
-  // The review page inlines a pinned mermaid build, vendored as exactly one
-  // file. It must ship (or diagrams silently never render), and mermaid itself
-  // must never become a runtime dependency: its unpacked package is ~122 MB,
-  // which is the cost the vendored build exists to avoid.
-  if (!entries.includes("package/vendor/mermaid.min.js")) throw new Error("tarball is missing the vendored mermaid runtime");
-  // The vendored directory holds the pinned runtime plus its third-party
-  // licence notices; nothing else may creep in.
-  const vendorEntries = entries.filter(entry => /^package\/vendor\//.test(entry));
-  const inventory = JSON.parse(readFileSync(join(root, "vendor/mermaid-components.json"), "utf8"));
-  const expectedVendor = new Set(["mermaid.min.js", "THIRD-PARTY-NOTICES.md", "MERMAID-LICENSE", "mermaid-components.json", ...Object.keys(inventory.license_files_sha256)].map(name => `package/vendor/${name}`));
-  for (const entry of vendorEntries) if (!expectedVendor.has(entry)) throw new Error(`unexpected file in the vendored runtime directory: ${entry}`);
-  for (const entry of expectedVendor) if (!entries.includes(entry)) throw new Error(`tarball is missing vendored runtime notice: ${entry}`);
-  if (!entries.includes("package/vendor/THIRD-PARTY-NOTICES.md")) throw new Error("tarball is missing the vendored runtime's licence notices");
-  // Existing is not enough: the contract names components that must be present.
-  // A prior revision claimed completeness while omitting KaTeX and d3.
-  const notices = readFileSync(join(root, "vendor", "THIRD-PARTY-NOTICES.md"), "utf8");
-  for (const required of ["mermaid", "katex", "d3", "chevrotain", "lodash", "es-toolkit", "dompurify", "cytoscape"]) {
-    if (!notices.toLowerCase().includes(required)) throw new Error(`licence notices omit ${required}`);
-  }
-  if (entries.some(entry => /^package\/node_modules\/mermaid\//.test(entry))) throw new Error("tarball must not bundle mermaid as a runtime dependency");
-  if (JSON.parse(readFileSync(join(root, "package.json"), "utf8")).dependencies?.mermaid) throw new Error("mermaid must not be a runtime dependency");
+  if (entries.includes("package/vendor/mermaid.min.js")) throw new Error("tarball contains the retired contract renderer");
   const skillEntries = entries.filter(entry => /^package\/dist\/assets\/grounds\/skills\/[^/]+\/SKILL\.md$/.test(entry)).sort();
   const expectedNames = ["grounds"];
   const expectedSkills = expectedNames.map(name => `package/dist/assets/grounds/skills/${name}/SKILL.md`).sort();

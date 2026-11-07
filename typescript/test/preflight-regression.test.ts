@@ -7,7 +7,7 @@ import test from "node:test";
 import { runCLI, parseArgs, commandNeedsOperationID } from "../src/cli.js";
 import { resolveBaseline } from "../src/git.js";
 import { newUUIDv7 } from "../src/identity.js";
-import { PreflightService, contentDigestFor, issueWriteBinding, publishAuthoringBinding } from "../src/preflight.js";
+import { PreflightService, contentDigestFor, issueWriteBinding } from "../src/preflight.js";
 import { withRuntimeDirectories } from "../src/runtime-files.js";
 import { SQLStore } from "../src/sql-store.js";
 import { LedgerFixture, testAgent } from "./fixture.js";
@@ -172,64 +172,6 @@ async function assessApplicable(x: Fixture, observationId: string, rationale: st
   return assessed.assessment_id as string;
 }
 
-// --- Gap 1: an observation taken before the remote advanced never authorised
-// the publication. The record on its own is not fresh: this clone's tracking ref
-// still points at the old commit and no further refresh happened.
-test("workspace publish is refused when the remote target advanced after the reviewed observation and this clone never refreshed", async (t) => {
-  const x = await fixture(t);
-  const created = await x.ok(["workspace", "new", "pub"]);
-  const manifestPath = join(created.path, ".workspace.json");
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  manifest.draft.issues[0].input.target_branch = target;
-  manifest.draft.issues[0].baselineExpression = x.base;
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-
-  const reviewed = (await x.ok(["workspace", "read", "pub"])).version as string;
-  const observed = await x.ok(["preflight", "observe", "--phase", "publish", "--workspace", "pub", "--expected-version", reviewed, "--refresh"]);
-  assert.equal(observed.observation.refreshed, true);
-  assert.equal(observed.observation.commit.oid, x.base);
-  await assessApplicable(x, observed.observation_id, "Reviewed these exact declarations against the refreshed target");
-
-  // A different clone advances the target. This clone keeps its stale tracking
-  // ref and the recorded observation stays the newest ledger fact.
-  const advanced = advanceRemote(x);
-  assert.notEqual(advanced, x.base);
-  assert.equal(x.git(x.source, "rev-parse", "refs/remotes/origin/main"), x.base.replace("sha1:", ""));
-
-  const issuesBefore = (await x.ok(["issue", "list", "--limit", "50"])).resources.length;
-  const refused = await x.invoke(["workspace", "publish", "pub", "--expected-version", reviewed, "--refresh"]);
-  assert.notEqual(refused.code, 0, `publication used a pre-advance observation: ${JSON.stringify(refused.envelope)}`);
-  assert.equal(refused.envelope.error.code, "STATE_CONFLICT");
-  assert.match(refused.envelope.error.message, /target changed or could not be refreshed/);
-  assert.equal(x.git(x.source, "rev-parse", "refs/remotes/origin/main"), advanced.replace("sha1:", ""), "the refusal must follow a real final refresh, not a missing-authorization error");
-  const issuesAfter = (await x.ok(["issue", "list", "--limit", "50"])).resources.length;
-  assert.equal(issuesAfter, issuesBefore, "a refused publication must not write");
-});
-
-// --- Positive path: the same CLI sequence, with the observation taken after the
-// refresh, does publish. This is the recovery the refusals above must point at:
-// the gate is satisfiable, not a dead end.
-test("workspace publish succeeds when the observation is refreshed for the reviewed version", async (t) => {
-  const x = await fixture(t);
-  const created = await x.ok(["workspace", "new", "pub"]);
-  const manifestPath = join(created.path, ".workspace.json");
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  manifest.draft.issues[0].input.target_branch = target;
-  manifest.draft.issues[0].baselineExpression = x.base;
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-
-  const reviewed = (await x.ok(["workspace", "read", "pub"])).version as string;
-  const observed = await x.ok(["preflight", "observe", "--phase", "publish", "--workspace", "pub", "--expected-version", reviewed, "--refresh"]);
-  assert.equal(observed.observation.refreshed, true);
-  assert.equal(observed.binds.scope_digest, reviewed);
-  await assessApplicable(x, observed.observation_id, "Reviewed these exact declarations against the refreshed target");
-
-  const published = await x.ok(["workspace", "publish", "pub", "--expected-version", reviewed, "--refresh"]);
-  assert.equal(published.issues.length, 1);
-  assert.equal(published.issues[0].baseline.git_oid, x.base);
-});
-
-
 test("a first start refreshes the target and refuses an assessed but outdated base before creating a worktree", async t => {
   const x = await fixture(t);
   const observed = await x.ok(["preflight", "observe", "--phase", "start", "--issue", x.f.issue.issue_id, "--refresh"]);
@@ -259,61 +201,6 @@ test("an unfinished coordinator check cannot cache away the next target refresh"
   assert.equal(x.git(x.source, "rev-parse", "refs/remotes/origin/main"), advanced.slice(5));
 });
 
-test("publishAuthoring refuses a reused reviewed version whose declarations changed", async (t) => {
-  const x = await fixture(t);
-  const service = new PreflightService(x.f.store, x.source);
-  const reviewedVersion = "a".repeat(64);
-  // Each case declares a distinct Issue, so a refusal can never be the separate
-  // one-Issue-per-Repository rule instead of the freshness gate.
-  const declaration = (summary: string, baselineOid = x.base) => ({
-    baseline: { git_oid: baselineOid, reachability: "remote_tracking_reachable" as const },
-    target_branch: target,
-    input: { format: 1 as const, summary, target_branch: target, goals: [{ statement: "G", criteria: ["C"] }] },
-  });
-  const reviewedIssue = declaration("Reviewed Issue");
-  const reviewed = publishAuthoringBinding({
-    canonical_remote: x.f.repository.canonical_remote,
-    requirement: { expected_revision_id: x.f.requirement.requirement_revision_id, input: { format: 1, summary: "Reviewed Requirement", outcomes: ["Reviewed outcome"] } },
-    issues: [reviewedIssue],
-  });
-  const observation = await service.observe({
-    operation_id: newUUIDv7(),
-    attribution: testAgent,
-    phase: "publish",
-    refresh: true,
-    repository_id: x.f.repository.repository_id,
-    target,
-    scope_digest: reviewedVersion,
-    content_digest: contentDigestFor(reviewed),
-  });
-  assert.equal((observation.data.observation as { refreshed: boolean }).refreshed, true);
-  await service.assess({ operation_id: newUUIDv7(), attribution: testAgent, observation_id: observation.id, file: { assessment: "applicable", author: testAgent, rationale: "Reviewed these exact declarations against the refreshed target", affected: [] } });
-
-  const substitutions = [
-    { name: "Issue body", issue: declaration("Substituted Issue content") },
-    { name: "baseline", issue: declaration("Reviewed Issue", `sha1:${"f".repeat(40)}`) },
-  ];
-  for (const substitution of substitutions) {
-    const before = await x.f.module.currentRequirementRevision(x.f.requirement.requirement_id);
-    await assert.rejects(
-      x.f.module.publishAuthoring({
-        operation_id: newUUIDv7(),
-        canonical_remote: x.f.repository.canonical_remote,
-        reviewed_version: reviewedVersion,
-        requirement: { requirement_id: x.f.requirement.requirement_id, expected_revision_id: x.f.requirement.requirement_revision_id, input: { format: 1, summary: `${substitution.name} substitution`, outcomes: ["A substituted outcome"] } },
-        issues: [substitution.issue],
-        attribution: testAgent,
-      }),
-      (error: any) => error.code === "STATE_CONFLICT" && !/one Requirement may have only one Issue/.test(error.message),
-      substitution.name,
-    );
-    const after = await x.f.module.currentRequirementRevision(x.f.requirement.requirement_id);
-    assert.equal(after.revision_number, before.revision_number, `${substitution.name}: a refused publication must not write a Requirement revision`);
-  }
-});
-
-// --- Gap 3: the admission must bind the preparation scene it was assessed
-// against, and a declared --expected-head must be honoured.
 test("devrun admit refuses a malformed --expected-head", async (t) => {
   const x = await fixture(t);
   const prepared = await x.ok(["devrun", "prepare", "--development-mode", "simple", "--issue", x.f.issue.issue_id, "--plan", x.planId]);

@@ -21,7 +21,6 @@
 | `REPOSITORY_NOT_RESOLVED` | 6 | 否 | 可选 `reason`；注册或进入正确 clone |
 | `REPOSITORY_AMBIGUOUS` | 6 | 否 | 可选 `reason`；显式指定 Repository |
 | `BASELINE_UNAVAILABLE` | 6 | 否 | 可选 `resource_id`, `reason`；取得 commit 或显式 override |
-| `REPOSITORY_ISSUE_LIMIT` | 6 | 否 | `resource_type` 为 `requirement`、`resource_id` 与可选 `reason`；一个 Requirement 在同一 Repository 只能有一个 Issue。把改动收进该 Issue 的 Goals/Constraints，或用另一个 Requirement 分开表达；确需在同一发布里新增第二个 Issue 时由人显式使用 `workspace publish --allow-second-issue-per-repository --override-reason <text>` |
 | `WORKTREE_MISMATCH` | 6 | 否 | 可选 `resource_id`, `reason`；切换到正确 Baseline/worktree |
 | `ENVIRONMENT_CAPABILITY_UNSUPPORTED` | 1 | 否 | `unmet`：后端无法强制执行的需求名数组（`workspace_write`、`network`、`cpu`、`memory`、`pids`、`ledger_readonly`）；在创建任务实例目录或进程之前拒绝，不降级执行 |
 | `ENVIRONMENT_SETUP_FAILED` | 1 | 依故障 | 准备步骤给 `step_index`，诊断保留给 `diagnostic_directory`，Docker 操作给 `operation` 与有界 `diagnostic`；`exit_code` 可选；准备失败不回退 host，保留诊断与不确定现场，先检查原 receipt 再决定重试 |

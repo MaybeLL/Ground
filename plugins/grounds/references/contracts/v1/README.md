@@ -6,14 +6,13 @@ CandidateSubmission v1/v2 的 Criterion Claim 支持可选 `self_verification`�
 
 本目录是版本化机器契约真源。当前源码要求 SQL schema 24（新增 work 模型的表）；schema 23 为此前版本；历史 CLI 0.2.29 要求 schema 20（追加目标分支和 DevRun/Candidate 基础提交）；历史 0.2.26 引入 schema 19 的 ultra 质量评审存储，更早受管执行版本使用 schema 18；新库使用当前 schema，旧库只在获得明确授权后通过 `grounds db migrate` 升级至已安装 CLI 要求的版本。下文 schema 12、14、15 等数字表示相应能力引入的历史版本，不表示当前 CLI 能直接打开这些旧库；只读命令不会自动迁移。
 
-Requirement/Issue 的默认公开 authoring interface 是 `<数据根>/drafts/<账本身份>/` 下的 JSON 契约草稿（`grounds.authoring-workspace/v2`）；人通过 `contract render --workspace NAME` 的统一 HTML 阅读、区块编辑并保存（`workspace edit` 为兼容入口），Agent 通过 `draft read/save` 读写 draft。manifest、base snapshot、pending journal 和回执属于 CLI 管理的本地协议，不直接手改。旧 Markdown 工作区保持兼容，新建时仅由显式 `--format markdown` 选择，迁移使用 `draft migrate`。下列 Requirement/Issue Schema 定义 JSON draft 或旧 Markdown 解析后交给 Work Module 的规范输入，不是独立的公开写命令；JSON 发布须绑定已审阅的 `source.workspace_version` 为 `--expected-version`。
+新任务通过 `task create` 定义契约。旧 Requirement/Issue 草稿发布、编辑和静态导出已退役。历史本地草稿留在原目录。
 
 | 契约 | Schema | 方向 |
 |---|---|---|
-| 本地 JSON authoring Workspace | [`authoring-workspace.schema.json`](authoring-workspace.schema.json) | CLI 管理结构；Agent 只读写 draft |
 | 本地配置 YAML | [`config.schema.json`](config.schema.json) | 人/CLI → CLI |
-| Requirement 规范输入 | [`requirement.schema.json`](requirement.schema.json) | Workspace 解析器 → Work Module |
-| Issue 规范输入 | [`issue.schema.json`](issue.schema.json) | Workspace 解析器 → Work Module |
+| Requirement 规范输入 | [`requirement.schema.json`](requirement.schema.json) | 旧 Work Module 规范输入 |
+| Issue 规范输入 | [`issue.schema.json`](issue.schema.json) | 旧 Work Module 规范输入 |
 | 原子编写输入（内部） | [`quickstart.schema.json`](quickstart.schema.json) | Work Module 内部兼容 |
 | DevRunContext | [`devrun-context.schema.json`](devrun-context.schema.json) | CLI → 开发者 Agent |
 | CandidateSubmission | [`candidate-submission.schema.json`](candidate-submission.schema.json) | 开发者 Agent → CLI |
@@ -64,7 +63,7 @@ Requirement/Issue 的默认公开 authoring interface 是 `<数据根>/drafts/<�
 
 ## 数组语义
 
-Requirement normalized input 中作者定义的 Outcomes 和 Decisions，以及 Issue normalized input 中的 Goals、Constraints、Criteria、Guidance 和 Intent Links，都是有序序列；其 ordinal 会被持久化并进入请求语义。Workspace Markdown 用 `[outcome-N]` / `[decision-N]` 和 `Traces To` 暴露 Intent Link；机器值以 `{type, ordinal}` 表示，ordinal 从 1 开始且只在 Issue Version 精确绑定的 Requirement Version 内解析。Outcome、Decision 和 Intent Link 都是 Revision-owned values，不生成持久 ID；其余机器契约中的 identity-bearing 数组视为集合。Goal、Constraint、Criterion、Claim、Assessment、Evidence digest 和 Verification ID 的业务身份不得重复。JSON Schema 无法表达“恰好等于某个 Context 的 ID 集”，因此 Work Module 还必须检查：
+Requirement normalized input 中作者定义的 Outcomes 和 Decisions，以及 Issue normalized input 中的 Goals、Constraints、Criteria、Guidance 和 Intent Links，都是有序序列；其 ordinal 会被持久化并进入请求语义。Intent Link 的机器值以 `{type, ordinal}` 表示，ordinal 从 1 开始且只在 Issue Version 精确绑定的 Requirement Version 内解析。Outcome、Decision 和 Intent Link 都是 Revision-owned values，不生成持久 ID；其余机器契约中的 identity-bearing 数组视为集合。Goal、Constraint、Criterion、Claim、Assessment、Evidence digest 和 Verification ID 的业务身份不得重复。JSON Schema 无法表达“恰好等于某个 Context 的 ID 集”，因此 Work Module 还必须检查：
 
 - CandidateSubmission v1/v2 的 Claim target 集恰好覆盖 DevRunContext 的全部 Goal/Constraint；v2 额外携带 Change Index fingerprint 和不可变 Change Rationales。
 - 每个 Intent Link 的 type/ordinal 必须解析到绑定 Requirement Version 的现存 Outcome 或 Decision，同一 Goal/Constraint 内不得重复；缺失 link 不得由读取端推断。
@@ -87,43 +86,6 @@ Requirement normalized input 中作者定义的 Outcomes 和 Decisions，以及 
 Requirement `format: 1` 的 Decision 继续接受仅有 `statement` 和可选 `rationale` 的旧输入。共享定义为 `common.schema.json#/$defs/decision`。新增 `context`、`options`、`chosen_option`、`trade_offs`、`consequences` 均可选；缺失字段不补默认值。Options 一旦提供须包含 1–100 项并指定其中一个唯一 key；key 匹配 `[a-z][a-z0-9-]*`，最多 64 字符。域校验额外检查 key 唯一性与 chosen_option 引用，JSON Schema 只检查结构和字段依赖。
 
 所有新增列表按作者顺序保留，最多 100 项。短文本为 1–4096 字符，Decision context 和 Trade-off reason 为 1–16384 字符；旧 rationale 仍允许空串。Consequence kind 为 benefit、obligation、risk 或 limitation，只表达预期，不自动创建验收要求。旧 CLI 不保证能读取增强文件；这些存储字段在 schema 12 引入，现行数据库版本要求与显式迁移规则见本页开头。
-
-旧 Markdown 工作区示例（显式选择旧格式时使用，不是独立 YAML 合同文件）：
-
-````markdown
-### [decision-1] 内部通信采用 gRPC
-
-#### Rationale
-
-接口一致性比工具链成本更重要。
-
-#### Context
-
-多个内部服务共享接口契约。
-
-#### Details
-
-```yaml
-options:
-  - key: rest
-    description: REST + JSON
-    benefits: [调试直观]
-  - key: grpc
-    description: gRPC + Protobuf
-    benefits: [生成强类型客户端]
-    costs: [学习协议工具链]
-chosen_option: grpc
-trade_offs:
-  - gain: 统一类型契约
-    sacrifice: 工具链维护成本
-    reason: 减少跨服务接口漂移
-consequences:
-  - kind: obligation
-    statement: 维护协议兼容规则
-```
-````
-
-`Details` 只能包含一个 YAML 代码块及上述四个字段，不接受游离正文；Context 和 Rationale 使用各自小节。决策内容变化通过新的 Requirement Version 发布，Intent Link 仍引用完整的 decision-N。
 
 ## Candidate 工件与 Git 对象标识
 
@@ -168,9 +130,9 @@ Issue 的可选 `target_branch:{remote,ref}` 随版本封存，remote 最多 256
 
 ## 目标新鲜度与契约适用性预检
 
-目标流程在定义、发布和开工前使用 `preflight`。`preflight observe --phase definition|publish|start [--refresh]` 记录一次不可变的观察：`start` 绑定 Issue/IssueRevision，`publish` 绑定 reviewed Workspace 版本与目标 Issue 草稿的规范化内容摘要，`definition` 绑定显式 repository/remote/target。`observation.refreshed` 与 `observation.commit` 来自真实 `--refresh`；刷新失败记为 `refresh_failed` 且不带 commit，绝不把本地跟踪引用当成远端最新。`preflight assess --observation ID --file JSON` 记录作者判定（applicable/revision_required/unknown）；记录作者始终是写命令的 Attribution，文件若另带 author 必须与之规范化相等。`preflight show ID` 回读记录。
+`preflight observe --phase definition|start [--refresh]` 记录定义或开工时的观察。`definition` 绑定 repository/remote/target，`start` 绑定 Issue/IssueRevision。`observation.refreshed` 与 `observation.commit` 来自真实 `--refresh`；刷新失败记为 `refresh_failed` 且不带 commit，绝不把本地跟踪引用当成远端最新。`preflight assess --observation ID --file JSON` 记录作者判定（applicable/revision_required/unknown）；记录作者始终是写命令的 Attribution，文件若另带 author 必须与之规范化相等。`preflight show ID` 回读记录。
 
-`data.result_type` 分别为 `grounds.result.preflight-observation/v1`、`grounds.result.preflight-assessment/v1`、`grounds.result.preflight/v1`，`devrun.admit` 返回 `grounds.result.preflight-admission/v1`。两处读模型 `devrun.show` 与 `issue.show` 的 `preflight`/`board.preflight` 只声明 `state`（missing/preparing/admitted）、`code`、`next_commands` 等可操作信息，历史无目标与固定起点流程不出现该字段。所有发布观察均绑定完整规范化 `content_digest`；JSON Workspace 还同时绑定 `scope_digest`（已审阅的 Workspace 版本），两个摘要均须匹配，不能互相替代。旧 Markdown 发布绑定其规范化内容，不伪造 JSON 版本。延续开发的 `observe --phase start --dev-run ID` 另固定实际 HEAD、index/工作树指纹、父成果、Run 版本及同步依据，准入时在本地与SQL围栏内重新核对。结论不证明 Agent 论证正确，也不等同独立验证。
+`data.result_type` 分别为 `grounds.result.preflight-observation/v1`、`grounds.result.preflight-assessment/v1`、`grounds.result.preflight/v1`，`devrun.admit` 返回 `grounds.result.preflight-admission/v1`。两处读模型 `devrun.show` 与 `issue.show` 的 `preflight`/`board.preflight` 只声明 `state`（missing/preparing/admitted）、`code`、`next_commands` 等可操作信息，历史无目标与固定起点流程不出现该字段。延续开发的 `observe --phase start --dev-run ID` 另固定实际 HEAD、index/工作树指纹、父成果、Run 版本及同步依据，准入时在本地与SQL围栏内重新核对。结论不证明 Agent 论证正确，也不等同独立验证。
 
 ## 派生值与重放
 
@@ -178,7 +140,7 @@ CandidateSubmission 不提交 Candidate ID、artifact bytes、result tree 或 ve
 
 IdempotencyRecord 保存首次完成命令的整个 `patchledger.cli/v1` success envelope 及其 contract version；同 operation ID、command 和 request hash 的重试通常逐字段重放该结构化结果。`integration consume` 是单次许可消费，已消费后的同操作重试或换 operation ID 再消费均拒绝；未知合并结果须检查实际落地，不能以幂等重放重新合并。诊断日志、stderr 早期 operation ID 提示和人类渲染文本不属于重放结果。
 
-每个公开 success `data` 都有 versioned `result_type` 和 `command` discriminator，并由 `command-results.schema.json` 校验。`workspace.publish` 返回本次发布涉及的 Repository、Requirement 与 Issue 的稳定 ID、公开版本、绑定和 Baseline；`devrun.start/context` 和 `verification.context` 直接在 `data.context` 中嵌入相应版本化 Context，公开的 `devrun.start/context` 还通过 `local_worktree` 报告本机目录的 `available/missing/invalid/removed` 状态，路径只在 available 时出现。`devrun.cleanup` 是无 operation ID、无 Attribution、无 Ledger Event 的本地幂等操作。list 只返回资源摘要，show/compare/ledger 使用 `query-results.schema.json` 的专门结构。Schema 中保留的早期单资源结果只服务 Work Module 内部兼容与历史幂等重放，不代表公开 CLI 命令。Agent 不从人类 label 或 stderr 提取身份。
+每个公开 success `data` 都有 versioned `result_type` 和 `command` discriminator，并由 `command-results.schema.json` 校验。`devrun.start/context` 和 `verification.context` 直接在 `data.context` 中嵌入相应版本化 Context，公开的 `devrun.start/context` 还通过 `local_worktree` 报告本机目录的 `available/missing/invalid/removed` 状态，路径只在 available 时出现。`devrun.cleanup` 是无 operation ID、无 Attribution、无 Ledger Event 的本地幂等操作。list 只返回资源摘要，show/compare/ledger 使用 `query-results.schema.json` 的专门结构。Schema 中保留的早期单资源结果只服务 Work Module 内部兼容与历史幂等重放，不代表公开 CLI 命令。Agent 不从人类 label 或 stderr 提取身份。
 
 Schema 只能验证结构。Candidate Claim 是否真实、Verifier 是否真正保持 blind，以及 Attribution 是否可信，都不由这些文件证明。
 

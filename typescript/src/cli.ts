@@ -1,4 +1,3 @@
-import { dataLayout, draftsRoot } from "./data-layout.js";
 import { resolveDevelopmentMode, resumeDevelopmentMode, validateDevelopmentMode, type DevelopmentModeSelection } from "./development-mode.js";
 import { RepositoryArchiveAccess } from "./repository-archive-access.js";
 import { archivePolicyFor, executeRepositoryArchive, repositoryArchiveCommands } from "./repository-archive-cli.js";
@@ -12,7 +11,6 @@ import { createDevelopmentPlan, readDevelopmentPlan, developmentPath, developmen
 import { observeBranch, targetRelation } from "./integration-observation.js";
 import { executeEnvironmentCommand } from "./env-cli.js";
 import { isRouteLeased } from "./env-route-lease.js";
-import { renderContractReview } from "./contract-review.js";
 import { safeRead } from './runtime-files.js';
 import { runtimeError } from "./runtime-record.js";
 import type { RuntimeRecord } from "./runtime-record.js";
@@ -22,9 +20,8 @@ import { DeliveryWorktreeModule } from "./delivery-worktree.js";
 import type { DeliveryReceipt } from "./selection.js";
 import { prepareReviewMarkdown, PreparedReviewMarkdown } from "./review-export.js";
 import { execFileSync } from "node:child_process";
-import { homedir } from "node:os";
-import { closeSync, existsSync, lstatSync, openSync, readFileSync, readSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { closeSync, existsSync, openSync, readFileSync, readSync } from "node:fs";
+import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { writeConfig, configPath, defaultSQLitePath, loadConfig, mysqlPassword, networkPassword, validateConfig, type Config, type DatabaseConfig } from "./config.js";
 import { candidateProse, checkContentLanguage, contentLanguagePolicy, qualityProse, verificationProse } from "./content-language.js";
@@ -35,14 +32,14 @@ import { IntegrationService } from "./integration-service.js";
 import { DevRunSyncService } from "./devrun-sync-service.js";
 import { PreflightService, observationData, assessmentData, type AssessInput } from "./preflight.js";
 import type { LandingSource } from "./integration-gate.js";
-import { assertReviewWorktreeCandidateArtifact, captureArtifact, discoverRepository, matchingRemoteNames, materializeCandidateWorktree, normalizeRemote, readReviewWorktreeMarker, remoteTrackingReachable, resolveBaseline, selectRemote, diffTrees, type ReviewWorktreeMarker, type WorktreeMode } from "./git.js";
+import { assertReviewWorktreeCandidateArtifact, captureArtifact, discoverRepository, matchingRemoteNames, materializeCandidateWorktree, normalizeRemote, readReviewWorktreeMarker, resolveBaseline, selectRemote, diffTrees, type ReviewWorktreeMarker, type WorktreeMode } from "./git.js";
 import { isUUIDv7, newUUIDv7 } from "./identity.js";
 import { Module, type PairwiseOptions, type SuccessEnvelope, type Warning } from "./module.js";
 import { listUncommittedWork, reconcileDevRun, uncommittedReminder } from "./reconcile-service.js";
 import { replayCheck } from "./replay-check.js";
 import { SCHEMA_VERSION, SQLStore } from "./sql-store.js";
 import type { IntegrityReport, Metadata } from "./store-types.js";
-import { decodeCandidateSubmissionFile, decodeFile, decodeVerificationReportFile, validateOptionalLongText, type Attribution, type Baseline } from "./domain.js";
+import { decodeCandidateSubmissionFile, decodeFile, decodeVerificationReportFile, validateOptionalLongText, type Attribution } from "./domain.js";
 import { bundledPluginRoot, defaultSkillsDirectory, installGroundsSkills } from "./skill-installer.js";
 import { createVerificationHandoff, decodeBlindContextFile, decodeVerificationHandoffFile, independentDigestOfContract, verificationTemplateFromBlindContext } from "./verification-handoff.js";
 import { executeVerificationRun, isVerificationRunCommand, validateVerificationRunArgs, verificationRunHelp, verificationRunSubcommand } from "./verification-run-cli.js";
@@ -51,11 +48,8 @@ import { createQualityHandoff, parseVerificationRole, decodeQualityHandoffFile, 
 import { safeYAMLToJS } from "./yaml-safe.js";
 import { installationStatus } from "./installation-status.js";
 import { cliVersion } from "./runtime-version.js";
-import { JsonWorkspaceStore, JSON_FORMAT as JSON_WORKSPACE_FORMAT } from "./workspace-json.js";
-import { startWorkspaceEditor } from "./workspace-editor.js";
 import { composeWork } from "./work/composition.js";
 import { executeWorkCommand, WORK_GROUPS, WORK_WRITE_ACTIONS, workHelp } from "./work/entry/index.js";
-import { WorkspaceModule } from "./workspace.js";
 import { previewExternalWorkspace, captureWorkspaceArtifact } from "./workspace-provider.js";
 import { DevWorktreeModule, commonRepositoryRoot } from "./dev-worktree.js";
 import { ReviewSessions, writeMaterial, type ReviewPhase, type ReviewRole } from "./review-session.js";
@@ -75,7 +69,7 @@ export interface CLIIO {
 const stdout = (io: CLIIO, line: string): void => (io.stdout ?? ((value) => process.stdout.write(value + "\n")))(line);
 const stderr = (io: CLIIO, line: string): void => (io.stderr ?? ((value) => process.stderr.write(value + "\n")))(line);
 
-const booleanOptionKeys = new Set(["early", "pinned", "allow-cached", "legacy-fixed","allow-unverified","preview","parallel-route","tty", "summary", "paged", "json", "markdown", "reconfigure", "allow-submitted", "allow-unpublished-baseline", "allow-second-issue-per-repository", "non-interactive", "confirm-initialize", "help", "link", "dry-run", "discard-changes", "include-diff", "refresh", "declare-stop"]);
+const booleanOptionKeys = new Set(["early", "pinned", "allow-cached", "legacy-fixed","allow-unverified","preview","parallel-route","tty", "summary", "paged", "json", "markdown", "reconfigure", "allow-submitted", "non-interactive", "confirm-initialize", "help", "link", "dry-run", "discard-changes", "include-diff", "refresh", "declare-stop"]);
 
 export const parseArgs = (argv: string[]): ParsedArgs => {
   const positionals: string[] = []; const values: Record<string, string | boolean | string[]> = {};
@@ -94,7 +88,6 @@ export const parseArgs = (argv: string[]): ParsedArgs => {
     const previous = values[key];
     values[key] = previous === undefined ? value : [...(Array.isArray(previous) ? previous.map(String) : [String(previous)]), String(value)];
   }
-  if (positionals[0] === "draft") positionals[0] = "workspace";
   return { positionals, values };
 };
 
@@ -106,7 +99,7 @@ export const parseArgs = (argv: string[]): ParsedArgs => {
 const knownOptionKeys = new Set(["development-mode", "early", "pinned", "retention-days", "plan-digest", "allow-cached", "configuration", "data-root", "instance", "issue-slug", "view", "observation-time", "landing-record", "archive-policy","legacy-fixed","allow-unverified","policy", "expected-head", "choice", "preview","adoption-file","plan", "parallel-route", "definition-commit", "target-remote", "target-branch",
   "workspace", "output", "format", "selection", "selection-version", "source-remote", "source-ref", "source-commit", "sync", "target-commit", "observation", "authorization", "provenance", "record",
   "external-directory", "input-digest", "directory", "snippet-file", "start-line", "end-line", "commit", "status", "state", "sort", "has-open-devrun", "standing", "selected", "verdict",
-  "issue-version", "summary", "paged", "cursor", "after", "agent-id", "agent-name", "allow-second-issue-per-repository", "allow-submitted", "allow-unpublished-baseline", "at", "baseline", "base-commit", "baseline-policy", "bind-requirement", "branch", "brief", "brief-file", "canonical-remote", "candidate", "ca-file", "confirm-initialize", "config", "content-language", "language-override-reason", "context", "cwd", "database", "dev-run", "discard-changes", "driver", "dry-run", "event", "refresh", "expected-version", "exploration-brief", "file", "handoff", "help", "host", "include-diff", "include-patch", "include-verification", "issue", "issues-cursor", "json", "limit", "link", "manifest-cursor", "markdown", "mode", "name", "non-interactive", "operation-id", "override-reason", "pairwise", "password-source", "path", "phase", "port", "preflight", "reason", "reconfigure", "refines-candidate", "remote", "remote-url", "repository", "requirement", "side", "skills-path", "subject-id", "subject-type", "tls", "tls-mode", "username", "verifications-cursor", "version", "role", "quality-handoff", "independent-digest", "out", "review-session",
+  "issue-version", "summary", "paged", "cursor", "after", "agent-id", "agent-name", "allow-submitted", "at", "baseline", "base-commit", "baseline-policy", "branch", "brief", "brief-file", "canonical-remote", "candidate", "ca-file", "confirm-initialize", "config", "content-language", "language-override-reason", "context", "cwd", "database", "dev-run", "discard-changes", "driver", "dry-run", "event", "refresh", "expected-version", "exploration-brief", "file", "handoff", "help", "host", "include-diff", "include-patch", "include-verification", "issue", "issues-cursor", "json", "limit", "link", "manifest-cursor", "markdown", "mode", "name", "non-interactive", "operation-id", "pairwise", "password-source", "path", "phase", "port", "preflight", "reason", "reconfigure", "refines-candidate", "remote", "remote-url", "repository", "requirement", "side", "skills-path", "subject-id", "subject-type", "tls", "tls-mode", "username", "verifications-cursor", "version", "role", "quality-handoff", "independent-digest", "out", "review-session",
   "run", "stage", "entry", "started-at", "ended-at", "exit-code", "identity", "asset", "lease", "hit", "copy-path", "report-digest",
 ]);
 
@@ -134,16 +127,8 @@ const commandOptionKeys: Record<string, Set<string>> = {
   "review:": new Set(["config", "candidate", "at", "side", "include-diff", "markdown", "summary"]),
   "install:skill": new Set(["link"]),
   "config:set-development-mode": new Set(["config", "development-mode"]),
-  "workspace:bind": new Set(["config", "remote-url", "expected-version"]),
   "config:show": new Set(["config"]), "config:path": new Set(["config"]), "config:validate": new Set(["config"]),
   "db:status": new Set(["config"]), "db:test": new Set(["config"]), "db:migrate": new Set(["config"]),
-  "contract:render": new Set(["config", "workspace", "output", "format", "requirement", "issue"]),
-  "workspace:new": new Set(["format","config", "remote", "content-language"]),
-  "workspace:open": new Set(["format","config", "name", "remote", "bind-requirement"]),
-  "workspace:list": new Set(["config"]), "workspace:show": new Set(["config"]),
-  "workspace:publish": new Set(["preflight", "refresh", "expected-version","config", "dry-run", "allow-unpublished-baseline", "allow-second-issue-per-repository", "override-reason", "content-language", "language-override-reason", "agent-id", "agent-name"]),
-  "workspace:read": new Set(["config"]), "workspace:save": new Set(["config","file","expected-version"]), "workspace:edit": new Set(["config"]), "workspace:migrate": new Set(["config","dry-run"]), "workspace:resolve": new Set(["config","file","expected-version"]), "workspace:abandon-publication": new Set(["config","expected-version"]),
-  "workspace:rebase": new Set(["config"]), "workspace:remove": new Set(["config", "discard-changes"]),
   "repository:register": new Set(["config", "remote", "operation-id", "agent-id", "agent-name"]),
   "repository:resolve": new Set(["config", "remote"]), "repository:list": new Set(["config", "limit", "cursor"]), "repository:show": new Set(["config", "repository"]),
   "repository:move": new Set(["config", "repository", "remote", "canonical-remote", "remote-url", "expected-version", "operation-id", "agent-id", "agent-name"]),
@@ -172,7 +157,7 @@ const commandOptionKeys: Record<string, Set<string>> = {
   "devrun:cleanup": new Set(["choice", "preview","config", "dev-run", "discard-changes", "operation-id", "agent-id", "agent-name"]), "devrun:reconcile": new Set(["config", "dev-run"]), "devrun:uncommitted": new Set(["config"]), "devrun:list": new Set(["config", "issue", "issue-version", "repository", "state", "limit", "cursor"]), "devrun:show": new Set(["config", "dev-run"]),
   "devrun:prepare": new Set(["development-mode", "brief", "brief-file", "exploration-brief", "config", "dev-run", "issue", "repository", "remote", "plan", "refines-candidate", "parallel-route", "base-commit", "operation-id", "agent-id", "agent-name"]),
   "devrun:admit": new Set(["config", "dev-run", "preflight", "refresh", "expected-version", "expected-head", "operation-id", "agent-id", "agent-name"]),
-  "preflight:observe": new Set(["dev-run", "config", "phase", "refresh", "issue", "issue-version", "repository", "remote", "target-remote", "target-branch", "workspace", "expected-version", "operation-id", "agent-id", "agent-name"]),
+  "preflight:observe": new Set(["dev-run", "config", "phase", "refresh", "issue", "issue-version", "repository", "remote", "target-remote", "target-branch", "operation-id", "agent-id", "agent-name"]),
   "preflight:assess": new Set(["config", "observation", "file", "operation-id", "agent-id", "agent-name"]),
   "preflight:show": new Set(["config"]),
   "candidate:submit": new Set(["archive-policy","config", "dev-run", "file", "expected-version", "content-language", "language-override-reason", "operation-id", "agent-id", "agent-name"]),
@@ -230,8 +215,6 @@ const optionDocs: Record<string, string> = {
   "agent-id": "Attribution for an Agent caller (with --agent-name)",
   "agent-name": "Display name for an Agent caller (with --agent-id)",
   "allow-submitted": "Unused placeholder kept for option-allowlist parity",
-  "allow-unpublished-baseline": "Permit a baseline that is not reachable from a remote-tracking ref",
-  "allow-second-issue-per-repository": "Permit a second Issue for one Requirement on the same Repository; requires --override-reason",
   "baseline": "Git revision to use as the Issue baseline (default HEAD)",
   "baseline-policy": "warn or require_override for unconfirmed baselines",
   "branch": "Delivery branch name (candidate materialize delivery mode)",
@@ -278,10 +261,7 @@ const optionDocs: Record<string, string> = {
   "include-patch": "Include a Candidate's patch in a comparison",
   "include-diff": "Include the Candidate's unified diff when it is bounded text",
   "include-verification": "Include a Verification ID in a refinement context",
-  "issue": "Issue ID; contract render: repeat ID@VERSION to select exact Issues",
-  "workspace": "Contract draft name (contract render)",
-  "output": "Output directory outside the authoring Workspace; content-addressed filenames",
-  "format": "Workspace new/open: json (default) or markdown; contract render: html (default) or markdown",
+  "issue": "Issue ID",
   "at": "Review: PATH[:LINE]; trace: PATH:START[-END]",
   "issues-cursor": "Opaque page cursor for issue listing",
   "json": "Emit a machine-readable patchledger.cli/v1 envelope",
@@ -296,12 +276,11 @@ const optionDocs: Record<string, string> = {
   "development-mode": "Choose simple (current environment) or container for this DevRun",
   "non-interactive": "Never prompt; use supplied values or defaults",
   "operation-id": "Caller-supplied UUIDv7 idempotency key",
-  "override-reason": "Reason text for an unconfirmed baseline and for --allow-second-issue-per-repository (legacy alias of --reason)",
   "pairwise": "left:right Candidate pair for pairwise comparison",
   "password-source": "MySQL/PostgreSQL password source: environment or keychain",
   "out": "verification context/handoff: write the result object to this file as well as stdout (exclusive with --review-session)",
   "path": "Directory path (install skill target, materialize target; optional in review mode, where the CLI names a review session)",
-  "phase": "Verification phase: blind or reconcile",
+  "phase": "Verification: blind or reconcile; preflight observe: definition or start",
   "port": "MySQL/PostgreSQL port",
   "reason": "Reason text for an unconfirmed baseline or abandonment",
   "reconfigure": "Replace an existing config during init",
@@ -331,7 +310,6 @@ const optionDocs: Record<string, string> = {
   "issue-version": "Public Issue Version number; expected-version is the Selection concurrency version",
   "version": "Print the installed Grounds CLI version",
   "name": "Human-facing Workspace name",
-  "bind-requirement": "Issue open binding: preserve (default) or current",
   "dry-run": "Validate and show the publication plan without writing",
   "discard-changes": "Explicitly allow removal of local changes and ignored files",
   "refresh": "candidate replay-check: fetch the registered remote first; may update remote-tracking refs, FETCH_HEAD and the object database of this clone",
@@ -355,27 +333,12 @@ const commandDocs: Record<string, string> = {
   "review:": "Explain a Candidate from code location back to its historical contract, claims, and verification",
   "install:skill": "Install the bundled Grounds skills into a directory (default ~/.agents/skills)",
   "config:set-development-mode": "Save the default for new DevRuns with --development-mode simple|container",
-  "workspace:bind": "Bind an unpublished draft to --remote-url with --expected-version",
   "config:show": "Show the resolved configuration",
   "config:path": "Print the config file path",
   "config:validate": "Validate the config file",
   "db:status": "Inspect database integrity and metadata",
   "db:test": "Test the database connection",
   "db:migrate": "Apply pending schema migrations",
-  "contract:render": "Open a unified reading/editing session: --workspace NAME; add --output DIRECTORY for a static export. Fixed --requirement ID@VERSION and/or repeated --issue ID@VERSION require --output; --format html|markdown (default html)",
-  "workspace:read": "Read local JSON draft and optimistic version without database access",
-  "workspace:save": "Save --file JSON draft with --expected-version digest; no publication",
-  "workspace:edit": "Compatibility alias for contract render --workspace NAME; same unified reading/editing session; stop with Ctrl-C",
-  "workspace:migrate": "Explicitly convert Markdown to JSON; --dry-run previews backup; stop old editors first",
-  "workspace:resolve": "Save explicitly resolved draft and clear rebase conflicts with --file and --expected-version",
-  "workspace:abandon-publication": "Recover committed publication or abandon a proven terminal failure",
-  "workspace:new": "Create a local contract draft under the configured ledger identity; no Git or live database required; --format markdown retains legacy authoring",
-  "workspace:open": "Open a Requirement or Issue into JSON (default); --format markdown retains legacy authoring",
-  "workspace:list": "List local contract drafts for the configured ledger identity",
-  "workspace:show": "Show contract draft state and managed resources",
-  "workspace:publish": "Publish saved JSON with --expected-version; validate optional Issue target_branch; legacy Markdown remains supported",
-  "workspace:rebase": "Three-way merge a stale contract draft with authoritative ledger content",
-  "workspace:remove": "Remove a disposable local contract draft",
   "repository:register": "Register the current clone's remote as a Repository",
   "repository:resolve": "Resolve the current clone to a registered Repository",
   "repository:list": "List registered Repositories",
@@ -411,7 +374,7 @@ const commandDocs: Record<string, string> = {
   "devrun:reconcile": "Read-only view of one DevRun across the ledger, local worktree (including whether an env run holds its route) and delivery directories, with findings and safe next steps",
   "devrun:uncommitted": "List DevRuns of this clone whose local worktree holds uncaptured changes or ignored files that exist only on this machine",
   "devrun:show": "Show a DevRun",
-  "preflight:observe": "Record an immutable, bound observation of the declared target for a phase; --refresh explicitly fetches; publish/start bind the Issue scope, definition observes a repository/target",
+  "preflight:observe": "Record an immutable, bound observation of the declared target for a phase; --refresh explicitly fetches; start binds the Issue scope, definition observes a repository/target",
   "preflight:assess": "Record the author's target-appropriateness judgement for an observation from --file; applicable, revision_required or unknown with a substantive rationale",
   "preflight:show": "Read back one persisted preflight observation or assessment",
   "devrun:prepare": "Create a parent-restoration scene (--issue) or mark an existing open run (--dev-run) as preparing; synchronize separately before admission",
@@ -450,8 +413,6 @@ const actionSets: Record<string, string[]> = {
   integration: ["observe", "authorize", "consume", "landing", "show"],
   "delivery-link": ["record", "withdraw", "show"],
   install: ["skill"], db: ["status", "test", "migrate"],
-  contract: ["render"],
-  workspace: ["bind", "read", "save", "edit", "migrate", "resolve", "abandon-publication", "new", "open", "list", "show", "publish", "rebase", "remove"],
   repository: [...Object.keys(repositoryArchiveCommands), "register", "resolve", "list", "show", "move", "alias-add", "alias-retire"],
   requirement: ["list", "show"], issue: ["list", "show"],
   devrun: ["plan", "continue", "sync-status", "sync-show", "sync", "sync-complete", "sync-abandon", "inspect-workspace", "start", "context", "abandon", "cleanup", "list", "show", "reconcile", "uncommitted", "prepare", "admit"],
@@ -464,14 +425,12 @@ const actionSets: Record<string, string[]> = {
 const pagedListCommands = new Set(["repository:list", "requirement:list", "issue:list", "devrun:list", "candidate:list", "verification:list"]);
 const repeatableOptionKeys: Record<string, Set<string>> = {
   "repository:archive-check": new Set(["repository"]), "repository:archive-guide": new Set(["repository"]), "repository:archive-template": new Set(["repository"]),
-  "contract:render": new Set(["issue"]),
   "devrun:context": new Set(["include-verification"]),
   "candidate:compare": new Set(["candidate", "include-patch", "pairwise"]),
 };
 
 const positionalBounds: Record<string, [number, number]> = {
   ...Object.fromEntries(Object.keys(repositoryArchiveCommands).map(action => [`repository:${action}`, [2, 2] as [number, number]])),
-  "contract:render": [2, 2],
   "delivery-link:withdraw": [3, 3], "delivery-link:show": [3, 3],
   "integration:observe": [2, 2], "integration:authorize": [2, 2], "integration:consume": [2, 2], "integration:landing": [2, 2], "integration:show": [2, 3],
   "delivery-link:record": [2, 2],
@@ -480,10 +439,9 @@ const positionalBounds: Record<string, [number, number]> = {
   "doctor:": [1, 1],
   "review:": [1, 2],
   "install:skill": [2, 3],
-  "config:set-development-mode": [2, 2], "workspace:bind": [3, 3],
+  "config:set-development-mode": [2, 2],
   "config:show": [2, 2], "config:path": [2, 2], "config:validate": [2, 2],
   "db:status": [2, 2], "db:test": [2, 2], "db:migrate": [2, 2],
-  "workspace:read": [3,3], "workspace:save": [3,3], "workspace:edit": [3,3], "workspace:migrate": [3,3], "workspace:resolve": [3,3], "workspace:abandon-publication": [3,3], "workspace:new": [2, 3], "workspace:open": [4, 4], "workspace:list": [2, 2], "workspace:show": [2, 3], "workspace:publish": [2, 3], "workspace:rebase": [2, 3], "workspace:remove": [2, 3],
   "repository:register": [2, 2], "repository:resolve": [2, 2], "repository:list": [2, 2], "repository:show": [2, 3], "repository:move": [2, 3], "repository:alias-add": [2, 3], "repository:alias-retire": [2, 3],
   "requirement:list": [2, 2], "requirement:show": [2, 3],
   "completion:show": [2, 2], "completion:record": [2, 2], "completion:reopen": [2, 2],
@@ -549,7 +507,7 @@ const validateHelpArguments = (args: ParsedArgs): void => {
   if (args.positionals[0] === "help") {
     if (args.positionals.length > 2) throw validation("command", "help expects at most one topic");
     const topic = args.positionals[1];
-    if (topic && !Object.hasOwn(actionSets, topic) && !["init", "doctor", "review", "trace", "config", "task", "work", "grade", "env", "draft"].includes(topic))
+    if (topic && !Object.hasOwn(actionSets, topic) && !["init", "doctor", "review", "trace", "config", "task", "work", "grade", "env"].includes(topic))
       throw validation("command", `command is not implemented: ${topic}`);
   }
 };
@@ -563,7 +521,7 @@ const commandHelp = (group: string, action: string): { command: string; descript
   const docs = commandDocs[key] ?? commandDocs[fallbackKey] ?? "";
   const configured = commandOptionKeys[key] ?? commandOptionKeys[fallbackKey] ?? new Set<string>();
   const options = [...new Set(configured).add("cwd")].sort().map((name) => ({ name, description: optionDocs[name] ?? "" }));
-  const command = group === "review" && !action ? "review [candidate-id]" : `${group === "workspace" ? "draft" : group}${action ? ` ${action}` : ""}`;
+  const command = group === "review" && !action ? "review [candidate-id]" : `${group}${action ? ` ${action}` : ""}`;
   return { command, description: docs, actions: action ? [] : (actionSets[group] ?? []), options };
 };
 
@@ -574,7 +532,7 @@ const formatCommandHelp = (help: { command: string; description: string; actions
     lines.push("可用操作:");
     for (const action of help.actions) {
       const invocation = `${help.command} ${action}`;
-      lines.push(`  ${invocation.padEnd(28)} ${commandDocs[`${help.command === "draft" ? "workspace" : help.command}:${action}`] ?? ""}`);
+      lines.push(`  ${invocation.padEnd(28)} ${commandDocs[`${help.command}:${action}`] ?? ""}`);
     }
     lines.push("", `继续查看: grounds ${help.command} <操作> --help`);
   }
@@ -872,41 +830,6 @@ const initCommand = async (args: ParsedArgs, io: CLIIO): Promise<unknown> => {
   return result;
 };
 
-const plainShortOID = (qualified: string): string => {
-  const plain = qualified.includes(":") ? qualified.slice(qualified.indexOf(":") + 1) : qualified;
-  return plain.length > 12 ? plain.slice(0, 12) : plain;
-};
-
-const baselineForRemoteNames = (args: ParsedArgs, cwd: string, names: string[], policy: "warn" | "require_override"): Baseline => {
-  if (hasOption(args, "baseline") && !value(args, "baseline")) throw validation("baseline", "must not be empty");
-  const issueBaseline = value(args, "baseline", "HEAD"); const oid = resolveBaseline(cwd, issueBaseline);
-  const reachable = remoteTrackingReachable(cwd, oid, names);
-  const allowUnpublished = bool(args, "allow-unpublished-baseline");
-  const hasLegacyReason = hasOption(args, "override-reason");
-  const hasReason = hasOption(args, "reason");
-  const legacyReason = value(args, "override-reason");
-  const reason = value(args, "reason");
-  if (hasLegacyReason && hasReason && legacyReason !== reason) throw validation("reason", "use either --reason or --override-reason, not both");
-  const overrideReason = hasReason ? reason : hasLegacyReason ? legacyReason : undefined;
-  if (reachable) {
-    if (allowUnpublished || overrideReason !== undefined) throw validation("baseline", "--allow-unpublished-baseline and --reason are only valid for an unconfirmed baseline");
-    return { git_oid: oid, reachability: "remote_tracking_reachable" };
-  }
-  const shortOID = plainShortOID(oid);
-  const matchingRefs = names.length > 0 ? names.map((name) => `refs/remotes/${name}`).join(", ") : "none";
-  const diagnostic = `baseline ${shortOID} exists locally but is not reachable from a matching remote-tracking ref (checked: ${matchingRefs}); it may be an unpublished local commit — fetch/push the branch to publish it. This does not block a local DevRun, but an off-machine rebuild cannot fetch the baseline`;
-  if (policy === "require_override" && (!allowUnpublished || !overrideReason?.trim())) throw new DomainError("BASELINE_UNAVAILABLE", "baseline is not reachable from a matching remote-tracking ref; pass --allow-unpublished-baseline --reason <text> if policy permits an explicit override");
-  if (!allowUnpublished && overrideReason !== undefined) throw validation("reason", "requires --allow-unpublished-baseline");
-  if (allowUnpublished && !overrideReason?.trim()) throw validation("reason", "is required with --allow-unpublished-baseline");
-  return { git_oid: oid, reachability: "unconfirmed", warning: diagnostic, ...(allowUnpublished ? { override_reason: overrideReason!.trim() } : {}) };
-};
-
-const baselineFor = async (module: Module, args: ParsedArgs, cwd: string, repositoryID: string, policy: "warn" | "require_override"): Promise<Baseline> => {
-  const remotes = await module.activeRepositoryRemotes(repositoryID); const local = discoverRepository(cwd); const names = matchingRemoteNames(local, remotes);
-  if (names.length === 0) throw worktreeMismatch(repositoryID, "current clone does not match the Issue Repository");
-  return baselineForRemoteNames(args, cwd, names, policy);
-};
-
 const explorationBriefFor = (args: ParsedArgs): string | undefined => {
   const hasBrief = hasOption(args, "brief"); const hasCompatibilityBrief = hasOption(args, "exploration-brief"); const hasBriefFile = hasOption(args, "brief-file");
   const brief = value(args, "brief"); const compatibilityBrief = value(args, "exploration-brief"); const briefFile = value(args, "brief-file");
@@ -1034,9 +957,9 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
       }
       return { result_type: "patchledger.result.help/v1", command: "help", usage: formatCommandHelp(commandHelp(helpGroup, helpAction)) };
     }
-    return { result_type: "patchledger.result.help/v1", command: "help", usage: "grounds doctor | task | work | grade | install skill [path] | init | review [candidate-id] | trace | delivery-link | integration | contract | draft (legacy alias: workspace) | requirement | repository | issue | devrun | preflight | candidate | selection | completion | verification | ledger | env | db | config" };
+    return { result_type: "patchledger.result.help/v1", command: "help", usage: "grounds doctor | task | work | grade | install skill [path] | init | review [candidate-id] | trace | delivery-link | integration | requirement | repository | issue | devrun | preflight | candidate | selection | completion | verification | ledger | env | db | config" };
   }
-  if (!group) throw validation("command", "expected install, init, review, config, db, workspace, repository, requirement, issue, devrun, candidate, selection, verification, or ledger");
+  if (!group) throw validation("command", "expected install, init, review, config, db, repository, requirement, issue, devrun, candidate, selection, verification, or ledger");
   if (group === "doctor") {
     validateCommandArguments(args, group, action);
     if (action) throw validation("command", "doctor does not take an action");
@@ -1068,6 +991,9 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
   if (!isReview && !(group in actionSets)) throw validation("command", `command is not implemented: ${group}`);
   if (!isReview && (!action || !actionSets[group].includes(action))) throw validation(group, `expected ${actionSets[group].join(", ")}`);
   validateCommandArguments(args, group, isReview ? "" : action);
+  if (group === "preflight" && action === "observe" && !["definition", "start"].includes(required(args, "phase"))) {
+    throw validation("phase", "must be definition or start");
+  }
   if (isReview && bool(args, "markdown") && bool(args, "summary")) throw validation("summary", "cannot be combined with --markdown");
   // `--cursor` continues a Candidate-bound Verification page with --paged; the
   // resource lists accept it (with or without --limit) for cursor-paged mode.
@@ -1113,53 +1039,6 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
   if (group === "ledger" && action === "show") {
     const eventID = resourceID(args, "event", "event");
     if (!isUUIDv7(eventID)) throw validation("event", "must be a lowercase UUIDv7; use ledger list to discover event IDs");
-  }
-  if (group === "contract" && action === "render") {
-    const workspace = hasOption(args, "workspace");
-    const fixed = hasOption(args, "requirement") || hasOption(args, "issue");
-    if (workspace === fixed) throw validation("source", "select exactly one Workspace or fixed Requirement/Issue versions");
-    if (workspace) required(args, "workspace");
-    if (hasOption(args, "output")) required(args, "output");
-    const format = value(args, "format", "html");
-    if (!["html", "markdown"].includes(format)) throw validation("format", "must be html or markdown");
-    if (!hasOption(args, "output")) {
-      if (fixed) throw validation("output", "fixed versions require an explicit output directory");
-      if (format !== "html") throw validation("format", "interactive sessions require html; markdown requires --output");
-      const name = required(args, "workspace");
-      if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(name)) throw validation("workspace", "invalid name");
-      const config = loadConfig(configPath(value(args, "config")));
-      const path = join(draftsRoot(config.database.expected_database_id), name);
-      if (new JsonWorkspaceStore(path).read().manifest.database_id !== config.database.expected_database_id) throw databaseIdentityMismatch();
-      const editor = await startWorkspaceEditor(path);
-      return { result_type: "grounds.result.contract-session/v1", command: "contract.render", mode: "interactive", url: editor.url, version: editor.version, source: editor.source, editable: editor.editable };
-    }
-  }
-  if (group === "workspace" && ["new", "list", "show"].includes(action)) {
-    const config = loadConfig(configPath(value(args, "config")));
-    if (!["json", "markdown"].includes(value(args, "format", "json"))) throw validation("format", "must be json or markdown");
-    const local = new WorkspaceModule(undefined, cwd, "warn", () => attribution(args, cwd), config.database.expected_database_id, newUUIDv7, value(args, "format", "json") !== "markdown");
-    if (action === "new") return local.new(args.positionals[2], value(args, "remote"), contentLanguagePolicy(hasOption(args, "content-language") ? value(args, "content-language") : undefined, undefined));
-    return action === "list" ? local.list() : local.show(args.positionals[2], cwd);
-  }
-  if (group === "workspace" && ["read","save","edit","migrate","resolve","bind"].includes(action)) {
-    const name=args.positionals[2]; if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(name))throw validation("workspace","invalid name");
-    const config = loadConfig(configPath(value(args, "config")));
-    const path=join(draftsRoot(config.database.expected_database_id),name);const local=new JsonWorkspaceStore(path);
-    if (JSON.parse(safeRead(local.path, 32 * 1024 * 1024).toString()).database_id !== config.database.expected_database_id) throw databaseIdentityMismatch();
-    if (action === "bind") {
-      const remote = normalizeRemote(required(args, "remote-url"));
-      const result = await local.update(required(args, "expected-version"), manifest => {
-        if (manifest.requirement.id || manifest.issues.some(issue => issue.id) || existsSync(join(path, ".pending-publication.json"))) throw validation("draft", "repository binding requires an unpublished draft without pending publication");
-        return { ...manifest, repository_remote: remote };
-      });
-      return { result_type: "grounds.result.workspace-draft/v2", command: "workspace.bind", ...result };
-    }
-    if(action==="read")return {result_type:"grounds.result.workspace-draft/v2",command:"workspace.read",...local.read()};
-    if(action==="migrate")return {result_type:"grounds.result.workspace-migrate/v2",command:"workspace.migrate",...await local.migrateLegacy(bool(args,"dry-run")) as object};
-    if(action==="edit"){const editor=await startWorkspaceEditor(path);return {result_type:"grounds.result.workspace-editor/v2",command:"workspace.edit",url:editor.url,version:editor.version,source:editor.source,editable:editor.editable};}
-    const draft=JSON.parse(readFileSync(resolve(cwd,required(args,"file")),"utf8"));
-    if(action==="resolve")return {result_type:"grounds.result.workspace-draft/v2",command:"workspace.resolve",...await local.resolve(draft,required(args,"expected-version"))};
-    return {result_type:"grounds.result.workspace-draft/v2",command:"workspace.save",...await local.save(draft,required(args,"expected-version"))};
   }
   const opened = await openStore(value(args, "config"));
   opened.store.setGitArtifactResolver(ref => { if (!ref.git_artifact) throw validation("artifact", "Git artifact metadata required"); return deriveLocalGitArtifact(cwd, ref.git_artifact.binding); });
@@ -1264,9 +1143,6 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
       checkMarker(trace);
       return trace;
     }
-    if (group === "contract" && action === "render") {
-      return renderContractReview(module, { workspace: value(args, "workspace") || undefined, requirement: value(args, "requirement") || undefined, issues: values(args, "issue"), output: resolve(cwd, required(args, "output")), format: value(args, "format", "html") }, value(args, "workspace") ? new WorkspaceModule(module, cwd, opened.policy, actor, opened.config.database.expected_database_id) : undefined);
-    }
     if (group === "devrun" && action === "admit") {
       const runID = resourceID(args, "dev-run", "dev_run");
       const { record, data } = await preflightService().admit({
@@ -1300,22 +1176,11 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
       const service = preflightService();
       if (action === "show") return { result_type: "grounds.result.preflight/v1", command: "preflight.show", preflight: await service.show(resourceID(args, "preflight", "preflight")) };
       if (action === "observe") {
-        const phase = required(args, "phase");
-        if (phase !== "definition" && phase !== "publish" && phase !== "start") throw validation("phase", "must be definition, publish or start");
+        const phase = required(args, "phase") as "definition" | "start";
         const issueID = hasOption(args, "issue") ? required(args, "issue") : undefined;
         const runID = hasOption(args, "dev-run") ? required(args, "dev-run") : undefined;
         if (hasOption(args, "target-remote") !== hasOption(args, "target-branch")) throw validation("target", "target-remote and target-branch must be supplied together");
-        let target = hasOption(args, "target-remote") ? { remote: required(args, "target-remote"), ref: required(args, "target-branch") } : undefined;
-        let binding: Awaited<ReturnType<WorkspaceModule["pendingPublishBinding"]>>;
-        if (phase === "publish") {
-          if (issueID || runID) throw validation("workspace", "publish observations bind the actual pending Workspace publication");
-          const workspace = new WorkspaceModule(module, cwd, opened.policy, actor, opened.config.database.expected_database_id);
-          binding = await workspace.pendingPublishBinding(required(args, "workspace"), cwd, value(args, "expected-version"));
-          if (!binding) throw validation("workspace", "there is no target Issue change requiring publication preflight");
-          if (target && !binding.targets.some(item => item.remote === target!.remote && item.ref === target!.ref)) throw validation("target", "is not a target of this publication");
-          if (!target && binding.targets.length !== 1) throw validation("target", "select each declared publication target explicitly and assess it separately");
-          target ??= binding.target;
-        } else if (hasOption(args, "workspace") || hasOption(args, "expected-version")) throw validation("phase", "Workspace version options only apply to publish observations");
+        const target = hasOption(args, "target-remote") ? { remote: required(args, "target-remote"), ref: required(args, "target-branch") } : undefined;
         let issueRevisionID: string | undefined;
         if (hasOption(args, "issue-version")) {
           const selectedIssue = issueID ?? (runID ? (await module.showDevRun(runID)).issue.id : undefined);
@@ -1323,9 +1188,9 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
           issueRevisionID = (await module.contractIssue(selectedIssue, integerValue(args, "issue-version", 1))).revision.id;
         }
         let repositoryId: string | undefined;
-        let canonicalRemote = binding?.canonical_remote;
+        let canonicalRemote: string | undefined;
         if (hasOption(args, "repository")) repositoryId = required(args, "repository");
-        else if (!issueID && !runID && !canonicalRemote) {
+        else if (!issueID && !runID) {
           const selected = selectRemote(discoverRepository(cwd), value(args, "remote") || target?.remote || "");
           canonicalRemote = selected.canonical;
         }
@@ -1334,8 +1199,6 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
           ...(repositoryId ? { repository_id: repositoryId } : {}), ...(canonicalRemote ? { canonical_remote: canonicalRemote } : {}),
           ...(issueID ? { issue_id: issueID } : {}), ...(issueRevisionID ? { issue_revision_id: issueRevisionID } : {}),
           ...(runID ? { dev_run_id: runID } : {}), ...(target ? { target } : {}),
-          ...(binding?.reviewed_version ? { scope_digest: binding.reviewed_version } : {}),
-          ...(binding ? { content_digest: binding.content_digest, definition_commit: binding.definition_commit } : {}),
         });
         return { result_type: "grounds.result.preflight-observation/v1", command: "preflight.observe", ...observationView(record) };
       }
@@ -1349,30 +1212,6 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
         file: file as AssessInput["file"],
       });
       return { result_type: "grounds.result.preflight-assessment/v1", command: "preflight.assess", preflight: record, ...assessmentView(record) };
-    }
-    if (group === "workspace") {
-      if(!["json","markdown"].includes(value(args,"format","json")))throw validation("format","must be json or markdown");
-      const workspace = new WorkspaceModule(module, cwd, opened.policy, actor, opened.config.database.expected_database_id, newUUIDv7, value(args,"format","json") !== "markdown");
-      const name = args.positionals[2];
-      if (action === "new") return workspace.new(name, value(args, "remote"), contentLanguagePolicy(hasOption(args, "content-language") ? value(args, "content-language") : undefined, undefined));
-      if (action === "open") {
-        const kind = args.positionals[2]; const id = args.positionals[3];
-        if (kind === "requirement") return workspace.openRequirement(id, value(args, "name"), value(args, "remote"));
-        if (kind === "issue") { const bind = value(args, "bind-requirement", "preserve"); if (bind !== "preserve" && bind !== "current") throw validation("bind-requirement", "must be preserve or current"); return workspace.openIssue(id, value(args, "name"), bind, value(args, "remote")); }
-        throw validation("workspace", "open expects requirement or issue");
-      }
-      if (action === "list") return workspace.list();
-      if (action === "show") return workspace.show(name, cwd);
-      if (action === "publish") {
-        const language = contentLanguagePolicy(hasOption(args, "content-language") ? value(args, "content-language") : undefined, hasOption(args, "language-override-reason") ? value(args, "language-override-reason") : undefined);
-        const pendingBinding = bool(args, "dry-run") ? await workspace.pendingPublishBinding(name, cwd, value(args, "expected-version")) : undefined;
-        const warnings: Warning[] = pendingBinding ? [{ code: "PREFLIGHT_REQUIRED", message: "the target publication must consume a matching preflight with explicit --refresh; an offline dry-run is not a freshness check" }] : [];
-        const published = await workspace.publish(name, cwd, bool(args, "dry-run"), bool(args, "allow-unpublished-baseline"), bool(args, "allow-second-issue-per-repository"), value(args, "override-reason"), language, value(args,"expected-version"));
-        return { ...(published.result as Record<string, unknown>), warnings: [...published.warnings, ...warnings] };
-      }
-      if (action === "abandon-publication") return {result_type:"grounds.result.workspace-recovery/v2",command:"workspace.abandon-publication",...await workspace.abandonPublication(name,required(args,"expected-version")) as object};
-      if (action === "rebase") return workspace.rebase(name, cwd);
-      if (action === "remove") return workspace.remove(name, cwd, bool(args, "discard-changes"));
     }
     if (group === "requirement" && action === "list") return module.listRequirements(pageRequest(args));
     if (group === "requirement" && action === "show") return module.showRequirement(resourceID(args, "requirement", "requirement"), "", value(args, "issues-cursor"));
@@ -2005,7 +1844,7 @@ const verificationRole = (args: ParsedArgs): "contract" | "quality" => {
   return parseVerificationRole(hasOption(args, "role") ? value(args, "role") : "contract");
 };
 
-export const exitCode = (error: DomainError): number => ({ VALIDATION_ERROR: 2, NOT_FOUND: 3, VERIFICATION_SET_CHANGED: 4, LIST_CHANGED: 4, STATE_CONFLICT: 4, AUTH_FAILED: 4, VERSION_CONFLICT: 4, PREDECESSOR_CONFLICT: 4, IDEMPOTENCY_CONFLICT: 4, SCHEMA_INCOMPATIBLE: 5, MIGRATION_DIRTY: 5, DATABASE_ID_MISMATCH: 5, REPOSITORY_NOT_RESOLVED: 6, REPOSITORY_AMBIGUOUS: 6, BASELINE_UNAVAILABLE: 6, REPOSITORY_ISSUE_LIMIT: 6, WORKTREE_MISMATCH: 6, ARTIFACT_TOO_LARGE: 6, ARTIFACT_INTEGRITY_ERROR: 6, STORAGE_TRANSIENT: 7, INTERNAL: 1 } as Record<string, number>)[error.code] ?? 1;
+export const exitCode = (error: DomainError): number => ({ VALIDATION_ERROR: 2, NOT_FOUND: 3, VERIFICATION_SET_CHANGED: 4, LIST_CHANGED: 4, STATE_CONFLICT: 4, AUTH_FAILED: 4, VERSION_CONFLICT: 4, PREDECESSOR_CONFLICT: 4, IDEMPOTENCY_CONFLICT: 4, SCHEMA_INCOMPATIBLE: 5, MIGRATION_DIRTY: 5, DATABASE_ID_MISMATCH: 5, REPOSITORY_NOT_RESOLVED: 6, REPOSITORY_AMBIGUOUS: 6, BASELINE_UNAVAILABLE: 6, WORKTREE_MISMATCH: 6, ARTIFACT_TOO_LARGE: 6, ARTIFACT_INTEGRITY_ERROR: 6, STORAGE_TRANSIENT: 7, INTERNAL: 1 } as Record<string, number>)[error.code] ?? 1;
 
 const writeCommands = new Set([
   "repository:archive-bind",
@@ -2035,11 +1874,6 @@ const writeCommands = new Set([
 const observationView = (record: RuntimeRecord): Record<string, unknown> => {
   const data = observationData(record);
   return { observation_id: record.id, phase: data.phase, observed_at: data.observed_at, target: data.target, tracking_ref: data.tracking_ref, observation: data.observation, ...(data.definition_reference ? { definition_reference: data.definition_reference } : {}), binds: data.binds };
-};
-/** The Workspace's own canonical remote, read without registering the Repository. */
-const readWorkspaceRemote = (path: string): string | undefined => {
-  try { return (JSON.parse(readFileSync(join(path, ".workspace.json"), "utf8")) as { repository_remote?: unknown }).repository_remote as string | undefined; }
-  catch { return undefined; }
 };
 const assessmentView = (record: RuntimeRecord): Record<string, unknown> => {
   const data = assessmentData(record);

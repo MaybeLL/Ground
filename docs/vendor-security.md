@@ -1,5 +1,7 @@
 # Vendored renderer security review
 
+Historical review of the retired renderer. The current CLI no longer ships the browser bundle.
+
 Reviewed on 2026-10-30. The renderer now uses the unmodified official Mermaid 12.2.0 bundle, replacing 11.4.1. The [component inventory](../typescript/vendor/mermaid-components.json) records 67 exact component/version pairs, their sources, and license hashes. The review queried npm's public bulk advisory API with Mermaid and every inventoried package/version. No repository source or credentials were sent.
 
 The old bundle matched 43 advisories across six package names. The new bundle matches seven advisories across DOMPurify and js-yaml, with no Mermaid advisory returned. These counts are package/version matches, not counts of confirmed exploitable Grounds vulnerabilities. A normal application `npm audit` does not inspect this checked-in bundle.
@@ -12,6 +14,6 @@ js-yaml advisories [GHSA-5p4m-2wfm-xmqj](https://github.com/advisories/GHSA-5p4m
 
 ## Controls to preserve
 
-The [renderer](../typescript/src/plan-render.ts) retains strict Mermaid security, a five-diagram-type allowlist, rejection of configuration directives, math labels and obvious active HTML, a content security policy, and a separate shadow root inside a clipped parent for each diagram. Upgrading the bundle did not weaken these controls. The temporary render step occurs outside the shadow root, so final shadow containment alone is not a substitute for sanitization or dependency updates.
+The retired renderer used strict Mermaid security, a five-diagram-type allowlist, rejection of configuration directives, math labels and obvious active HTML, a content security policy, and a separate shadow root inside a clipped parent for each diagram. Upgrading the bundle did not weaken these controls. The temporary render step occurs outside the shadow root, so final shadow containment alone is not a substitute for sanitization or dependency updates.
 
 Re-evaluate this assessment whenever the bundle, allowed diagram types, sanitizer options, metadata schema, rendering context, or source filters change. Preserve browser security regression tests and scan the vendored inventory independently of npm runtime dependencies. This is a dated applicability assessment, not a guarantee of zero vulnerabilities or a substitute for testing the exact release build.

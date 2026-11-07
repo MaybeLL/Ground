@@ -16,7 +16,6 @@ mkdir -p node_modules/.grounds-dev/home node_modules/.grounds-dev/tmp node_modul
 export HOME=/workspace/node_modules/.grounds-dev/home
 export TMPDIR=/workspace/node_modules/.grounds-dev/tmp
 export npm_config_cache="$HOME/npm-cache"
-export PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
 export PYTHONDONTWRITEBYTECODE=1
 # Native TypeScript tooling must respect the managed container CPU/pid budget.
 export GOMAXPROCS=1

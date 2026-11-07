@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { SQLStore } from "../src/sql-store.js";
 import { Module } from "../src/module.js";
 import { newUUIDv7 } from "../src/identity.js";
-import { LedgerFixture, testAgent, testBaseline } from "./fixture.js";
+import { LedgerFixture, testAgent } from "./fixture.js";
 import { isolatedPostgres, postgresEnabled } from "./isolated-postgres.js";
 
 const required = [
@@ -51,28 +51,17 @@ const openFixture = async (backend: Backend): Promise<LedgerFixture> => {
   return LedgerFixture.createWithStore(pg.store, pg.cleanup);
 };
 
-test("concurrent MySQL authoring publications get or create one Repository atomically", { skip: !enabled }, async () => {
-  const initializer = mysqlStore();
-  await initializer.initialize("require_override");
-  await initializer.close();
-  const leftStore = mysqlStore();
-  const rightStore = mysqlStore();
-  const canonicalRemote = `ssh://git@example.test/team/mysql-${newUUIDv7()}`;
-  const command = () => ({
-    operation_id: newUUIDv7(), canonical_remote: canonicalRemote, attribution: testAgent,
-    requirement: { input: { format: 1 as const, summary: "MySQL Workspace", outcomes: ["It completes"] } },
-    issues: [{ baseline: testBaseline, input: { format: 1 as const, summary: "Create the model", goals: [{ statement: "Create records", criteria: ["Records are bound"] }] } }],
-  });
+test("concurrent MySQL repository registrations resolve the same identity", { skip: !enabled }, async () => {
+  const stores = [mysqlStore(), mysqlStore()];
+  const remote = `ssh://git@example.test/team/mysql-${newUUIDv7()}`;
   try {
-    const [left, right] = await Promise.all([
-      new Module(leftStore).publishAuthoring(command()),
-      new Module(rightStore).publishAuthoring(command()),
-    ]);
+    await stores[0].initialize("require_override");
+    const [left, right] = await Promise.all(stores.map(store => new Module(store).registerRepository({
+      operation_id: newUUIDv7(), canonical_remote: remote, attribution: testAgent,
+    })));
     assert.equal(left.result.repository_id, right.result.repository_id);
-    assert.deepEqual([left.result.repository_action, right.result.repository_action].sort(), ["registered", "resolved"]);
   } finally {
-    await leftStore.close();
-    await rightStore.close();
+    await Promise.all(stores.map(store => store.close()));
   }
 });
 

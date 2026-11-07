@@ -898,7 +898,7 @@ flowchart LR
 | 独立可写开发目录 | [CodeWorkspaceRoutes](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-workspace-route.ts) 准备独立开发 worktree；准备代码不等于授予执行权限。[DockerRouteEngine](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-docker.ts) 在开发模式挂载可写 `/workspace`，基线与 Git 元数据只读。 |
 | 问答材料空间 | [当时的评测环境脚本（已退役）](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_environment.py) 校验 workspace/materials，保存文件清单并将准备后的材料设为只读；包含 code/doc/fixture 材料角色。 |
 | 运行条件独立定义 | [RepositoryEnvironmentConfiguration](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/repository-environment.ts) 描述镜像和依赖服务；[RouteExecution](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-execution.ts) 组合代码路径、基线和运行环境。当前两条路径尚未统一治理。 |
-| 其他同名概念 | [WorkspaceModule](../../typescript/src/workspace.ts) 用于需求与 Issue 的 Markdown 编辑发布，不能直接当作 Agent 文件空间；[WorkspaceLease](../../typescript/src/workspace-provider.ts) 区分 managed/external 目录归属，统一时应保留这种所有权差异。 |
+| 其他同名概念 | [当时的 WorkspaceModule](https://github.com/MaybeLL/Ground/blob/5217f5d2f75d9d9d260356f7d02e80a11a0ca518/typescript/src/workspace.ts) 用于需求与 Issue 的 Markdown 编辑发布，不能直接当作 Agent 文件空间；[WorkspaceLease](../../typescript/src/workspace-provider.ts) 区分 managed/external 目录归属，统一时应保留这种所有权差异。 |
 
 **建议边界：** 保留 Workspace（执行工作空间）作为可识别的领域概念，纳入统一环境治理。EnvironmentSpec / EnvironmentInstance 表达运行条件和运行实例；Workspace 表达 Agent 实际可见的文件材料、来源版本、读写范围及工作区域。Task 声明材料需求，Workspace 记录实际准备出来的文件绑定，两者不重复拥有需求定义。AgentExecution 关联所使用的环境实例与工作空间；环境实例绑定或承载文件空间。图中的箭头表示关联，不预先确定聚合所有权、数量关系或事务边界。
 

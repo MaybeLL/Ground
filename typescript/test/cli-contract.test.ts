@@ -169,29 +169,8 @@ test("help rejects non-boolean help values", async () => {
   assert.equal(envelope.error?.details?.field, "help");
 });
 
-test("Workspace publish help lists the public authoring options", async () => {
-  const output: string[] = [];
-  const status = await runCLI(["workspace", "publish", "--help", "--json"], {
-    stdout: (line) => output.push(line),
-    stderr: () => undefined,
-  });
-  assert.equal(status, 0);
-  const envelope = JSON.parse(output[0]) as { ok: boolean; data: { command: string; usage: string } };
-  assertContract("cli-envelope.schema.json", envelope);
-  assert.equal(envelope.ok, true);
-  // The help result keeps the stable `command: "help"` contract; the target
-  // subcommand is conveyed inside usage so schema-constrained callers stay
-  // compatible.
-  assert.equal(envelope.data.command, "help");
-  assert.match(envelope.data.usage, /draft publish/);
-  assert.match(envelope.data.usage, /--dry-run/);
-  assert.match(envelope.data.usage, /--content-language/);
-  assert.match(envelope.data.usage, /--language-override-reason/);
-  assert.match(envelope.data.usage, /--agent-id/);
-});
-
-test("retired per-resource write commands are unavailable, including through help", async () => {
-  for (const command of [["quickstart", "create"], ["requirement", "create"], ["requirement", "revise"], ["issue", "create"], ["issue", "revise"]]) {
+test("retired authoring commands are unavailable, including through help", async () => {
+  for (const command of [["workspace", "edit"], ["draft", "migrate"], ["draft", "new"], ["workspace", "publish"], ["contract", "render"], ["quickstart", "create"], ["requirement", "create"], ["requirement", "revise"], ["issue", "create"], ["issue", "revise"]]) {
     for (const suffix of [[], ["--help"]]) {
       const output: string[] = [];
       assert.equal(await runCLI([...command, ...suffix, "--json"], { stdout: (line) => output.push(line), stderr: () => undefined }), 2);
@@ -199,6 +178,15 @@ test("retired per-resource write commands are unavailable, including through hel
       assert.equal(envelope.error?.code, "VALIDATION_ERROR");
     }
   }
+});
+
+test("retired publication preflight fails before opening the ledger", async () => {
+  const output: string[] = [];
+  const code = await runCLI(["preflight", "observe", "--phase", "publish", "--config", "/missing/grounds.yaml", "--json"], {
+    stdout: line => output.push(line), stderr: () => undefined,
+  });
+  assert.equal(code, 2);
+  assert.equal(JSON.parse(output[0]).error.details.field, "phase");
 });
 
 test("blind templates and signed handoffs work without opening a ledger", async () => {

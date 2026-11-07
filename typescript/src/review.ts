@@ -11,7 +11,7 @@ import type {
   VerificationReportInput,
 } from "./domain.js";
 import type { IssueVersion, RequirementVersion } from "./projections.js";
-import { PLAN_NOTICE_TEXT } from "./plan-render.js";
+
 import { matchChangeLine, type ChangeIndex, type ChangeLineStatus, type ChangeUnit } from "./change-index.js";
 import { renderMarkdownPreview } from "./markdown-preview.js";
 import { summarizeSelfVerification } from "./domain.js";
@@ -38,6 +38,8 @@ const decisionDetailLines = (decision: Decision): string[] => {
   for (const item of decision.consequences ?? []) lines.push(`Expected consequence [${item.kind}]: ${item.statement}`);
   return lines;
 };
+
+const PLAN_NOTICE_TEXT = "方案说明：以下内容仅为整体设计思路，不构成验收义务；约束以 Goals 与 Constraints 为准。";
 
 export type ReviewSource = "ledger_fact" | "author_claim" | "verifier_finding" | "derived_relation" | "unknown";
 export type ReviewSide = "old" | "new";

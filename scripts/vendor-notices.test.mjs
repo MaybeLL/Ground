@@ -6,9 +6,8 @@ import test from 'node:test';
 const vendor = new URL('../typescript/vendor/', import.meta.url);
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 
-test('vendored bundle and license texts match the reviewed component inventory', () => {
+test('historical renderer license texts match the reviewed component inventory', () => {
   const inventory = JSON.parse(readFileSync(new URL('mermaid-components.json', vendor), 'utf8'));
-  assert.equal(sha256(readFileSync(new URL(inventory.bundle, vendor))), inventory.bundle_sha256);
   assert.equal(inventory.components.length, 67);
   assert.equal(new Set(inventory.components.map(item => `${item.name}@${item.version}`)).size, 67);
   for (const item of inventory.components) {

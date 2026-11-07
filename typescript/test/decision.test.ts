@@ -7,7 +7,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stringify } from "yaml";
 import { decodeRequirement, validateDecision, type Decision, type RequirementInput } from "../src/domain.js";
-import { parseRequirementMarkdown, renderRequirementMarkdown } from "../src/workspace-markdown.js";
 import { SQLStore, SCHEMA_VERSION } from "../src/sql-store.js";
 import { Module } from "../src/module.js";
 import { newUUIDv7 } from "../src/identity.js";
@@ -33,7 +32,6 @@ test("Decision authoring supports optional details and rejects invalid nested va
     validateDecision(decision);
     assertContract("requirement.schema.json", input(decision));
     assert.deepEqual(decodeRequirement(Buffer.from(stringify(input(decision)))), input(decision));
-    assert.deepEqual(parseRequirementMarkdown(renderRequirementMarkdown(input(decision))).input, input(decision));
   }
   const invalid = [
     { ...structuredDecision, options: [] }, { ...structuredDecision, chosen_option: undefined },
@@ -52,20 +50,6 @@ test("Decision authoring supports optional details and rejects invalid nested va
   ];
   for (const decision of invalid) assert.throws(() => validateDecision(decision as Decision));
   assert.throws(() => assertContract("requirement.schema.json", input({ ...structuredDecision, chosen_option: undefined })));
-});
-
-test("Decision Markdown preserves fenced YAML text and rejects ambiguous Details", () => {
-  const requirement = input();
-  requirement.decisions![0].trade_offs![0].reason = "Intro\n## Outcomes\n### [decision-2] literal\n#### Rationale\n<!-- keep this -->\n```\n<<<<<<< literal\n";
-  requirement.decisions![0].context = "Local context <!-- preserve -->\n```text\n## Decisions\n#### Details\n```";
-  const markdown = renderRequirementMarkdown(requirement);
-  assert.deepEqual(parseRequirementMarkdown(markdown).input, requirement);
-  for (const details of ["plain text", "```yaml\noptions: []\n```\nextra", "```yaml\ncontext: misplaced\n```", "```yaml\nchosen_option: a\nchosen_option: b\n```", "```yaml\ntrade_offs: []\n```\n```yaml\nconsequences: []\n```", "<!-- not a YAML block -->", "```yaml\nconsequences: []\n```\n<!-- extra body -->"]) {
-    const doc = renderRequirementMarkdown(input({ statement: "Simple" })).replace("## Open Questions", `#### Details\n\n${details}\n\n## Open Questions`);
-    assert.throws(() => parseRequirementMarkdown(doc));
-  }
-  const duplicate = renderRequirementMarkdown(input()).replace("#### Details", "#### Context\n\nDuplicate\n\n#### Details");
-  assert.throws(() => parseRequirementMarkdown(duplicate));
 });
 
 const mysqlEnabled = ["HOST", "DATABASE", "USERNAME", "PASSWORD"].every((key) => Boolean(process.env[`GROUNDS_TEST_MYSQL_${key}`]));

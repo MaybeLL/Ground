@@ -1,3 +1,5 @@
+import { LedgerFixture } from "./fixture.js";
+import { SQLStore } from "../src/sql-store.js";
 import { repositoryDataRoot } from "../src/data-layout.js";
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
@@ -19,45 +21,6 @@ const run = async (args: string[], cwd: string): Promise<{ code: number; text: s
   return { code, text: out.join("\n") };
 };
 
-test("an unpublished baseline warning is diagnostic", async () => {
-  const root = mkdtempSync(join(tmpdir(), "grounds-baseline-"));
-  const repo = join(root, "repo");
-  const db = join(root, "ledger.db");
-  const cfg = join(root, "config.yaml");
-  try {
-    execFileSync("git", ["init", "-q", repo]);
-    git(repo, "config", "user.name", "T");
-    git(repo, "config", "user.email", "t@example.test");
-    writeFileSync(join(repo, "a.txt"), "x\n");
-    git(repo, "add", "-A");
-    git(repo, "commit", "-m", "base");
-    // A configured but never-fetched remote leaves the baseline unreachable
-    // from any remote-tracking ref, without needing a second repository.
-    git(repo, "remote", "add", "origin", "ssh://git@example.test/team/unpublished");
-    const init = await run(["init", "--driver", "sqlite", "--path", db, "--config", cfg, "--non-interactive", "--json"], root);
-    assert.equal(init.code, 0, init.text);
-    const created = await run(["workspace", "new", "--format", "markdown", "diagnostic", "--config", cfg, "--json"], repo);
-    assert.equal(created.code, 0, created.text);
-    const issue = await run([
-      "workspace", "publish", "diagnostic",
-      "--config", cfg,
-      "--allow-unpublished-baseline",
-      "--override-reason", "test override",
-      "--json",
-    ], repo);
-    assert.equal(issue.code, 0, issue.text);
-    const envelope = JSON.parse(issue.text) as { warnings: { code: string; message: string }[] };
-    const warning = envelope.warnings.find((entry) => entry.code === "BASELINE_UNCONFIRMED");
-    assert.ok(warning, "expected a BASELINE_UNCONFIRMED warning");
-    assert.match(warning.message, /not reachable/);
-    assert.match(warning.message, /refs\/remotes\/origin/);
-    assert.match(warning.message, /fetch|publish/);
-    assert.match(warning.message, /does not block a local DevRun/);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test("devrun start always builds a managed detached baseline worktree", async () => {
   const root = mkdtempSync(join(tmpdir(), "grounds-devrun-wt-"));
   const repo = join(root, "repo");
@@ -74,23 +37,17 @@ test("devrun start always builds a managed detached baseline worktree", async ()
     const head = git(repo, "rev-parse", "HEAD");
 
     await run(["init", "--driver", "sqlite", "--path", db, "--config", cfg, "--non-interactive", "--json"], root);
-    const created = await run(["workspace", "new", "--format", "markdown", "devrun", "--config", cfg, "--json"], repo);
-    assert.equal(created.code, 0, created.text);
-    const issue = await run([
-      "workspace", "publish", "devrun",
-      "--config", cfg,
-      "--allow-unpublished-baseline",
-      "--override-reason", "t",
-      "--json",
-    ], repo);
-    assert.equal(issue.code, 0, issue.text);
-    const publication = (JSON.parse(issue.text) as { data: { repository_id: string; issues: { id: string }[] } }).data;
-    const issueId = publication.issues[0].id;
+    const fixture = await LedgerFixture.createWithStore(SQLStore.sqlite(db), undefined, {
+      baseline: { git_oid: `sha1:${head}`, reachability: "unconfirmed", warning: "unpublished local commit", override_reason: "local test" },
+    });
+    const issueId = fixture.issue.issue_id;
+    const repositoryId = fixture.repository.repository_id;
+    await fixture.close();
 
     const wrongClone = join(root, "wrong-clone");
     execFileSync("git", ["clone", "-q", repo, wrongClone]);
     git(wrongClone, "remote", "set-url", "origin", "ssh://git@example.test/other/repo");
-    const wrongRepository = await run(["devrun", "start", "--development-mode", "simple", "--config", cfg, "--issue", issueId, "--repository", publication.repository_id, "--cwd", wrongClone, "--json"], root);
+    const wrongRepository = await run(["devrun", "start", "--development-mode", "simple", "--config", cfg, "--issue", issueId, "--repository", repositoryId, "--cwd", wrongClone, "--json"], root);
     assert.equal(wrongRepository.code, 6, wrongRepository.text);
     assert.match(wrongRepository.text, /does not match the Repository|not registered/i);
 

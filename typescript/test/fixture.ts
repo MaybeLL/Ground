@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { sha256Bytes } from "../src/canonical-json.js";
 import type {
   Attribution,
+  Baseline,
   CandidateArtifact,
   CandidateFile,
   CandidateSubmissionInput,
@@ -100,7 +101,7 @@ export class LedgerFixture {
     });
   }
 
-  static async createWithStore(store: SQLStore, cleanup: () => Promise<void> = () => store.close(), options: { preflightCoordinator?: PreflightCoordinator } = {}): Promise<LedgerFixture> {
+  static async createWithStore(store: SQLStore, cleanup: () => Promise<void> = () => store.close(), options: { preflightCoordinator?: PreflightCoordinator; baseline?: Baseline } = {}): Promise<LedgerFixture> {
     await store.initialize("warn");
     const module = new Module(store, newUUIDv7, undefined, undefined, options.preflightCoordinator ?? ledgerOnlyPreflightCoordinator(store));
     const requirement = await module.createRequirement({
@@ -120,7 +121,7 @@ export class LedgerFixture {
       requirement_revision_id: requirement.result.requirement_revision_id,
       requirement_revision_explicit: true,
       repository_id: repository.result.repository_id,
-      baseline: testBaseline,
+      baseline: options.baseline ?? testBaseline,
       input: {
         format: 1,
         summary: "Implement the change",
