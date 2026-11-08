@@ -10,7 +10,7 @@ import { withRuntimeDirectories } from "../src/runtime-files.js";
 import { newUUIDv7 } from "../src/identity.js";
 import { assertContract } from "./schema-fixture.js";
 import { validateGrade } from "../src/work/domain/index.js";
-import { parseGrade } from "../src/work/entry/index.js";
+import { parseGrade, workHelp } from "../src/work/entry/index.js";
 
 const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "T", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "T", GIT_COMMITTER_EMAIL: "t@t" } }).trim();
 
@@ -241,7 +241,16 @@ test("a grade file is checked before anything is sent", () => {
   assert.match(reason({}), /criteria/);
   assert.match(reason({ criteria: [null] }), /each criterion/);
   assert.throws(() => assertContract("grade-input.schema.json", { criteria: [null] }));
-  assert.match(reason({ criteria: [{ criterion_id: "c", independent: "maybe", reconciliation: "corroborated", final: "satisfied", rationale: "r" }] }), /each criterion/);
+  const base = { criterion_id: "c", independent: "satisfied", reconciliation: "corroborated", final: "satisfied", rationale: "r" };
+  for (const [field, allowed] of [
+    ["independent", ["satisfied", "unsatisfied", "indeterminate"]],
+    ["final", ["satisfied", "unsatisfied", "indeterminate"]],
+    ["reconciliation", ["corroborated", "contradicted", "not_determined"]],
+  ] as const) {
+    const diagnostic = reason({ criteria: [{ ...base, [field]: "unsupported" }] });
+    assert.ok(diagnostic.includes(allowed.join(", ")));
+    assert.ok(workHelp().includes(allowed.join(" | ")));
+  }
   assert.match(reason({ criteria: [{ criterion_id: "c", independent: "satisfied", reconciliation: "corroborated", final: "satisfied", rationale: "r", evidence: [1] }] }), /evidence/);
   const grade = parseGrade({ criteria: [{ criterion_id: "c", independent: "satisfied", reconciliation: "corroborated", final: "satisfied", rationale: "r" }] });
   assert.deepEqual(grade.form === "criteria" && grade.items[0]!.evidence, []);
