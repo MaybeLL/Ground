@@ -65,10 +65,16 @@ test("batch observations distinguish outstanding dispatch from fenced recovery, 
     assert.equal(batchHostObservation(id,ledger,{state:"running"})?.state,"awaiting-resume");
     atomicPrivateWrite(join(requests,resume),record);
     assert.equal(batchHostObservation(id,ledger,{state:"awaiting-resume"})?.state,"unknown");
+    const old=id+"."+randomUUID();
+    atomicPrivateWrite(join(requests,old),record);
     atomicPrivateWrite(join(requests,resume+".owner"),JSON.stringify({pid:process.pid,birth:hostProcessIdentity(process.pid)}));
     assert.equal(batchHostObservation(id,ledger,{state:"awaiting-resume"})?.state,"starting");
+    atomicPrivateWrite(join(issued,old),id);
     atomicPrivateWrite(join(issued,resume),id);
     assert.equal(batchHostObservation(id,ledger,{state:"awaiting-resume"}),undefined);
+    const batches=privateDirectory(join(root,"batches"));
+    atomicPrivateWrite(join(batches,id),JSON.stringify({name:resume,pid:process.pid,birth:hostProcessIdentity(process.pid)}));
+    assert.equal(batchHostObservation(id,ledger,{state:"awaiting-resume"})?.state,"running");
   } finally {
     if(original===undefined) delete process.env.GROUNDS_DATA_HOME;else process.env.GROUNDS_DATA_HOME=original;
     rmSync(home,{recursive:true,force:true});

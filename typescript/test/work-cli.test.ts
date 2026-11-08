@@ -2252,6 +2252,8 @@ test("a delayed job cannot consume its original start authority after recovery r
     const directory=realpathSync(mkdtempSync(join(tmpdir(),"grounds-job-reconciliation-")));
     const config=join(h.directory,"config.yaml");
     const {store}=await openStore(config);
+    const previousHome=process.env.GROUNDS_DATA_HOME;
+    process.env.GROUNDS_DATA_HOME=directory;
     try {
       const cfg=join(directory,"env.json");
       writeFileSync(cfg,'{"image":"fixture"}');
@@ -2274,6 +2276,12 @@ test("a delayed job cannot consume its original start authority after recovery r
         return name;
       };
       const original=publish();
+      const view=async()=>ok(await h.cli("work","managed-status","--run",runId)).host?.state;
+      assert.equal(await view(),"unknown");
+      const {hostProcessIdentity}=await import("../src/env-process.js");
+      writeFileSync(join(requests,original+".owner"),JSON.stringify({pid:process.pid,birth:hostProcessIdentity(process.pid)}),{mode:0o600});
+      assert.equal(await view(),"starting");
+      rmSync(join(requests,original+".owner"));
       child(original,"recover");
       const state=await app.workers.context(runId);
       assert.ok(state.ok && state.value.job.observation?.state==="awaiting-resume");
@@ -2282,6 +2290,9 @@ test("a delayed job cannot consume its original start authority after recovery r
       child(publish());
       assert.ok(existsSync(calls),"a new explicit operation can attempt preparation");
       await withRuntimeLock(host,"host",async()=>{},10000);
-    } finally {await store.close();rmSync(directory,{recursive:true,force:true});}
+    } finally {
+      if (previousHome===undefined) delete process.env.GROUNDS_DATA_HOME;else process.env.GROUNDS_DATA_HOME=previousHome;
+      await store.close();rmSync(directory,{recursive:true,force:true});
+    }
   });
 });

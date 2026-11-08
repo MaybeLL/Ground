@@ -85,6 +85,7 @@ export function managedActivityLive(id:string) {
 function pendingController(id:string,ledgerId:string) {
   const root=join(dataLayout().runtime,"managed-host"),requests=join(root,"requests");
   if (!existsSync(requests)) return;
+  let unconfirmed=false;
   for (const name of publishedHostEntries(requests)) {
     if (!name.startsWith(id+".")) continue;
     const operationId=name.slice(id.length+1);
@@ -92,8 +93,17 @@ function pendingController(id:string,ledgerId:string) {
     const request=localRecord(join(requests,name),32768);
     if (request?.executionId!==id || request.ledgerId!==ledgerId || request.allowStart!==true) continue;
     if (managedRequestRunning(id,operationId)) return {state:"starting",detail:"a dispatched controller is starting"};
-    return {state:"unknown",detail:"a start request is outstanding and its controller has not been confirmed"};
+    unconfirmed=true;
   }
+  if (unconfirmed) return {state:"unknown",detail:"a start request is outstanding and its controller has not been confirmed"};
+}
+
+function liveTicket(root:string,directory:string,id:string,ledgerId:string) {
+  const owner=localRecord(join(root,directory,id));
+  if (typeof owner?.name!=="string" || !owner.name.startsWith(id+".") || !managedId.test(owner.name.slice(id.length+1)) ||
+      typeof owner.pid!=="number" || typeof owner.birth!=="string" || hostProcessIdentity(owner.pid)!==owner.birth) return false;
+  const request=localRecord(join(root,"requests",owner.name),32768);
+  return request?.ledgerId===ledgerId && request.executionId===id && request.allowStart===true;
 }
 
 /** Batch result queries report locally observed recovery state without
@@ -101,6 +111,7 @@ function pendingController(id:string,ledgerId:string) {
 export function batchHostObservation(id:string,ledgerId:string,saved?:{state?:string}) {
   if (!managedId.test(id) || saved?.state === "terminal") return;
   const root = join(dataLayout().runtime,"managed-host");
+  if (liveTicket(root,"batches",id,ledgerId)) return saved?.state==="running" ? undefined : {state:"running",detail:"a batch controller is active"};
   const pending=pendingController(id,ledgerId);
   if (pending) return pending;
   const fallback = localRecord(join(root,"recovery-status",id));
@@ -150,7 +161,8 @@ export async function notifyManaged(job: HostJob, operationId: string) {
 export async function observeManagedHost(executionId: string, ledgerId: string,saved?:{state?:string}) {
   const root = join(dataLayout().runtime, "managed-host");
   if (!managedId.test(executionId) || saved?.state==="terminal") return;
-  const pending=managedActivityLive(executionId) ? undefined : pendingController(executionId,ledgerId);
+  const active=["waiting","slots"].some(directory=>liveTicket(root,directory,executionId,ledgerId));
+  const pending=active ? (saved?.state==="running" ? undefined : {state:"starting",detail:"a local controller is active"}) : pendingController(executionId,ledgerId);
   const fallback = join(root, "recovery-status", executionId);
   if (![join(root, "slots", executionId), join(root, "waiting", executionId), join(root,"batches",executionId), fallback].some(path => existsSync(path))) return pending;
   try { await withRuntimeLock(root, "host", async () => launchManaged("host")); }
