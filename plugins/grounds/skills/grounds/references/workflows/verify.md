@@ -10,7 +10,7 @@
 grounds grade request --run "$RUN_ID" --json
 ```
 
-保存 `gradingId` 与返回的完整 `criteria`。`--material ID=DIGEST` 只登记已存在、已固定的材料身份，不上传文件、不创建隔离环境。不得虚构材料引用。
+保存 `gradingId` 与返回的完整 `criteria`。同一交付和完整绑定已有验收在进行时，命令返回原 `gradingId`。用 `grade show --grading ID` 查看是否已有评价者，并按已记录的阶段续接。验收终结后可用新的操作 ID 发起重验。`--material ID=DIGEST` 只登记已存在、已固定的材料身份，不上传文件、不创建隔离环境。不得虚构材料引用。
 
 从公共交付结果和[本轮保存的调用参数](develop.md)准备**另一份**检出，无需解码 receipt：
 

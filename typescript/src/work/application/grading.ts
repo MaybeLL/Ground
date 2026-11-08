@@ -3,7 +3,7 @@
 // graders arrive with phase P4; measures with phase P3.
 import {
   createGrading, criteriaDigest, declareExternalEvaluatorStop, digestOf, isId, materialsDigest, parseTaskContent, recordEvaluatorCommand, recordEvaluatorStage, registerExternalEvaluator,
-  requestGradingCancel, submitGrade, type CommandObservation, type Digest, type GradingRecord, type Grade, type Hasher, type Id, type JsonValue, type ProtocolStage, type TargetRef, type TaskRun, type TraceBlob,
+  requestGradingCancel, sameBinding, submitGrade, type CommandObservation, type Digest, type GradingRecord, type Grade, type Hasher, type Id, type JsonValue, type ProtocolStage, type TargetRef, type TaskRun, type TraceBlob,
 } from "../domain/index.js";
 import type { Clock, IdSource, WorkRepositories, WorkUnitOfWork } from "../ports/index.js";
 import { GRADING_REQUEST_COUNTER, StorageFailure } from "../ports/index.js";
@@ -75,7 +75,7 @@ export class Grading {
     const checkedFingerprint=evidenceFingerprint(checked,this.deps.hash);
     if (!checkedFingerprint.ok) return fromRejection(checkedFingerprint.error);
     return once<GateRequested>(this.context, { requestId: input.requestId, kind: "request-gate", input: input as unknown as JsonValue, subject: { type: "task_run", id: input.taskRunId } }, async r => {
-      const run = await r.taskRuns.get(input.taskRunId);
+      const run = await r.taskRuns.get(input.taskRunId,{lock:true});
       if (!run) return fail("not-found", `run ${input.taskRunId} does not exist`);
       if (run.status !== "delivered" || !run.manifest) return fail("conflict", `run ${run.id} is ${run.status}; only a delivered run can be accepted`);
       const revision = await r.definitions.getRevision(run.taskRevision.definitionId, run.taskRevision.revisionId);
@@ -108,15 +108,20 @@ export class Grading {
       const at = this.deps.clock.now();
       const grader = await ensureVerificationGrader(r, this.deps.hash, at);
       if (!grader.ok) return grader;
+      const binding = { taskRevision: run.taskRevision, criteriaDigest: criteria.value, manifestDigest: run.manifest.digest, graderRevision: grader.value, materialsDigest: materialsFingerprint.value, ...(evidence.size ? {archivedEvidenceDigest:fingerprint.value} : {}), expectedCriteria: task.value.criteria.map(c => c.id) };
+      const summary = {taskRunId:run.id, criteria:task.value.criteria.map(c=>({id:c.id,statement:c.statement}))};
+      const existing = (await r.gradings.listForTaskRun(run.id)).reverse().find(g=>
+        g.purpose==="gate" && g.status==="running" && g.binding && sameBinding(g.binding,binding));
+      if (existing) return succeed({...summary,gradingId:existing.id,requestSeq:existing.requestSeq});
       const requestSeq = await r.sequences.next(GRADING_REQUEST_COUNTER);
       const gradingId = this.deps.ids.next();
       const created = createGrading({
         id: gradingId, purpose: "gate", origin: { type: "gate", taskRunId: run.id }, requestSeq, targets, graderRevision: grader.value, grader: { strategy: "agent", scale: { form: "criteria" } }, materials,
-        binding: { taskRevision: run.taskRevision, criteriaDigest: criteria.value, manifestDigest: run.manifest.digest, graderRevision: grader.value, materialsDigest: materialsFingerprint.value, ...(evidence.size ? {archivedEvidenceDigest:fingerprint.value} : {}), expectedCriteria: task.value.criteria.map(c => c.id) }, at,
+        binding, at,
       });
       if (!created.ok) return fromRejection(created.error);
       await r.gradings.create(created.value.state);
-      return succeed({ gradingId, requestSeq, taskRunId: run.id, criteria: task.value.criteria.map(c => ({ id: c.id, statement: c.statement })) });
+      return succeed({ ...summary, gradingId, requestSeq });
     });
   }
 

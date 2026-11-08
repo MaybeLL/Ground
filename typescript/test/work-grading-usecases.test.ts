@@ -73,6 +73,18 @@ for (const backend of backends) {
     assert.deepEqual(value(await app.grading.listGates(run.runId)).map(g => g.id), [first.gradingId, second.gradingId]);
   });
 
+  scenario("concurrent requests for the same binding share one active gate", async app => {
+    const {runId}=await delivered(app);
+    const requests=["left","right"].map(requestId=>({requestId,taskRunId:runId}));
+    const [left,right]=await Promise.all(requests.map(async input=>value(await app.grading.requestGate(input))));
+    assert.deepEqual(left,right);
+    assert.equal(value(await app.grading.listGates(runId)).length,1);
+    value(await app.grading.cancel({requestId:"cancel",gradingId:left!.gradingId}));
+    const fresh=value(await app.grading.requestGate({requestId:"after",taskRunId:runId}));
+    assert.ok(fresh.requestSeq>left!.requestSeq);
+    for (const input of requests) assert.deepEqual(value(await app.grading.requestGate(input)),left);
+  });
+
   scenario("only a delivered run can be accepted", async app => {
     const pending = value(await app.exec.startWork({ requestId: "s-1", taskDefinitionId: "task-1", workerMode: "external" }));
     refused(await app.grading.requestGate({ requestId: "g-1", taskRunId: pending.runId }), "conflict", /only a delivered run/);
