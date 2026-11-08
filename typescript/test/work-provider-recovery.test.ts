@@ -230,6 +230,26 @@ test("managed worker runs once when its collector dies after a real Docker exit 
     assert.equal(existsSync(join(root,"bridge-failed")),false);
     assert.equal(existsSync(join(root,"result.json")),false);
     assert.equal(docker("exec",id,"cat","/tmp/calls"),"started");
+
+    const commit=docker("exec",id,"sh","-ec","git init -q /tmp/source && cd /tmp/source && git -c user.name=test -c user.email=t@t commit -q --allow-empty -m base && git rev-parse HEAD");
+    const exportRoot=join(root,"export");
+    mkdirSync(exportRoot,{mode:0o700});
+    const exportHandle=await engine.create(target,{cwd:"/tmp/source",argv:["sh","-ec",
+      'echo exporting >> /tmp/export-calls; git update-ref refs/grounds/candidate "$1"; git bundle create - refs/grounds/candidate',"grounds",commit]});
+    for (const [name,value] of Object.entries({commit,handle:exportHandle,"bridge.json":JSON.stringify({target,handle:exportHandle,prompt:""})}))
+      writeFileSync(join(exportRoot,name),value,{mode:0o600});
+    const lost=spawnSync(process.execPath,["--import","tsx","test/fixtures/interrupt-after-engine-exit.ts",exportRoot],{encoding:"utf8",timeout:60000});
+    assert.ifError(lost.error);
+    assert.equal(lost.signal,"SIGKILL",lost.stderr);
+    assert.deepEqual(await engine.observe(target,exportHandle),{running:false,exitCode:0});
+    assert.equal(execFileSync("git",["bundle","list-heads",join(exportRoot,"stdout.jsonl")],{encoding:"utf8"}).trim(),commit+" refs/grounds/candidate");
+    const exportPlan={...plan,role:"worker" as const,job:{executionId,runId:randomUUID(),baseline:commit,remote:null,repositoryPath:directory}};
+    for (const allowStart of [false,true]) {
+      const port=new ContainerAgentProcess(runtime,new ManagedWorkspaces(),new GitTagArchive());
+      assert.equal(await port.exportCandidate(exportPlan,commit,allowStart),"interrupted");
+    }
+    assert.equal(existsSync(join(exportRoot,"result.json")),false);
+    assert.equal(docker("exec",id,"cat","/tmp/export-calls"),"exporting");
   } finally {
     docker("rm","--force",id);
   }
