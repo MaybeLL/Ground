@@ -94,7 +94,7 @@ export function parseGrade(json: unknown): Grade {
   return { form: "criteria", items };
 }
 
-export interface WorkEntryDependencies { readonly app: WorkApplication; readonly artifactFile:(path:string)=>Promise<import("../ports/index.js").EvidenceSource>; readonly cwd: string; readonly readFile: (path: string) => string }
+export interface WorkEntryDependencies { readonly app: WorkApplication; readonly artifactFile:(path:string)=>Promise<{source:import("../application/artifacts.js").ArtifactSource;dispose():Promise<void>}>; readonly cwd: string; readonly readFile: (path: string) => string }
 
 export async function executeWorkCommand(args: ParsedArgs, deps: WorkEntryDependencies): Promise<unknown> {
   const [group, action] = [args.positionals[0] ?? "", args.positionals[1] ?? ""];
@@ -235,13 +235,18 @@ async function work(args: ParsedArgs, action: string, app: WorkApplication, deps
     case "repair": return { repair: unwrap(await app.repairs.repair({ requestId: requestId(args), runId: need(args, "run"), deliveryId: need(args, "delivery"), repositoryPath: text(args, "repo") ?? deps.cwd })) };
     case "save-artifact": {
       const names = many(args,"file");
-      const files = await Promise.all(names.map(async name=>{
-        const sep = name.indexOf("=");
-        if (sep < 1 || sep === name.length-1) throw validation("file","expected archived/path=local-file");
-        return {path:name.slice(0,sep),source:await deps.artifactFile(name.slice(sep+1))};
-      }));
-      return {artifact:unwrap(await app.artifacts.save({requestId:requestId(args),runId:need(args,"run"),slot:need(args,"slot"),
-        ...(text(args,"session") ? {sessionId:text(args,"session")} : {})},files))};
+      const files = [], cleanups:(()=>Promise<void>)[] = [];
+      try {
+        for (const name of names) {
+          const sep = name.indexOf("=");
+          if (sep < 1 || sep === name.length-1) throw validation("file","expected archived/path=local-file");
+          const captured = await deps.artifactFile(name.slice(sep+1));
+          cleanups.push(captured.dispose);
+          files.push({path:name.slice(0,sep),source:captured.source});
+        }
+        return {artifact:unwrap(await app.artifacts.save({requestId:requestId(args),runId:need(args,"run"),slot:need(args,"slot"),
+          ...(text(args,"session") ? {sessionId:text(args,"session")} : {})},files))};
+      } finally {await Promise.all(cleanups.map(dispose=>dispose()));}
     }
     case "artifact": return {artifact:unwrap(await app.artifacts.get(need(args,"run"),need(args,"artifact")))};
     case "artifact-file": {
@@ -256,7 +261,7 @@ async function work(args: ParsedArgs, action: string, app: WorkApplication, deps
       }));
       return {submitted:unwrap(await app.exec.submit({requestId:requestId(args),runId,items,...(text(args,"session") ? {sessionId:text(args,"session")} : {})}))};
     }
-    case "deliver": return unwrap(await app.delivery.deliver({ protection: archiveProtection(args), requestId: requestId(args), runId: need(args, "run"), repositoryPath: text(args, "repo") ?? deps.cwd, commit: text(args, "commit") ?? "HEAD",
+    case "deliver": return unwrap(await app.delivery.deliver({ artifactIds:many(args,"artifact"), protection: archiveProtection(args), requestId: requestId(args), runId: need(args, "run"), repositoryPath: text(args, "repo") ?? deps.cwd, commit: text(args, "commit") ?? "HEAD",
       ...(text(args, "session") ? { sessionId: text(args, "session")! } : {}), ...(text(args, "remote") ? { remote: text(args, "remote")! } : {}), ...(flag(args, "declare-stop") ? { declaresStop: true } : {}) }));
     case "stop": return unwrap(await app.exec.declareStop({ requestId: requestId(args), runId: need(args, "run"), reason: need(args, "reason") as "human" | "abandoned", ...(text(args, "session") ? { sessionId: text(args, "session")! } : {}) }));
     case "cancel": return unwrap(await app.exec.cancel({ requestId: requestId(args), runId: need(args, "run"), ...(text(args, "reason") ? { reason: text(args, "reason")! } : {}) }));

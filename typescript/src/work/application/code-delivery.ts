@@ -2,6 +2,7 @@
 // a git repository and its remote, which is outside the ledger: the archive is
 // written first and is idempotent, so a command that stops half way is simply
 // run again.
+import { readArtifact } from "./artifacts.js";
 import { isId, parseTaskContent, type Id } from "../domain/index.js";
 import type { ArchiveProtection, RecordedProtection, CodeArchivePort, WorkUnitOfWork, WorktreePort } from "../ports/index.js";
 import { fail, failureOf, succeed, type Outcome } from "./outcome.js";
@@ -24,12 +25,24 @@ export class CodeDelivery {
    * running the command again after an interruption archives the same tag and
    * submits the same manifest.
    */
-  async deliver(input: { requestId: string; runId: Id; sessionId?: Id; repositoryPath: string; commit: string; remote?: string; protection?: ArchiveProtection; declaresStop?: boolean }): Promise<Outcome<Delivered>> {
+  async deliver(input: { requestId: string; runId: Id; sessionId?: Id; repositoryPath: string; commit: string; remote?: string; protection?: ArchiveProtection; artifactIds?:string[]; declaresStop?: boolean }): Promise<Outcome<Delivered>> {
     if (!isId(input.requestId) || !isId(input.runId)) return fail("invalid", "requestId and runId are required");
     const known = await this.taskRemote(input.runId);
     if (!known.found) return fail("not-found", `run ${input.runId} does not exist`);
     if (known.managed) return fail("unsupported", "a managed round delivers through its own execution");
     if (known.working) return fail("invalid","use an explicit artifact manifest for a working task");
+    const attachments = await this.deps.units.run("read",async r=>{
+      const files = [], slots = new Set<string>();
+      for (const id of input.artifactIds ?? []) {
+        const saved = await readArtifact(r,id);
+        if (!saved || saved.runId !== input.runId || slots.has(saved.slot)) return fail("invalid","select one saved artifact per slot from this run");
+        slots.add(saved.slot);
+        files.push({type:"artifact" as const,id,receipt:saved.receipt});
+      }
+      if (known.outputs?.some(slot=>slot.required && !slots.has(slot.key))) return fail("invalid","the manifest is missing a required output");
+      return succeed(files);
+    });
+    if (!attachments.ok) return attachments;
     const remote = input.remote ?? known.remote;
     if (!remote) return fail("invalid", "the task names no repository remote; pass one explicitly");
     const commit = await this.deps.archive.resolveCommit(input.repositoryPath, input.commit);
@@ -51,7 +64,7 @@ export class CodeDelivery {
       return fail(archived.status, archived.reason);
     }
     const submitted = await this.deps.exec.submit({ requestId: input.requestId, runId: input.runId, ...(input.sessionId ? { sessionId: input.sessionId } : {}),
-      items: [{ type: "candidate", id: deliveryId, receipt: archived.receipt }], ...(input.declaresStop ? { declaresStop: true } : {}) });
+      items: [{ type: "candidate", id: deliveryId, receipt: archived.receipt },...attachments.value], ...(input.declaresStop ? { declaresStop: true } : {}) });
     if (!submitted.ok) return submitted;
     return succeed({ delivery: { id: deliveryId, commit: archived.commit, receipt: archived.receipt, protection: input.protection ?? { level: "unknown" } }, submitted: submitted.value });
   }
@@ -71,7 +84,12 @@ export class CodeDelivery {
     });
     if (!known) return fail("not-found","task run does not exist");
     if (!known.task.ok) return fail("invalid",known.task.error.message);
-    if (known.task.value.kind === "coding") return this.prepareWorkspace(input);
+    if (known.task.value.kind === "coding") {
+      const workspace=await this.prepareWorkspace(input);
+      if (!workspace.ok || !known.task.value.materialRepositories?.length) return workspace;
+      const {materials}=await this.deps.materials.prepare(await this.deps.ledgerId(),input.runId,known.task.value.materialRepositories);
+      return succeed({...workspace.value,materials});
+    }
     if (["delivered","cancelled","failed"].includes(known.run.status)) return fail("conflict","the run is already terminal");
     return succeed(await this.deps.materials.prepare(await this.deps.ledgerId(),input.runId,known.task.value.materialRepositories ?? []));
   }
@@ -127,13 +145,14 @@ export class CodeDelivery {
     } catch (error) { const failure = failureOf(error); if (failure) return { ok: false, error: failure }; throw error; }
   }
 
-  private async taskRemote(runId: Id): Promise<{ found: boolean; working?:boolean; managed?: boolean; remote?: string }> {
+  private async taskRemote(runId: Id): Promise<{ found: boolean; working?:boolean; outputs?:readonly {key:string;required:boolean}[]; managed?: boolean; remote?: string }> {
     return this.deps.units.run("read", async r => {
       const run = await r.taskRuns.get(runId);
       if (!run) return { found: false };
       const revision = await r.definitions.getRevision(run.taskRevision.definitionId, run.taskRevision.revisionId);
       const remote = revision && parseTaskContent(revision.content).ok ? repositoryOf(revision.content).remote : undefined;
-      return { found: true, working:(revision?.content as {kind?:string} | undefined)?.kind === "working", managed: run.workerMode === "managed", ...(remote ? { remote } : {}) };
+      const parsed = parseTaskContent(revision?.content);
+      return { found: true, outputs:parsed.ok ? parsed.value.outputs : undefined, working:(revision?.content as {kind?:string} | undefined)?.kind === "working", managed: run.workerMode === "managed", ...(remote ? { remote } : {}) };
     });
   }
 }

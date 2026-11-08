@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { constants, createReadStream } from "node:fs";
+import {spool} from "../file-spool.js";
+import { constants } from "node:fs";
 import { mkdtemp, open, rm, type FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,25 +8,6 @@ import { evidenceChunkBytes } from "../../ports/index.js";
 import { commandLineProviders } from "./command-line.js";
 
 const maxRecord = 8 * 1024 * 1024;
-async function spool(path: string) {
-  const handle = await open(path,"wx",0o600);
-  const hash = createHash("sha256");
-  let byteLength = 0;
-  return {
-    handle,
-    async append(data: Buffer) {
-      let offset = 0;
-      while (offset < data.length) {
-        const { bytesWritten } = await handle.write(data,offset,data.length-offset);
-        if (!bytesWritten) throw new Error("evidence spool write made no progress");
-        offset += bytesWritten;
-      }
-      hash.update(data); byteLength += data.length;
-    },
-    source() { return { digest:"sha256:"+hash.digest("hex"),byteLength,open:()=>createReadStream(path) }; },
-  };
-}
-
 /** Raw bytes are copied once to a private spool. All derived events refer to
  * the physical input line, including when an unknown or malformed record was
  * skipped. Database transaction retries reopen the same immutable spools. */

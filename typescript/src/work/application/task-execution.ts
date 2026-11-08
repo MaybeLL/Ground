@@ -253,6 +253,7 @@ export class TaskExecution {
       const task = parseTaskContent(taskRevision?.content);
       if (!task.ok) return fromRejection(task.error);
       if ((task.value.outputs || task.value.kind === "working" || input.items.some(item=>item.type === "artifact")) && !run.cancelIntent) {
+        if (task.value.kind === "coding" && !input.items.some(item=>item.type === "candidate")) return fail("invalid","coding tasks require a candidate");
         const slots = new Set<string>();
         for (const item of input.items) {
           if (item.type !== "artifact") {

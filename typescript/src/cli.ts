@@ -1,6 +1,6 @@
 import { executeEnvironmentCommand } from "./env-cli.js";
-import {createHash} from "node:crypto";
-import {createReadStream, existsSync, readFileSync } from "node:fs";
+import {captureArtifactFile} from "./work/adapters/file-spool.js";
+import {existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { writeConfig, configPath, defaultSQLitePath, loadConfig, networkPassword, validateConfig, type Config, type DatabaseConfig } from "./config.js";
@@ -417,12 +417,7 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
     const opened = await openStore(value(args, "config"));
     try {
       const app=composeWork(opened.store);
-      const data=await executeWorkCommand(args,{app,cwd,artifactFile:async file=>{
-        const path = resolve(cwd,file), hash = createHash("sha256");
-        let byteLength = 0;
-        for await (const block of createReadStream(path)) { hash.update(block); byteLength += block.length; }
-        return {digest:"sha256:"+hash.digest("hex"),byteLength,open:()=>createReadStream(path)};
-      },readFile:path=>readFileSync(resolve(cwd,path),"utf8")}) as Record<string,unknown>;
+      const data=await executeWorkCommand(args,{app,cwd,artifactFile:file=>captureArtifactFile(resolve(cwd,file)),readFile:path=>readFileSync(resolve(cwd,path),"utf8")}) as Record<string,unknown>;
       if(group==="work" && typeof data.runId==="string" && ["start","continue","branch","resume-managed","cancel"].includes(action)){
         let id=typeof data.executionId==="string" ? data.executionId : undefined;
         if(!id && action==="cancel") {

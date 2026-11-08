@@ -1,7 +1,7 @@
 // The tasks work is done against: a stable identity with immutable, numbered
 // revisions. Changing what a task asks for is a new revision, never an edit, so
 // every run and every gate stays tied to the wording it was done against.
-import { createDefinition, isId, publishRevision, type Hasher, type Id, type JsonValue, type Revision, type TaskKind, type OutputSlot, type MaterialRepository } from "../domain/index.js";
+import { defaultWorkingOutputs, createDefinition, isId, publishRevision, type Hasher, type Id, type JsonValue, type Revision, type TaskKind, type OutputSlot, type MaterialRepository } from "../domain/index.js";
 import type { Clock, IdSource, WorkUnitOfWork } from "../ports/index.js";
 import { fail, failureOf, fromRejection, succeed, type Outcome } from "./outcome.js";
 import { once, type RequestContext } from "./requests.js";
@@ -108,7 +108,7 @@ export class TaskDefinitions {
     }
     const kind = spec.kind ?? (previous?.content as {kind?:TaskKind} | undefined)?.kind ?? "coding";
     const materialRepositories = spec.materialRepositories ?? (previous?.content as {materialRepositories?:MaterialRepository[]} | undefined)?.materialRepositories;
-    const outputs = spec.outputs ?? (previous?.content as {outputs?:OutputSlot[]} | undefined)?.outputs;
+    const outputs = spec.outputs ?? (previous?.content as {outputs?:OutputSlot[]} | undefined)?.outputs ?? (kind === "working" ? defaultWorkingOutputs() : undefined);
     const json: Record<string, JsonValue> = { kind, ...(materialRepositories ? {materialRepositories} : {}), ...(outputs ? {outputs} : {}), schemaVersion: 1, summary: spec.summary, criteria,
       ...(spec.environmentDefinitionId ? { environmentDefinitionId: spec.environmentDefinitionId } : {}), ...(spec.context ? { context: spec.context } : {}), ...(spec.repository ? { repository: { remote: spec.repository.remote, baseline: spec.repository.baseline } } : {}) };
     return succeed({ json, criteria });

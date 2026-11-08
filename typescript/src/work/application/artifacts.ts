@@ -7,6 +7,7 @@ export type SavedArtifact = {
   id:string; runId:string; slot:string; receipt:string; sessionId?:string;
   files:{path:string;content:EvidenceRef}[];
 };
+export type ArtifactSource = EvidenceSource;
 type InputFile = {path:string;source:EvidenceSource};
 
 export async function readArtifact(r:WorkRepositories,id:string):Promise<SavedArtifact|undefined> {

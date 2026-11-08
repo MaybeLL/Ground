@@ -188,6 +188,7 @@
         "runId": {"$ref": "#/$defs/Id"},
         "path": {"type": "string"},
         "branch": {"type": "string"},
+        "materials": {"type":"array","items":{"type":"object","required":["name","commit","path"],"properties":{"name":{"type":"string"},"commit":{"type":"string"},"path":{"type":"string"}},"additionalProperties":false}},
         "base": {
           "type": "object",
           "properties": {"commit": {"type": "string"}, "from": {"enum": ["baseline", "delivery"]}, "of": {"type": "string"}},

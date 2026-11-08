@@ -117,3 +117,18 @@ grounds experiment regrade --batch BATCH --member 'CASE#0' --binding REQUIREMENT
 `--overrides FILE` 可为不同 case 提供本机仓库路径，格式如 `{"case-a":{"repositoryPath":"../source"}}`。批次默认每项独立执行一次，最多同时运行五个任务。每个样本有独立的 TaskRun，使用宿主的 Agent 名额，终结后释放沙箱。已受理批次通过 `experiment resume --batch BATCH` 显式继续；`experiment cancel --batch BATCH` 关闭该批次的入场入口并传播取消。
 
 `experiment show --experiment EXPERIMENT` 展示方案和各批次概况。批次结果按评分要求、评分器修订与标尺分组。planned 是预期评分数，valid 是已有有效评分数，indeterminate 是合法的无法判定，executionErrors 记录基础设施导致的样本失败。数值平均仅使用有效数值，分类结果保留各类别计数。成员明细给出采用的准确记录、较晚的评分故障及未开展原因。补评保留历史并沿用原成员身份。
+
+### Working 任务、材料与交付
+
+用 `grounds task create --kind working` 创建任务，用可重复的 `--required-output KEY` 和 `--optional-output KEY` 声明输出槽。省略输出槽时，working 任务使用一个必需的 `result` 槽。可通过 `--materials FILE` 传入 JSON 数组，每个条目含 `name`、本地 Git 仓库路径 `repository` 和完整提交 ID `commit`。修订保留上版的任务类型、材料和输出槽，直至显式替换。
+
+`grounds work workspace --run RUN` 返回可写输出目录及各材料快照的只读路径。再次打开会核验材料内容和提交身份。外部 Agent 使用登记的会话保存选定文件，同一个 Artifact 可包含多个文件。读取接口支持按原路径分块读取归档字节。
+
+```sh
+grounds work save-artifact --run RUN --session SESSION --slot result --file report.md=./report.md --file data.csv=./data.csv
+grounds work artifact --run RUN --artifact ID
+grounds work artifact-file --run RUN --artifact ID --path report.md --chunk 0
+grounds work submit-artifacts --run RUN --session SESSION --artifact ID
+```
+
+Coding 任务有必需附件时，用 `grounds work deliver --run RUN --session SESSION --artifact ID` 在同一份清单中提交 Git Candidate 和附件。每个槽选择一份已保存的产物。外部执行和直接提交支持上述契约；当前托管 worker 受理仅要求 Candidate 的 coding 任务。

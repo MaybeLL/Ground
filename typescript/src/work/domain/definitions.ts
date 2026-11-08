@@ -52,6 +52,7 @@ export type TaskKind = "coding" | "working";
 export interface Criterion { readonly id: Id; readonly statement: string }
 export type MaterialRepository = {name:string;repository:string;commit:string};
 export type OutputSlot = {key:string; required:boolean};
+export const defaultWorkingOutputs = ():OutputSlot[]=>[{key:"result",required:true}];
 export interface TaskContent { readonly outputs?: readonly OutputSlot[]; readonly materialRepositories?:readonly MaterialRepository[]; readonly kind: TaskKind; readonly schemaVersion: number; readonly summary: string; readonly criteria: readonly Criterion[]; readonly environmentDefinitionId?: Id }
 
 /** What an acceptance verdict is a verdict about on the task side: the criteria and their wording, independent of their order. */
@@ -101,7 +102,9 @@ export function parseTaskContent(content: unknown): Result<TaskContent> {
     }
     if (!unique(slots,slot=>slot.key)) return invalid("output keys must be unique");
   }
-  return ok({ kind, ...(materialRepositories === undefined ? {} : {materialRepositories:repos}), ...(outputs === undefined ? {} : {outputs:slots}), schemaVersion: schemaVersion as number, summary, criteria: parsed, ...(environmentDefinitionId !== undefined ? { environmentDefinitionId } : {}) });
+  if (kind === "working" && outputs !== undefined && !slots.length) return invalid("working tasks need an output slot");
+  if (kind === "working" && outputs === undefined) slots.push(...defaultWorkingOutputs());
+  return ok({ kind, ...(materialRepositories === undefined ? {} : {materialRepositories:repos}), ...(slots.length || outputs !== undefined ? {outputs:slots} : {}), schemaVersion: schemaVersion as number, summary, criteria: parsed, ...(environmentDefinitionId !== undefined ? { environmentDefinitionId } : {}) });
 }
 
 export function parseScale(value: unknown): Result<Scale> {

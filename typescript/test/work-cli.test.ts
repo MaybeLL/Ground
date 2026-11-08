@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, statSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, statSync, symlinkSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -243,6 +243,12 @@ test("external agents save and read explicit working artifacts before declaring 
     const {sessionId} = ok(await h.cli("work","register","--run",runId,"--agent","writer"));
     const file = join(h.directory,"report");
     writeFileSync(file,Buffer.from([0,127,255]));
+    const fifo = join(h.directory,"fifo");
+    execFileSync("mkfifo",[fifo]);
+    for (const source of ["/dev/zero",fifo]) {
+      const result=await h.cli("work","save-artifact","--run",runId,"--session",sessionId,"--slot","report","--file","report="+source);
+      assert.equal(result.error.code,"VALIDATION_ERROR");
+    }
     const {artifact} = ok(await h.cli("work","save-artifact","--run",runId,"--session",sessionId,"--slot","report","--file","report.bin="+file));
     writeFileSync(file,"later edits");
     const chunk = ok(await h.cli("work","artifact-file","--run",runId,"--artifact",artifact.id,"--path","report.bin","--chunk","0"));
@@ -253,11 +259,24 @@ test("external agents save and read explicit working artifacts before declaring 
   });
 });
 
+test("working materials reject an annotated tag object in place of its commit",async()=>{
+  await withHarness(async h=>{
+    git(h.repo,"tag","-a","annotated","-m","annotated");
+    const material=join(h.directory,"input.json");
+    writeFileSync(material,JSON.stringify([{name:"repo",repository:h.repo,commit:git(h.repo,"rev-parse","refs/tags/annotated")}]));
+    const task=ok(await h.cli("task","create","--kind","working","--title","Inspect","--criterion","pinned","--materials",material));
+    const {runId}=ok(await h.cli("work","start","--mode","none","--task",task.taskId));
+    assert.equal((await h.cli("work","workspace","--run",runId)).ok,false);
+  });
+});
+
 test("working workspace keeps pinned input separate from writable output on replay", async () => {
   await withHarness(async h=>{
     const file = join(h.directory,"materials.json");
     writeFileSync(file,JSON.stringify([{name:"source",repository:h.repo,commit:h.baseline}]));
     const task = ok(await h.cli("task","create","--kind","working","--title","Inspect","--criterion","cite source","--materials",file));
+    const savedTask = ok(await h.cli("task","show","--task",task.taskId));
+    assert.deepEqual(savedTask.revision.content.outputs,[{key:"result",required:true}]);
     const {runId} = ok(await h.cli("work","start","--mode","none","--task",task.taskId));
     writeFileSync(join(h.repo,"app.txt"),"later");
     git(h.repo,"commit","-qam","advance");
@@ -273,10 +292,35 @@ test("working workspace keeps pinned input separate from writable output on repl
       assert.equal(again.created,false);
       assert.equal(readFileSync(join(again.path,"report"),"utf8"),"draft");
       assert.equal(readFileSync(join(h.repo,"app.txt"),"utf8"),"later");
+      const moved=workspace.path+"-saved";
+      renameSync(workspace.path,moved);
+      symlinkSync(h.directory,workspace.path);
+      assert.equal((await h.cli("work","workspace","--run",runId)).ok,false);
+      rmSync(workspace.path); renameSync(moved,workspace.path);
+      chmodSync(join(material,"app.txt"),0o600);
+      writeFileSync(join(material,"app.txt"),"forged");
+      chmodSync(join(material,"app.txt"),0o444);
+      assert.equal((await h.cli("work","workspace","--run",runId)).ok,false);
+      assert.equal(readFileSync(join(workspace.path,"report"),"utf8"),"draft");
     } finally {
       chmodSync(dirname(material),0o700); chmodSync(material,0o700);
       rmSync(dirname(workspace.path),{recursive:true,force:true});
     }
+  });
+});
+
+test("coding work submits its candidate and required attachment in a single manifest",async()=>{
+  await withHarness(async h=>{
+    const task=ok(await h.cli("task","create","--title","Code and report","--criterion","tested","--required-output","report","--repo-remote",h.remote,"--baseline",h.baseline));
+    const {runId}=ok(await h.cli("work","start","--task",task.taskId,"--mode","none"));
+    const {artifact}=ok(await h.cli("work","save-artifact","--run",runId,"--slot","report","--file","summary=app.txt"));
+    assert.equal((await h.cli("work","submit-artifacts","--run",runId,"--artifact",artifact.id)).ok,false);
+    assert.equal((await h.cli("work","deliver","--run",runId)).ok,false);
+    assert.equal(git(h.remote,"tag","--list"),"");
+    const submitted=ok(await h.cli("work","deliver","--run",runId,"--artifact",artifact.id));
+    assert.equal(submitted.submitted.status,"delivered");
+    const view=ok(await h.cli("work","run","--run",runId));
+    assert.deepEqual(view.run.manifest.items.map((item:{type:string})=>item.type),["candidate","artifact"]);
   });
 });
 

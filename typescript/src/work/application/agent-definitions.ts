@@ -1,8 +1,13 @@
-import { acceptExecution, createDefinition, digestOf, isId, isText, publishRevision, refOf, type TaskRun } from "../domain/index.js";
+import { acceptExecution, createDefinition, digestOf, isId, isText, publishRevision, parseTaskContent, refOf, type TaskRun } from "../domain/index.js";
 import type { AgentProvider, ProviderName, WorkRepositories } from "../ports/index.js";
 import { fail, fromRejection, succeed } from "./outcome.js";
 import type { SandboxChoice } from "./sandbox-transfer.js";
 import { once, type RequestContext } from "./requests.js";
+
+export function supportsManagedCandidate(content:unknown) {
+  const parsed=parseTaskContent(content);
+  return parsed.ok && parsed.value.kind === "coding" && !parsed.value.outputs?.length && !parsed.value.materialRepositories?.length;
+}
 
 export type AgentSelection = {definitionId:string; revisionId?:string; repositoryPath:string};
 export type {AgentSettings,ManagedTask} from "../domain/managed.js";
@@ -44,6 +49,7 @@ export class AgentDefinitions {
       capabilities:{...this.providers[settings.provider].capabilities,verifiableStop:true},at});
     if (!accepted.ok) return fromRejection(accepted.error);
     const task = await r.definitions.getRevision(run.taskRevision.definitionId, run.taskRevision.revisionId);
+    if (!supportsManagedCandidate(task?.content)) return fail("unsupported","this managed worker requires a coding task with a candidate-only contract");
     const repository = (task?.content as {repository?: {baseline?: string; remote?: string}})?.repository;
     if (!repository?.baseline || !repository.remote) return fail("invalid", "managed coding requires a baseline and a publication remote");
     const parent = run.refines ? await r.taskRuns.get(run.refines) : undefined;

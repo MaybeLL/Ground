@@ -1,3 +1,4 @@
+import {checkCommit,verifyTree} from "./material-integrity.js";
 import {execFile} from "node:child_process";
 import {chmod,lstat,mkdir,mkdtemp,readFile,readdir,realpath,rename,rm,writeFile} from "node:fs/promises";
 import {isAbsolute,join,relative} from "node:path";
@@ -42,25 +43,40 @@ export class MaterialWorkspaces {
     const result = (created:boolean)=>({kind:"working" as const,runId,path:join(root,"output"),created,
       materials:repositories.map(({name,commit})=>({name,commit,path:join(root,"materials",name)}))});
     return withRuntimeLock(parent,runId,async()=>{
-      try {
-        if (await readFile(join(root,"sources.json"),"utf8") !== descriptor) throw new Error("working material identity conflict");
+      let published;
+      try {published = await lstat(root);} catch (error) {if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;}
+      if (published) {
+        if (!published.isDirectory() || !(await lstat(join(root,"output"))).isDirectory()) throw new Error("working output directory is missing or replaced");
+        const materialRoot=join(root,"materials"), manifest=join(root,"sources.json");
+        if (!(await lstat(materialRoot)).isDirectory() || !(await lstat(manifest)).isFile()) throw new Error("invalid working material layout");
+        const record=JSON.parse(await readFile(manifest,"utf8"));
+        if (JSON.stringify(record.repositories)!==descriptor || (await readdir(materialRoot)).length!==repositories.length) throw new Error("working material identity conflict");
+        for (const [index,repo] of repositories.entries()) {
+          const expected=checkCommit(repo.commit,Buffer.from(record.commits[index],"base64"));
+          if ((await verifyTree(join(materialRoot,repo.name),repo.commit)).toString("hex")!==expected) throw new Error("material differs from its frozen commit");
+        }
         return result(false);
-      } catch (error) {if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;}
+      }
       const stage = await mkdtemp(join(parent,"prepare-"));
       try {
         await mkdir(join(stage,"output"));
         await mkdir(join(stage,"materials"));
+        const commits:string[]=[];
         for (const repo of repositories) {
           if (!isAbsolute(repo.repository)) throw new Error("material checkout requires an absolute repository path");
           const destination = join(stage,"materials",repo.name);
           await git(["init","--quiet","--template=","--object-format="+(repo.commit.length===64 ? "sha256" : "sha1"),destination]);
           await git(["-C",destination,"fetch","--depth=1","--no-tags","--",pathToFileURL(repo.repository).href,repo.commit]);
+          const object = await exec("git",["-C",destination,"cat-file","commit",repo.commit],{encoding:"buffer",env:inspectionEnvironment(),maxBuffer:32*1024*1024});
+          const expected = checkCommit(repo.commit,object.stdout);
+          commits.push(object.stdout.toString("base64"));
           await git(["-C",destination,"checkout","--quiet","--detach",repo.commit]);
           await rm(join(destination,".git"),{recursive:true,force:true});
           await protect(await realpath(destination));
+          if ((await verifyTree(destination,repo.commit)).toString("hex")!==expected) throw new Error("material checkout differs from its frozen tree");
         }
         await chmod(join(stage,"materials"),0o555);
-        await writeFile(join(stage,"sources.json"),descriptor,{mode:0o400});
+        await writeFile(join(stage,"sources.json"),JSON.stringify({repositories,commits}),{mode:0o400});
         await rename(stage,root);
       } catch (error) {await discard(stage);throw error;}
       return result(true);
