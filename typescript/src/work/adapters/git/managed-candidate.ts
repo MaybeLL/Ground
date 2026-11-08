@@ -33,7 +33,8 @@ export async function archiveCandidateBundle(archive:GitTagArchive,input:{reposi
       const seen=await archive.inspect(root,{id:input.id,receipt:saved.receipt});
       if (seen.tag==="unchanged" && seen.remoteCommit===input.commit) return {status:"confirmed" as const,receipt:saved.receipt as string,commit:input.commit};
       if (seen.tag==="moved") return {status:"conflict" as const,reason:"the reserved publication tag now points at another commit"};
-      if (seen.tag!=="missing" || !input.allowPublish) return {status:"unavailable" as const,reason:"managed publication was not confirmed by the remote"};
+      if (seen.tag==="missing" && !input.allowPublish) return {status:"unavailable" as const,reason:"publication has no remote receipt; resume to publish"};
+      if (seen.tag!=="missing") return {status:"unavailable" as const,reason:"managed publication was not confirmed by the remote"};
     }
     try { await git(["fetch","--no-tags","--",pathToFileURL(input.repository).href,input.baseline]); }
     catch {
