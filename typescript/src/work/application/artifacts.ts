@@ -4,11 +4,21 @@ import {fail,succeed} from "./outcome.js";
 import {once,type RequestContext} from "./requests.js";
 
 export type SavedArtifact = {
-  id:string; runId:string; slot:string; receipt:string; sessionId?:string;
+  id:string; runId:string; slot:string; receipt:string; sessionId?:string; executionId?:string;
   files:{path:string;content:EvidenceRef}[];
 };
 export type ArtifactSource = EvidenceSource;
-type InputFile = {path:string;source:EvidenceSource};
+export type InputFile = {path:string;source:EvidenceSource};
+
+export async function archiveFiles(r:WorkRepositories,ctx:RequestContext,owner:{runId:string;slot:string;id:string;sessionId?:string;executionId?:string},files:InputFile[]) {
+  const ordered=[...files].sort((a,b)=>a.path<b.path ? -1 : a.path>b.path ? 1 : 0);
+  const described=ordered.map(({path,source})=>({path,digest:source.digest,byteLength:source.byteLength}));
+  const digest=digestOf({runId:owner.runId,slot:owner.slot,files:described},ctx.hash);
+  if (!digest.ok) throw new Error(digest.error.message);
+  const stored:SavedArtifact["files"]=[];
+  for (const {path,source} of ordered) stored.push({path,content:await r.evidence.put(source)});
+  return {...owner,receipt:"artifact:"+digest.value,files:stored};
+}
 
 export async function readArtifact(r:WorkRepositories,id:string):Promise<SavedArtifact|undefined> {
   const intent = await r.intents.findByRequest(id);
@@ -38,11 +48,7 @@ export class Artifacts {
       const revision = await r.definitions.getRevision(run.taskRevision.definitionId,run.taskRevision.revisionId);
       const task = parseTaskContent(revision?.content);
       if (!task.ok || !task.value.outputs?.some(slot=>slot.key === input.slot)) return fail("invalid","output key is absent from the frozen task");
-      const digest = digestOf({runId:run.id,slot:input.slot,files:listed},this.ctx.hash);
-      if (!digest.ok) return fail("invalid",digest.error.message);
-      const stored:SavedArtifact["files"] = [];
-      for (const {path,source} of ordered) stored.push({path,content:await r.evidence.put(source)});
-      return succeed({id:input.requestId,runId:run.id,slot:input.slot,receipt:"artifact:"+digest.value,files:stored,...(input.sessionId ? {sessionId:input.sessionId} : {})});
+      return succeed(await archiveFiles(r,this.ctx,{id:input.requestId,runId:run.id,slot:input.slot,...(input.sessionId ? {sessionId:input.sessionId} : {})},ordered));
     });
   }
 

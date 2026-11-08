@@ -115,10 +115,12 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
     await mkdir(dir,{recursive:true,mode:0o700});
     // Registry references select manifests; a local build can instead be pinned
     // by its Docker image ID. Docker accepts that immutable ID directly.
-    if (workspace.graderMaterials && (parsed.workspaceFolder === "/grounds-grader" || String(parsed.workspaceFolder).startsWith("/grounds-grader/"))) {
-      throw new Error("evaluator workspace overlaps its private material mount");
+    const source=workspace.graderMaterials ?? workspace.taskMaterials;
+    const target=workspace.graderMaterials ? "/grounds-grader" : "/grounds-materials";
+    if (source && (parsed.workspaceFolder===target || String(parsed.workspaceFolder).startsWith(target+"/") || target.startsWith(String(parsed.workspaceFolder)+"/"))) {
+      throw new Error("workspace overlaps its reserved material mount");
     }
-    const launch = { ...parsed, ...(workspace.graderMaterials ? {mounts:['type=bind,"source=' + workspace.graderMaterials.replaceAll('"', '""') + '",target=/grounds-grader,readonly']} : {}), image: image.Id === expected ? image.Id : parsed.image };
+    const launch={...parsed,...(source ? {mounts:['type=bind,"source='+source.replaceAll('"','""')+'",target='+target+',readonly']} : {}),image:image.Id===expected ? image.Id : parsed.image};
     const path = join(dir,"devcontainer.json");
     await writeFile(path,JSON.stringify(launch));
     if (workspace.frozenLockfile) await copyFile(join(dirname(workspace.configPath),"devcontainer-lock.json"),join(dir,"devcontainer-lock.json"));
@@ -149,13 +151,12 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
     const data = await this.invoke(this.docker, ["inspect", "--type", "container", "--format", "{{json .Mounts}}", id], opts);
     const mounts = JSON.parse(data.stdout) as {Type: string; Source: string; Destination: string; RW: boolean}[];
     const mount = mounts.find(m => m.Destination === workspace.containerFolder);
-    if (workspace.graderMaterials) {
-      const grader = mounts.find(m => m.Destination === "/grounds-grader");
-      if (!grader || grader.Type !== "bind" || grader.RW || await realpath(grader.Source) !== await realpath(workspace.graderMaterials)) {
-        throw new Error("private evaluator materials are not mounted read-only at their reserved path");
-      }
+    const source=workspace.graderMaterials ?? workspace.taskMaterials;
+    if (source) {
+      const materials=mounts.find(m=>m.Destination===(workspace.graderMaterials ? "/grounds-grader" : "/grounds-materials"));
+      if (!materials || materials.Type!=="bind" || materials.RW || await realpath(materials.Source)!==await realpath(source)) throw new Error("material mount does not match its read-only source");
     }
-    if (mounts.length !== (workspace.graderMaterials ? 2 : 1) || !mount || mount.Type !== "bind" || !mount.RW || await realpath(mount.Source) !== await realpath(workspace.path)) throw new Error("Docker did not mount the reserved workspace");
+    if (mounts.length !== (source ? 2 : 1) || !mount || mount.Type !== "bind" || !mount.RW || await realpath(mount.Source) !== await realpath(workspace.path)) throw new Error("Docker did not mount the reserved workspace");
   }
 
   private async verifyImage(id: string, expected: string) {

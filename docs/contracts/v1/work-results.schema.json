@@ -359,7 +359,7 @@
     }
   ],
   "$defs": {
-    "SavedArtifact": {"type": "object", "required": ["id", "runId", "slot", "receipt", "files"], "properties": {"id": {"$ref": "#/$defs/Id"}, "runId": {"$ref": "#/$defs/Id"}, "slot": {"$ref": "#/$defs/Id"}, "receipt": {"type": "string"}, "sessionId": {"$ref": "#/$defs/Id"}, "files": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["path", "content"], "properties": {"path": {"type": "string"}, "content": {"$ref": "trace-results.schema.json#/$defs/Blob"}}, "additionalProperties": false}}}, "additionalProperties": false},
+    "SavedArtifact": {"type": "object", "required": ["id", "runId", "slot", "receipt", "files"], "properties": {"id": {"$ref": "#/$defs/Id"}, "runId": {"$ref": "#/$defs/Id"}, "slot": {"$ref": "#/$defs/Id"}, "receipt": {"type": "string"}, "sessionId": {"$ref": "#/$defs/Id"}, "executionId": {"$ref": "#/$defs/Id"}, "files": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["path", "content"], "properties": {"path": {"type": "string"}, "content": {"$ref": "trace-results.schema.json#/$defs/Blob"}}, "additionalProperties": false}}}, "additionalProperties": false},
     "ArchiveProtection": {
       "oneOf": [
         {"type":"object","required":["level"],"properties":{"level":{"const":"unknown"}},"additionalProperties":false},

@@ -1,3 +1,4 @@
+import {parseTaskContent} from "../domain/index.js";
 import type { Sandbox } from "../domain/index.js";
 import type { ManagedWorkspacePort, RuntimeOwner, SandboxLauncher, SandboxRuntimePort, WorkUnitOfWork } from "../ports/index.js";
 import type { EnvironmentContent } from "./environment-definitions.js";
@@ -44,8 +45,11 @@ export class RetainedSetup {
       const ref = receiver.environment.revision;
       const revision = await r.definitions.getRevision(ref.definitionId, ref.revisionId);
       if (!revision || !allocation || !worker) return;
-      return {repository: (worker.payload as {repositoryPath:string}).repositoryPath,
-        commit: (allocation.result as {commit:string}).commit, environment: revision.content as EnvironmentContent, ref,
+      const task=await r.definitions.getRevision(receiver.taskRevision.definitionId,receiver.taskRevision.revisionId);
+      const parsed=parseTaskContent(task?.content);
+      if (!parsed.ok) return;
+      return {materials:parsed.value.materialRepositories,repository: (worker.payload as {repositoryPath:string}).repositoryPath,
+        commit: (allocation.result as {commit:string|null}).commit, environment: revision.content as EnvironmentContent, ref,
         cancelled: !!receiver.cancelIntent || ["failed","delivered","cancelled"].includes(receiver.status)};
     });
     if (!facts || !sandbox.location) return fail("conflict", "retained workspace preparation facts are unavailable");
@@ -62,7 +66,7 @@ export class RetainedSetup {
       if (previous === "active") return fail("unavailable", "previous setup still owns the workspace");
       // Validate a retained checkout before touching its old container.
       let workspace;
-      try { workspace = await workspaces.prepare(owner, facts.repository, facts.commit, facts.environment, !!sandbox.workspace); }
+      try { workspace = await workspaces.prepare(owner, facts.repository, facts.commit, facts.environment, !!sandbox.workspace,facts.materials); }
       catch { return fail("unavailable", "cannot recover the original retained checkout or its preparation descriptor"); }
       if (observed) {
         if (!sandbox.runtime || observed.id !== sandbox.runtime.instanceId || observed.setupAttempt !== sandbox.runtime.setupAttempt || previous !== "failed" && previous !== "interrupted") {

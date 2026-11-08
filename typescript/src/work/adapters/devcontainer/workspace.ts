@@ -1,10 +1,12 @@
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, lstat, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import {dirname,join} from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { inspectionEnvironment } from "../git/inspection-environment.js";
 import { atomicPrivateWrite, privateDirectory, withRuntimeLock } from "../../../runtime-files.js";
+import {MaterialWorkspaces} from "../git/material-workspaces.js";
+import type {MaterialRepository} from "../../domain/index.js";
 import { pinnedConfig } from "./config.js";
 import { dataLayout } from "../../../data-layout.js";
 import type { ManagedWorkspacePort, RuntimeOwner } from "../../ports/index.js";
@@ -32,19 +34,21 @@ export class ManagedWorkspaces implements ManagedWorkspacePort {
     return privateDirectory(join(this.root(owner), "setup-attempts", owner.setupAttempt));
   }
 
-  async prepare(owner: RuntimeOwner, repository: string, commit: string, content: { config: string; lockfile: string | null; imageDigest: string }, requireExisting = false) {
+  async prepare(owner: RuntimeOwner, repository: string, commit: string|null, content: { config: string; lockfile: string | null; imageDigest: string }, requireExisting = false,repositories:readonly MaterialRepository[] = []) {
     const configSource = pinnedConfig(content.config, content.imageDigest);
     const root = this.root(owner);
-    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(commit)) throw new Error("managed workspace needs a full commit");
+    if (commit!==null && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(commit)) throw new Error("managed workspace needs a full commit");
     await mkdir(root, { recursive: true, mode: 0o700 });
     const dest = join(root, "prepared"), workspace = join(dest, "workspace");
-    const descriptor = JSON.stringify({ commit, config: content.config, lockfile: content.lockfile, imageDigest: content.imageDigest });
+    const selected = repositories.length ? await new MaterialWorkspaces().prepare(owner.ledgerId,owner.sandboxId,repositories) : undefined;
+    const taskMaterials=selected && dirname(selected.materials[0]!.path);
+    const descriptor = JSON.stringify({ commit, ...(repositories.length ? {repositories} : {}), config: content.config, lockfile: content.lockfile, imageDigest: content.imageDigest });
     const verified = async () => {
       try { if (await readFile(join(dest, "source.json"), "utf8") !== descriptor) throw new Error("workspace preparation identity conflict"); return true; }
       catch (error) { if (absent(error)) return false; throw error; }
     };
     if (requireExisting) {
-      if (!await verified() || !(await lstat(workspace)).isDirectory() || !(await lstat(join(workspace, ".git"))).isDirectory()) {
+      if (!await verified() || !(await lstat(workspace)).isDirectory() || commit!==null && !(await lstat(join(workspace, ".git"))).isDirectory()) {
         throw new Error("the retained checkout is unavailable");
       }
     } else if (!await verified()) {
@@ -52,18 +56,21 @@ export class ManagedWorkspaces implements ManagedWorkspacePort {
       try {
         const clone = join(stage, "workspace"), config = join(stage, ".devcontainer");
         await mkdir(config);
-        await git(["init", "--quiet", "--template=", "--object-format=" + (commit.length === 64 ? "sha256" : "sha1"), clone]);
-        await git(["-C", clone, "-c", "core.hooksPath=/dev/null", "fetch", "--no-tags", "--depth=1", "--", pathToFileURL(repository).href, commit]);
-        await git(["-C", clone, "-c", "core.hooksPath=/dev/null", "checkout", "--quiet", "--detach", commit]);
-        await git(["-C",clone,"config","user.name","Grounds Worker"]);
-        await git(["-C",clone,"config","user.email","worker@grounds.invalid"]);
+        if (commit===null) await mkdir(clone);
+        else {
+          await git(["init", "--quiet", "--template=", "--object-format=" + (commit.length === 64 ? "sha256" : "sha1"), clone]);
+          await git(["-C", clone, "-c", "core.hooksPath=/dev/null", "fetch", "--no-tags", "--depth=1", "--", pathToFileURL(repository).href, commit]);
+          await git(["-C", clone, "-c", "core.hooksPath=/dev/null", "checkout", "--quiet", "--detach", commit]);
+          await git(["-C",clone,"config","user.name","Grounds Worker"]);
+          await git(["-C",clone,"config","user.email","worker@grounds.invalid"]);
+        }
         await writeFile(join(config, "devcontainer.json"), JSON.stringify(configSource));
         if (content.lockfile !== null) await writeFile(join(config, "devcontainer-lock.json"), content.lockfile);
         await writeFile(join(stage, "source.json"), descriptor, { mode: 0o600 });
         try { await rename(stage, dest); } catch (error) { if (!await verified()) throw error; }
       } finally { await rm(stage, { recursive: true, force: true }); }
     }
-    return { path: workspace, configPath: join(dest, ".devcontainer", "devcontainer.json"), imageDigest: content.imageDigest, containerFolder: configSource.workspaceFolder as string, frozenLockfile: content.lockfile !== null };
+    return { path: workspace,...(taskMaterials ? {taskMaterials} : {}), configPath: join(dest, ".devcontainer", "devcontainer.json"), imageDigest: content.imageDigest, containerFolder: configSource.workspaceFolder as string, frozenLockfile: content.lockfile !== null };
   }
 
   async receipt(owner: RuntimeOwner) {

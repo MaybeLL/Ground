@@ -4,11 +4,6 @@ import { fail, fromRejection, succeed } from "./outcome.js";
 import type { SandboxChoice } from "./sandbox-transfer.js";
 import { once, type RequestContext } from "./requests.js";
 
-export function supportsManagedCandidate(content:unknown) {
-  const parsed=parseTaskContent(content);
-  return parsed.ok && parsed.value.kind === "coding" && !parsed.value.outputs?.length && !parsed.value.materialRepositories?.length;
-}
-
 export type AgentSelection = {definitionId:string; revisionId?:string; repositoryPath:string};
 export type {AgentSettings,ManagedTask} from "../domain/managed.js";
 import type {AgentSettings,ManagedTask} from "../domain/managed.js";
@@ -37,7 +32,7 @@ export class AgentDefinitions {
     });
   }
 
-  async admit(r:WorkRepositories,run:TaskRun,selection?:AgentSelection,sandbox?:SandboxChoice, frozen?:Pick<ManagedTask,"repositoryPath"|"remote"|"baseline">) {
+  async admit(r:WorkRepositories,run:TaskRun,selection?:AgentSelection,sandbox?:SandboxChoice, frozen?:{repositoryPath:string;baseline:string;remote:string}) {
     if (run.workerMode!=="managed") return selection ? fail("invalid","agent selection requires managed mode") : succeed({});
     if (!selection || !isId(selection.definitionId) || !run.environment) return fail("invalid","a managed run requires an agent and a resolved task environment");
     const revision=selection.revisionId ? await r.definitions.getRevision(selection.definitionId,selection.revisionId) : await r.definitions.latestRevision(selection.definitionId);
@@ -49,12 +44,26 @@ export class AgentDefinitions {
       capabilities:{...this.providers[settings.provider].capabilities,verifiableStop:true},at});
     if (!accepted.ok) return fromRejection(accepted.error);
     const task = await r.definitions.getRevision(run.taskRevision.definitionId, run.taskRevision.revisionId);
-    if (!supportsManagedCandidate(task?.content)) return fail("unsupported","this managed worker requires a coding task with a candidate-only contract");
-    const repository = (task?.content as {repository?: {baseline?: string; remote?: string}})?.repository;
+    const contract=parseTaskContent(task?.content);
+    if (!contract.ok) return fromRejection(contract.error);
+    const workspace=contract.value.kind==="working" ? succeed({repositoryPath:selection.repositoryPath,baseline:null,remote:null}) :
+      await this.codingSource(r,run,task?.content,selection,sandbox,frozen);
+    if (!workspace.ok) return workspace;
+    const payload:ManagedTask={runId:run.id,executionId,...workspace.value};
+    const hash=digestOf(payload,this.ctx.hash);
+    if (!hash.ok) return fromRejection(hash.error);
+    await r.executions.create(accepted.value.state);
+    await r.intents.register({id:this.ctx.newId(),requestId:"managed-"+executionId,requestHash:hash.value,kind:"managed-worker",
+      subject:{type:"task_run",id:run.id},state:"registered",payload,createdAt:at,updatedAt:at,version:1});
+    return succeed({executionId});
+  }
+  private async codingSource(r:WorkRepositories,run:TaskRun,content:unknown,selection:AgentSelection,sandbox?:SandboxChoice,
+      frozen?:{repositoryPath:string;remote:string;baseline:string}) {
+    const repository = (content as {repository?: {baseline?: string; remote?: string}})?.repository;
     if (!repository?.baseline || !repository.remote) return fail("invalid", "managed coding requires a baseline and a publication remote");
     const parent = run.refines ? await r.taskRuns.get(run.refines) : undefined;
     const candidate = parent?.manifest?.items.find(item => item.type === "candidate");
-    const inherited = run.environment.source === "inherited";
+    const inherited = run.environment?.source === "inherited";
     const failedManaged = parent?.workerMode === "managed" && !candidate && (parent.status === "failed" || parent.status === "cancelled");
     const freshAfterFailure = failedManaged && sandbox === "fresh";
     if (parent && !candidate && !inherited && !freshAfterFailure &&
@@ -71,12 +80,6 @@ export class AgentDefinitions {
     if (previous && (previous.repositoryPath !== source.repositoryPath || previous.remote !== source.remote)) {
       return fail("conflict", "the selected repository differs from the retained workspace; select a fresh sandbox");
     }
-    const payload: ManagedTask = {runId: run.id, executionId, ...source, ...(freshAfterFailure ? {freshAfterFailure:true} : {}), ...(parentReceipt ? {parentReceipt} : {}), ...(parentCandidate ? {parentCandidate} : {})};
-    const hash=digestOf(payload,this.ctx.hash);
-    if (!hash.ok) return fromRejection(hash.error);
-    await r.executions.create(accepted.value.state);
-    await r.intents.register({id:this.ctx.newId(),requestId:"managed-"+executionId,requestHash:hash.value,kind:"managed-worker",
-      subject:{type:"task_run",id:run.id},state:"registered",payload,createdAt:at,updatedAt:at,version:1});
-    return succeed({executionId});
+    return succeed({...source, ...(freshAfterFailure ? {freshAfterFailure:true as const} : {}), ...(parentReceipt ? {parentReceipt} : {}), ...(parentCandidate ? {parentCandidate} : {})});
   }
 }

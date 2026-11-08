@@ -7,7 +7,9 @@ export type WorkerTarget = {containerId:string;location:RuntimeLocation;owner:Ru
 export type ProcessPlan = {job:ManagedTask;target:WorkerTarget;agent:AgentSettings;prompt:string};
 export type ProcessRead = {state:"complete";exitCode:number} | {state:"running"|"awaiting-resume"|"interrupted";detail:string};
 export type WorkerOutput = {trace:CapturedTrace;output:EvidenceSource;stderr:EvidenceSource;message:string;providerFailed:boolean};
+export type CapturedArtifacts = {entries:{slot:string;files:{path:string;source:EvidenceSource}[]}[];dispose():Promise<void>};
 export interface ManagedProcessPort {
+  artifacts(plan:ProcessPlan,declared:readonly import("../domain/managed-delivery.js").ArtifactDeclaration[]):Promise<CapturedArtifacts>;
   handle(plan:ProcessPlan,allowCreate:boolean):Promise<string|undefined>;
   drive(plan:ProcessPlan,handle:string,allowStart:boolean):Promise<ProcessRead>;
   output(plan:ProcessPlan):Promise<WorkerOutput>;

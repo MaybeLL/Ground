@@ -131,4 +131,4 @@ grounds work artifact-file --run RUN --artifact ID --path report.md --chunk 0
 grounds work submit-artifacts --run RUN --session SESSION --artifact ID
 ```
 
-Coding 任务有必需附件时，用 `grounds work deliver --run RUN --session SESSION --artifact ID` 在同一份清单中提交 Git Candidate 和附件。每个槽选择一份已保存的产物。外部执行和直接提交支持上述契约；当前托管 worker 受理仅要求 Candidate 的 coding 任务。
+Coding 任务有必需附件时，用 `grounds work deliver --run RUN --session SESSION --artifact ID` 在同一份清单中提交 Git Candidate 和附件。每个槽选择一份已保存的产物。托管 worker 同样支持 working 任务和带附件的 coding 任务。运行器把材料仓库只读挂载在 `/grounds-materials/<name>`。Working 容器的当前目录用于写输出，`work prepare-sandbox` 的 `commit` 返回 `null`。Agent 的最终 JSON 以 `artifacts` 数组声明每个槽的文件。例如 `{"artifacts":[{"slot":"result","files":[{"path":"report.txt","source":"summary.txt"}]}]}`。Coding 的同一份声明还须包含 `candidate.commit`。每个托管 Artifact 保存来源 `executionId`，与同一轮的轨迹、冻结输出和交付清单关联。

@@ -1,3 +1,5 @@
+import {archiveFiles} from "./artifacts.js";
+import type {CapturedArtifacts} from "../ports/index.js";
 import { acquireLease, authorizeBridge, beginExecution, claimRunner, concludeRound, confirmExecutionStopped, digestOf,
   blockArchive, retryArchive, executionHostLost, interruptExecution, failExecutionInfrastructure, failInfrastructure, isExecutionTerminal, isTerminal, prepareExecution, providerEnded, recordReceipt, registerManagedWorker, requestExecutionCancel,
   returnLease, start, submitManifest, workerStopped, type AgentExecution, type Decision, type FrozenTrace, type Result, type Sandbox, type TaskRun } from "../domain/index.js";
@@ -7,8 +9,8 @@ import { fail, fromRejection, succeed, type Outcome } from "./outcome.js";
 import { once, type RequestContext } from "./requests.js";
 import type { SandboxLifecycle } from "./sandbox-lifecycle.js";
 
-type Dispatch = ManagedTask & { trace?:FrozenTrace; output?:EvidenceRef; stderr?:EvidenceRef; claim?:string; rejected?:boolean; observation?:{state:string;detail?:string}; dockerExecId?: string; runnerId?: string; token?: number };
-export type ManagedContext = { job:Dispatch; intentId:string; sandbox?:Sandbox; baseline?:string; exec:AgentExecution; run:TaskRun; agent:AgentSettings; task: {summary:string;criteria:{id:string;statement:string}[];context?:string;repository:{baseline:string;remote:string}} };
+type Dispatch = ManagedTask & { trace?:FrozenTrace; output?:EvidenceRef; stderr?:EvidenceRef; claim?:string; artifactItems?:{type:"artifact";id:string;receipt:string}[]; rejected?:boolean; observation?:{state:string;detail?:string}; dockerExecId?: string; runnerId?: string; token?: number };
+export type ManagedContext = { job:Dispatch; intentId:string; sandbox?:Sandbox; baseline?:string; exec:AgentExecution; run:TaskRun; agent:AgentSettings; task: {materialRepositories?:{name:string;commit:string}[];kind:"coding"|"working";outputs?:{key:string;required:boolean}[];summary:string;criteria:{id:string;statement:string}[];context?:string;repository:{baseline:string;remote:string}} };
 type ManagedDeps = RequestContext & { lifecycle:SandboxLifecycle };
 export type ManagedResult = { runId:string;executionId:string;stage:AgentExecution["stage"];status:TaskRun["status"] };
 
@@ -105,7 +107,7 @@ export class ManagedWorkers {
   }
 
   /** Commit the original provider result before any remote publication. */
-  async freezeOutput(runId: string, handle: string, trace: CapturedTrace, output: EvidenceSource, stderr: EvidenceSource, outcome: "succeeded" | "failed", claim?: string, rejected = false) {
+  async freezeOutput(runId: string, handle: string, trace: CapturedTrace, output: EvidenceSource, stderr: EvidenceSource, outcome: "succeeded" | "failed", claim?: string, rejected = false, artifacts:CapturedArtifacts["entries"] = []) {
     return this.deps.units.run("write", async r => {
       const intent = await this.job(r, runId);
       if (!intent) return fail("not-found", "managed intent is missing");
@@ -126,10 +128,20 @@ export class ManagedWorkers {
       const text = await r.evidence.put(output), errors = await r.evidence.put(stderr);
       await r.evidence.put(trace.raw);
       await r.evidence.put(trace.events);
+      const artifactItems=[];
+      for (const entry of artifacts) {
+        const id=this.deps.newId();
+        const saved=await archiveFiles(r,this.deps,{id,runId,slot:entry.slot,executionId:exec.id},entry.files);
+        const hash=digestOf(saved,this.deps.hash);
+        if (!hash.ok) throw new Error(hash.error.message);
+        await r.intents.register({id,requestId:id,requestHash:hash.value,kind:"save-artifact",subject:{type:"task_run",id:runId},
+          state:"completed",payload:{executionId:exec.id,slot:entry.slot},result:saved,createdAt:at,updatedAt:at,version:1});
+        artifactItems.push({type:"artifact" as const,id,receipt:saved.receipt});
+      }
       await r.executions.save(ended.value.state, exec.version);
       await r.executions.save(message.value.state, ended.value.state.version);
       await r.executions.save(trajectory.value.state, message.value.state.version);
-      await r.intents.save({...intent, payload: {...job, trace: trace.descriptor, output: text, stderr: errors, ...(claim ? {claim} : {}), rejected},
+      await r.intents.save({...intent, payload: {...job, trace: trace.descriptor, output: text, stderr: errors, ...(artifactItems.length ? {artifactItems} : {}), ...(claim ? {claim} : {}), rejected},
         updatedAt: at, version: intent.version + 1}, intent.version);
       return succeed({});
     });
@@ -175,7 +187,11 @@ export class ManagedWorkers {
         if(decision.value.state!==state){state=decision.value.state;steps.push(state);}
       };
       if (state.stage === "archive_blocked") step(retryArchive(state, {at}));
-      if(candidate) step(recordReceipt(state,{kind:"delivery-claim",ref:candidate.receipt,at}));
+      const items=[...(candidate ? [{type:"candidate" as const,...candidate}] : []),...(job.artifactItems ?? [])];
+      const digest=digestOf([...items].sort((a,b)=>(a.type+":"+a.id).localeCompare(b.type+":"+b.id)),this.deps.hash);
+      if (!digest.ok) return fromRejection(digest.error);
+      const deliveryClaim=items.length>1 ? "manifest:"+digest.value : items[0]?.receipt;
+      if(deliveryClaim) step(recordReceipt(state,{kind:"delivery-claim",ref:deliveryClaim,at}));
       if (!isExecutionTerminal(state)) step(confirmExecutionStopped(state,{at}));
       const lease=returnLease(sb,{holder,token:job.token,stop:"verified",at}); if(!lease.ok)return fromRejection(lease.error);
       const stopped=workerStopped(run,{outcome,at});if(!stopped.ok)return fromRejection(stopped.error);
@@ -184,9 +200,7 @@ export class ManagedWorkers {
         if (rejected) {
           const denied=submitManifest(final,{operationId:"managed-delivery-"+exec.id,origin:"contract",check:"rejected",at});
           if (!denied.ok)return fromRejection(denied.error); final=denied.value.state;
-        } else if(candidate) {
-          const items=[{type:"candidate" as const,...candidate}];
-          const digest=digestOf(items,this.deps.hash); if(!digest.ok)return fromRejection(digest.error);
+        } else if(items.length) {
           const manifest=submitManifest(final,{operationId:"managed-delivery-"+exec.id,origin:"contract",check:"accepted",items,digest:digest.value,trajectoryReceipt:state.receipts.trajectory!,at});
           if(!manifest.ok)return fromRejection(manifest.error); final=manifest.value.state;
         } else {

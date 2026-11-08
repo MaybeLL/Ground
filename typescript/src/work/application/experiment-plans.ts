@@ -1,4 +1,4 @@
-import {supportsManagedCandidate} from "./agent-definitions.js";
+import {parseTaskContent} from "../domain/index.js";
 import {parseGraderContent, digestOf, isText, launchExperimentRun, refOf, sameRef, type RevisionRef} from "../domain/index.js";
 import type {WorkRepositories} from "../ports/index.js";
 import {casesOf} from "./evaluation-suites.js";
@@ -43,7 +43,8 @@ export class ExperimentPlans {
       const entries = [];
       for (const item of casesOf(suite)) {
         const task = await r.definitions.getRevision(item.taskRevision.definitionId,item.taskRevision.revisionId);
-        if (!supportsManagedCandidate(task?.content)) return fail("unsupported","experiment worker requires a coding task with a candidate-only contract");
+        const contract=parseTaskContent(task?.content);
+        if (!contract.ok || contract.value.kind!=="coding") return fail("unsupported","this case requires a frozen Git candidate");
         const source = (task?.content as {repository?:{remote:string;baseline:string}} | undefined)?.repository;
         if (!source?.baseline || !source.remote) return fail("invalid","a coding case requires a starting repository and baseline");
         entries.push({key:item.key,path:input.overrides?.[item.key]?.repositoryPath ?? input.repositoryPath,source});

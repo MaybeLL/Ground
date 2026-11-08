@@ -287,7 +287,7 @@ test("working workspace keeps pinned input separate from writable output on repl
     try {
       assert.equal(workspace.kind,"working");
       assert.equal(readFileSync(join(material,"internal-link"),"utf8"),"v0\n");
-      assert.match((await h.cli("work","prepare-sandbox","--run",runId)).error.message,/container setup requires/);
+      assert.match((await h.cli("work","prepare-sandbox","--run",runId)).error.message,/no resolved environment/);
       assert.equal(readFileSync(join(material,"app.txt"),"utf8"),"v0\n");
       assert.equal(statSync(join(material,"app.txt")).mode & 0o222,0);
       assert.equal(statSync(material).mode & 0o222,0);
@@ -768,6 +768,41 @@ test("provider trace import preserves exact raw bytes, normalizes known records,
   });
 });
 
+test("managed worker runs working tasks with a read-only material mount and an artifact-only manifest", {skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async()=>{
+  await withHarness(async h=>{
+    const docker=(...args:string[])=>execFileSync("docker",args,{encoding:"utf8"}).trim();
+    const image=process.env.GROUNDS_TEST_MANAGED_AGENT!, cfg=join(h.directory,"config.json"),materials=join(h.directory,"materials.json");
+    writeFileSync(cfg,JSON.stringify({image,workspaceFolder:"/work"}));
+    writeFileSync(materials,JSON.stringify([{name:"input",repository:h.repo,commit:h.baseline}]));
+    const environment=ok(await h.cli("work","define-environment","--name","working","--devcontainer",cfg,"--image-digest",docker("image","inspect","--format","{{.Id}}",image)));
+    const agent=ok(await h.cli("work","define-agent","--provider","codex","--name","working agent"));
+    for (const title of ["read pinned input","invalid output path"]) {
+      const task=ok(await h.cli("task","create","--kind","working","--title",title,"--criterion","cite the input","--materials",materials,"--required-output","report","--environment",environment.environmentId));
+      const started=ok(await h.cli("work","start","--mode","managed","--task",task.taskId,"--agent",agent.agentId));
+      try {
+        const end=Date.now()+75000;
+        let result;
+        do {
+          result=ok(await h.cli("work","managed-status","--run",started.runId));
+          if (["delivered","failed","cancelled"].includes(result.status) || result.host?.state==="blocked") break;
+          await new Promise(resolve=>setTimeout(resolve,200));
+        } while (Date.now()<end);
+        assert.equal(result.status,title==="invalid output path" ? "failed" : "delivered",JSON.stringify(result));
+        const {run}=ok(await h.cli("work","run","--run",started.runId));
+        if (title==="invalid output path") {assert.equal(run.manifest,undefined);continue;}
+        assert.deepEqual(run.manifest.items.map((i:{type:string})=>i.type),["artifact"]);
+        const id=run.manifest.items[0].id;
+        assert.equal(ok(await h.cli("work","artifact","--artifact",id,"--run",started.runId)).artifact.executionId,started.executionId);
+        const chunk=ok(await h.cli("work","artifact-file","--artifact",id,"--run",started.runId,"--path","report.txt","--chunk","0"));
+        assert.equal(Buffer.from(chunk.base64,"base64").toString(),"v0\n");
+      } finally {
+        const run=ok(await h.cli("work","run","--run",started.runId)).run;
+        if (run.sandboxId) for (const id of docker("ps","-aq","--filter","label=dev.grounds.sandbox="+run.sandboxId).split("\n").filter(Boolean)) docker("rm","-f",id);
+      }
+    }
+  });
+});
+
 test("managed worker runs in its owned devcontainer after admission and delivers its exact declared commit", {skip:!process.env.GROUNDS_TEST_MANAGED_AGENT && "requires the managed agent fixture image"},async()=>{
   await withHarness(async h=>{
     const docker=(...args:string[])=>execFileSync("docker",args,{encoding:"utf8",stdio:["ignore","pipe","pipe"]}).trim();
@@ -789,7 +824,7 @@ test("managed worker runs in its owned devcontainer after admission and delivers
         if (jobs.length === 0) process.env.OPENAI_API_KEY = "synthetic-first";
         if (jobs.length === 1) process.env.ANTHROPIC_API_KEY = "synthetic-second";
         const title = "concurrent fixture " + jobs.length;
-        const task = ok(await h.cli("task", "create", "--title", title, "--criterion", "commit result", "--environment", env.environmentId, "--repo-remote", "origin", "--baseline", h.baseline));
+        const task = ok(await h.cli("task", "create", "--title", title, "--criterion", "commit result", ...(jobs.length === 1 ? ["--required-output","report"] : []), "--environment", env.environmentId, "--repo-remote", "origin", "--baseline", h.baseline));
         const agent = ok(await h.cli("work", "define-agent", "--name", title, "--provider", provider));
         const args = ["work", "start", "--mode", "managed", "--task", task.taskId, "--agent", agent.agentId, "--repo", h.repo, "--operation-id", newUUIDv7()];
         const started = ok(await h.cli(...args));
@@ -874,6 +909,14 @@ test("managed worker runs in its owned devcontainer after admission and delivers
         const {run} = ok(await h.cli("work", "run", "--run", started.runId));
         assert.equal(run.manifest.origin, "contract");
         assert.equal(run.worker.executionId, started.executionId);
+        if (title==="concurrent fixture 1") {
+          const file=run.manifest.items.find((item:{type:string})=>item.type==="artifact");
+          assert.ok(file);
+          const saved=ok(await h.cli("work","artifact","--run",started.runId,"--artifact",file.id)).artifact;
+          assert.equal(saved.executionId,started.executionId);
+          const chunk=ok(await h.cli("work","artifact-file","--run",started.runId,"--artifact",file.id,"--path","report.txt","--chunk","0"));
+          assert.equal(Buffer.from(chunk.base64,"base64").toString(),"uncommitted report\n");
+        }
         const tag = "refs/tags/grounds/deliveries/" + run.manifest.items[0].id;
         assert.equal(git(h.remote, "show", tag + ":result.txt"), title);
         ok(await h.cli("work", "close", "--work", started.workId));

@@ -45,19 +45,21 @@ export class SandboxProvisioning {
     const authorized = await this.deps.units.run("read", async r => {
       const run = await r.taskRuns.get(runId);
       if (!run) return {missing:true};
-      if (run.workerMode !== "managed") {
-        const revision=await r.definitions.getRevision(run.taskRevision.definitionId,run.taskRevision.revisionId);
-        const task=parseTaskContent(revision?.content);
-        return {allowed:true,unsupported:!task.ok || task.value.kind!=="coding" || !!task.value.materialRepositories?.length};
-      }
+      const revision=await r.definitions.getRevision(run.taskRevision.definitionId,run.taskRevision.revisionId);
+      const task=parseTaskContent(revision?.content);
+      if (!task.ok) return {unsupported:true};
+      const working=task.value.kind==="working";
+      if (!run.environment) return {noEnvironment:true};
+      if (run.workerMode !== "managed") return {allowed:true,working};
       const [intent] = await r.intents.listForSubject("managed-worker", "task_run", runId);
       const job = intent?.payload as ManagedTask | undefined;
       const parent = run.refines ? await r.taskRuns.get(run.refines) : undefined;
       const useTaskBaseline = !run.refines || job?.freshAfterFailure || (parent?.workerMode === "external" &&
         (parent.status === "failed" || parent.status === "cancelled") && !parent.manifest);
-      return {allowed: job?.repositoryPath === repository, baseline: job?.baseline, parentCandidate:job?.parentCandidate, useTaskBaseline};
+      return {working,allowed: job?.repositoryPath === repository, baseline: job?.baseline, parentCandidate:job?.parentCandidate, useTaskBaseline};
     });
     if (authorized.missing) return fail("not-found","task run does not exist");
+    if (authorized.noEnvironment) return fail("invalid","the run has no resolved environment");
     if (authorized.unsupported) return fail("unsupported","this container setup requires a coding workspace without extra material mounts");
     if (!authorized.allowed) return fail("forbidden", "this repository was not selected for the managed worker");
     const inherited = await this.transferred(runId, true);
@@ -79,7 +81,7 @@ export class SandboxProvisioning {
         if (!replay.ok) return replay;
       }
     } else {
-      const base = authorized.baseline && authorized.useTaskBaseline ? await this.deps.delivery.freshManagedBase(repository, authorized.baseline, authorized.parentCandidate) : await this.deps.delivery.workspaceBase({ runId, repositoryPath: repository });
+      const base = authorized.working ? succeed({commit:null}) : authorized.baseline && authorized.useTaskBaseline ? await this.deps.delivery.freshManagedBase(repository, authorized.baseline, authorized.parentCandidate) : await this.deps.delivery.workspaceBase({ runId, repositoryPath: repository });
       if (!base.ok) return base;
       if (authorized.baseline && base.value.commit !== authorized.baseline) return fail("conflict", "the recovered delivery differs from the admitted baseline");
       const reservation = await once<Reserved>(this.deps, { kind, input, requestId, subject: {type:"task_run", id:runId} }, async r => {
@@ -107,16 +109,18 @@ export class SandboxProvisioning {
     const known = await this.deps.units.run("read", async r => {
       const run = await r.taskRuns.get(runId);
       const revision = run?.environment?.revision;
-      return { run, env: revision && await r.definitions.getRevision(revision.definitionId, revision.revisionId), sandbox: await r.sandboxes.get(reserved.sandboxId) };
+      const taskRevision = run && await r.definitions.getRevision(run.taskRevision.definitionId,run.taskRevision.revisionId);
+      return { run, task:parseTaskContent(taskRevision?.content), env: revision && await r.definitions.getRevision(revision.definitionId, revision.revisionId), sandbox: await r.sandboxes.get(reserved.sandboxId) };
     });
     if (!known.env || !known.sandbox || !known.run) return fail("conflict", "reserved sandbox or environment is missing");
     if (known.sandbox.location?.daemonId !== location.daemonId || known.sandbox.location.hostId !== location.hostId) return fail("conflict", "sandbox belongs to a different host or Docker daemon");
     if (known.sandbox.phase !== "preparing") return this.recovery.inspectPreparation(runId);
     if (known.run.cancelIntent || !["pending","running"].includes(known.run.status)) return fail("conflict", "run is no longer active");
+    if (!known.task.ok) return fail("invalid","frozen workspace contract is unavailable");
     const content = known.env.content as EnvironmentContent;
     if (content.format !== "grounds.devcontainer/v1") return fail("unsupported", "unsupported environment revision");
     let workspace;
-    try { workspace = await this.deps.workspaces.prepare(owner, repository, reserved.commit, content); }
+    try { workspace = await this.deps.workspaces.prepare(owner, repository, reserved.commit, content,false,known.task.value.materialRepositories); }
     catch { return this.recovery.failedPreparation(reserved, "the frozen sandbox workspace could not be prepared",undefined,false); }
     const winner = await this.deps.units.run("write", async r => {
       const current = await r.taskRuns.get(runId, {lock:true});

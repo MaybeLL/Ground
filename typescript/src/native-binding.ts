@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 interface NativeBinding {
+  openChild(parent:number,name:string,directory:boolean):number;
   tryLock(fd: number, shared: boolean): void;
   hostProcessIdentity(pid: number): string | undefined;
   signalHostProcessLeader(pid: number, identity: string, signal: number): boolean;
@@ -18,7 +19,7 @@ export function nativeBinding(): NativeBinding {
   const path = join(root, "prebuilds", `${process.platform}-${process.arch}`, "peercred.node");
   if (!existsSync(path)) throw new Error(`Grounds native support is unavailable for ${process.platform}-${process.arch}; retaining resources`);
   const loaded = createRequire(import.meta.url)(path) as NativeBinding;
-  for (const key of ["tryLock", "hostProcesses", "hostProcessIdentity", "signalHostProcessLeader", "signalHostProcess"] as const) {
+  for (const key of ["openChild","tryLock", "hostProcesses", "hostProcessIdentity", "signalHostProcessLeader", "signalHostProcess"] as const) {
     if (typeof loaded[key] !== "function") throw new Error(`Grounds native support lacks ${key}; retaining resources`);
   }
   return binding = loaded;

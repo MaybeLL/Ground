@@ -1,3 +1,5 @@
+import {parseManagedDeclaration} from "../domain/managed-delivery.js";
+import type {CapturedArtifacts} from "../ports/index.js";
 import { isTerminal } from "../domain/index.js";
 import type { ManagedProcessPort, ProcessPlan, WorkerTarget } from "../ports/index.js";
 import { fail, succeed, type Outcome } from "../application/outcome.js";
@@ -11,9 +13,11 @@ export type DriveState = "running" | "blocked" | "awaiting-resume" | "terminal";
 type Deps = {repairs: ArchiveRepairs; workers:ManagedWorkers;sandboxes:SandboxProvisioning;lifecycle:SandboxLifecycle;process:ManagedProcessPort;ledgerId():Promise<string>};
 
 function taskPrompt(context:ManagedContext):string {
-  return JSON.stringify({task:context.task.summary,criteria:context.task.criteria,...(context.run.refines ? {refinement:{parentRunId:context.run.refines,baseCommit:context.job.baseline,workspace:context.run.environment?.source==="inherited"?"retained":"fresh"}} : {}),context:context.task.context??"",outputContract:{
-    type:"coding",instructions:"Implement the task in the current Git checkout. Commit the delivery locally. Return a final JSON object with candidate.commit equal to its full Git commit ID.",
-    example:{candidate:{commit:"<full commit ID>"}},
+  return JSON.stringify({task:context.task.summary,criteria:context.task.criteria,...(context.task.materialRepositories?.length ? {materials:context.task.materialRepositories.map(({name,commit})=>({name,commit,path:"/grounds-materials/"+name}))} : {}),...(context.run.refines ? {refinement:{parentRunId:context.run.refines,baseCommit:context.job.baseline,workspace:context.run.environment?.source==="inherited"?"retained":"fresh"}} : {}),context:context.task.context??"",outputContract:{
+    ...(context.task.outputs?.length ? {slots:context.task.outputs,artifacts:"Return artifacts as an array of {slot,files:[{path,source}]}. Source files must be regular files relative to this workspace; path is the name inside the archived artifact."} : {}),
+    ...(context.task.kind==="working" ? {type:"working",instructions:"Write files in the current output directory. Declare the artifact slots and relative files in a final JSON object. Read selected material repositories under /grounds-materials."} :
+      {type:"coding",instructions:"Implement the task in the current Git checkout. Commit the delivery locally. Return a final JSON object with candidate.commit equal to its full Git commit ID.",example:{candidate:{commit:"<full commit ID>"}}}),
+
   }});
 }
 function declaredCommit(text:string) {
@@ -92,8 +96,9 @@ export class ManagedTaskDriver {
     if(observed.state!=="complete")return fail("unavailable","provider execution has no observable result");
     const captured=await this.deps.process.output(plan);
     try {
-      const commit=declaredCommit(captured.message);
-      let rejected = false;
+      const declaration=parseManagedDeclaration(captured.message,ctx.task.kind,ctx.task.outputs ?? []);
+      const commit=declaration?.commit ?? (!ctx.task.outputs?.length && ctx.task.kind==="coding" ? declaredCommit(captured.message) : undefined);
+      let rejected = !!ctx.task.outputs?.length && !declaration;
       const outcome = observed.exitCode === 0 && !captured.providerFailed ? "succeeded" : "failed";
       if (commit) {
         if (!ctx.baseline) return fail("conflict", "managed workspace baseline is missing");
@@ -110,8 +115,19 @@ export class ManagedTaskDriver {
         rejected = exported === "invalid";
       }
       await this.deps.process.stop(plan, false);
-      const frozen = await this.deps.workers.freezeOutput(runId, handle, captured.trace, captured.output, captured.stderr, outcome, commit, rejected);
-      if (!frozen.ok) return frozen;
+      let artifacts:CapturedArtifacts|undefined;
+      try {
+        if (!rejected && outcome==="succeeded" && declaration?.artifacts.length) {
+          try {artifacts=await this.deps.process.artifacts(plan,declaration.artifacts);}
+          catch (error) {
+            const code=(error as NodeJS.ErrnoException).code;
+            if (!["ENOENT","ENOTDIR","ELOOP","EINVAL","VALIDATION_ERROR","EACCES"].includes(code ?? "")) throw error;
+            rejected=true;
+          }
+        }
+        const frozen = await this.deps.workers.freezeOutput(runId, handle, captured.trace, captured.output, captured.stderr, outcome, commit, rejected,artifacts?.entries);
+        if (!frozen.ok) return frozen;
+      } finally {await artifacts?.dispose();}
       return this.drive(runId, allowStart);
     } finally {await captured.trace.dispose();}
   }
@@ -121,7 +137,7 @@ export class ManagedTaskDriver {
     let candidate: {id:string;receipt:string} | undefined;
     let rejected = ctx.job.rejected === true;
     if (commit && !rejected) {
-      if (!ctx.baseline) return fail("conflict", "managed baseline is missing");
+      if (!ctx.baseline || !ctx.job.remote) return fail("conflict", "managed baseline or remote is missing");
       let published;
       try {
         const parent = ctx.job.parentCandidate;

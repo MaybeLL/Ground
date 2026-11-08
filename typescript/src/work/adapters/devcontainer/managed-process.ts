@@ -9,6 +9,8 @@ import { GitTagArchive } from "../git/tag-archive.js";
 import { archiveCandidateBundle } from "../git/managed-candidate.js";
 import { commandLineProviders } from "../providers/command-line.js";
 import { ProviderTraceCapture } from "../providers/trace-capture.js";
+import {captureWorkspaceFile} from "../file-spool.js";
+import type {ArtifactDeclaration} from "../../domain/managed-delivery.js";
 import { EngineProcess } from "./engine-process.js";
 import { bridgeStarting, bridgeResult, spawnProviderBridge, type BridgeResult } from "./provider-runner.js";
 import { ManagedWorkspaces } from "./workspace.js";
@@ -140,6 +142,25 @@ export class ContainerAgentProcess implements ManagedProcessPort {
     const archived=await archiveCandidateBundle(this.archive,{repository:plan.job.repositoryPath,remote,baseline,commit,bundle,id,allowPublish,parentReceipt:plan.job.parentReceipt});
     return archived.status==="confirmed" ? {status:"confirmed" as const,id,receipt:archived.receipt} :
       {status:archived.status==="unavailable"?"unavailable" as const:"invalid" as const,reason:archived.reason};
+  }
+
+  async artifacts(plan:ProcessPlan,declared:readonly ArtifactDeclaration[]) {
+    const root=join(this.workspaces.root(plan.target.owner),"prepared","workspace");
+    const cleanups:(()=>Promise<void>)[]=[];
+    const dispose=async()=>{await Promise.all(cleanups.map(clean=>clean()));};
+    try {
+      const entries=[];
+      for (const item of declared) {
+        const files=[];
+        for (const file of item.files) {
+          const captured=await captureWorkspaceFile(root,file.source);
+          cleanups.push(captured.dispose);
+          files.push({path:file.path,source:captured.source});
+        }
+        entries.push({slot:item.slot,files});
+      }
+      return {entries,dispose};
+    } catch (error) {await dispose();throw error;}
   }
 
   async quiescent(plan: ProcessPlan) {

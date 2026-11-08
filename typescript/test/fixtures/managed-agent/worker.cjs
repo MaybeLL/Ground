@@ -43,8 +43,21 @@ writeFileSync("result.txt", content + "\n");
 if (handoff) writeFileSync("scratch-note", "inherited uncommitted note");
 const git = (...args) => execFileSync("git",args,{encoding:"utf8"}).trim();
 if (handoff && task.refinement && git("rev-parse", "HEAD") !== task.refinement.baseCommit) process.exit(6);
-git("add","result.txt"); git("commit","-qm","Deliver fixture");
-const message=JSON.stringify({candidate:{commit:git("rev-parse","HEAD")}});
+const working=task.outputContract.type==="working";
+const result={};
+if (working) {
+  if (existsSync(".git")) process.exit(7);
+  try {writeFileSync("/grounds-materials/input/app.txt","corrupt");process.exit(8);} catch(error) {if (error.code!=="EROFS") throw error;}
+} else {
+  git("add","result.txt"); git("commit","-qm","Deliver fixture");
+  result.candidate={commit:git("rev-parse","HEAD")};
+}
+if (task.outputContract.slots?.some(slot=>slot.key==="report")) {
+  if (task.task==="invalid output path") require("node:fs").symlinkSync("/etc/passwd","worker-report.txt");
+  else writeFileSync("worker-report.txt",working ? readFileSync("/grounds-materials/input/app.txt") : "uncommitted report\n");
+  result.artifacts=[{slot:"report",files:[{path:"report.txt",source:"worker-report.txt"}]}];
+}
+const message=JSON.stringify(result);
 const emit = event => process.stdout.write(JSON.stringify(event)+"\n");
 if (process.argv[1].endsWith("claude")) {
   emit({type:"system",subtype:"init",session_id:"fixture-session"});

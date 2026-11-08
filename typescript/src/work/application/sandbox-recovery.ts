@@ -4,7 +4,7 @@ import { fail, fromRejection, succeed, type Outcome } from "./outcome.js";
 import type { RequestContext } from "./requests.js";
 import type { SandboxLifecycle } from "./sandbox-lifecycle.js";
 
-export type Reserved = { runId: string; sandboxId: string; environmentRevisionId: string; commit: string };
+export type Reserved = { runId: string; sandboxId: string; environmentRevisionId: string; commit: string|null };
 export type Prepared = Reserved & { phase: "ready"; instanceId: string };
 export type RecoveryDeps = RequestContext & { runtime: SandboxRuntimePort; launcher: SandboxLauncher; workspaces: ManagedWorkspacePort; lifecycle: SandboxLifecycle; ledgerId(): Promise<string> };
 
