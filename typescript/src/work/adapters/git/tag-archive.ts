@@ -57,6 +57,10 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
   constructor(private readonly options: { timeoutMs?: number } = {}) {}
 
   private git(cwd: string | undefined, args: string[]): Promise<string> {
+    return run("git", args, { ...(cwd ? { cwd } : {}), timeout: this.options.timeoutMs ?? 60_000, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" } }).then(r => r.stdout);
+  }
+
+  private inspectGit(cwd: string | undefined, args: string[]): Promise<string> {
     const env = { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_NO_REPLACE_OBJECTS: "1", LC_ALL: "C" } as NodeJS.ProcessEnv;
     for (const key of ["GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_SHALLOW_FILE", "GIT_QUARANTINE_PATH"]) delete env[key];
     return run("git", ["-c", "core.hooksPath=/dev/null", "-c", "protocol.ext.allow=never", ...args], {
@@ -64,9 +68,10 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
     }).then(r => r.stdout);
   }
 
-  private async observe(remote: string, ref: string, cwd?: string): Promise<Observed> {
+  private async observe(remote: string, ref: string, cwd?: string, inspecting = false): Promise<Observed> {
     try {
-      const out = (await this.git(cwd, ["ls-remote", "--refs", "--", remote, ref])).trim();
+      const args = ["ls-remote", "--refs", "--", remote, ref];
+      const out = (await (inspecting ? this.inspectGit(cwd, args) : this.git(cwd, args))).trim();
       if (out === "") return { state: "absent" };
       const [commit, name] = out.split(/\s+/);
       return name === ref && OID.test(commit ?? "") ? { state: "present", commit: commit! } : { state: "unreachable", reason: "the remote answered with something unexpected" };
@@ -79,11 +84,11 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
 
   private async matchesRecordedObject(repositoryPath: string, receipt: GitDeliveryReceipt): Promise<boolean> {
     try {
-      const body = await this.git(repositoryPath, ["--no-replace-objects", "cat-file", "commit", receipt.commit]);
+      const body = await this.inspectGit(repositoryPath, ["--no-replace-objects", "cat-file", "commit", receipt.commit]);
       const headers = body.split("\n\n", 1)[0]!.split("\n");
       const parents = headers.filter(line => line.startsWith("parent ")).map(line => line.slice(7));
       if (!headers.includes(`tree ${receipt.tree}`) || parents.join(" ") !== receipt.parents.join(" ")) return false;
-      await this.git(repositoryPath, ["--no-replace-objects", "rev-list", "--quiet", "--objects", "--missing=error", "--max-count=1", receipt.commit, "--"]);
+      await this.inspectGit(repositoryPath, ["--no-replace-objects", "rev-list", "--quiet", "--objects", "--missing=error", "--max-count=1", receipt.commit, "--"]);
       return true;
     } catch { return false; }
   }
@@ -92,7 +97,7 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
     const receipt = decodeReceipt(item.receipt);
     if (!receipt || deliveryIdOf(receipt) !== item.id) return { id: item.id, status: "unavailable", tag: "unknown", protection: { level: "unknown" } };
     const recorded = { id: item.id, recordedCommit: receipt.commit, protection: receipt.protection ?? { level: "unknown" as const } };
-    const seen = await this.observe(receipt.remote, receipt.ref, repositoryPath);
+    const seen = await this.observe(receipt.remote, receipt.ref, repositoryPath, true);
     if (seen.state === "unreachable") return { ...recorded, status: null, tag: "unknown" };
     if (seen.state === "present" && seen.commit === receipt.commit) {
       return { ...recorded, status: "intact", tag: "unchanged", remoteCommit: seen.commit };
@@ -105,10 +110,10 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
     let scratch: string | undefined;
     try {
       scratch = await mkdtemp(join(tmpdir(), "grounds-archive-check-"));
-      const url = (await this.git(repositoryPath, ["ls-remote", "--get-url", "--", receipt.remote])).trim();
+      const url = (await this.inspectGit(repositoryPath, ["ls-remote", "--get-url", "--", receipt.remote])).trim();
       const remote = isAbsolute(url) || /^[a-z][a-z0-9+.-]*:|^[^/]+:/i.test(url) ? url : resolve(repositoryPath, url);
-      await this.git(scratch, ["init", "--bare", "--quiet", "--template=", `--object-format=${receipt.commit.length === 64 ? "sha256" : "sha1"}`]);
-      try { await this.git(scratch, ["fetch", "--quiet", "--no-tags", "--depth=1", "--", remote, receipt.commit]); }
+      await this.inspectGit(scratch, ["init", "--bare", "--quiet", "--template=", `--object-format=${receipt.commit.length === 64 ? "sha256" : "sha1"}`]);
+      try { await this.inspectGit(scratch, ["fetch", "--quiet", "--no-tags", "--depth=1", "--", remote, receipt.commit]); }
       catch (error) {
         const message = (error as { stderr?: string }).stderr ?? "";
         const absent = /not our ref|couldn't find remote ref|unadvertised object|not a valid object/.test(message);
