@@ -101,10 +101,22 @@ for (const backend of backends) {
     });
     const ask=(requestId:string)=>app.grading.requestGate({requestId,taskRunId:runId,materials:reversed});
     assert.deepEqual(value(await ask("other")),original);
-    value(await app.grading.cancel({requestId:"end",gradingId:original.gradingId}));
+    const submit=async(gradingId:string,verdict:Grade)=>{
+      const {sessionId}=value(await app.grading.registerExternalEvaluator({requestId:"register-"+gradingId,gradingId,agent:{id:"judge"}}));
+      const args={gradingId,sessionId};
+      value(await app.grading.recordStage({...args,requestId:"blind-"+gradingId,stage:"blind"}));
+      value(await app.grading.recordStage({...args,requestId:"freeze-"+gradingId,stage:"freeze",blindDigest:d("f")}));
+      return value(await app.grading.submitGrade({...args,requestId:"grade-"+gradingId,grade:verdict}));
+    };
+    await submit(original.gradingId,grade("satisfied"));
+    const abandoned=value(await ask("abandoned"));
+    value(await app.grading.cancel({requestId:"end",gradingId:abandoned.gradingId}));
     const fresh=value(await ask("retry"));
     assert.notEqual(fresh.gradingId,original.gradingId);
-    assert.equal(value(await app.grading.getGrading(fresh.gradingId)).binding?.materialsDigest,legacy.value);
+    assert.equal(value(await app.grading.getGrading(fresh.gradingId)).binding?.materialsDigest,current.value);
+    const verdict=grade("satisfied");
+    assert.ok(verdict.form==="criteria");
+    assert.equal((await submit(fresh.gradingId,{...verdict,items:verdict.items.map(item=>({...item,reusedFrom:original.gradingId}))})).status,"completed");
   });
 
   scenario("only a delivered run can be accepted", async app => {

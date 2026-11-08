@@ -192,7 +192,7 @@ test("a verdict may be taken over only from a completed gate with the identical 
   rejected(submitGrade(g, { grade: taking("c2"), at: at() }, { priorGates: [first] }), "conflict", /was not satisfied/);
   rejected(submitGrade(g, { grade: taking("c1", "gate-unknown"), at: at() }, { priorGates: [first] }), "conflict", /binding differs/);
   const other = completedGate({ c1: "satisfied", c2: "satisfied" }, { id: "gate-other", seq: 3, binding: binding({ materialsDigest: d("b") }) });
-  rejected(submitGrade(g, { grade: taking("c1", "gate-other"), at: at() }, { priorGates: [other] }), "conflict", /binding differs/);
+  rejected(submitGrade(g, { grade: taking("c1", "gate-other"), at: at() }, { priorGates: [{...other,materials:[{id:"m1",digest:d("b")}]}] }), "conflict", /binding differs/);
   assert.ok(sameBinding(binding(), binding({ expectedCriteria: ["c2", "c1"] })), "the order of criteria does not matter");
   assert.ok(!sameBinding(binding(), binding({ manifestDigest: d("c") })));
 });

@@ -3,7 +3,7 @@
 // graders arrive with phase P4; measures with phase P3.
 import {
   createGrading, criteriaDigest, declareExternalEvaluatorStop, digestOf, isId, materialsDigest, parseTaskContent, recordEvaluatorCommand, recordEvaluatorStage, registerExternalEvaluator,
-  requestGradingCancel, sameBinding, submitGrade, type CommandObservation, type Digest, type GradingRecord, type Grade, type Hasher, type Id, type JsonValue, type ProtocolStage, type TargetRef, type TaskRun, type TraceBlob,
+  requestGradingCancel, sameFrozenGate, submitGrade, type CommandObservation, type Digest, type GradingRecord, type Grade, type Hasher, type Id, type JsonValue, type ProtocolStage, type TargetRef, type TaskRun, type TraceBlob,
 } from "../domain/index.js";
 import type { Clock, IdSource, WorkRepositories, WorkUnitOfWork } from "../ports/index.js";
 import { GRADING_REQUEST_COUNTER, StorageFailure } from "../ports/index.js";
@@ -110,18 +110,9 @@ export class Grading {
       if (!grader.ok) return grader;
       const binding = { taskRevision: run.taskRevision, criteriaDigest: criteria.value, manifestDigest: run.manifest.digest, graderRevision: grader.value, materialsDigest: materialsFingerprint.value, ...(evidence.size ? {archivedEvidenceDigest:fingerprint.value} : {}), expectedCriteria: task.value.criteria.map(c => c.id) };
       const summary = {taskRunId:run.id, criteria:task.value.criteria.map(c=>({id:c.id,statement:c.statement}))};
-      // Older ledgers hashed material IDs in locale order. Compare their
-      // recorded material identities and preserve the original binding for regrades.
-      const matching = (await r.gradings.listForTaskRun(run.id)).reverse().filter(g=>{
-        if (g.purpose!=="gate" || !g.binding) return false;
-        if (sameBinding(g.binding,binding)) return true;
-        if (!sameBinding(g.binding,{...binding,materialsDigest:g.binding.materialsDigest})) return false;
-        const canonical=materialsDigest(g.materials,this.deps.hash);
-        return canonical.ok && canonical.value===binding.materialsDigest;
-      });
-      const existing = matching.find(g=>g.status==="running");
+      const existing = (await r.gradings.listForTaskRun(run.id)).reverse().find(g=>
+        g.purpose==="gate" && g.status==="running" && sameFrozenGate(g,{binding,materials}));
       if (existing) return succeed({...summary,gradingId:existing.id,requestSeq:existing.requestSeq});
-      if (matching[0]?.binding) binding.materialsDigest=matching[0].binding.materialsDigest;
       const requestSeq = await r.sequences.next(GRADING_REQUEST_COUNTER);
       const gradingId = this.deps.ids.next();
       const created = createGrading({

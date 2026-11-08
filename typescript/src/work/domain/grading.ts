@@ -23,6 +23,16 @@ export interface GateBinding {
 }
 export const sameBinding = (a: GateBinding, b: GateBinding): boolean => a.taskRevision.revisionId === b.taskRevision.revisionId && a.criteriaDigest === b.criteriaDigest && a.manifestDigest === b.manifestDigest
   && a.graderRevision.revisionId === b.graderRevision.revisionId && a.materialsDigest === b.materialsDigest && a.archivedEvidenceDigest===b.archivedEvidenceDigest && a.expectedCriteria.length === b.expectedCriteria.length && a.expectedCriteria.every(id => b.expectedCriteria.includes(id));
+/** Earlier releases sorted material IDs in host locale order. When the
+ * stored digests differ, compare the complete frozen ID/digest sets. */
+export function sameFrozenGate(a: Pick<GradingRecord,"binding"|"materials">, b: Pick<GradingRecord,"binding"|"materials">): boolean {
+  if (!a.binding || !b.binding) return false;
+  if (sameBinding(a.binding,b.binding)) return true;
+  if (!sameBinding(a.binding,{...b.binding,materialsDigest:a.binding.materialsDigest}) || a.materials.length!==b.materials.length) return false;
+  const byId=new Map(a.materials.map(m=>[m.id,m.digest]));
+  if (byId.size!==a.materials.length) return false;
+  return b.materials.every(m=>byId.get(m.id)===m.digest && byId.delete(m.id));
+}
 /** What a verdict is about, ignoring who judged and with which materials: the unit an acceptance conclusion is read over. */
 const sameSubject = (a: GateBinding, b: GateBinding): boolean => a.taskRevision.revisionId === b.taskRevision.revisionId && a.criteriaDigest === b.criteriaDigest && a.manifestDigest === b.manifestDigest;
 
@@ -345,12 +355,12 @@ export function validateGrade(grade: Grade, scale: Scale, binding?: GateBinding)
 }
 
 /** Verify that every taken-over verdict comes from a completed gate with the identical binding that found it satisfied. */
-function reuseIsSound(grade: Grade, binding: GateBinding | undefined, prior: readonly GradingRecord[]): Result<void> {
-  if (grade.form !== "criteria" || !binding) return ok(undefined);
+function reuseIsSound(grade: Grade, grading: GradingRecord, prior: readonly GradingRecord[]): Result<void> {
+  if (grade.form !== "criteria" || !grading.binding) return ok(undefined);
   for (const item of grade.items) {
     if (item.reusedFrom === undefined) continue;
     const source = prior.find(r => r.id === item.reusedFrom);
-    if (!source || source.purpose !== "gate" || source.status !== "completed" || !source.binding || !sameBinding(source.binding, binding)) return conflict(`criterion ${item.criterionId} cannot be taken over: the earlier record's binding differs`);
+    if (!source || source.purpose !== "gate" || source.status !== "completed" || !sameFrozenGate(source, grading)) return conflict(`criterion ${item.criterionId} cannot be taken over: the earlier record's binding differs`);
     const earlier = source.grade?.form === "criteria" ? source.grade.items.find(i => i.criterionId === item.criterionId) : undefined;
     if (!earlier || earlier.final !== "satisfied") return conflict(`criterion ${item.criterionId} was not satisfied in the earlier record`);
   }
@@ -374,7 +384,7 @@ export function submitGrade(g: GradingRecord, command: { grade: Grade; sessionId
   }
   const valid = validateGrade(command.grade, g.scale, g.binding);
   if (!valid.ok) return valid;
-  const sound = reuseIsSound(command.grade, g.binding, context.priorGates ?? []);
+  const sound = reuseIsSound(command.grade, g, context.priorGates ?? []);
   if (!sound.ok) return sound;
   if (g.strategy === "test") {
     if (g.commandSteps.length === 0) return conflict("a test grader runs at least one command");
