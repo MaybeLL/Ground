@@ -1261,6 +1261,7 @@ test("an existing external worktree with no SQL binding recovers its original ba
     const {runId}=ok(await h.cli("work","start","--task",task.taskId,"--mode","external"));
     const args=["work","workspace","--run",runId,"--repo",h.repo];
     const opened=ok(await h.cli(...args));
+    rmSync(join(dirname(opened.path),"preparation.json")); // This workspace predates durable preparation receipts.
     writeFileSync(join(opened.path,"mine"),"keep this work");
     git(opened.path,"add","mine");git(opened.path,"commit","-qm","local changes");
     git(h.repo,"commit","--allow-empty","-qm","advance task baseline");
@@ -2396,6 +2397,23 @@ test("work workspace recovers a reserved directory and branch and refuses an unr
     writeFileSync(join(dest,"app.txt"),"local change");
     assert.equal(ok(await workspace()).created,false);
     assert.equal(readFileSync(join(dest,"app.txt"),"utf8"),"local change");
+  });
+});
+
+test("published worktrees survive reflog expiry but reject the Git pointer of another task",async()=>{
+  await withHarness(async h=>{
+    const task=ok(await h.cli("task","create","--title","shared clone","--criterion","separate indexes","--repo-remote",h.remote,"--baseline","main"));
+    const start=async()=>ok(await h.cli("work","start","--mode","none","--task",task.taskId)).runId;
+    const workspace=(id:string)=>h.cli("work","workspace","--run",id,"--repo",h.repo);
+    const a=await start(),b=await start(),left=ok(await workspace(a)),right=ok(await workspace(b));
+    writeFileSync(join(left.path,"app.txt"),"user edits");
+    git(h.repo,"commit","--allow-empty","-qm","advance main");
+    git(h.repo,"reflog","expire","--expire=now","--all");
+    assert.equal(ok(await workspace(a)).base.commit,h.baseline);
+    writeFileSync(join(left.path,".git"),readFileSync(join(right.path,".git")));
+    assert.equal((await workspace(a)).error.code,"STATE_CONFLICT");
+    assert.equal(readFileSync(join(left.path,"app.txt"),"utf8"),"user edits");
+    assert.equal(git(right.path,"status","--porcelain"),"");
   });
 });
 

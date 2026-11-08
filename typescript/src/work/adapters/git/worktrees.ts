@@ -1,20 +1,40 @@
 import { execFile,spawn } from "node:child_process";
 import { constants,existsSync, mkdirSync,realpathSync } from "node:fs";
-import {open,readdir,lstat,rm,rmdir} from "node:fs/promises";
+import {open,readdir,lstat,rmdir} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
-import {atomicPrivateWrite,privateDirectory,safeRead,withRuntimeLock} from "../../../runtime-files.js";
-import {basename,dirname,join} from "node:path";
+import {atomicPrivateWrite,privateDirectory,safeRead,safeReadOpened,withRuntimeLock} from "../../../runtime-files.js";
+import {basename,dirname,join,resolve} from "node:path";
 import { promisify } from "node:util";
 import { dataLayout,repositoryDataRoot,verifiedDataPath } from "../../../data-layout.js";
 import {WorktreeConflict,type WorktreePort} from "../../ports/index.js";
 
 const run = promisify(execFile);
 
+async function pointerText(path:string) {
+  const file=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
+  try {return safeReadOpened(file.fd,8192).toString().trimEnd();}
+  finally {await file.close();}
+}
+
 /** One git worktree per run, under the repository's own data directory, on a branch named for the run. */
 export class GitWorktrees implements WorktreePort {
   async repositoryIdentity(repositoryPath:string) {
     const {stdout}=await run("git",["-C",repositoryPath,"rev-parse","--path-format=absolute","--git-common-dir"]);
     return realpathSync(stdout.trim());
+  }
+
+  private async linkedIdentity(repository:string,dir:string,registeredPath:string,branch:string) {
+    const common=await this.repositoryIdentity(repository);
+    const file=join(dir,".git");
+    const pointer=/^gitdir: (.+)\n?$/.exec(await pointerText(file));
+    if (!pointer) throw new WorktreeConflict("invalid task worktree pointer");
+    const admin=realpathSync(resolve(dir,pointer[1]!));
+    if (dirname(admin)!==join(common,"worktrees")) throw new WorktreeConflict("worktree Git directory belongs to another repository");
+    const backlink=resolve(admin,await pointerText(join(admin,"gitdir")));
+    const actual=(await run("git",["-C",dir,"rev-parse","--absolute-git-dir"])).stdout.trimEnd();
+    const head=(await run("git",["-C",dir,"symbolic-ref","--quiet","HEAD"])).stdout.trimEnd();
+    if (realpathSync(actual)!==admin || backlink!==join(registeredPath,".git") ||
+        head!=="refs/heads/"+branch || await this.repositoryIdentity(dir)!==common) throw new WorktreeConflict("worktree registration and actual Git directory disagree");
   }
 
   /** Only adopt an existing unbound worktree if Git still records its original base. */
@@ -32,8 +52,13 @@ export class GitWorktrees implements WorktreePort {
     const receipt=join(dirname(path),"preparation.json");
     if (existsSync(receipt)) {
       const preparing=JSON.parse(safeRead(verifiedDataPath(receipt),2048).toString());
-      if (preparing.ready===false && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(preparing.commit) &&
-          /^prepare-[a-f0-9-]{36}$/.test(preparing.stage)) return preparing.commit as string;
+      if (typeof preparing.ready!=="boolean" || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(preparing.commit) ||
+          !/^prepare-[a-f0-9-]{36}$/.test(preparing.stage)) throw new WorktreeConflict("invalid worktree preparation record");
+      if (preparing.ready) {
+        const final=verifiedDataPath(path);
+        await this.linkedIdentity(input.repositoryPath,final,final,"grounds/work/"+input.runId);
+      }
+      return preparing.commit as string;
     }
     const first=async(cwd:string,ref:string)=>{
       const {stdout}=await run("git",["-C",cwd,"rev-parse","--path-format=absolute","--git-path","logs/"+ref]);
@@ -75,8 +100,9 @@ export class GitWorktrees implements WorktreePort {
       const final=join(actualParent,"worktree"),receipt=join(actualParent,"preparation.json");
       const git=async(cwd:string,args:string[])=>(await run("git",args,{cwd,maxBuffer:8*1024*1024})).stdout.trimEnd();
       // The Git child keeps the lock if its CLI parent dies while checking out.
-      const mutate=(args:string[])=>new Promise<void>((ok,no)=>{
-        const child=spawn("git",args,{cwd:input.repositoryPath,stdio:["ignore","ignore","pipe",fd]});
+      const mutate=(args:string[],inputBytes?:Buffer)=>new Promise<void>((ok,no)=>{
+        const child=spawn("git",args,{cwd:input.repositoryPath,stdio:[inputBytes ? "pipe" : "ignore","ignore","pipe",fd]});
+        if (inputBytes) {child.stdin!.on("error",no);child.stdin!.end(inputBytes);}
         let diagnostic="";
         child.stderr!.on("data",chunk=>{if(diagnostic.length<8192) diagnostic+=chunk.toString();});
         child.once("error",no);child.once("close",code=>code===0 ? ok() : no(Error(diagnostic.trim() || "Git worktree operation failed")));
@@ -90,17 +116,14 @@ export class GitWorktrees implements WorktreePort {
         // Git may have renamed the directory before updating its private
         // worktree record. Repair only the registration of our journaled stage.
         verifiedDataPath(final,dataRoot);
-        const common=await this.repositoryIdentity(input.repositoryPath);
-        const admin=await git(final,["rev-parse","--absolute-git-dir"]);
-        if (dirname(admin)!==join(common,"worktrees") || realpathSync(admin)!==admin ||
-            safeRead(join(admin,"gitdir"),8192).toString().trimEnd()!==join(actualParent,saved.stage,".git") ||
-            await git(final,["symbolic-ref","HEAD"])!=="refs/heads/"+branch) throw new WorktreeConflict("cannot identify interrupted worktree move");
+        await this.linkedIdentity(input.repositoryPath,final,join(actualParent,saved.stage),branch);
         await mutate(["worktree","repair",final]);
         current=await registration(final);
       }
       if (current) {
         if (!existsSync(final) || verifiedDataPath(final,dataRoot)!==final || await git(final,["rev-parse","--show-toplevel"])!==final ||
             await this.repositoryIdentity(final)!==await this.repositoryIdentity(input.repositoryPath)) throw new WorktreeConflict("registered worktree path changed");
+        await this.linkedIdentity(input.repositoryPath,final,final,branch);
         if (!current.includes("branch refs/heads/"+branch)) throw new WorktreeConflict("registered worktree no longer uses its task branch");
         const index=await git(final,["rev-parse","--path-format=absolute","--git-path","index"]);
         if (!existsSync(index) || current.includes("locked initializing")) throw new WorktreeConflict("registered worktree checkout is incomplete");
@@ -123,23 +146,32 @@ export class GitWorktrees implements WorktreePort {
       if (tip && !saved && !partial && await this.existingBase(input)!==input.commit)
         throw new WorktreeConflict("cannot verify the origin of the existing task branch");
       if (!saved) atomicPrivateWrite(receipt,JSON.stringify(journal));
-      if (partial && !partial.includes("branch "+ref) && !partial.includes("locked initializing"))
-        throw new WorktreeConflict("the staging worktree belongs to another branch");
-      const completed=partial?.includes("branch "+ref) && !partial.includes("locked initializing") &&
-        existsSync(stage) && verifiedDataPath(stage,dataRoot)===stage &&
-        await git(stage,["rev-parse","HEAD"])===input.commit &&
-        existsSync(await git(stage,["rev-parse","--path-format=absolute","--git-path","index"]));
-      if (!completed) {
-        // Only a journaled, unpublished checkout may be discarded.
-        if (partial) await mutate(["worktree","remove","--force","--force",stage]);
-        else if (existsSync(stage)) {
-          verifiedDataPath(stage,dataRoot);
-          await rm(stage,{recursive:true,force:true});
+      if (partial) {
+        if (!partial.includes("branch "+ref) || !existsSync(join(stage,".git")))
+          throw new WorktreeConflict("the staging worktree cannot be identified as the task branch");
+        verifiedDataPath(stage,dataRoot);
+        await this.linkedIdentity(input.repositoryPath,stage,stage,branch);
+        const head=await git(stage,["rev-parse","HEAD"]);
+        if (head!==input.commit) throw new WorktreeConflict("the staging worktree has an unexpected HEAD");
+        const index=await git(stage,["rev-parse","--path-format=absolute","--git-path","index"]);
+        if (partial.includes("locked initializing") || !existsSync(index)) {
+          // Complete only missing checkout entries. Preserve existing files
+          // and reject a divergent index rather than replacing staged work.
+          if (!existsSync(index)) await mutate(["-C",stage,"read-tree",head]);
+          if (await git(stage,["write-tree"])!==await git(stage,["rev-parse","HEAD^{tree}"]))
+            throw new WorktreeConflict("the interrupted checkout contains staged changes");
+          const missing=await run("git",["-C",stage,"ls-files","--deleted","-z"],{encoding:"buffer",maxBuffer:64*1024*1024});
+          if (missing.stdout.length) await mutate(["-C",stage,"checkout-index","-z","--stdin"],missing.stdout);
+          if (partial.includes("locked initializing")) await mutate(["worktree","unlock",stage]);
         }
+      } else {
+        if (existsSync(stage) && (verifiedDataPath(stage,dataRoot)!==stage || !(await lstat(stage)).isDirectory() || (await readdir(stage)).length))
+          throw new WorktreeConflict("unregistered staging path contains existing files");
         await mutate(tip ? ["worktree","add",stage,branch] : ["-c","core.logAllRefUpdates=true","worktree","add","-b",branch,stage,input.commit]);
       }
       await mutate(["worktree","move",stage,final]);
       if (!(await registration(final))?.includes("branch "+ref) || await git(final,["rev-parse","HEAD"])!==input.commit) throw new WorktreeConflict("Git did not publish the expected worktree");
+      await this.linkedIdentity(input.repositoryPath,final,final,branch);
       atomicPrivateWrite(receipt,JSON.stringify({...journal,ready:true}));
       return {path:final,branch,created:true};
     },60000);

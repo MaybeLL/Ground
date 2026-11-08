@@ -786,3 +786,38 @@ test("managed candidate publication reads back a lost Git push without issuing a
     }
   });
 });
+
+test("checkout retry preserves foreign staging files and finishes its own partial Git index",async()=>{
+  const {GitWorktrees}=await import("../src/work/adapters/git/worktrees.js");
+  const {repositoryDataRoot}=await import("../src/data-layout.js");
+  const {readFileSync}=await import("node:fs");
+  await scenario(async({repo,root,baseline})=>{
+    const other=join(root,"foreign");
+    git(root,"clone","-q",repo,other);
+    const before=process.env.GROUNDS_DATA_HOME;
+    process.env.GROUNDS_DATA_HOME=root;
+    try {
+      for (const state of ["other-branch","other-repository","owned-no-index"]) {
+        const runId=newUUIDv7(),branch="grounds/work/"+runId,name="prepare-"+newUUIDv7();
+        const parent=join(repositoryDataRoot(repo),"work",runId),stage=join(parent,name);
+        mkdirSync(parent,{recursive:true});
+        writeFileSync(join(parent,"preparation.json"),JSON.stringify({commit:baseline,stage:name,ready:false}),{mode:0o600});
+        git(state==="other-repository" ? other : repo,"worktree","add","--no-checkout","-b",state==="other-branch" ? "unrelated" : branch,stage,baseline);
+        git(state==="other-repository" ? other : repo,"worktree","lock","--reason","initializing",stage);
+        writeFileSync(join(stage,"mine"),state);
+        const create=()=>new GitWorktrees().create({repositoryPath:repo,runId,commit:baseline});
+        if (state==="owned-no-index") {
+          const result=await create();
+          assert.equal(readFileSync(join(result.path,"a.txt"),"utf8"),"a\n");
+          assert.equal(readFileSync(join(result.path,"mine"),"utf8"),state);
+        } else {
+          await assert.rejects(create(),/staging worktree|staging path/);
+          assert.equal(readFileSync(join(stage,"mine"),"utf8"),state);
+          assert.equal(git(stage,"symbolic-ref","--short","HEAD"),state==="other-branch" ? "unrelated" : branch);
+        }
+      }
+    } finally {
+      if(before===undefined) delete process.env.GROUNDS_DATA_HOME;else process.env.GROUNDS_DATA_HOME=before;
+    }
+  });
+});
