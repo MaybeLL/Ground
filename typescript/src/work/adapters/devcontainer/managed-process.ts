@@ -12,7 +12,7 @@ import { ProviderTraceCapture } from "../providers/trace-capture.js";
 import {captureWorkspaceFile} from "../file-spool.js";
 import type {ArtifactDeclaration} from "../../domain/managed-delivery.js";
 import { EngineProcess } from "./engine-process.js";
-import { bridgeStarting, bridgeResult, spawnProviderBridge, type BridgeResult } from "./provider-runner.js";
+import { pendingBridge, bridgeResult, spawnProviderBridge, type BridgeResult } from "./provider-runner.js";
 import { ManagedWorkspaces } from "./workspace.js";
 import { DevcontainerRuntime } from "./runtime.js";
 import { Readable } from "node:stream";
@@ -72,7 +72,8 @@ export class ContainerAgentProcess implements ManagedProcessPort {
     const root=this.root(plan),result=bridgeResult(root);
     if(result) return this.confirmExit(plan, id, result);
     if(!existsSync(join(root,"start-attempt"))){
-      if(bridgeStarting(root))return {state:"running",detail:"provider bridge is starting"};
+      const pending=await pendingBridge(root,id);
+      if (pending) return {state:pending,detail:pending==="running" ? "provider bridge is starting" : "legacy provider dispatch was interrupted"};
       if(!allowStart)return {state:"awaiting-resume",detail:"provider has not started"};
       if (authorizeStart && !await authorizeStart()) return {state:"running",detail:"evaluator start authority changed"};
       await spawnProviderBridge(root,{target:plan.target,handle:id,prompt:plan.prompt});
@@ -145,7 +146,8 @@ export class ContainerAgentProcess implements ManagedProcessPort {
       if (result.handle !== handle) throw new Error("bundle result belongs to a different exec");
       return result.exitCode === 0 ? "ready" as const : "invalid" as const;
     }
-    if (bridgeStarting(root)) return "running" as const;
+    const pending=await pendingBridge(root,handle);
+    if (pending) return pending;
     if (existsSync(join(root, "start-attempt"))) return "interrupted" as const;
     if (!allowStart) return "awaiting-resume" as const;
     await spawnProviderBridge(root, {target: plan.target, handle, prompt: ""});

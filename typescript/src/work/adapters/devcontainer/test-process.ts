@@ -5,7 +5,7 @@ import {join} from "node:path";
 import {atomicPrivateWrite, privateDirectory, safeRead, withRuntimeLock} from "../../../runtime-files.js";
 import type {EvaluatorTarget, StepRead, TestProcessPort, TestStreams} from "../../ports/index.js";
 import {EngineProcess} from "./engine-process.js";
-import {bridgeResult, bridgeStarting, spawnProviderBridge} from "./provider-runner.js";
+import {bridgeResult, pendingBridge, spawnProviderBridge} from "./provider-runner.js";
 import type {DevcontainerRuntime} from "./runtime.js";
 import type {ManagedWorkspaces} from "./workspace.js";
 import type {EvaluatorWorkspaces} from "./evaluator-workspace.js";
@@ -58,7 +58,9 @@ export class ContainerTestProcess implements TestProcessPort {
       // status. Stop the whole owned container to account for descendants.
       return stop(result.exitCode);
     }
-    if (bridgeStarting(root)) return {state:"running"};
+    const pending=await pendingBridge(root,handle);
+    if (pending==="running") return {state:"running"};
+    if (pending==="interrupted") return stop();
     if (existsSync(join(root,"start-attempt"))) {
       try {
         return await withRuntimeLock<StepRead>(root,"bridge", async () => stop(bridgeResult(root)?.exitCode));
