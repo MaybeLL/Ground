@@ -429,6 +429,33 @@ test("grade input and domain share Unicode length limits for criterion IDs and r
   }
 });
 
+test("work reconcile finishes a stopped external submission after its receipt becomes reachable",async t=>{
+  await withHarness(async h=>{
+    const {GitTagArchive}=await import("../src/work/adapters/git/tag-archive.js");
+    const check=GitTagArchive.prototype.check;
+    const offline=h.remote+"-offline";
+    const task=ok(await h.cli("task","create","--title","Frozen proposal","--criterion","archived","--repo-remote",h.remote,"--baseline",h.baseline));
+    const {runId}=ok(await h.cli("work","start","--mode","external","--task",task.taskId));
+    const {sessionId}=ok(await h.cli("work","register","--run",runId,"--agent","writer"));
+    const requestId=newUUIDv7();
+    t.mock.method(GitTagArchive.prototype,"check",async function(this:InstanceType<typeof GitTagArchive>,...args:Parameters<typeof check>){
+      renameSync(h.remote,offline);
+      try {return await check.apply(this,args);} finally {renameSync(offline,h.remote);}
+    },{times:1});
+    const submitted=ok(await h.cli("work","deliver","--run",runId,"--session",sessionId,"--operation-id",requestId));
+    assert.equal(submitted.submitted.blocked,"receipt-unavailable");
+    const held=ok(await h.cli("work","run","--run",runId)).run;
+    assert.equal(held.worker.registration.stop.reason,"submitted");
+    assert.equal(held.pendingManifest.operationId,requestId);
+    const reconciled=ok(await h.cli("work","reconcile","--run",runId));
+    assert.equal(reconciled.submission.status,"delivered");
+    const final=ok(await h.cli("work","run","--run",runId)).run;
+    assert.equal(final.manifest.operationId,requestId);
+    assert.deepEqual(final.manifest.items.map((item:{id:string})=>item.id),[submitted.delivery.id]);
+    assert.equal(ok(await h.cli("work","reconcile","--run",runId)).submission,undefined);
+  });
+});
+
 test("work repair publishes a separate archive and exposes the original beside the active receipt", async () => {
   await withHarness(async h => {
     const task = ok(await h.cli("task", "create", "--title", "Archive fixture", "--criterion", "Preserve commit", "--repo-remote", h.remote, "--baseline", h.baseline));

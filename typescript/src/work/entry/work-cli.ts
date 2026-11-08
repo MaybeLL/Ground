@@ -231,7 +231,10 @@ async function work(args: ParsedArgs, action: string, app: WorkApplication, deps
     case "register": return unwrap(await app.exec.registerExternalWorker({ requestId: requestId(args), runId: need(args, "run"), agent: { id: need(args, "agent"), ...(text(args, "agent-name") ? { name: text(args, "agent-name")! } : {}), ...(text(args, "model") ? { model: text(args, "model")! } : {}) } }));
     case "transcript": return unwrap(await app.exec.importTranscript({ requestId: requestId(args), runId: need(args, "run"), sessionId: need(args, "session"), ref: need(args, "ref"), digest: need(args, "digest"), coverage: need(args, "coverage") as "full" | "partial" | "unknown" }));
     case "workspace": return unwrap<object>(await app.delivery.workspace({ runId: need(args, "run"), repositoryPath: text(args, "repo") ?? deps.cwd }));
-    case "reconcile": return unwrap(await app.repairs.reconcile(need(args, "run")));
+    case "reconcile": {
+      const runId=need(args,"run"), submission=unwrap(await app.exec.reconcileSubmission(runId));
+      return {...unwrap(await app.repairs.reconcile(runId)),...(submission ? {submission} : {})};
+    }
     case "repair": return { repair: unwrap(await app.repairs.repair({ requestId: requestId(args), runId: need(args, "run"), deliveryId: need(args, "delivery"), repositoryPath: text(args, "repo") ?? deps.cwd })) };
     case "save-artifact": {
       const names = many(args,"file");
@@ -376,7 +379,7 @@ export const workHelp = (): string => [
   "grounds work register --run RUN --agent NAME   (prints the session to present when delivering)",
   "grounds work workspace --run RUN [--repo PATH]   (a private worktree: the baseline, or what the refined run delivered)",
   "grounds work deliver --run RUN [--session S] [--repo PATH] [--commit REF] [--remote URL] [--declare-stop] [--protection protected|unprotected --protection-evidence REF]",
-  "grounds work reconcile --run RUN  (check outstanding repair tags; never push)",
+  "grounds work reconcile --run RUN  (recheck the pending submission and outstanding repair tags)",
   "grounds work repair --run RUN --delivery ID [--repo PATH]  (record another verified archive tag for the same frozen commit)",
   "grounds work stop --run RUN --reason human|abandoned [--session S] | work cancel --run RUN [--reason TEXT] | work transcript --run RUN --session S --ref REF --digest D --coverage full|partial|unknown",
   "grounds grade request --run RUN [--material ID=DIGEST...] | grade register --grading ID --agent NAME | grade stage --grading ID --session S --stage blind|freeze|reconcile|handoff|submit [--blind-digest D]",

@@ -7,7 +7,7 @@ import {readArtifact} from "./artifacts.js";
 import {
   acceptanceOf, addBranch, completeClose, continueWork, createTaskRun, criteriaDigest, declareExternalStop, digestOf, importTranscript, isId, parseTaskContent, refOf, registerExternalWorker,
   requestClose, requestCancel, selectHead, start, startWork, submitManifest, workConclusion,
-  type AcceptanceConclusion, type DeliveryItem, type Digest, type Id, type JsonValue, type Result, type Retention, type Revision, type TaskRun, type TaskRunStatus, type Work, type WorkConclusion, type WorkerMode,
+  isTerminal, type AcceptanceConclusion, type DeliveryItem, type Digest, type Id, type JsonValue, type Result, type Retention, type Revision, type TaskRun, type TaskRunStatus, type Work, type WorkConclusion, type WorkerMode,
   type Decision, type Hasher,
 } from "../domain/index.js";
 import type { Clock, DeliveryReceiptPort, IdSource, WorkRepositories, WorkUnitOfWork } from "../ports/index.js";
@@ -35,6 +35,7 @@ export type RunMode = WorkerMode;
 export type StartedRun = { executionId?: string; workId: Id; runId: Id; taskRevisionId: Id; workerMode: RunMode };
 export type ContinuedRun = { executionId?: string; workId: Id; runId: Id; refines: Id; taskRevisionId: Id };
 export type Registered = { runId: Id; sessionId: Id };
+type SubmissionInput = {requestId:string;runId:Id;sessionId?:Id;items:readonly DeliveryItem[];declaresStop?:boolean};
 export type Submitted = { runId: Id; status: TaskRunStatus; outcome: string; blocked: string | null };
 export type Cancelled = { runId: Id; status: TaskRunStatus; outcome: string };
 export type Closed = { workId: Id; status: "closing" | "closed"; blockedBy: Id[]; conclusion: WorkConclusion | null };
@@ -237,17 +238,22 @@ export class TaskExecution {
    * step against whatever the run looks like at that moment, so a cancellation
    * that won the race is honoured.
    */
-  async submit(input: { requestId: string; runId: Id; sessionId?: Id; items: readonly DeliveryItem[]; declaresStop?: boolean }): Promise<Outcome<Submitted>> {
+  async submit(input: SubmissionInput): Promise<Outcome<Submitted>> {
     const early = needId("requestId", input.requestId) ?? needId("runId", input.runId);
     if (early) return early;
     if (input.items.length === 0) return fail("invalid", "a manifest lists at least one delivery");
-    const known = await this.deps.units.run("read", r => r.taskRuns.get(input.runId));
-    if (!known) return fail("not-found", `run ${input.runId} does not exist`);
-    if (known.workerMode === "managed") return fail("unsupported", "a managed round delivers through its own execution");
-    const check = await this.deps.receipts.check(input.items);
-    const changed = await once<Submitted>(this.context, { requestId: input.requestId, kind: "submit", input: input as unknown as JsonValue, subject: { type: "task_run", id: input.runId } }, async r => {
-      const run = await r.taskRuns.get(input.runId, { lock: true });
-      if (!run) return fail("not-found", `run ${input.runId} does not exist`);
+    const request={requestId:input.requestId,kind:"submit",input:input as unknown as JsonValue,subject:{type:"task_run",id:input.runId}};
+    const {known,prior}=await this.deps.units.run("read",async r=>({known:await r.taskRuns.get(input.runId),prior:await r.intents.findByRequest(input.requestId)}));
+    if (!known) return fail("not-found", "task run does not exist");
+    if (known.workerMode==="managed") return fail("unsupported","a managed round delivers through its own execution");
+    if (prior) {
+      const hash=digestOf({kind:request.kind,input:request.input},this.deps.hash);
+      if (!hash.ok || hash.value!==prior.requestHash) return fail("request-conflict","submission identity was previously used with different input");
+      const result=prior.result as Submitted;
+      if (result.blocked!=="receipt-unavailable") return this.afterTerminal(succeed(result));
+    }
+    const check=prior && isTerminal(known) ? "unavailable" : await this.deps.receipts.check(input.items);
+    const apply=async(r:WorkRepositories,run:TaskRun):Promise<Outcome<Submitted>>=>{
       const at = this.deps.clock.now();
       const taskRevision = await r.definitions.getRevision(run.taskRevision.definitionId,run.taskRevision.revisionId);
       const task = parseTaskContent(taskRevision?.content);
@@ -284,8 +290,39 @@ export class TaskExecution {
       await this.saveChain(r, run, steps);
       const final = submitted.value.state;
       return succeed({ runId: run.id, status: final.status, outcome: String(submitted.value.outcome), blocked: final.blocked?.reason ?? null });
+    };
+    let changed=await once<Submitted>(this.context,request,async r=>{
+      const run=await r.taskRuns.get(input.runId,{lock:true});
+      return run ? apply(r,run) : fail("not-found","task run does not exist");
     });
+    if (changed.ok && changed.value.blocked==="receipt-unavailable" && (check!=="unavailable" || prior)) {
+      changed=await this.deps.units.run("write",async r=>{
+        const run=await r.taskRuns.get(input.runId,{lock:true}),intent=await r.intents.findByRequest(input.requestId);
+        if (!run || !intent) return fail("conflict","pending submission is missing");
+        const previous=intent.result as Submitted;
+        if (previous.blocked!=="receipt-unavailable") return succeed(previous);
+        if (!isTerminal(run) && run.pendingManifest?.operationId!==input.requestId) return fail("conflict","another submission owns the pending manifest");
+        if (!isTerminal(run) && check==="unavailable") return succeed(previous);
+        const next=isTerminal(run) ? succeed({runId:run.id,status:run.status,outcome:run.status==="cancelled" ? "cancel-wins" : "already-terminal",blocked:null}) : await apply(r,run);
+        if (!next.ok) return next;
+        await r.intents.save({...intent,result:next.value,updatedAt:this.deps.clock.now(),version:intent.version+1},intent.version);
+        return next;
+      });
+    }
     return this.afterTerminal(changed);
+  }
+
+  async reconcileSubmission(runId:Id):Promise<Outcome<Submitted|null>> {
+    const found=await this.deps.units.run("read",async r=>{
+      const run=await r.taskRuns.get(runId);
+      if (!run) return fail("not-found","task run does not exist");
+      if (!run.pendingManifest) return succeed(null);
+      const intent=await r.intents.findByRequest(run.pendingManifest.operationId);
+      if (intent?.kind!=="submit" || intent.subject.id!==runId) return fail("conflict","pending submission is missing");
+      return succeed(intent.payload as unknown as SubmissionInput);
+    });
+    if (!found.ok) return found;
+    return found.value ? this.submit(found.value) : succeed(null);
   }
 
   /** The external agent says it has stopped (or the human did); a cancellation waiting on it can now complete. */

@@ -286,6 +286,7 @@ export function submitManifest(run: TaskRun, command: ManifestSubmission): Step 
   if (run.status !== "running") return conflict("the round has not started");
   if (!originFor[run.workerMode].includes(command.origin)) return conflict(`a ${run.workerMode} round cannot take a ${command.origin} manifest`);
   if (run.manifest) return conflict("a round has one manifest");
+  if (run.pendingManifest && run.pendingManifest.operationId!==command.operationId) return conflict("the frozen pending submission must be reconciled");
 
   let worker = run.worker;
   const events: TaskRunEvent[] = [];

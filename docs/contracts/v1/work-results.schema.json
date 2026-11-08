@@ -12,7 +12,7 @@
       "type":"object","required":["command","result_type","runId","confirmed","outstanding"],"additionalProperties":false,
       "properties":{
         "command":{"const":"work.reconcile"}, "result_type":{"const":"grounds.result.work.reconcile/v1"},
-        "runId":{"$ref":"#/$defs/Id"}, "confirmed":{"type":"array","items":{"$ref":"#/$defs/ArchiveRepair"}},
+        "submission":{"$ref":"#/$defs/Submitted"}, "runId":{"$ref":"#/$defs/Id"}, "confirmed":{"type":"array","items":{"$ref":"#/$defs/ArchiveRepair"}},
         "outstanding":{"type":"array","items":{"type":"object","required":["requestId","archiveId","reason"],"additionalProperties":false,"properties":{"requestId":{"$ref":"#/$defs/Id"},"archiveId":{"$ref":"#/$defs/Id"},"reason":{"type":"string"}}}}
       }
     },

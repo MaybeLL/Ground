@@ -142,3 +142,5 @@ Coding 任务有必需附件时，用 `grounds work deliver --run RUN --session 
 `grounds grade define-agent` 固定评价者 Agent 修订、独立环境修订、评分说明与标尺。数值标尺由 `min`、`max` 定义，分类标尺使用 `categories`。用 `suite publish` 将评分器关联到评测项后，可通过 `suite measure` 独立评分，也可由实验批次驱动。每次评分在 GradingRecord 自己的沙箱中启动新的 AgentExecution。评价者从独立临时目录启动，在只读挂载 `/grounds-delivery` 中查看交付，在 `/grounds-grader` 中读取私有依据。Claude 评价者使用支持 `--safe-mode` 和 `--strict-mcp-config` 的 CLI。评分系统保存原始轨迹和输出。评价者按标尺返回 JSON，例如 `{"grade":{"form":"numeric","value":0}}`。越界值、无效输出及评价者失败记为评分器故障。
 
 `grade evaluator-status` 查看运行状态，`grade resume-evaluator` 显式恢复，`grade cancel` 取消。使用 `grade evaluator-evidence --grading ID --stream raw|events|output|stderr --chunk N` 读取带执行身份的归档块。
+
+外部 Agent 提交后，如果暂时无法读回归档，TaskRun 保留原始提交操作 ID、清单和停止声明。远端恢复后可用 `work reconcile --run RUN` 再次核验原清单。结果中的 `submission` 记录这次核验的状态；若没有待核验清单则省略。重复原提交也能推进核验。等待期间其他提交不得替换该清单，已生效的取消继续决定运行终态。
