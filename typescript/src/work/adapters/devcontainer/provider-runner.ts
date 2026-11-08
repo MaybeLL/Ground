@@ -20,14 +20,17 @@ export function bridgeResult(root:string):BridgeResult|undefined {
 }
 export async function spawnProviderBridge(root:string,plan:BridgePlan) {
   await withRuntimeLock(dataLayout().runtime,"provider-dispatch-"+root,async fd=>{
+    if (existsSync(join(root,"dispatch-revoked"))) throw Error("collector dispatch was revoked");
     const path=join(root,"bridge.json");
     const data=JSON.stringify(plan);
     if (existsSync(path)) {
       if(safeRead(path,1024*1024).toString()!==data) throw new Error("provider bridge plan changed");
-    } else atomicPrivateWrite(path,data);
+    } else {
+      atomicPrivateWrite(join(root,"dispatch-protocol"),"inherited-lock/v1");
+      atomicPrivateWrite(path,data);
+    }
     const source=import.meta.url.endsWith(".ts");
     const entry=fileURLToPath(new URL(source?"./provider-runner-main.ts":"./provider-runner-main.js",import.meta.url));
-    atomicPrivateWrite(join(root,"dispatch-protocol"),"inherited-lock/v1");
     const child=spawn(process.execPath,[...(source?["--import","tsx"]:[]),entry,root],{detached:true,stdio:["ignore","ignore","ignore",fd]});
     await new Promise<void>((ok,fail)=>{child.once("error",fail);child.once("spawn",ok);});
     const birth=child.pid && hostProcessIdentity(child.pid);
@@ -44,7 +47,7 @@ export async function collectProvider(root:string) {
   await new ManagedWorkspaces().withSetupLifetime(plan.target.owner,async()=>{
     if (!existsSync(path) || safeRead(path,1024*1024).toString()!==original) return;
     await withRuntimeLock(root,"bridge",async()=>{
-      if(existsSync(join(root,"start-attempt")))return;
+      if(existsSync(join(root,"start-attempt")) || existsSync(join(root,"dispatch-revoked")))return;
       atomicPrivateWrite(join(root,"start-attempt"),plan.handle);
       try {
         const engine=new EngineProcess(new DevcontainerRuntime());
@@ -65,8 +68,21 @@ export function bridgeStarting(root:string):boolean {
   return hostProcessIdentity(info.pid)===info.birth;
 }
 
+/** The caller stops the container first so a collector already inside Engine.start can finish. */
+export async function revokeBridge(root:string) {
+  const path=join(root,"bridge.json");
+  if (!existsSync(path)) return;
+  await withRuntimeLock(root,"bridge",async()=>{
+    if (!existsSync(path) || bridgeResult(root)) return;
+    const plan=JSON.parse(safeRead(path,1024*1024).toString()) as BridgePlan;
+    atomicPrivateWrite(join(root,"dispatch-revoked"),plan.handle);
+    if (!existsSync(join(root,"dispatch-protocol")) && !existsSync(join(root,"start-attempt"))) atomicPrivateWrite(join(root,"start-attempt"),plan.handle);
+  },30000);
+}
+
 /** Older helpers could be in flight without either an owner receipt or an inherited lock. */
 export async function pendingBridge(root:string,handle:string):Promise<"running"|"interrupted"|undefined> {
+  if (existsSync(join(root,"dispatch-revoked"))) return "interrupted";
   if (bridgeStarting(root)) return "running";
   if (!existsSync(join(root,"bridge.json")) || existsSync(join(root,"dispatch-protocol")) || existsSync(join(root,"start-attempt"))) return;
   try {

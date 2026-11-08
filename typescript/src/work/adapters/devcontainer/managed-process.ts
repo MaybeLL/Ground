@@ -12,7 +12,7 @@ import { ProviderTraceCapture } from "../providers/trace-capture.js";
 import {captureWorkspaceFile} from "../file-spool.js";
 import type {ArtifactDeclaration} from "../../domain/managed-delivery.js";
 import { EngineProcess } from "./engine-process.js";
-import { pendingBridge, bridgeResult, spawnProviderBridge, type BridgeResult } from "./provider-runner.js";
+import { pendingBridge,revokeBridge, bridgeResult, spawnProviderBridge, type BridgeResult } from "./provider-runner.js";
 import { ManagedWorkspaces } from "./workspace.js";
 import { DevcontainerRuntime } from "./runtime.js";
 import { Readable } from "node:stream";
@@ -202,10 +202,12 @@ export class ContainerAgentProcess implements ManagedProcessPort {
     const bound=await this.runtime.location();
     if(bound.hostId!==location.hostId||bound.daemonId!==location.daemonId)throw new Error("cannot verify stop on a different Docker daemon");
     const current=await this.runtime.observe(owner);
-    if(!current)return;
-    if(current.id!==containerId)throw new Error("runtime identity changed before stop");
-    if(current.state==="stopped")return;
-    if (!force && await this.quiescent(plan)) return;
-    await this.runtime.stop(owner,containerId);
+    if(current && current.id!==containerId)throw new Error("runtime identity changed before stop");
+    if(current && current.state!=="stopped" && (force || !await this.quiescent(plan))) await this.runtime.stop(owner,containerId);
+    if (force) {
+      const root=this.root(plan);
+      await revokeBridge(root);
+      await revokeBridge(join(root,"export"));
+    }
   }
 }

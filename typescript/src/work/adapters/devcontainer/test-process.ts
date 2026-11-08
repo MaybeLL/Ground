@@ -1,11 +1,11 @@
 import {createHash} from "node:crypto";
 import {existsSync} from "node:fs";
-import {rm} from "node:fs/promises";
+import {lstat,readdir,rename,rm} from "node:fs/promises";
 import {join} from "node:path";
 import {atomicPrivateWrite, privateDirectory, safeRead, withRuntimeLock} from "../../../runtime-files.js";
 import type {EvaluatorTarget, StepRead, TestProcessPort, TestStreams} from "../../ports/index.js";
 import {EngineProcess} from "./engine-process.js";
-import {bridgeResult, pendingBridge, spawnProviderBridge} from "./provider-runner.js";
+import {bridgeResult, pendingBridge, revokeBridge, spawnProviderBridge} from "./provider-runner.js";
 import type {DevcontainerRuntime} from "./runtime.js";
 import type {ManagedWorkspaces} from "./workspace.js";
 import type {EvaluatorWorkspaces} from "./evaluator-workspace.js";
@@ -30,6 +30,7 @@ export class ContainerTestProcess implements TestProcessPort {
     if (observed && observed.id !== containerId) throw new Error("evaluator container identity changed");
     const stop = async (exitCode?:number):Promise<StepRead> => {
       if (observed && observed.state !== "stopped") await this.runtime.stop(owner,containerId);
+      if (cancel || !observed) await revokeBridge(root);
       const result = {state:"stopped" as const,...(exitCode === undefined ? {} : {exitCode})};
       atomicPrivateWrite(exitPath,JSON.stringify(result));
       return result;
@@ -100,6 +101,36 @@ export class ContainerTestProcess implements TestProcessPort {
   }
 
   async dispose(owner:EvaluatorTarget["owner"]) {
-    await this.workspaces.withSetupLifetime(owner,() => rm(this.workspaces.root(owner),{recursive:true,force:true}));
+    await this.workspaces.withSetupLifetime(owner,async()=>{
+      const root=this.workspaces.root(owner),retiring=root+".retiring";
+      const tombstone="released legacy command sandbox "+owner.ledgerId+"/"+owner.sandboxId;
+      if (existsSync(root) && (await lstat(root)).isFile()) {
+        if (safeRead(root,256).toString()!==tombstone) throw Error("unexpected file at sandbox root");
+        await rm(retiring,{recursive:true,force:true});
+        return;
+      }
+      if (!existsSync(retiring)) {
+        const commands=join(root,"test-commands");
+        const legacy=existsSync(commands) && (await readdir(commands,{withFileTypes:true})).some(entry=>{
+          const spool=join(commands,entry.name);
+          return entry.isDirectory() && existsSync(join(spool,"bridge.json")) && !existsSync(join(spool,"dispatch-protocol"));
+        });
+        if (!legacy) {await rm(root,{recursive:true,force:true});return;}
+        // Old binaries can create locks before reading a plan. Move every plan
+        // away atomically, then block the retired path with a regular file.
+        await rename(root,retiring);
+      }
+      const marker=join(retiring,"legacy-release-fence");
+      atomicPrivateWrite(marker,tombstone);
+      for (;;) {
+        try {await rename(marker,root);break;}
+        catch (error) {
+          if (!["EISDIR","ENOTEMPTY","EEXIST","ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "") || !(await lstat(root)).isDirectory()) throw error;
+          // An old helper raced the rename. Its plan is already unreachable.
+          await rm(root,{recursive:true,force:true});
+        }
+      }
+      await rm(retiring,{recursive:true,force:true});
+    });
   }
 }
