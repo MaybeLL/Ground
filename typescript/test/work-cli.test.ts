@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, statSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { execute, openStore, runCLI } from "../src/cli.js";
 import { signalHostProcessLeader } from "../src/env-process.js";
@@ -250,6 +250,33 @@ test("external agents save and read explicit working artifacts before declaring 
     assert.deepEqual(ok(await h.cli("work","artifact","--run",runId,"--artifact",artifact.id)).artifact,artifact);
     const result = ok(await h.cli("work","submit-artifacts","--run",runId,"--session",sessionId,"--artifact",artifact.id));
     assert.equal(result.submitted.status,"delivered");
+  });
+});
+
+test("working workspace keeps pinned input separate from writable output on replay", async () => {
+  await withHarness(async h=>{
+    const file = join(h.directory,"materials.json");
+    writeFileSync(file,JSON.stringify([{name:"source",repository:h.repo,commit:h.baseline}]));
+    const task = ok(await h.cli("task","create","--kind","working","--title","Inspect","--criterion","cite source","--materials",file));
+    const {runId} = ok(await h.cli("work","start","--mode","none","--task",task.taskId));
+    writeFileSync(join(h.repo,"app.txt"),"later");
+    git(h.repo,"commit","-qam","advance");
+    const workspace = ok(await h.cli("work","workspace","--run",runId)), material = workspace.materials[0].path;
+    try {
+      assert.equal(workspace.kind,"working");
+      assert.equal(readFileSync(join(material,"app.txt"),"utf8"),"v0\n");
+      assert.equal(statSync(join(material,"app.txt")).mode & 0o222,0);
+      assert.equal(statSync(material).mode & 0o222,0);
+      assert.equal(existsSync(join(material,".git")),false);
+      writeFileSync(join(workspace.path,"report"),"draft");
+      const again = ok(await h.cli("work","workspace","--run",runId));
+      assert.equal(again.created,false);
+      assert.equal(readFileSync(join(again.path,"report"),"utf8"),"draft");
+      assert.equal(readFileSync(join(h.repo,"app.txt"),"utf8"),"later");
+    } finally {
+      chmodSync(dirname(material),0o700); chmodSync(material,0o700);
+      rmSync(dirname(workspace.path),{recursive:true,force:true});
+    }
   });
 });
 

@@ -31,6 +31,7 @@ import { ExperimentResults } from "./application/experiment-results.js";
 import { ExperimentGrading } from "./application/experiment-grading.js";
 import { ExperimentMembers } from "./application/experiment-members.js";
 import { EvaluationSuites } from "./application/evaluation-suites.js";
+import {MaterialWorkspaces} from "./adapters/git/material-workspaces.js";
 import { Artifacts } from "./application/artifacts.js";
 import { ArchiveRepairs } from "./application/archive-repairs.js";
 import { CodeDelivery, Grading, TaskDefinitions, TaskExecution, type WorkApplication } from "./application/index.js";
@@ -61,7 +62,7 @@ export function composeWork(store: SQLStore): WorkApplication & {driver:ManagedT
     capture: bytes => ({ digest: "sha256:" + createHash("sha256").update(bytes).digest("hex"), base64: Buffer.from(bytes).toString("base64") }) });
   const rules = new RuleDefinitions(context);
   const environments = new EnvironmentDefinitions(context, pinnedConfig);
-  const delivery = new CodeDelivery({ units, exec, archive, repairs, worktrees: new GitWorktrees() });
+  const delivery = new CodeDelivery({ units, exec, archive, repairs, ledgerId, materials:new MaterialWorkspaces(), worktrees: new GitWorktrees() });
   const sandboxes = new SandboxProvisioning({ ...managed, delivery }, recovery);
   const workers=new ManagedWorkers({...context,lifecycle});
   const driver=new ManagedTaskDriver({repairs,workers,sandboxes,lifecycle,ledgerId,process:new ContainerAgentProcess(runtime,workspaces,archive)});

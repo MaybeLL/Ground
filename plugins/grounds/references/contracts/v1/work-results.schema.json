@@ -3,6 +3,7 @@
   "$id": "https://patchledger.dev/contracts/v1/work-results.schema.json",
   "title": "Task, work and grade CLI results",
   "oneOf": [
+    {"type": "object", "properties": {"command": {"const": "work.workspace"}, "result_type": {"const": "grounds.result.work.workspace/v1"}, "kind": {"const": "working"}, "runId": {"$ref": "#/$defs/Id"}, "path": {"type": "string"}, "created": {"type": "boolean"}, "materials": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "commit": {"type": "string"}, "path": {"type": "string"}}, "required": ["name", "commit", "path"], "additionalProperties": false}}}, "required": ["command", "result_type", "kind", "runId", "path", "created", "materials"], "additionalProperties": false},
     {"type": "object", "required": ["command", "result_type", "artifact"], "properties": {"command": {"const": "work.save-artifact"}, "result_type": {"const": "grounds.result.work.save-artifact/v1"}, "artifact": {"$ref": "#/$defs/SavedArtifact"}}, "additionalProperties": false},
     {"type": "object", "required": ["command", "result_type", "artifact"], "properties": {"command": {"const": "work.artifact"}, "result_type": {"const": "grounds.result.work.artifact/v1"}, "artifact": {"$ref": "#/$defs/SavedArtifact"}}, "additionalProperties": false},
     {"type": "object", "required": ["command", "result_type", "id", "runId", "path", "ordinal", "ref", "base64"], "properties": {"command": {"const": "work.artifact-file"}, "result_type": {"const": "grounds.result.work.artifact-file/v1"}, "id": {"$ref": "#/$defs/Id"}, "runId": {"$ref": "#/$defs/Id"}, "path": {"type": "string"}, "ordinal": {"type": "integer", "minimum": 0}, "ref": {"$ref": "trace-results.schema.json#/$defs/Blob"}, "base64": {"type": "string"}}, "additionalProperties": false},
@@ -486,6 +487,7 @@
       "required": ["kind", "schemaVersion", "summary", "criteria"],
       "properties": {
         "kind": {"enum": ["coding", "working"]},
+        "materialRepositories": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "repository": {"type": "string"}, "commit": {"type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"}}, "required": ["name", "repository", "commit"], "additionalProperties": false}},
         "outputs": {"type":"array","items":{"type":"object","required":["key","required"],"properties":{"key":{"$ref":"#/$defs/Id"},"required":{"type":"boolean"}},"additionalProperties":false}},
         "schemaVersion": {"type": "integer", "minimum": 1},
         "summary": {"type": "string", "minLength": 1, "maxLength": 1024},

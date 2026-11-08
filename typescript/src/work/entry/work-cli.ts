@@ -42,6 +42,16 @@ const taskOutputs = (args:ParsedArgs) => {
     return many(args,key).map(slot=>({key:slot,required:key === "required-output"}));
   })};
 };
+const taskMaterials = (args:ParsedArgs,deps:WorkEntryDependencies) => {
+  if (raw(args,"materials") === undefined) return {};
+  let entries;
+  try {entries = JSON.parse(deps.readFile(need(args,"materials")));} catch {throw validation("materials","expected a JSON list");}
+  if (!Array.isArray(entries)) throw validation("materials","expected a list of pinned Git repositories");
+  return {materialRepositories:entries.map(item=>{
+    if (!item || typeof item.name !== "string" || typeof item.repository !== "string" || !item.repository.trim() || typeof item.commit !== "string") throw validation("materials","expected name, repository and commit");
+    return {name:item.name,repository:resolve(deps.cwd,item.repository),commit:item.commit};
+  })};
+};
 const taskKind = (args: ParsedArgs): {kind?: "coding" | "working"} => {
   if (raw(args,"kind") === undefined) return {};
   const kind = need(args,"kind");
@@ -89,7 +99,7 @@ export interface WorkEntryDependencies { readonly app: WorkApplication; readonly
 export async function executeWorkCommand(args: ParsedArgs, deps: WorkEntryDependencies): Promise<unknown> {
   const [group, action] = [args.positionals[0] ?? "", args.positionals[1] ?? ""];
   const { app } = deps;
-  const r = group === "experiment" ? await experiment(args,action,app,deps) : group === "suite" ? await suite(args, action, app, deps) : group === "task" ? await task(args, action, app) : group === "work" ? await work(args, action, app, deps) : await grade(args, action, app, deps);
+  const r = group === "experiment" ? await experiment(args,action,app,deps) : group === "suite" ? await suite(args, action, app, deps) : group === "task" ? await task(args, action, app, deps) : group === "work" ? await work(args, action, app, deps) : await grade(args, action, app, deps);
   return result(group, action, r);
 }
 
@@ -144,10 +154,10 @@ async function suite(args: ParsedArgs, action: string, app: WorkApplication, dep
   }
 }
 
-async function task(args: ParsedArgs, action: string, app: WorkApplication): Promise<object> {
+async function task(args: ParsedArgs, action: string, app: WorkApplication, deps:WorkEntryDependencies): Promise<object> {
   switch (action) {
-    case "create": return unwrap(await app.tasks.createTask({ ...taskKind(args), ...taskOutputs(args), requestId: requestId(args), summary: need(args, "title"), ...(raw(args,"environment") !== undefined ? { environmentDefinitionId: need(args,"environment") } : {}), criteria: criteria(args), ...(text(args, "name") ? { name: text(args, "name")! } : {}), ...(text(args, "context") ? { context: text(args, "context")! } : {}), ...(repository(args) ? { repository: repository(args)! } : {}) }));
-    case "revise": return unwrap(await app.tasks.reviseTask({ ...taskKind(args), ...taskOutputs(args), requestId: requestId(args), taskId: need(args, "task"), expectedSeq: integer(args, "expected-seq"), summary: need(args, "title"), ...(raw(args,"environment") !== undefined ? { environmentDefinitionId: need(args,"environment") } : {}), criteria: criteria(args), ...(text(args, "context") ? { context: text(args, "context")! } : {}), ...(repository(args) ? { repository: repository(args)! } : {}) }));
+    case "create": return unwrap(await app.tasks.createTask({ ...taskKind(args), ...taskOutputs(args), ...taskMaterials(args,deps), requestId: requestId(args), summary: need(args, "title"), ...(raw(args,"environment") !== undefined ? { environmentDefinitionId: need(args,"environment") } : {}), criteria: criteria(args), ...(text(args, "name") ? { name: text(args, "name")! } : {}), ...(text(args, "context") ? { context: text(args, "context")! } : {}), ...(repository(args) ? { repository: repository(args)! } : {}) }));
+    case "revise": return unwrap(await app.tasks.reviseTask({ ...taskKind(args), ...taskOutputs(args), ...taskMaterials(args,deps), requestId: requestId(args), taskId: need(args, "task"), expectedSeq: integer(args, "expected-seq"), summary: need(args, "title"), ...(raw(args,"environment") !== undefined ? { environmentDefinitionId: need(args,"environment") } : {}), criteria: criteria(args), ...(text(args, "context") ? { context: text(args, "context")! } : {}), ...(repository(args) ? { repository: repository(args)! } : {}) }));
     case "show": return unwrap(await app.tasks.getTask(need(args, "task"), text(args, "revision") !== undefined ? integer(args, "revision") : undefined));
     case "list": return { tasks: unwrap(await app.tasks.listTasks()) };
     default: throw validation("action", `unknown task action: ${action}`);
@@ -220,7 +230,7 @@ async function work(args: ParsedArgs, action: string, app: WorkApplication, deps
     }
     case "register": return unwrap(await app.exec.registerExternalWorker({ requestId: requestId(args), runId: need(args, "run"), agent: { id: need(args, "agent"), ...(text(args, "agent-name") ? { name: text(args, "agent-name")! } : {}), ...(text(args, "model") ? { model: text(args, "model")! } : {}) } }));
     case "transcript": return unwrap(await app.exec.importTranscript({ requestId: requestId(args), runId: need(args, "run"), sessionId: need(args, "session"), ref: need(args, "ref"), digest: need(args, "digest"), coverage: need(args, "coverage") as "full" | "partial" | "unknown" }));
-    case "workspace": return unwrap(await app.delivery.prepareWorkspace({ runId: need(args, "run"), repositoryPath: text(args, "repo") ?? deps.cwd }));
+    case "workspace": return unwrap<object>(await app.delivery.workspace({ runId: need(args, "run"), repositoryPath: text(args, "repo") ?? deps.cwd }));
     case "reconcile": return unwrap(await app.repairs.reconcile(need(args, "run")));
     case "repair": return { repair: unwrap(await app.repairs.repair({ requestId: requestId(args), runId: need(args, "run"), deliveryId: need(args, "delivery"), repositoryPath: text(args, "repo") ?? deps.cwd })) };
     case "save-artifact": {
@@ -331,7 +341,7 @@ export const workHelp = (): string => [
   "grounds grade define-rule --name NAME --rule equal-file-bytes|file-exists --pass LABEL --fail LABEL [--grader ID --expected-seq N]",
   "grounds suite publish --name NAME --cases-file FILE [--suite ID --expected-seq N] [--repo PATH]",
   "grounds suite show --suite ID --revision N | suite list | suite measure --suite ID --revision N --case KEY [--binding KEY] --run RUN --delivery ID [--repo PATH]",
-  "grounds task create [--kind coding|working] [--required-output KEY... --optional-output KEY...] --title TEXT --criterion TEXT... [--context TEXT] [--environment ID] [--repo-remote URL --baseline REF]",
+  "grounds task create [--kind coding|working] [--materials FILE] [--required-output KEY... --optional-output KEY...] --title TEXT --criterion TEXT... [--context TEXT] [--environment ID] [--repo-remote URL --baseline REF]",
   "grounds task revise --task ID --expected-seq N --title TEXT --criterion [ID: ]TEXT... | task show --task ID [--revision N] | task list",
   "grounds work define-agent --name NAME --provider codex|claude-code [--model MODEL] [--agent ID --expected-seq N]",
   "grounds work start --task ID --mode managed --agent ID [--agent-revision REV --repo PATH] | work managed-status|resume-managed --run RUN",
@@ -340,6 +350,8 @@ export const workHelp = (): string => [
   "grounds work define-environment --name NAME --devcontainer FILE --image-digest SHA256 [--lockfile FILE] [--environment ID --expected-seq N] | work environment --environment ID --revision N",
   "grounds work start --task ID --mode external|none [--environment-revision ID] | work continue --work ID --expected-head RUN --mode M [--sandbox inherit|fresh] | work branch --work ID --refines RUN --mode M [--sandbox fresh|inherit]",
   "grounds work select --work ID --run RUN [--expected-head RUN] | work close --work ID | work show --work ID [--repo PATH] | work run --run RUN [--repo PATH]",
+  "grounds work save-artifact --run RUN [--session S] --slot KEY --file ARCHIVED_PATH=LOCAL_FILE... | work submit-artifacts --run RUN [--session S] --artifact ID...",
+  "grounds work artifact --run RUN --artifact ID | work artifact-file --run RUN --artifact ID --path PATH --chunk N",
   "grounds work register --run RUN --agent NAME   (prints the session to present when delivering)",
   "grounds work workspace --run RUN [--repo PATH]   (a private worktree: the baseline, or what the refined run delivered)",
   "grounds work deliver --run RUN [--session S] [--repo PATH] [--commit REF] [--remote URL] [--declare-stop] [--protection protected|unprotected --protection-evidence REF]",

@@ -50,8 +50,9 @@ export function createDefinition(command: { id: Id; kind: DefinitionKind; name: 
 
 export type TaskKind = "coding" | "working";
 export interface Criterion { readonly id: Id; readonly statement: string }
+export type MaterialRepository = {name:string;repository:string;commit:string};
 export type OutputSlot = {key:string; required:boolean};
-export interface TaskContent { readonly outputs?: readonly OutputSlot[]; readonly kind: TaskKind; readonly schemaVersion: number; readonly summary: string; readonly criteria: readonly Criterion[]; readonly environmentDefinitionId?: Id }
+export interface TaskContent { readonly outputs?: readonly OutputSlot[]; readonly materialRepositories?:readonly MaterialRepository[]; readonly kind: TaskKind; readonly schemaVersion: number; readonly summary: string; readonly criteria: readonly Criterion[]; readonly environmentDefinitionId?: Id }
 
 /** What an acceptance verdict is a verdict about on the task side: the criteria and their wording, independent of their order. */
 export function criteriaDigest(task: Pick<TaskContent, "criteria">, hash: Hasher): Result<Digest> {
@@ -69,7 +70,7 @@ const isObject = (value: unknown): value is Record<string, unknown> => !!value &
 
 export function parseTaskContent(content: unknown): Result<TaskContent> {
   if (!isObject(content)) return invalid("task content must be an object");
-  const { kind, schemaVersion, summary, criteria, environmentDefinitionId, outputs } = content;
+  const { kind, schemaVersion, summary, criteria, environmentDefinitionId, outputs, materialRepositories } = content;
   if (kind !== "coding" && kind !== "working") return invalid("task kind must be coding or working");
   if (!Number.isSafeInteger(schemaVersion) || (schemaVersion as number) < 1) return invalid("schemaVersion must be a positive integer");
   if (!isText(summary, 1024)) return invalid("summary is required");
@@ -81,6 +82,16 @@ export function parseTaskContent(content: unknown): Result<TaskContent> {
   }
   if (!unique(parsed, c => c.id)) return invalid("criterion ids must be unique");
   if (environmentDefinitionId !== undefined && !isId(environmentDefinitionId)) return invalid("environmentDefinitionId must be an identifier");
+  const repos:MaterialRepository[] = [];
+  if (materialRepositories !== undefined) {
+    if (!Array.isArray(materialRepositories)) return invalid("material repositories must be a list");
+    for (const repo of materialRepositories) {
+      if (!isObject(repo) || typeof repo.name !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(repo.name) ||
+          !isText(repo.repository,2048) || typeof repo.commit !== "string" || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(repo.commit)) return invalid("each material requires a name, repository and full Git commit");
+      repos.push({name:repo.name,repository:repo.repository,commit:repo.commit});
+    }
+    if (!unique(repos,repo=>repo.name.toLowerCase())) return invalid("material repository names must be distinct");
+  }
   const slots:OutputSlot[] = [];
   if (outputs !== undefined) {
     if (!Array.isArray(outputs)) return invalid("task output slots must be a list");
@@ -90,7 +101,7 @@ export function parseTaskContent(content: unknown): Result<TaskContent> {
     }
     if (!unique(slots,slot=>slot.key)) return invalid("output keys must be unique");
   }
-  return ok({ kind, ...(outputs === undefined ? {} : {outputs:slots}), schemaVersion: schemaVersion as number, summary, criteria: parsed, ...(environmentDefinitionId !== undefined ? { environmentDefinitionId } : {}) });
+  return ok({ kind, ...(materialRepositories === undefined ? {} : {materialRepositories:repos}), ...(outputs === undefined ? {} : {outputs:slots}), schemaVersion: schemaVersion as number, summary, criteria: parsed, ...(environmentDefinitionId !== undefined ? { environmentDefinitionId } : {}) });
 }
 
 export function parseScale(value: unknown): Result<Scale> {

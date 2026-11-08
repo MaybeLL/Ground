@@ -50,3 +50,8 @@ export interface CodeArchivePort {
 export interface WorktreePort {
   create(input: { repositoryPath: string; runId: string; commit: string }): Promise<{ path: string; branch: string; created: boolean }>;
 }
+
+export interface WorkingWorkspacePort {
+  prepare(ledgerId:string,runId:string,repositories:readonly import("../domain/index.js").MaterialRepository[]):
+    Promise<{kind:"working";runId:string;path:string;created:boolean;materials:{name:string;commit:string;path:string}[]}>;
+}

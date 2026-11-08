@@ -16,7 +16,7 @@ const repositoryOf = (content: unknown): { remote?: string; baseline?: string } 
 };
 
 export class CodeDelivery {
-  constructor(private readonly deps: { units: WorkUnitOfWork; exec: TaskExecution; archive: CodeArchivePort; worktrees: WorktreePort; repairs: import("./archive-repairs.js").ArchiveRepairs }) {}
+  constructor(private readonly deps: { units: WorkUnitOfWork; exec: TaskExecution; archive: CodeArchivePort; worktrees: WorktreePort; materials:import("../ports/index.js").WorkingWorkspacePort; ledgerId():Promise<string>; repairs: import("./archive-repairs.js").ArchiveRepairs }) {}
 
   /**
    * Archive a commit of the worker's repository and hand it in as the round's
@@ -29,6 +29,7 @@ export class CodeDelivery {
     const known = await this.taskRemote(input.runId);
     if (!known.found) return fail("not-found", `run ${input.runId} does not exist`);
     if (known.managed) return fail("unsupported", "a managed round delivers through its own execution");
+    if (known.working) return fail("invalid","use an explicit artifact manifest for a working task");
     const remote = input.remote ?? known.remote;
     if (!remote) return fail("invalid", "the task names no repository remote; pass one explicitly");
     const commit = await this.deps.archive.resolveCommit(input.repositoryPath, input.commit);
@@ -61,6 +62,20 @@ export class CodeDelivery {
    * fetched back from its archive, never from whatever the earlier worker left
    * on disk.
    */
+  async workspace(input:{runId:Id;repositoryPath:string}) {
+    const known = await this.deps.units.run("read",async r=>{
+      const run = await r.taskRuns.get(input.runId);
+      if (!run) return;
+      const revision = await r.definitions.getRevision(run.taskRevision.definitionId,run.taskRevision.revisionId);
+      return {run,task:parseTaskContent(revision?.content)};
+    });
+    if (!known) return fail("not-found","task run does not exist");
+    if (!known.task.ok) return fail("invalid",known.task.error.message);
+    if (known.task.value.kind === "coding") return this.prepareWorkspace(input);
+    if (["delivered","cancelled","failed"].includes(known.run.status)) return fail("conflict","the run is already terminal");
+    return succeed(await this.deps.materials.prepare(await this.deps.ledgerId(),input.runId,known.task.value.materialRepositories ?? []));
+  }
+
   async prepareWorkspace(input: { runId: Id; repositoryPath: string }): Promise<Outcome<Workspace>> {
     const base = await this.workspaceBase(input);
     if (!base.ok) return base;
@@ -112,13 +127,13 @@ export class CodeDelivery {
     } catch (error) { const failure = failureOf(error); if (failure) return { ok: false, error: failure }; throw error; }
   }
 
-  private async taskRemote(runId: Id): Promise<{ found: boolean; managed?: boolean; remote?: string }> {
+  private async taskRemote(runId: Id): Promise<{ found: boolean; working?:boolean; managed?: boolean; remote?: string }> {
     return this.deps.units.run("read", async r => {
       const run = await r.taskRuns.get(runId);
       if (!run) return { found: false };
       const revision = await r.definitions.getRevision(run.taskRevision.definitionId, run.taskRevision.revisionId);
       const remote = revision && parseTaskContent(revision.content).ok ? repositoryOf(revision.content).remote : undefined;
-      return { found: true, managed: run.workerMode === "managed", ...(remote ? { remote } : {}) };
+      return { found: true, working:(revision?.content as {kind?:string} | undefined)?.kind === "working", managed: run.workerMode === "managed", ...(remote ? { remote } : {}) };
     });
   }
 }
