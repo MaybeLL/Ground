@@ -170,3 +170,41 @@ for (const backend of backends) test(`${backend}: evaluation snapshots recover b
     assert.deepEqual(value(await app.suites.show(snapshot.suiteId, 1)), shown);
   }, backend);
 });
+
+for (const backend of backends) test(`${backend}: reconcile a sandbox launch without repeating its external action`, { skip: backendSkip(backend) }, async () => {
+  await scenario(async ({ app, store, repo, remote, baseline, root }) => {
+    const { SandboxProvisioning } = await import("../src/work/application/sandbox-provisioning.js");
+    const { SandboxLifecycle } = await import("../src/work/application/sandbox-lifecycle.js");
+    const { ManagedWorkspaces } = await import("../src/work/adapters/devcontainer/workspace.js");
+    const { DevcontainerRuntime } = await import("../src/work/adapters/devcontainer/runtime.js");
+    const imageDigest = "sha256:" + "f".repeat(64);
+    const env = value(await app.environments.publish({ requestId:"env", name:"environment", config:JSON.stringify({image:"example@"+imageDigest}), imageDigest, expectedSeq:0 }));
+    const task = value(await app.tasks.createTask({ requestId:"task", summary:"isolation", criteria:[{statement:"isolated"}], environmentDefinitionId:env.environmentId, repository:{ remote, baseline } }));
+    const run = value(await app.exec.startWork({ requestId:"run", taskDefinitionId:task.taskId, workerMode:"external" }));
+    const id = "a".repeat(64);
+    let launches = 0, removals = 0;
+    let current: { id: string; state: "running" } | null = null;
+    class Runtime extends DevcontainerRuntime {
+      override async up() { launches++; return current = { id, state:"running" as const }; }
+      override async observe() { return current; }
+      override async remove() { current = null; removals++; throw new Error("lost release reply"); }
+    }
+    const runtime = new Runtime();
+    const ctx = { units:new SqlWorkUnitOfWork(store), hash:(s: string) => createHash("sha256").update(s).digest("hex"), newId:newUUIDv7, now:() => new Date().toISOString(), ledgerId:async () => (await store.inspect()).database_id, runtime };
+    class Interrupted extends ManagedWorkspaces {
+      override async record(owner: Parameters<ManagedWorkspaces["record"]>[0], id: string) {
+        await super.record(owner,id); throw new Error("lost completion before recording in SQL");
+      }
+    }
+    const provisioner = new SandboxProvisioning({ ...ctx, delivery:app.delivery, workspaces:new Interrupted(root) });
+    refused(await provisioner.prepare("prepare",run.runId,repo),"unavailable");
+    const recovered = value(await provisioner.reconcile(run.runId));
+    assert.equal(recovered.instanceId,id);
+    assert.equal(value(await provisioner.prepare("prepare",run.runId,repo)).sandboxId,recovered.sandboxId);
+    assert.equal(launches,1);
+    const lifecycle = new SandboxLifecycle(ctx);
+    refused(await lifecycle.lifecycle("release",run.runId,"release"),"unavailable");
+    assert.equal(value(await lifecycle.lifecycle("release",run.runId,"release")).phase,"released");
+    assert.equal(removals,1);
+  },backend);
+});

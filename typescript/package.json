@@ -32,6 +32,8 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1137.0",
+    "@devcontainers/cli": "0.90.0",
+    "jsonc-parser": "3.3.1",
     "mysql2": "^3.24.2",
     "pg": "^8.23.1",
     "yaml": "^2.9.0"

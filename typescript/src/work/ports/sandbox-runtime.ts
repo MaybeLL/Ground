@@ -2,7 +2,7 @@
 // for lifecycle operations after verifying both labels.
 export type RuntimeOwner = { ledgerId: string; sandboxId: string };
 export type RuntimeState = { id: string; state: "running" | "paused" | "stopped" };
-export type RuntimeWorkspace = { path: string; configPath: string };
+export type RuntimeWorkspace = { path: string; configPath: string; imageDigest?: string; frozenLockfile?: boolean };
 export interface SandboxRuntimePort {
   observe(owner: RuntimeOwner): Promise<RuntimeState | null>;
   up(owner: RuntimeOwner, workspace: RuntimeWorkspace): Promise<RuntimeState>;
@@ -10,4 +10,11 @@ export interface SandboxRuntimePort {
   resume(owner: RuntimeOwner, id: string): Promise<void>;
   remove(owner: RuntimeOwner, id: string): Promise<void>;
   execute(owner: RuntimeOwner, id: string, workspace: RuntimeWorkspace, argv: readonly string[]): Promise<{ stdout: string; stderr: string; exitCode: number }>;
+}
+
+/** The configuration and completion evidence live outside the worker's mount. */
+export interface ManagedWorkspacePort {
+  prepare(owner: RuntimeOwner, repository: string, commit: string, content: { config: string; lockfile: string | null; imageDigest: string }): Promise<RuntimeWorkspace>;
+  receipt(owner: RuntimeOwner): Promise<string | null>;
+  record(owner: RuntimeOwner, containerId: string): Promise<void>;
 }

@@ -61,6 +61,15 @@ export class CodeDelivery {
    * on disk.
    */
   async prepareWorkspace(input: { runId: Id; repositoryPath: string }): Promise<Outcome<Workspace>> {
+    const base = await this.workspaceBase(input);
+    if (!base.ok) return base;
+    try {
+      const made = await this.deps.worktrees.create({ ...input, commit: base.value.commit });
+      return succeed({ runId: input.runId, path: made.path, branch: made.branch, base: base.value, created: made.created });
+    } catch (error) { const failure = failureOf(error); if (failure) return { ok: false, error: failure }; throw error; }
+  }
+
+  async workspaceBase(input: { runId: Id; repositoryPath: string }): Promise<Outcome<Workspace["base"]>> {
     if (!isId(input.runId)) return fail("invalid", "runId is required");
     try {
       const found = await this.deps.units.run("read", async r => {
@@ -87,8 +96,7 @@ export class CodeDelivery {
         if (!commit) return fail("invalid", `baseline ${baseline} is not a commit of ${input.repositoryPath}`);
         base = { commit, from: "baseline", of: baseline };
       }
-      const made = await this.deps.worktrees.create({ repositoryPath: input.repositoryPath, runId: input.runId, commit: base.commit });
-      return succeed({ runId: input.runId, path: made.path, branch: made.branch, base, created: made.created });
+      return succeed(base);
     } catch (error) { const failure = failureOf(error); if (failure) return { ok: false, error: failure }; throw error; }
   }
 

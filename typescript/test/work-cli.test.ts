@@ -439,3 +439,70 @@ test("a standalone measure scores a historical candidate against an explicit ref
     assert.equal((await h.cli(...args)).ok, false);
   });
 });
+
+test("an environment requirement resolves once per run to the latest or a specified revision", async () => {
+  await withHarness(async h => {
+    const config = join(h.directory,"devcontainer.json"), lock = join(h.directory,".devcontainer-lock.json");
+    const digest = "sha256:" + "1".repeat(64);
+    writeFileSync(config, '{ // operator config\n"image":"alpine@' + digest + '",}');
+    writeFileSync(lock, "{}\n");
+    const args = ["work","define-environment","--name","CI","--devcontainer",config,"--lockfile",lock,"--image-digest",digest];
+    const first = ok(await h.cli(...args));
+    const task = ok(await h.cli("task","create","--title","target","--criterion","works","--environment",first.environmentId));
+    const start = ["work","start","--mode","none","--task",task.taskId];
+    const initial = ok(await h.cli(...start));
+    writeFileSync(config,'{"image":"alpine@' + digest + '","name":"second"}');
+    const second = ok(await h.cli(...args,"--environment",first.environmentId,"--expected-seq","1"));
+    const latest = ok(await h.cli(...start));
+    const specified = ok(await h.cli(...start,"--environment-revision",first.revisionId));
+    for (const [run,revision,source] of [[initial,first,"latest"],[latest,second,"latest"],[specified,first,"specified"]]) {
+      const recorded = ok(await h.cli("work","run","--run",run.runId)).run.environment;
+      assert.equal(recorded.revision.revisionId, revision.revisionId);
+      assert.equal(recorded.source, source);
+    }
+    const shown = ok(await h.cli("work","environment","--environment",first.environmentId,"--revision","1"));
+    assert.equal(shown.content.lockfileDigest, "sha256:" + createHash("sha256").update("{}\n").digest("hex"));
+    assert.equal((await h.cli(...start,"--environment-revision","missing")).ok,false);
+  });
+});
+
+test("three ledger-backed task sandboxes survive a receipt interruption and isolate their workspace and lifecycle", { skip: !process.env.GROUNDS_TEST_DEVCONTAINER && "requires local Docker and a shared data root" }, async () => {
+  await withHarness(async h => {
+    const docker = (...args: string[]) => execFileSync("docker",args,{encoding:"utf8"}).trim();
+    const image = docker("image","inspect","--format","{{index .RepoDigests 0}}",process.env.GROUNDS_TEST_CONTAINER_IMAGE ?? "alpine:latest");
+    const config = join(h.directory,"devcontainer.json");
+    writeFileSync(config, JSON.stringify({image, workspaceFolder:"/work", workspaceMount:"source=${localWorkspaceFolder},target=/work,type=bind"}));
+    const env = ok(await h.cli("work","define-environment","--name","isolated","--image-digest",image.split("@")[1]!,"--devcontainer",config));
+    const task = ok(await h.cli("task","create","--title","runtime test","--criterion","isolated","--environment",env.environmentId,"--baseline",h.baseline,"--repo-remote",h.remote));
+    const runs = await Promise.all(Array.from({length:3}, async () => ok(await h.cli("work","start","--task",task.taskId,"--mode","external")).runId as string));
+    const ledger = new DatabaseSync(join(h.directory, "ledger.db"));
+    const ledgerId = ledger.prepare("SELECT database_id FROM schema_metadata").get()!.database_id as string;
+    try {
+      ledger.exec("CREATE TRIGGER interrupt_runtime BEFORE UPDATE ON work_intents WHEN NEW.kind='launch-devcontainer' AND NEW.state='completed' BEGIN SELECT RAISE(ABORT, 'crash after local receipt'); END");
+      const outcomes = await Promise.all(runs.map(run => h.cli("work","prepare-sandbox","--run",run,"--repo",h.repo)));
+      assert.ok(outcomes.every(o => !o.ok));
+      const before = docker("ps","--no-trunc","--format","{{.ID}}","--filter","label=dev.grounds.ledger="+ledgerId).split("\n").sort();
+      assert.equal(before.length,3);
+      ledger.exec("DROP TRIGGER interrupt_runtime");
+      const sandboxes = await Promise.all(runs.map(async run => ok(await h.cli("work","reconcile-sandbox","--run",run))));
+      assert.deepEqual(sandboxes.map(s => s.instanceId).sort(),before);
+      for (const s of sandboxes) {
+        docker("exec",s.instanceId,"sh","-c",'printf %s "$1" > /work/result',"sh",s.runId);
+        assert.equal(s.commit,h.baseline); assert.equal(s.environmentRevisionId,env.revisionId);
+      }
+      for (const s of sandboxes) assert.equal(docker("exec",s.instanceId,"cat","/work/result"),s.runId);
+      const first = sandboxes[0]!, second = sandboxes[1]!;
+      assert.equal(ok(await h.cli("work","pause-sandbox","--run",first.runId)).phase,"paused");
+      assert.equal(docker("inspect","--format","{{.State.Paused}}",second.instanceId),"false");
+      assert.equal(ok(await h.cli("work","resume-sandbox","--run",first.runId)).phase,"ready");
+      for (const s of sandboxes.slice(1)) assert.equal(ok(await h.cli("work","release-sandbox","--run",s.runId)).phase,"released");
+      const firstRun = ok(await h.cli("work","run","--run",first.runId)).run;
+      ok(await h.cli("work","cancel","--run",first.runId));
+      assert.equal(ok(await h.cli("work","close","--work",firstRun.workId)).status,"closed");
+      assert.equal(docker("ps","-aq","--filter","label=dev.grounds.ledger="+ledgerId),"");
+    } finally {
+      ledger.close();
+      for (const id of docker("ps","-aq","--no-trunc","--filter","label=dev.grounds.ledger="+ledgerId).split("\n").filter(Boolean)) docker("rm","-f",id);
+    }
+  });
+});

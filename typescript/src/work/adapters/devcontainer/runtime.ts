@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createRequire } from "node:module";
 import { promisify } from "node:util";
 import type { RuntimeOwner, RuntimeState, RuntimeWorkspace, SandboxRuntimePort } from "../../ports/index.js";
 
@@ -11,7 +12,7 @@ const containerId = /^[a-f0-9]{64}$/;
 /** devcontainers CLI interprets the pinned environment configuration. Docker
  * observes exact ownership and performs lifecycle operations on one container. */
 export class DevcontainerRuntime implements SandboxRuntimePort {
-  constructor(private readonly devcontainer = "devcontainer", private readonly docker = "docker") {}
+  constructor(private readonly devcontainer = createRequire(import.meta.url).resolve("@devcontainers/cli/devcontainer.js"), private readonly docker = "docker") {}
 
   async observe(owner: RuntimeOwner): Promise<RuntimeState | null> {
     const { stdout } = await exec(this.docker, ["ps", "--all", "--no-trunc", "--format", "{{.ID}}",
@@ -29,14 +30,25 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
 
   async up(owner: RuntimeOwner, workspace: RuntimeWorkspace): Promise<RuntimeState> {
     const prior = await this.observe(owner);
-    if (prior) return prior;
+    if (prior) {
+      if (workspace.imageDigest) await this.verifyImage(prior.id, workspace.imageDigest);
+      return prior;
+    }
     const result = await exec(this.devcontainer, ["up", "--docker-path", this.docker,
-      "--workspace-folder", workspace.path, "--override-config", workspace.configPath, "--mount-workspace-git-root=false",
+      "--workspace-folder", workspace.path, "--override-config", workspace.configPath, "--mount-workspace-git-root=false", ...(workspace.frozenLockfile ? ["--frozen-lockfile"] : []),
       "--id-label", ledgerLabel + "=" + owner.ledgerId, "--id-label", sandboxLabel + "=" + owner.sandboxId], opts);
     const report = JSON.parse(result.stdout.trim());
     const after = await this.observe(owner);
     if (!after || after.state !== "running" || report.outcome !== "success" || report.containerId !== after.id) throw new Error("devcontainer did not confirm the owned running container");
+    if (workspace.imageDigest) await this.verifyImage(after.id, workspace.imageDigest);
     return after;
+  }
+
+  private async verifyImage(id: string, expected: string) {
+    const image = (await exec(this.docker, ["inspect", "--type", "container", "--format", "{{.Image}}", id], opts)).stdout.trim();
+    if (image === expected) return;
+    const digests = JSON.parse((await exec(this.docker, ["image", "inspect", "--format", "{{json .RepoDigests}}", image], opts)).stdout) as string[] | null;
+    if (!digests?.some(entry => entry.split("@")[1] === expected)) throw new Error("the running container image differs from the frozen environment digest");
   }
 
   private async owned(owner: RuntimeOwner, id: string) {

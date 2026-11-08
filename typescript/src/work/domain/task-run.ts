@@ -91,11 +91,12 @@ export function quiescent(run: TaskRun): boolean {
 export interface RefinesFacts { readonly id: Id; readonly status: TaskRunStatus; readonly taskDefinitionId: Id; readonly workId?: Id }
 
 export function createTaskRun(
-  command: { id: Id; taskRevision: RevisionRef; workId?: Id; refines?: Id; workerMode: WorkerMode; retention: Retention; at: Timestamp },
+  command: { id: Id; taskRevision: RevisionRef; environment?: ResolvedEnvironment; workId?: Id; refines?: Id; workerMode: WorkerMode; retention: Retention; at: Timestamp },
   facts?: { refines?: RefinesFacts },
 ): Result<Decision<TaskRun, TaskRunEvent>> {
   const bad = firstInvalid([
     ["id", isId(command.id)], ["taskRevision", isRevisionRef(command.taskRevision, "task")],
+    ["environment", command.environment === undefined || (isRevisionRef(command.environment.revision, "environment") && ["latest","specified","inherited"].includes(command.environment.source))],
     ["workId", command.workId === undefined || isId(command.workId)], ["refines", command.refines === undefined || isId(command.refines)],
     ["workerMode", ["managed", "external", "none"].includes(command.workerMode)], ["retention", command.retention === "release" || command.retention === "keep"],
     ["at", isTimestamp(command.at)],
@@ -109,7 +110,7 @@ export function createTaskRun(
     if (target.workId !== command.workId) return conflict("a refinement must belong to the same work");
   }
   const state: TaskRun = {
-    id: command.id, version: 1, taskRevision: command.taskRevision, ...(command.workId ? { workId: command.workId } : {}),
+    id: command.id, version: 1, taskRevision: command.taskRevision, ...(command.environment ? { environment: command.environment } : {}), ...(command.workId ? { workId: command.workId } : {}),
     ...(command.refines ? { refines: command.refines } : {}), workerMode: command.workerMode, retention: command.retention,
     status: "pending", lateRecords: [], createdAt: command.at,
   };

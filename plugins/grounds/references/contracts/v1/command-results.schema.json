@@ -4,6 +4,7 @@
   "title": "Grounds CLI 命令结果 v1",
   "oneOf": [
     {"$ref": "work-results.schema.json"},
+    {"$ref": "sandbox-results.schema.json"},
     {"$ref": "suite-results.schema.json"},
     {"$ref": "environment.schema.json"},
     {"$ref": "#/$defs/helpResult"},

@@ -11,9 +11,11 @@ import {
 } from "../domain/index.js";
 import type { Clock, DeliveryReceiptPort, IdSource, WorkRepositories, WorkUnitOfWork } from "../ports/index.js";
 import { fail, failureOf, fromRejection, succeed, type Outcome } from "./outcome.js";
+import { runEnvironment } from "./environment-definitions.js";
 import { once, type RequestContext } from "./requests.js";
 
 export interface TaskExecutionDependencies {
+  readonly lifecycle?: import("./sandbox-lifecycle.js").SandboxLifecycle;
   readonly units: WorkUnitOfWork;
   readonly clock: Clock;
   readonly ids: IdSource;
@@ -45,15 +47,17 @@ export class TaskExecution {
   // ---- work ----------------------------------------------------------------
 
   /** Begin a work on a task: a new work whose first run is pending. */
-  startWork(input: { requestId: string; taskDefinitionId: Id; taskRevisionId?: Id; workerMode: RunMode; retention?: Retention }): Promise<Outcome<StartedRun>> {
+  startWork(input: { requestId: string; taskDefinitionId: Id; taskRevisionId?: Id; environmentRevisionId?: Id; workerMode: RunMode; retention?: Retention }): Promise<Outcome<StartedRun>> {
     const early = needId("requestId", input.requestId) ?? needId("taskDefinitionId", input.taskDefinitionId);
     if (early) return Promise.resolve(early);
     return once<StartedRun>(this.context, { requestId: input.requestId, kind: "start-work", input: input as unknown as JsonValue, subject: { type: "task", id: input.taskDefinitionId } }, async r => {
       const revision = await this.taskRevision(r, input.taskDefinitionId, input.taskRevisionId);
       if (!revision.ok) return revision;
       const at = this.deps.clock.now();
+      const environment = await runEnvironment(r, revision.value, input.environmentRevisionId);
+      if (!environment.ok) return environment;
       const workId = this.deps.ids.next(), runId = this.deps.ids.next();
-      const created = createTaskRun({ id: runId, taskRevision: refOf(revision.value), workId, workerMode: input.workerMode, retention: input.retention ?? "keep", at });
+      const created = createTaskRun({ id: runId, taskRevision: refOf(revision.value), ...(environment.value ? { environment: environment.value } : {}), workId, workerMode: input.workerMode, retention: input.retention ?? "keep", at });
       if (!created.ok) return fromRejection(created.error);
       const work = startWork({ id: workId, taskDefinitionId: input.taskDefinitionId, firstRunId: runId, at });
       if (!work.ok) return fromRejection(work.error);
@@ -64,7 +68,7 @@ export class TaskExecution {
   }
 
   /** Refine the head of a work: a new run that starts from what the head delivered, and becomes the head if nobody moved it meanwhile. */
-  continueWork(input: { requestId: string; workId: Id; expectedHead: Id; workerMode: RunMode; taskRevisionId?: Id; retention?: Retention }): Promise<Outcome<ContinuedRun>> {
+  continueWork(input: { requestId: string; workId: Id; expectedHead: Id; workerMode: RunMode; taskRevisionId?: Id; environmentRevisionId?: Id; retention?: Retention }): Promise<Outcome<ContinuedRun>> {
     const early = needId("requestId", input.requestId) ?? needId("workId", input.workId) ?? needId("expectedHead", input.expectedHead);
     if (early) return Promise.resolve(early);
     return once<ContinuedRun>(this.context, { requestId: input.requestId, kind: "continue-work", input: input as unknown as JsonValue, subject: { type: "work", id: input.workId } }, async r => {
@@ -75,7 +79,7 @@ export class TaskExecution {
   }
 
   /** Refine any run of the work without moving its head. */
-  addBranch(input: { requestId: string; workId: Id; refines: Id; workerMode: RunMode; taskRevisionId?: Id; retention?: Retention }): Promise<Outcome<ContinuedRun>> {
+  addBranch(input: { requestId: string; workId: Id; refines: Id; workerMode: RunMode; taskRevisionId?: Id; environmentRevisionId?: Id; retention?: Retention }): Promise<Outcome<ContinuedRun>> {
     const early = needId("requestId", input.requestId) ?? needId("workId", input.workId) ?? needId("refines", input.refines);
     if (early) return Promise.resolve(early);
     return once<ContinuedRun>(this.context, { requestId: input.requestId, kind: "add-branch", input: input as unknown as JsonValue, subject: { type: "work", id: input.workId } }, async r => {
@@ -85,14 +89,16 @@ export class TaskExecution {
     });
   }
 
-  private async refine(r: WorkRepositories, work: Work, refines: Id, input: { workerMode: RunMode; taskRevisionId?: Id; retention?: Retention }, moveWork: (work: Work, runId: Id, at: string) => Result<Decision<Work, unknown, unknown>>): Promise<Outcome<ContinuedRun>> {
+  private async refine(r: WorkRepositories, work: Work, refines: Id, input: { workerMode: RunMode; taskRevisionId?: Id; environmentRevisionId?: Id; retention?: Retention }, moveWork: (work: Work, runId: Id, at: string) => Result<Decision<Work, unknown, unknown>>): Promise<Outcome<ContinuedRun>> {
     const parent = await r.taskRuns.get(refines, { lock: true });
     if (!parent || parent.workId !== work.id) return fail("not-found", `run ${refines} is not a run of work ${work.id}`);
     const revision = await this.taskRevision(r, work.taskDefinitionId, input.taskRevisionId);
     if (!revision.ok) return revision;
     const at = this.deps.clock.now();
+    const environment = await runEnvironment(r, revision.value, input.environmentRevisionId);
+    if (!environment.ok) return environment;
     const runId = this.deps.ids.next();
-    const created = createTaskRun({ id: runId, taskRevision: refOf(revision.value), workId: work.id, refines, workerMode: input.workerMode, retention: input.retention ?? "keep", at },
+    const created = createTaskRun({ id: runId, taskRevision: refOf(revision.value), ...(environment.value ? { environment: environment.value } : {}), workId: work.id, refines, workerMode: input.workerMode, retention: input.retention ?? "keep", at },
       { refines: { id: parent.id, status: parent.status, taskDefinitionId: parent.taskRevision.definitionId, workId: parent.workId } });
     if (!created.ok) return fromRejection(created.error);
     const moved = moveWork(work, runId, at);
@@ -121,10 +127,10 @@ export class TaskExecution {
    * which; asking again after they ended closes it with the conclusion its head
    * showed at that moment.
    */
-  closeWork(input: { requestId: string; workId: Id }): Promise<Outcome<Closed>> {
+  async closeWork(input: { requestId: string; workId: Id }): Promise<Outcome<Closed>> {
     const early = needId("requestId", input.requestId) ?? needId("workId", input.workId);
     if (early) return Promise.resolve(early);
-    return once<Closed>(this.context, { requestId: input.requestId, kind: "close-work", input: input as unknown as JsonValue, subject: { type: "work", id: input.workId } }, async r => {
+    const outcome = await once<Closed>(this.context, { requestId: input.requestId, kind: "close-work", input: input as unknown as JsonValue, subject: { type: "work", id: input.workId } }, async r => {
       const work = await r.works.get(input.workId, { lock: true });
       if (!work) return fail("not-found", `work ${input.workId} does not exist`);
       const runs = await r.taskRuns.listByWork(work.id);
@@ -139,6 +145,12 @@ export class TaskExecution {
         return succeed({ workId: work.id, status: "closing", blockedBy, conclusion: null });
       }
       const conclusion = await this.conclusionOf(r, work, runs);
+      for (const run of runs) {
+        if (!run.sandboxId) continue;
+        if (!this.deps.lifecycle) return fail("unsupported", "sandbox lifecycle service is required to close this work");
+        const reserved = await this.deps.lifecycle.reserveForClose(r, run.id, run.sandboxId);
+        if (!reserved.ok) return reserved;
+      }
       const closed = completeClose(state, { at, conclusion, releasesReserved: true }, statuses);
       if (!closed.ok) return fromRejection(closed.error);
       if (state !== work) { await r.works.save(state, work.version); }
@@ -146,6 +158,11 @@ export class TaskExecution {
       state = closed.value.state;
       return succeed({ workId: work.id, status: "closed", blockedBy: [], conclusion });
     });
+    if (outcome.ok && outcome.value.status === "closed" && this.deps.lifecycle) {
+      const released = await this.deps.lifecycle.finishClose(input.workId);
+      if (!released.ok) return released;
+    }
+    return outcome;
   }
 
   // ---- runs ----------------------------------------------------------------

@@ -11,6 +11,7 @@ export interface TaskDefinitionsDependencies { readonly units: WorkUnitOfWork; r
 export type TaskCriterion = { id?: Id; statement: string };
 export type TaskSpec = {
   summary: string;
+  environmentDefinitionId?: string;
   criteria: TaskCriterion[];
   context?: string;
   /** Where the code lives and what the work starts from. */
@@ -37,6 +38,7 @@ export class TaskDefinitions {
       const taskId = this.deps.ids.next(), revisionId = this.deps.ids.next();
       const created = createDefinition({ id: taskId, kind: "task", name: (input.name ?? input.summary).slice(0, 256), at });
       if (!created.ok) return fromRejection(created.error);
+      if (input.environmentDefinitionId !== undefined && (await r.definitions.get(input.environmentDefinitionId))?.kind !== "environment") return fail("not-found", "environment definition does not exist");
       const content = this.content(input, undefined);
       if (!content.ok) return content;
       const published = publishRevision(created.value.state, { revisionId, expectedSeq: 0, content: content.value.json, at }, this.deps.hash);
@@ -59,6 +61,7 @@ export class TaskDefinitions {
     return once<TaskPublished>(this.context, { requestId: input.requestId, kind: "revise-task", input: input as unknown as JsonValue, subject: { type: "task", id: input.taskId } }, async r => {
       const definition = await r.definitions.get(input.taskId, { lock: true });
       if (!definition || definition.kind !== "task") return fail("not-found", `task ${input.taskId} does not exist`);
+      if (input.environmentDefinitionId !== undefined && (await r.definitions.get(input.environmentDefinitionId))?.kind !== "environment") return fail("not-found", "environment definition does not exist");
       const content = this.content(input, definition.head.seq > 0 ? await r.definitions.getRevision(definition.id, definition.head.revisionId!) : undefined);
       if (!content.ok) return content;
       const revisionId = this.deps.ids.next();
@@ -101,7 +104,7 @@ export class TaskDefinitions {
       criteria.push({ id: c.id ?? this.deps.ids.next(), statement: c.statement });
     }
     const json: Record<string, JsonValue> = { kind: "coding", schemaVersion: 1, summary: spec.summary, criteria,
-      ...(spec.context ? { context: spec.context } : {}), ...(spec.repository ? { repository: { remote: spec.repository.remote, baseline: spec.repository.baseline } } : {}) };
+      ...(spec.environmentDefinitionId ? { environmentDefinitionId: spec.environmentDefinitionId } : {}), ...(spec.context ? { context: spec.context } : {}), ...(spec.repository ? { repository: { remote: spec.repository.remote, baseline: spec.repository.baseline } } : {}) };
     return succeed({ json, criteria });
   }
 }
