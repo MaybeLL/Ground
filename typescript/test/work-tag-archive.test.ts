@@ -238,6 +238,7 @@ test("repair recovery verifies remote objects, reports rejected pushes and never
   const original = await archive.archive({ repositoryPath: r.work, remote: r.remote, deliveryId: "d", commit });
   assert.equal(original.status, "confirmed");
   if (original.status !== "confirmed") return;
+  assert.equal((await archive.fetch({ repositoryPath: r.root, receipt: original.receipt })).status, "unavailable");
   const identity = { originalId: "d", originalReceipt: original.receipt, archiveId: "repair-trial" };
   const input = { ...identity, repositoryPath: r.work, earlierReceipts: [] };
   const ref = "refs/tags/grounds/deliveries/repair-trial";

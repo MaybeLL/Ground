@@ -262,14 +262,21 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
     const seen = await this.observe(receipt.remote, receipt.ref, input.repositoryPath, true);
     if (seen.state === "unreachable") return { status: "unavailable", reason: seen.reason };
     if (seen.state === "absent" || seen.commit !== receipt.commit) return { status: "missing", reason: "the remote no longer shows the delivered commit under its tag" };
+    let created = false;
     const fetchedRef = `refs/grounds/fetch/${randomUUID()}`;
     try {
       if (!await this.sameEndpoint(receipt.remote, input.repositoryPath)) return { status: "unavailable", reason: "the checkout redirects the recorded archive endpoint" };
       await this.isolatedGit(input.repositoryPath, ["fetch", "--no-write-fetch-head", "--no-tags", "--quiet", "--", receipt.remote, `${receipt.ref}:${fetchedRef}`]);
+      created = true;
       const fetched = (await this.isolatedGit(input.repositoryPath, ["rev-parse", "--verify", `${fetchedRef}^{commit}`])).trim();
       return fetched === receipt.commit ? { status: "fetched", commit: fetched } : { status: "missing", reason: "the fetched tag no longer points to the delivered commit" };
     } catch { return { status: "unavailable", reason: "the archived tag could not be fetched" }; }
-    finally { await this.isolatedGit(input.repositoryPath, ["update-ref", "-d", fetchedRef]); }
+    finally {
+      if (created) {
+        try { await this.isolatedGit(input.repositoryPath, ["update-ref", "-d", fetchedRef]); }
+        catch { return { status: "unavailable", reason: "could not remove the temporary fetch reference" }; }
+      }
+    }
   }
 
   /** Archive a commit of the repository at `repositoryPath` under the delivery identity. Repeating it for the same commit is harmless. */
