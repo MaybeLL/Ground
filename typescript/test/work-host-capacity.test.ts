@@ -29,8 +29,8 @@ test("the scheduler shares configurable Agent slots and admits legacy and new co
   const waiting=hostDirectory("waiting"),slots=hostDirectory("slots"),requests=hostDirectory("requests");
   const birth=hostProcessIdentity(process.pid);
   assert.ok(birth);
-  const queue=(kind:"worker"|"test-grading"|"agent-grading",legacy=false)=>{
-    const id=newUUIDv7(),name=id+"."+newUUIDv7();
+  const queue=(kind:"worker"|"test-grading"|"agent-grading",legacy=false,id=newUUIDv7())=>{
+    const name=id+"."+newUUIDv7();
     atomicPrivateWrite(join(requests,name),JSON.stringify({executionId:id,...(kind==="worker"?{}:{kind})}));
     atomicPrivateWrite(join(waiting,id),JSON.stringify({name,pid:process.pid,birth,...(legacy?{}:{kind})}));
     return id;
@@ -61,8 +61,9 @@ test("the scheduler shares configurable Agent slots and admits legacy and new co
     await awaitSlot(other);
     // Pause an agent admission at its ticket until a lower setting has committed.
     await configure("--slots","2");
-    const paused=queue("worker");
+    const paused=newUUIDv7();
     await withRuntimeLock(queueRoot(),"ticket-"+paused,async()=>{
+      queue("worker",false,paused);
       await delay(350);
       await configure("--slots","1");
     });
