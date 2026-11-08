@@ -1,19 +1,19 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { hostProcessIdentity } from "./env-process.js";
 import { atomicPrivateWrite, removePrivateFile, safeRead, withRuntimeLock } from "./runtime-files.js";
-import { hostDirectory, launchManaged, managedId, queueRoot } from "./managed-host-client.js";
+import { hostDirectory, launchManaged, managedId, publishedHostEntries, queueRoot } from "./managed-host-client.js";
 
 async function schedule() {
   const queue = hostDirectory("waiting"), slots = hostDirectory("slots");
   const attempted = new Set<string>();
   for (;;) {
-    const waiting = readdirSync(queue).sort();
-    const occupied = new Set(readdirSync(slots));
+    const waiting = publishedHostEntries(queue).sort();
+    const occupied = new Set(publishedHostEntries(slots));
     const batches = hostDirectory("batches");
     let live = false;
-    for (const slot of [...Array.from(occupied,id=>join(slots,id)), ...readdirSync(batches).map(id=>join(batches,id))]) {
+    for (const slot of [...Array.from(occupied,id=>join(slots,id)), ...publishedHostEntries(batches).map(id=>join(batches,id))]) {
       let owner;
       try { owner = JSON.parse(safeRead(slot, 4096).toString()); }
       catch (error) { if (!existsSync(slot)) continue; throw error; }

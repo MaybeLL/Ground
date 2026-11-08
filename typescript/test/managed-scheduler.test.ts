@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdtempSync, realpathSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
+import {publishedHostEntries} from "../src/managed-host-client.js";
 import { dataLayout } from "../src/data-layout.js";
 import { hostProcessIdentity } from "../src/env-process.js";
 import { atomicPrivateWrite, privateDirectory } from "../src/runtime-files.js";
@@ -14,6 +15,7 @@ test("the scheduler counts unfinished allocations even when no controller is pol
   const home = realpathSync(mkdtempSync(join(tmpdir(), "grounds-host-slots-")));
   const root = join(dataLayout(home).runtime, "managed-host");
   const waiting = privateDirectory(join(root, "waiting")), slots = privateDirectory(join(root, "slots"));
+  for (const directory of [slots,waiting,privateDirectory(join(root,"batches"))]) writeFileSync(join(directory,"."+randomUUID()),"{");
   const entries = Array.from({length: 21}, () => randomUUID()).sort();
   const ticket = JSON.stringify({pid: process.pid, birth: hostProcessIdentity(process.pid)});
   for (const id of entries) atomicPrivateWrite(join(waiting, id), ticket);
@@ -27,8 +29,8 @@ test("the scheduler counts unfinished allocations even when no controller is pol
     assert.ok(predicate());
   };
   try {
-    await until(() => readdirSync(slots).length === 20);
-    const allocated = readdirSync(slots).sort();
+    await until(() => publishedHostEntries(slots).length === 20);
+    const allocated = publishedHostEntries(slots).sort();
     assert.deepEqual(allocated, entries.slice(0, 20));
     for (const id of allocated) rmSync(join(waiting, id));
     // A later ticket from a dead controller proves the scheduler processed
@@ -36,10 +38,10 @@ test("the scheduler counts unfinished allocations even when no controller is pol
     const orphan = randomUUID();
     atomicPrivateWrite(join(waiting, orphan), JSON.stringify({pid: process.pid, birth: "expired"}));
     await until(() => !existsSync(join(waiting, orphan)));
-    assert.deepEqual(readdirSync(slots).sort(), allocated);
+    assert.deepEqual(publishedHostEntries(slots).sort(), allocated);
     rmSync(join(slots, allocated[0]!));
     await until(() => existsSync(join(slots, entries[20]!)));
-    assert.equal(readdirSync(slots).length, 20);
+    assert.equal(publishedHostEntries(slots).length, 20);
   } finally {
     child.kill();
     await done;

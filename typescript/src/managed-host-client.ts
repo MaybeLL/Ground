@@ -1,6 +1,6 @@
 import {operation} from "./work/driver/operation-id.js";
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync,readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hostProcessIdentity } from "./env-process.js";
@@ -9,6 +9,10 @@ import { atomicPrivateWrite, privateDirectory, removePrivateFile, safeRead, with
 
 export type HostJob = {kind?: "test-grading" | "experiment"; config: string; ledgerId: string; runId: string; executionId: string; allowStart: boolean};
 export const managedId = /^[a-f0-9-]{36}$/;
+/** Atomic publication stages records under .<UUID> until rename completes. */
+export function publishedHostEntries(directory:string) {
+  return readdirSync(directory).filter(name=>!(name.startsWith(".") && managedId.test(name.slice(1))));
+}
 export const queueRoot = () => privateDirectory(join(dataLayout().runtime, "managed-host"));
 export const hostDirectory = (name: string) => privateDirectory(join(queueRoot(), name));
 
