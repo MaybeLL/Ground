@@ -18,6 +18,17 @@ try {
   });
   process.exitCode = test.status ?? 1;
 } finally {
-  if (built) execFileSync("docker", ["image", "rm", image], {stdio: "inherit"});
-  rmSync(root, {recursive: true, force: true, maxRetries: 5, retryDelay: 200});
+  try {
+    rmSync(root, {recursive: true, force: true, maxRetries: 5, retryDelay: 200});
+  } catch (error) {
+    if (!built || error.code !== "EACCES" && error.code !== "EPERM") throw error;
+    // A root container can create Git object directories owned by root on a
+    // Linux bind mount. Limit cleanup to this fixture's private directory.
+    execFileSync("docker", ["run", "--rm", "--network", "none", "--read-only",
+      "--mount", "type=bind,source=" + root + ",target=/fixture", "--entrypoint", "find", image,
+      "/fixture", "-xdev", "-depth", "-mindepth", "1", "-delete"], {stdio:"inherit"});
+    rmSync(root, {recursive:true,force:true});
+  } finally {
+    if (built) execFileSync("docker", ["image", "rm", image], {stdio: "inherit"});
+  }
 }
