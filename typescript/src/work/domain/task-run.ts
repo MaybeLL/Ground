@@ -68,7 +68,7 @@ export type TaskRunEvent =
   | { readonly type: "worker-stopped"; readonly runId: Id; readonly verified: boolean; readonly at: Timestamp }
   | { readonly type: "transcript-imported"; readonly runId: Id; readonly digest: Digest; readonly at: Timestamp }
   | { readonly type: "manifest-frozen"; readonly runId: Id; readonly digest: Digest; readonly origin: ManifestOrigin; readonly at: Timestamp }
-  | { readonly type: "manifest-unavailable"; readonly runId: Id; readonly operationId: Id; readonly at: Timestamp }
+  | { readonly type: "manifest-registered" | "manifest-unavailable"; readonly runId: Id; readonly operationId: Id; readonly at: Timestamp }
   | { readonly type: "delivered"; readonly runId: Id; readonly at: Timestamp }
   | { readonly type: "failed"; readonly runId: Id; readonly class: FailureClass; readonly at: Timestamp }
   | { readonly type: "cancel-requested"; readonly runId: Id; readonly at: Timestamp }
@@ -260,7 +260,7 @@ function failNow(run: TaskRun, cls: FailureClass, detail: string, at: Timestamp,
 export interface ManifestSubmission {
   origin: ManifestOrigin;
   operationId: Id;
-  check: ReceiptCheck;
+  check: ReceiptCheck | "pending";
   at: Timestamp;
   items?: readonly DeliveryItem[];
   trajectoryReceipt?: string;
@@ -280,7 +280,7 @@ const originFor: Record<WorkerMode, readonly ManifestOrigin[]> = { managed: ["to
  */
 export function submitManifest(run: TaskRun, command: ManifestSubmission): Step {
   const bad = firstInvalid([["operationId", isId(command.operationId)], ["origin", ["tool", "contract", "external", "caller"].includes(command.origin)],
-    ["check", ["accepted", "rejected", "unavailable"].includes(command.check)], ["at", isTimestamp(command.at)]]);
+    ["check", ["accepted", "rejected", "unavailable", "pending"].includes(command.check)], ["at", isTimestamp(command.at)]]);
   if (bad) return bad;
   if (isTerminal(run)) return recordLate(run, "manifest", command.at, `${command.origin} manifest after ${run.status}`);
   if (run.status !== "running") return conflict("the round has not started");
@@ -304,6 +304,15 @@ export function submitManifest(run: TaskRun, command: ManifestSubmission): Step 
     const late: LateRecord = { kind: "manifest", at: command.at, detail: `${command.origin} manifest submitted after cancellation was requested` };
     return settleCancel(run, { ...base, lateRecords: [...run.lateRecords, late] }, [...events, { type: "late-record", runId: run.id, kind: "manifest", at: command.at }], command.at, "cancel-wins");
   }
+  const items = command.items ?? [];
+  if (command.check === "accepted" || command.check === "pending") {
+    if (!items.length) return invalid("a manifest lists at least one delivery");
+    if (!items.every(item => (item.type === "candidate" || item.type === "artifact") && isId(item.id) && isText(item.receipt, 1024))) return invalid("every delivery needs a type, an id and an archive receipt");
+    if (!unique(items, item => `${item.type}:${item.id}`)) return invalid("deliveries must be unique");
+  }
+  if (command.check === "pending") {
+    return advance(run, { ...base, pendingManifest: { operationId: command.operationId, origin: command.origin } }, [...events, { type: "manifest-registered", runId: run.id, operationId: command.operationId, at: command.at }], "applied");
+  }
   if (command.check === "unavailable") {
     const wasBlocked = run.blocked?.reason === "receipt-unavailable";
     return advance(run, { ...base, pendingManifest: { operationId: command.operationId, origin: command.origin }, blocked: { reason: "receipt-unavailable", at: wasBlocked ? run.blocked!.at : command.at } },
@@ -313,10 +322,6 @@ export function submitManifest(run: TaskRun, command: ManifestSubmission): Step 
   if (worker?.kind === "managed" && worker.stop !== "verified") return conflict("the managed worker's stop is not verified");
   if (command.check === "rejected") return failNow(run, "agent-output", "the delivery was rejected by the receiving check", command.at, events, base);
 
-  const items = command.items ?? [];
-  if (items.length === 0) return invalid("a manifest lists at least one delivery");
-  if (!items.every(item => (item.type === "candidate" || item.type === "artifact") && isId(item.id) && isText(item.receipt, 1024))) return invalid("every delivery needs a type, an id and an archive receipt");
-  if (!unique(items, item => `${item.type}:${item.id}`)) return invalid("deliveries must be unique");
   if (worker?.kind === "managed" && !isText(command.trajectoryReceipt, 1024)) return invalid("a managed round needs its trajectory archived");
   if (!isDigest(command.digest)) return invalid("digest is missing or malformed");
   const manifest: Manifest = { origin: command.origin, items, ...(command.trajectoryReceipt ? { trajectoryReceipt: command.trajectoryReceipt } : {}), digest: command.digest, operationId: command.operationId, frozenAt: command.at };

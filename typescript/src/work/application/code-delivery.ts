@@ -58,13 +58,15 @@ export class CodeDelivery {
       }
       previousReceipt = item.receipt;
     }
-    const archived = await this.deps.archive.archive({ repositoryPath: input.repositoryPath, remote, deliveryId, commit, protection: input.protection, previousReceipt });
+    const proposal=(receipt:string)=>({requestId:input.requestId,runId:input.runId,...(input.sessionId ? {sessionId:input.sessionId} : {}),
+      items:[{type:"candidate" as const,id:deliveryId,receipt},...attachments.value],...(input.declaresStop ? {declaresStop:true} : {})});
+    const archived = await this.deps.archive.archive({ repositoryPath: input.repositoryPath, remote, deliveryId, commit, protection: input.protection, previousReceipt,
+      reservePublication:receipt=>this.deps.exec.reservePublication(proposal(receipt)) });
     if (archived.status !== "confirmed") {
       if (previous && archived.status === "conflict") return fail("request-conflict", archived.reason);
       return fail(archived.status, archived.reason);
     }
-    const submitted = await this.deps.exec.submit({ requestId: input.requestId, runId: input.runId, ...(input.sessionId ? { sessionId: input.sessionId } : {}),
-      items: [{ type: "candidate", id: deliveryId, receipt: archived.receipt },...attachments.value], ...(input.declaresStop ? { declaresStop: true } : {}) });
+    const submitted = await this.deps.exec.submit(proposal(archived.receipt));
     if (!submitted.ok) return submitted;
     return succeed({ delivery: { id: deliveryId, commit: archived.commit, receipt: archived.receipt, protection: input.protection ?? { level: "unknown" } }, submitted: submitted.value });
   }

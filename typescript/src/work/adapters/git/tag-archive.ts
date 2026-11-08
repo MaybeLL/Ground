@@ -371,7 +371,7 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
   }
 
   /** Archive a commit of the repository at `repositoryPath` under the delivery identity. Repeating it for the same commit is harmless. */
-  async archive(input: { frozenDestination?: boolean; observeOnly?: boolean; repositoryPath: string; remote: string; deliveryId: string; commit: string; previousReceipt?: string; protection?: ArchiveProtection }): Promise<ArchiveResult> {
+  async archive(input: { frozenDestination?: boolean; observeOnly?: boolean; repositoryPath: string; remote: string; deliveryId: string; commit: string; previousReceipt?: string; protection?: ArchiveProtection; reservePublication?:(receipt:string)=>Promise<boolean> }): Promise<ArchiveResult> {
     if (!validProtection(input.protection)) return { status: "invalid", reason: "invalid archive protection evidence" };
     if (!/^[A-Za-z0-9._-]{1,128}$/.test(input.deliveryId)) return { status: "invalid", reason: "the delivery identity is not usable in a reference name" };
     const ref = `${REF_NAMESPACE}${input.deliveryId}`;
@@ -411,6 +411,7 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
     const before = await this.observe(remote, ref, input.repositoryPath);
     if (before.state === "unreachable") return { status: "unavailable", reason: before.reason };
     if (before.state === "present" && before.commit !== commit) return { status: "conflict", reason: `${ref} already points at ${before.commit}` };
+    if (input.reservePublication && !await input.reservePublication(receipt)) return {status:"conflict",reason:"another submission owns this run or publication authority changed"};
     if (before.state === "absent") {
       if (input.observeOnly) return {status: "unavailable", reason: "publication has no remote receipt; resume to publish"};
       // A plain push of a new tag: never forced, so an existing different tag wins any race.

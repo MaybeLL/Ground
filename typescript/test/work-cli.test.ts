@@ -429,6 +429,24 @@ test("grade input and domain share Unicode length limits for criterion IDs and r
   }
 });
 
+test("an interrupted candidate publication owns its operation across runs and reconciles without another push",async t=>{
+  await withHarness(async h=>{
+    const {TaskExecution}=await import("../src/work/application/task-execution.js");
+    const task=ok(await h.cli("task","create","--title","Exclusive publication","--criterion","archived","--repo-remote",h.remote,"--baseline",h.baseline));
+    const start=async()=>ok(await h.cli("work","start","--mode","none","--task",task.taskId)).runId as string;
+    const first=await start(), second=await start(), requestId=newUUIDv7();
+    const deliver=(run:string)=>h.cli("work","deliver","--run",run,"--operation-id",requestId);
+    t.mock.method(TaskExecution.prototype,"submit",async()=>{throw new Error("ledger interrupted after push");},{times:1});
+    assert.equal((await deliver(first)).ok,false);
+    const tags=git(h.remote,"show-ref","--tags");
+    assert.ok(tags.includes(first));
+    assert.equal((await deliver(second)).ok,false);
+    assert.equal(git(h.remote,"show-ref","--tags"),tags);
+    assert.equal(ok(await h.cli("work","reconcile","--run",first)).submission.status,"delivered");
+    assert.equal(git(h.remote,"show-ref","--tags"),tags);
+  });
+});
+
 test("work reconcile finishes a stopped external submission after its receipt becomes reachable",async t=>{
   await withHarness(async h=>{
     const {GitTagArchive}=await import("../src/work/adapters/git/tag-archive.js");
@@ -447,6 +465,11 @@ test("work reconcile finishes a stopped external submission after its receipt be
     const held=ok(await h.cli("work","run","--run",runId)).run;
     assert.equal(held.worker.registration.stop.reason,"submitted");
     assert.equal(held.pendingManifest.operationId,requestId);
+    writeFileSync(join(h.repo,"private.txt"),"never publish replacement");
+    git(h.repo,"add","private.txt");git(h.repo,"commit","-qm","different submission");
+    const before=git(h.remote,"show-ref","--tags");
+    assert.equal((await h.cli("work","deliver","--run",runId,"--session",sessionId,"--operation-id",newUUIDv7())).ok,false);
+    assert.equal(git(h.remote,"show-ref","--tags"),before);
     const reconciled=ok(await h.cli("work","reconcile","--run",runId));
     assert.equal(reconciled.submission.status,"delivered");
     const final=ok(await h.cli("work","run","--run",runId)).run;

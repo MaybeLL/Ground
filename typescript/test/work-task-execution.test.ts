@@ -79,6 +79,20 @@ for (const backend of backends) {
     assert.equal(value(await t.exec.getRun(run.runId)).run.manifest?.origin, "caller");
   });
 
+  scenario("recovers the original submission after interruption during the first receipt read", async t => {
+    const {runId} = value(await t.exec.startWork({requestId:"start", taskDefinitionId:"task-1", workerMode:"external"}));
+    const {sessionId} = value(await t.exec.registerExternalWorker({requestId:"register",runId,agent:{id:"writer"}}));
+    const input = {requestId:"submit", runId, sessionId, items};
+    t.receipts.interrupt = true;
+    await assert.rejects(t.exec.submit(input), /interrupted receipt read/);
+    const {run} = value(await t.exec.getRun(runId));
+    assert.equal(run.pendingManifest?.operationId,input.requestId);
+    assert.equal(run.worker?.kind==="external" && run.worker.registration.stop?.reason,"submitted");
+    assert.equal(run.blocked,undefined);
+    assert.equal(value(await t.exec.reconcileSubmission(runId))?.status,"delivered");
+    assert.equal(value(await t.exec.submit(input)).status,"delivered");
+  });
+
   scenario("an archive that cannot be checked holds the round open; one that does not match fails it", async t => {
     const held = value(await t.exec.startWork({ requestId: "rq-1", taskDefinitionId: "task-1", workerMode: "none" }));
     t.receipts.result = "unavailable";
@@ -196,15 +210,15 @@ for (const backend of backends) {
 
 interface Harness {
   readonly exec: TaskExecution;
-  readonly receipts: { result: ReceiptCheck };
+  readonly receipts: { result: ReceiptCheck; interrupt?: boolean };
   publishTask(id: string): Promise<void>;
   listWorks(): Promise<unknown[]>;
   listRuns(workId: string): Promise<unknown[]>;
 }
 
 async function harness(units: SqlWorkUnitOfWork): Promise<Harness> {
-  const receipts = { result: "accepted" as ReceiptCheck };
-  const exec = new TaskExecution({ units, clock: { now: clock() }, ids: { next: ids("id") }, receipts: { check: async () => receipts.result }, hash });
+  const receipts = { interrupt:false, result: "accepted" as ReceiptCheck };
+  const exec = new TaskExecution({ units, clock: { now: clock() }, ids: { next: ids("id") }, receipts: { check: async () => { if (receipts.interrupt) { receipts.interrupt=false; throw new Error("interrupted receipt read"); } return receipts.result; } }, hash });
   const createTask = (id: string, published: boolean) => units.run("write", async (r: WorkRepositories) => {
     const created = createDefinition({ id, kind: "task", name: id, at: "2026-01-01T00:00:00.000Z" });
     assert.ok(created.ok);

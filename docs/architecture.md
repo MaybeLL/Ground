@@ -119,6 +119,8 @@ The Claude Code and Codex adapters map observed JSONL records to common session,
 
 Raw and normalized streams use separate SHA-256 receipts. Schema 2 stores each stream in `work_evidence` and ordered binary chunks in `work_evidence_chunks`. An import writes both streams and the session binding in one transaction. `db status` checks each chunk and the digest of the whole stream. `db upgrade` adds the evidence tables to a configured protocol-2 schema-1 ledger under the migration and database identity checks.
 
+For external and caller-supplied deliveries, the ledger reserves the candidate and its attachments before the Git push. Submission records the manifest proposal and the external session’s stop before checking receipts. Reconciliation reads the original proposal and observes the remote tag. If the push cannot be confirmed, the original delivery request can retry publication.
+
 ## Experiments
 
 ExperimentPlans stores the immutable plan in the ledger alongside its creation request. It resolves Git sources before the write transaction and freezes the environment resolution table in that transaction. Launch verifies the historical sources are still reproducible and registers the complete repeated member list. A batch row lock serializes cancellation and admission. Each admitted member has its own managed execution, task run and derived request identity, without a Work head.

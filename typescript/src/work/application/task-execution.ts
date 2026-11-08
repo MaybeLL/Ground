@@ -232,33 +232,49 @@ export class TaskExecution {
     });
   }
 
-  /**
-   * Hand in what the round delivered. The archive is checked first, outside
-   * any transaction; the manifest is then frozen, refused or held in a single
-   * step against whatever the run looks like at that moment, so a cancellation
-   * that won the race is honoured.
-   */
+  /** Reserve the exact candidate and attachments before publishing a remote tag. */
+  async reservePublication(input:SubmissionInput) {
+    const hash=digestOf({kind:"submit",input:input as unknown as JsonValue},this.deps.hash);
+    if (!hash.ok) return false;
+    return this.deps.units.run("write",async r=>{
+      const run=await r.taskRuns.get(input.runId,{lock:true});
+      if (!run || run.cancelIntent || isTerminal(run) || run.workerMode==="managed") return false;
+      if (run.workerMode==="external" && (run.worker?.kind!=="external" || run.worker.registration.sessionId!==input.sessionId ||
+          run.worker.registration.stop && run.pendingManifest?.operationId!==input.requestId)) return false;
+      if (run.pendingManifest && run.pendingManifest.operationId!==input.requestId) return false;
+      const prior=await r.intents.findByRequest(input.requestId);
+      if (prior && prior.requestHash!==hash.value) return false;
+      const [owner]=await r.intents.listForSubject("archive-candidate","task_run",run.id);
+      if (owner) return owner.requestHash===hash.value;
+      const key=digestOf(input.requestId,this.deps.hash);
+      if (!key.ok) return false;
+      const reservationId="candidate-publication-"+key.value;
+      if (await r.intents.findByRequest(reservationId)) return false;
+      const id=this.context.newId(),at=this.context.now();
+      await r.intents.register({id,requestId:reservationId,requestHash:hash.value,kind:"archive-candidate",subject:{type:"task_run",id:run.id},
+        payload:input as unknown as JsonValue,state:"registered",version:1,createdAt:at,updatedAt:at});
+      return true;
+    });
+  }
+
+  /** Persist the proposal and external stop before checking its receipts outside SQL. */
   async submit(input: SubmissionInput): Promise<Outcome<Submitted>> {
     const early = needId("requestId", input.requestId) ?? needId("runId", input.runId);
     if (early) return early;
     if (input.items.length === 0) return fail("invalid", "a manifest lists at least one delivery");
     const request={requestId:input.requestId,kind:"submit",input:input as unknown as JsonValue,subject:{type:"task_run",id:input.runId}};
-    const {known,prior}=await this.deps.units.run("read",async r=>({known:await r.taskRuns.get(input.runId),prior:await r.intents.findByRequest(input.requestId)}));
-    if (!known) return fail("not-found", "task run does not exist");
-    if (known.workerMode==="managed") return fail("unsupported","a managed round delivers through its own execution");
-    if (prior) {
-      const hash=digestOf({kind:request.kind,input:request.input},this.deps.hash);
-      if (!hash.ok || hash.value!==prior.requestHash) return fail("request-conflict","submission identity was previously used with different input");
-      const result=prior.result as Submitted;
-      if (result.blocked!=="receipt-unavailable") return this.afterTerminal(succeed(result));
-    }
-    const check=prior && isTerminal(known) ? "unavailable" : await this.deps.receipts.check(input.items);
-    const apply=async(r:WorkRepositories,run:TaskRun):Promise<Outcome<Submitted>>=>{
+    const apply=async(r:WorkRepositories,run:TaskRun,check:"pending"|"accepted"|"rejected"|"unavailable"):Promise<Outcome<Submitted>>=>{
+      if (run.workerMode==="managed") return fail("unsupported","a managed round delivers through its own execution");
       const at = this.deps.clock.now();
       const taskRevision = await r.definitions.getRevision(run.taskRevision.definitionId,run.taskRevision.revisionId);
       const task = parseTaskContent(taskRevision?.content);
       if (!task.ok) return fromRejection(task.error);
-      if ((task.value.outputs || task.value.kind === "working" || input.items.some(item=>item.type === "artifact")) && !run.cancelIntent) {
+      const [publication]=await r.intents.listForSubject("archive-candidate","task_run",run.id);
+      if (publication) {
+        const hash=digestOf({kind:"submit",input:input as unknown as JsonValue},this.deps.hash);
+        if (!hash.ok || hash.value!==publication.requestHash) return fail("conflict","another submission owns the reserved publication");
+      }
+      if (check==="pending" && (task.value.outputs || task.value.kind === "working" || input.items.some(item=>item.type === "artifact")) && !run.cancelIntent) {
         if (task.value.kind === "coding" && !input.items.some(item=>item.type === "candidate")) return fail("invalid","coding tasks require a candidate");
         const slots = new Set<string>();
         for (const item of input.items) {
@@ -288,22 +304,26 @@ export class TaskExecution {
       if (!submitted.ok) return fromRejection(submitted.error);
       steps.push(submitted.value.state);
       await this.saveChain(r, run, steps);
+      if (publication?.state==="registered") await r.intents.save({...publication,state:"completed",updatedAt:at,version:publication.version+1},publication.version);
       const final = submitted.value.state;
-      return succeed({ runId: run.id, status: final.status, outcome: String(submitted.value.outcome), blocked: final.blocked?.reason ?? null });
+      return succeed({ runId: run.id, status: final.status, outcome: check==="pending" && final.pendingManifest ? "pending-receipt" : String(submitted.value.outcome), blocked: final.blocked?.reason ?? null });
     };
     let changed=await once<Submitted>(this.context,request,async r=>{
       const run=await r.taskRuns.get(input.runId,{lock:true});
-      return run ? apply(r,run) : fail("not-found","task run does not exist");
+      return run ? apply(r,run,"pending") : fail("not-found","task run does not exist");
     });
-    if (changed.ok && changed.value.blocked==="receipt-unavailable" && (check!=="unavailable" || prior)) {
+    const awaitingReceipt=(result:Submitted)=>result.outcome==="pending-receipt" || result.blocked==="receipt-unavailable";
+    if (changed.ok && awaitingReceipt(changed.value)) {
+      const run=await this.deps.units.run("read",r=>r.taskRuns.get(input.runId));
+      const check=run && isTerminal(run) ? "unavailable" : await this.deps.receipts.check(input.items);
       changed=await this.deps.units.run("write",async r=>{
         const run=await r.taskRuns.get(input.runId,{lock:true}),intent=await r.intents.findByRequest(input.requestId);
         if (!run || !intent) return fail("conflict","pending submission is missing");
         const previous=intent.result as Submitted;
-        if (previous.blocked!=="receipt-unavailable") return succeed(previous);
+        if (!awaitingReceipt(previous)) return succeed(previous);
         if (!isTerminal(run) && run.pendingManifest?.operationId!==input.requestId) return fail("conflict","another submission owns the pending manifest");
-        if (!isTerminal(run) && check==="unavailable") return succeed(previous);
-        const next=isTerminal(run) ? succeed({runId:run.id,status:run.status,outcome:run.status==="cancelled" ? "cancel-wins" : "already-terminal",blocked:null}) : await apply(r,run);
+        if (!isTerminal(run) && check==="unavailable" && previous.blocked==="receipt-unavailable") return succeed(previous);
+        const next=isTerminal(run) ? succeed({runId:run.id,status:run.status,outcome:run.status==="cancelled" ? "cancel-wins" : "already-terminal",blocked:null}) : await apply(r,run,check);
         if (!next.ok) return next;
         await r.intents.save({...intent,result:next.value,updatedAt:this.deps.clock.now(),version:intent.version+1},intent.version);
         return next;
@@ -316,13 +336,27 @@ export class TaskExecution {
     const found=await this.deps.units.run("read",async r=>{
       const run=await r.taskRuns.get(runId);
       if (!run) return fail("not-found","task run does not exist");
-      if (!run.pendingManifest) return succeed(null);
+      if (!run.pendingManifest) {
+        const [publication]=await r.intents.listForSubject("archive-candidate","task_run",runId);
+        if (!isTerminal(run) && publication?.state==="registered") return succeed({publication:publication.payload as unknown as SubmissionInput});
+        if (isTerminal(run) && (run.sandboxId || publication || run.manifest)) return succeed({settle:true});
+        return succeed(null);
+      }
       const intent=await r.intents.findByRequest(run.pendingManifest.operationId);
       if (intent?.kind!=="submit" || intent.subject.id!==runId) return fail("conflict","pending submission is missing");
-      return succeed(intent.payload as unknown as SubmissionInput);
+      return succeed({submission:intent.payload as unknown as SubmissionInput});
     });
     if (!found.ok) return found;
-    return found.value ? this.submit(found.value) : succeed(null);
+    if (found.value && "settle" in found.value && this.deps.lifecycle) {
+      const settled=await this.deps.lifecycle.settleRun(runId);
+      if (!settled.ok) return settled;
+    }
+    if (found.value && "publication" in found.value) {
+      const input=found.value.publication;
+      if (await this.deps.receipts.check(input.items)!=="accepted") return fail("unavailable","publication is unconfirmed; retry delivery with its original operation ID");
+      return this.submit(input);
+    }
+    return found.value && "submission" in found.value ? this.submit(found.value.submission) : succeed(null);
   }
 
   /** The external agent says it has stopped (or the human did); a cancellation waiting on it can now complete. */

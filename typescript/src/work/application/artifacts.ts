@@ -125,8 +125,7 @@ export class Artifacts {
     return this.ctx.units.run("read",async r=>{
       for (const item of items) {
         const saved = await readArtifact(r,item.id);
-        if (!saved || saved.receipt !== item.receipt) return "rejected" as const;
-        for (const file of saved.files) await r.evidence.verify(file.content.digest);
+        if (!saved || !await verifiedArtifact(r,saved.runId,item.id,item.receipt,this.ctx.hash)) return "rejected" as const;
       }
       return "accepted" as const;
     });
