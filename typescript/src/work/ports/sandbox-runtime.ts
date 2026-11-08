@@ -4,6 +4,9 @@ export type RuntimeLocation = { hostId: string; daemonId: string };
 export type RuntimeOwner = { ledgerId: string; sandboxId: string; setupAttempt?: string };
 export type RuntimeState = { id: string; setupAttempt?: string; state: "running" | "paused" | "stopped" };
 export type RuntimeWorkspace = { path: string; graderMaterials?: string; evaluatorDelivery?:string; taskMaterials?:string; configPath: string; containerFolder?: string; imageDigest?: string; frozenLockfile?: boolean };
+/** Docker positively identified a missing or stopped service of the owned project. */
+export class SandboxServiceStopped extends Error {}
+
 export interface SandboxRuntimePort {
   location(): Promise<RuntimeLocation>;
   exclusive<T>(owner: RuntimeOwner, fn: () => Promise<T>): Promise<T>;

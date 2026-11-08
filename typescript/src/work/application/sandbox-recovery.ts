@@ -1,4 +1,5 @@
 import { failInfrastructure, isTerminal, markBlocked, markReady } from "../domain/index.js";
+import {SandboxServiceStopped} from "../ports/index.js";
 import type { ManagedWorkspacePort, SandboxLauncher, RuntimeOwner, SandboxRuntimePort } from "../ports/index.js";
 import { fail, fromRejection, succeed, type Outcome } from "./outcome.js";
 import type { RequestContext } from "./requests.js";
@@ -78,8 +79,8 @@ export class SandboxRecovery {
       }
       if (!id || observed?.id !== id || observed.state !== "running") return fail("unavailable", "cannot confirm the recorded running sandbox and completed devcontainer setup");
       try { await this.deps.runtime.verifyReady?.(owner,id); }
-      catch {
-        if (claim.state==="registered") return this.failedPreparation(payload,"completed sandbox services could not be confirmed before registration",id);
+      catch (error) {
+        if (claim.state==="registered" && error instanceof SandboxServiceStopped) return this.failedPreparation(payload,"completed sandbox services could not be confirmed before registration",id);
         return fail("unavailable","the recorded sandbox services are not ready");
       }
       const result = await this.deps.units.run("write", async r => {

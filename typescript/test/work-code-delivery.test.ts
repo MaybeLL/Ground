@@ -198,6 +198,7 @@ for (const backend of backends) test(`${backend}: reconcile a sandbox launch wit
     const task = value(await app.tasks.createTask({ requestId:"task", summary:"isolation", criteria:[{statement:"isolated"}], environmentDefinitionId:env.environmentId, repository:{ remote, baseline } }));
     const run = value(await app.exec.startWork({ requestId:"run", taskDefinitionId:task.taskId, workerMode:"external" }));
     const id = "a".repeat(64);
+    let serviceProbeOffline = true;
     let launches = 0, pauses = 0, removals = 0, daemonId = "test";
     let current: { id: string; state: "running" | "paused" } | null = null;
     class Runtime extends DevcontainerRuntime {
@@ -205,6 +206,7 @@ for (const backend of backends) test(`${backend}: reconcile a sandbox launch wit
       override async exclusive<T>(_owner: unknown, fn: () => Promise<T>) { return fn(); }
       override async up() { launches++; return current = { id, state:"running" as const }; }
       override async observe() { return current; }
+      override async verifyReady() {if (serviceProbeOffline) throw Error("temporary daemon observation failure");}
       override async pause() { current = {id,state:"paused"}; pauses++; throw new Error("lost pause reply"); }
       override async remove() { current = null; removals++; throw new Error("lost release reply"); }
     }
@@ -221,6 +223,8 @@ for (const backend of backends) test(`${backend}: reconcile a sandbox launch wit
     const provisioner = new SandboxProvisioning({ ...ctx, lifecycle, delivery:app.delivery, workspaces, launcher });
     refused(await provisioner.prepare("prepare",run.runId,repo),"unavailable");
     await setComplete!();
+    refused(await provisioner.reconcile(run.runId),"unavailable");
+    serviceProbeOffline=false;
     const recovered = value(await provisioner.reconcile(run.runId));
     assert.equal(recovered.instanceId,id);
     assert.equal(value(await provisioner.prepare("prepare",run.runId,repo)).sandboxId,recovered.sandboxId);

@@ -1,5 +1,5 @@
 import type {AgentGradingDriver} from "./agent-grading.js";
-import {TestTargetFault} from "../ports/index.js";
+import {SandboxServiceStopped,TestTargetFault} from "../ports/index.js";
 import { authorizeBridge, isGradingTerminal } from "../domain/index.js";
 import type { ManagedWorkspacePort, RuntimeOwner, SandboxLauncher, SandboxRuntimePort, TestProcessPort } from "../ports/index.js";
 import { fail, succeed, type Outcome } from "../application/outcome.js";
@@ -103,7 +103,11 @@ export class TestGradingDriver {
         return fault.ok ? this.drive(id,false) : fault;
       }
       try {await runtime.verifyReady?.(owner,receipt);}
-      catch {return succeed({state:"blocked",detail:"evaluator sandbox services could not be confirmed"});}
+      catch (error) {
+        if (!(error instanceof SandboxServiceStopped)) return succeed({state:"blocked",detail:"evaluator sandbox services could not be confirmed"});
+        const fault=await tests.fault(id,"evaluator sandbox dependency stopped during preparation");
+        return fault.ok ? this.drive(id,false) : fault;
+      }
       const ready = await tests.ready(id,receipt);
       return ready.ok ? this.drive(id,live) : ready;
     }

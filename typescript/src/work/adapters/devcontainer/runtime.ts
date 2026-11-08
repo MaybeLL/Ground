@@ -9,6 +9,7 @@ import { join, dirname } from "node:path";
 import { checkIsolation, pinnedConfig } from "./config.js";
 import { mkdir, readFile, writeFile, copyFile, realpath, unlink } from "node:fs/promises";
 import { promisify } from "node:util";
+import {SandboxServiceStopped} from "../../ports/sandbox-runtime.js";
 import type { RuntimeOwner, RuntimeState, RuntimeWorkspace, SandboxRuntimePort } from "../../ports/index.js";
 
 const exec = promisify(execFile);
@@ -218,7 +219,8 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
     const record=JSON.parse(safeRead(receipt,1024*1024).toString());
     const compose=composeEnvironment(record.service,record.services,true,record.volumes);
     const info=await this.composeInventory(this.composeProject(owner),compose,true);
-    if (info.services.get(compose.service)!==id || !Object.keys(compose.services).every(key=>info.services.has(key))) throw Error("Compose services are missing");
+    if (info.services.get(compose.service)!==id) throw Error("Compose execution container identity changed");
+    if (!Object.keys(compose.services).every(key=>info.services.has(key))) throw new SandboxServiceStopped("Compose dependency is missing");
   }
 
   private async composeInventory(project:string,compose:ComposeEnvironment,ready=false) {
@@ -233,7 +235,8 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
           services.has(service) || !Object.hasOwn(compose.services,service) || info.Image!==compose.services[service]!.image) throw Error("Compose project contains an unrelated container");
       if (ready) {
         const networks=Object.keys(info.NetworkSettings.Networks);
-        if (!info.State.Running || info.State.Paused || info.State.Restarting || networks.length!==1 || networks[0]!==project+"_default")
+        if (!info.State.Running) throw new SandboxServiceStopped("Compose service has stopped");
+        if (info.State.Paused || info.State.Restarting || networks.length!==1 || networks[0]!==project+"_default")
           throw Error("Compose service is not running on the project network");
         if (service!==compose.service) {
           const declared=compose.services[service]!.volumes ?? [];
