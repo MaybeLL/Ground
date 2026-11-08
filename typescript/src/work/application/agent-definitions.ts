@@ -47,10 +47,17 @@ export class AgentDefinitions {
     if (!repository?.baseline || !repository.remote) return fail("invalid", "managed coding requires a baseline and a publication remote");
     const parent = run.refines ? await r.taskRuns.get(run.refines) : undefined;
     const candidate = parent?.manifest?.items.find(item => item.type === "candidate");
+    const inherited = run.environment.source === "inherited";
+    const previous = inherited && parent ? (await r.intents.listForSubject("managed-worker", "task_run", parent.id))[0]?.payload as ManagedTask | undefined : undefined;
+    if (inherited && !previous) return fail("conflict", "the previous worker's repository binding is missing");
+    const parentReceipt = candidate?.receipt ?? previous?.parentReceipt;
     let source;
-    try { source = await this.source.freezeSource(selection.repositoryPath, repository.baseline, repository.remote, candidate?.receipt); }
+    try { source = await this.source.freezeSource(selection.repositoryPath, previous?.baseline ?? repository.baseline, repository.remote, parentReceipt); }
     catch { return fail("invalid", "the managed repository, baseline or publication endpoint could not be resolved"); }
-    const payload: ManagedTask = {runId: run.id, executionId, ...source};
+    if (previous && (previous.repositoryPath !== source.repositoryPath || previous.remote !== source.remote)) {
+      return fail("conflict", "the selected repository differs from the retained workspace; select a fresh sandbox");
+    }
+    const payload: ManagedTask = {runId: run.id, executionId, ...source, ...(parentReceipt ? {parentReceipt} : {})};
     const hash=digestOf(payload,this.ctx.hash);
     if (!hash.ok) return fromRejection(hash.error);
     await r.executions.create(accepted.value.state);

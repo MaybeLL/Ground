@@ -34,6 +34,10 @@ export class ManagedTaskDriver {
       const settled=await this.deps.lifecycle.settleRun(runId);
       return settled.ok ? succeed({state:"terminal"}) : settled;
     }
+    if (ctx.sandbox?.reservation?.kind === "transfer") {
+      const done = await this.deps.lifecycle.completeTransfer(runId, allowStart && !ctx.run.cancelIntent);
+      return done.ok ? this.drive(runId, allowStart) : succeed({state: allowStart ? "blocked" : "awaiting-resume", detail: done.error.message});
+    }
     if(!ctx.sandbox?.runtime || !ctx.sandbox.location) {
       if(isTerminal(ctx.run) || ctx.run.cancelIntent) {
         const done=await this.deps.workers.infrastructure(runId,"run ended before worker launch",false);

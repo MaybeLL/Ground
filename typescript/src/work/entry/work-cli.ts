@@ -107,6 +107,12 @@ async function task(args: ParsedArgs, action: string, app: WorkApplication): Pro
 }
 
 async function work(args: ParsedArgs, action: string, app: WorkApplication, deps: WorkEntryDependencies): Promise<object> {
+  const sandboxChoice = () => {
+    if (raw(args, "sandbox") === undefined) return {};
+    const sandbox = need(args, "sandbox");
+    if (sandbox !== "fresh" && sandbox !== "inherit") throw validation("sandbox", "expected fresh or inherit");
+    return {sandbox} as {sandbox: "fresh" | "inherit"};
+  };
   const selection = () => raw(args,"agent")!==undefined || raw(args,"agent-revision")!==undefined ? {agent:{
     definitionId:need(args,"agent"),repositoryPath:resolve(deps.cwd,text(args,"repo")??"."),
     ...(raw(args,"agent-revision")!==undefined ? {revisionId:need(args,"agent-revision")} : {}),
@@ -151,8 +157,8 @@ async function work(args: ParsedArgs, action: string, app: WorkApplication, deps
     }
     case "environment": return unwrap(await app.environments.show(need(args,"environment"), integer(args,"revision")));
     case "start": return unwrap(await app.exec.startWork({ requestId: requestId(args), taskDefinitionId: need(args, "task"), workerMode: mode(args), ...selection(), ...(raw(args,"environment-revision") !== undefined ? { environmentRevisionId: need(args,"environment-revision") } : {}), ...(text(args, "revision-id") ? { taskRevisionId: text(args, "revision-id")! } : {}) }));
-    case "continue": return unwrap(await app.exec.continueWork({ requestId: requestId(args), workId: need(args, "work"), expectedHead: need(args, "expected-head"), workerMode: mode(args), ...selection(), ...(raw(args,"environment-revision") !== undefined ? { environmentRevisionId: need(args,"environment-revision") } : {}), ...(text(args, "revision-id") ? { taskRevisionId: text(args, "revision-id")! } : {}) }));
-    case "branch": return unwrap(await app.exec.addBranch({ requestId: requestId(args), workId: need(args, "work"), refines: need(args, "refines"), workerMode: mode(args), ...selection(), ...(raw(args,"environment-revision") !== undefined ? { environmentRevisionId: need(args,"environment-revision") } : {}), ...(text(args, "revision-id") ? { taskRevisionId: text(args, "revision-id")! } : {}) }));
+    case "continue": return unwrap(await app.exec.continueWork({ ...sandboxChoice(), requestId: requestId(args), workId: need(args, "work"), expectedHead: need(args, "expected-head"), workerMode: mode(args), ...selection(), ...(raw(args,"environment-revision") !== undefined ? { environmentRevisionId: need(args,"environment-revision") } : {}), ...(text(args, "revision-id") ? { taskRevisionId: text(args, "revision-id")! } : {}) }));
+    case "branch": return unwrap(await app.exec.addBranch({ ...sandboxChoice(), requestId: requestId(args), workId: need(args, "work"), refines: need(args, "refines"), workerMode: mode(args), ...selection(), ...(raw(args,"environment-revision") !== undefined ? { environmentRevisionId: need(args,"environment-revision") } : {}), ...(text(args, "revision-id") ? { taskRevisionId: text(args, "revision-id")! } : {}) }));
     case "select": return unwrap(await app.exec.selectHead({ requestId: requestId(args), workId: need(args, "work"), runId: need(args, "run"), ...(text(args, "expected-head") ? { expectedHead: text(args, "expected-head")! } : {}) }));
     case "close": return unwrap(await app.exec.closeWork({ requestId: requestId(args), workId: need(args, "work") }));
     case "show": {

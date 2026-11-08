@@ -31,7 +31,7 @@ export class ManagedWorkers {
       if (!agent || !task) return fail("conflict","managed definitions are missing");
       const sandbox = run.sandboxId ? await r.sandboxes.get(run.sandboxId) : undefined;
       const reservation = sandbox && (await r.intents.listForSubject("reserve-task-sandbox","task_run",runId))[0];
-      const baseline = (reservation?.result as {commit?:string}|undefined)?.commit;
+      const baseline = run.environment?.source === "inherited" ? job.baseline : (reservation?.result as {commit?:string}|undefined)?.commit;
       return succeed({job,intentId:intent.id,run,exec,...(sandbox?{sandbox}:{}),...(baseline?{baseline}:{}),agent:agent.content as AgentSettings,task:task.content as ManagedContext["task"]});
     });
   }

@@ -189,7 +189,7 @@ export function applyTransfer(sandbox: Sandbox, command: { operationId: Id; rete
 }
 
 /** Finish a pause, resume or transfer; a release finishes with completeRelease. */
-export function completeReservation(sandbox: Sandbox, command: { operationId: Id; at: Timestamp; pauseObservation?: "paused" | "stopped" | "absent" }): Step {
+export function completeReservation(sandbox: Sandbox, command: { operationId: Id; at: Timestamp; runtimeReady?: boolean; pauseObservation?: "paused" | "stopped" | "absent" }): Step {
   if (!isId(command.operationId) || !isTimestamp(command.at)) return invalid("operationId and at are required");
   const r = sandbox.reservation;
   if (!r || r.operationId !== command.operationId) return conflict("no such operation is reserved");
@@ -199,7 +199,7 @@ export function completeReservation(sandbox: Sandbox, command: { operationId: Id
     case "resume": phase = "ready"; break;
     case "transfer":
       if (!r.ownerChanged) return conflict("the owner has not been changed yet");
-      phase = sandbox.phase === "paused" ? "ready" : sandbox.phase === "blocked" ? "preparing" : sandbox.phase;
+      phase = command.runtimeReady && sandbox.runtime ? "ready" : sandbox.phase === "paused" ? "ready" : sandbox.phase === "blocked" ? "preparing" : sandbox.phase;
       break;
     default: return conflict("a release finishes with completeRelease");
   }

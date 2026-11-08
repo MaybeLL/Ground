@@ -186,6 +186,7 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
   async resume(owner: RuntimeOwner, id: string) {
     const current = await this.owned(owner, id);
     if (current.state === "paused") await this.invoke(this.docker, ["unpause", id], opts);
+    if (current.state === "stopped") await this.invoke(this.docker, ["start", id], opts);
     if ((await this.owned(owner, id)).state !== "running") throw new Error("sandbox resume not confirmed");
   }
 

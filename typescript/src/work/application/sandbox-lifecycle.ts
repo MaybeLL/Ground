@@ -9,6 +9,41 @@ type Result = { sandboxId: string; runId: string; phase: "blocked" | "paused" | 
 export class SandboxLifecycle {
   constructor(private readonly deps: RequestContext & { runtime: SandboxRuntimePort; ledgerId(): Promise<string> }) {}
 
+  async completeTransfer(runId: string, allowResume: boolean): Promise<Outcome<null>> {
+    const sandbox = await this.deps.units.run("read", async r => {
+      const run = await r.taskRuns.get(runId);
+      return run?.sandboxId ? r.sandboxes.get(run.sandboxId) : undefined;
+    });
+    const reservation = sandbox?.reservation;
+    if (!sandbox || sandbox.owner.id !== runId || reservation?.kind !== "transfer" ||
+        !reservation.ownerChanged || reservation.receiver !== runId) return fail("conflict", "sandbox transfer does not belong to the receiving run");
+    const owner = {ledgerId: await this.deps.ledgerId(), sandboxId: sandbox.id};
+    try {
+      return await this.deps.runtime.exclusive(owner, async () => {
+        const location = await this.deps.runtime.location();
+        if (sandbox.location?.hostId !== location.hostId || sandbox.location.daemonId !== location.daemonId) return fail("conflict", "the retained sandbox is on another host");
+        const observed = await this.deps.runtime.observe(owner);
+        if (!observed || observed.id !== sandbox.runtime?.instanceId) return fail("unavailable", "retained container is unavailable");
+        if (observed.state !== "running") {
+          if (!allowResume) return fail("unavailable", "retained container needs an explicit resume");
+          await this.deps.runtime.resume(owner, observed.id);
+        }
+        const verified = await this.deps.runtime.observe(owner);
+        if (verified?.id !== observed.id || verified.state !== "running") return fail("unavailable", "retained container resume is unconfirmed");
+        return this.deps.units.run("write", async r => {
+          const current = await r.sandboxes.get(sandbox.id, {lock: true});
+          if (!current || current.owner.id !== runId || current.reservation?.operationId !== reservation.operationId) {
+            return fail("conflict", "retained sandbox reservation changed");
+          }
+          const done = completeReservation(current, {operationId: reservation.operationId, at: this.deps.now(), runtimeReady: true});
+          if (!done.ok) return fromRejection(done.error);
+          await r.sandboxes.save(done.value.state, current.version);
+          return succeed(null);
+        });
+      });
+    } catch { return fail("unavailable", "could not verify the retained sandbox at its recorded runtime"); }
+  }
+
   async reserve(r: WorkRepositories, requestId: string, runId: string, action: Action) {
     const digest = digestOf({ kind: "sandbox-lifecycle", runId, action }, this.deps.hash);
     if (!digest.ok || !isId(requestId) || !isId(runId)) return fail("invalid", "invalid lifecycle operation");

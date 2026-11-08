@@ -804,3 +804,51 @@ test("managed worker runs in its owned devcontainer after admission and delivers
     }
   });
 });
+
+test("managed worker runs a refinement in its retained workspace with the original environment", {skip: !process.env.GROUNDS_TEST_MANAGED_AGENT}, async () => {
+  await withHarness(async h => {
+    const docker = (...args: string[]) => execFileSync("docker", args, {encoding: "utf8"}).trim();
+    const image = process.env.GROUNDS_TEST_MANAGED_AGENT!;
+    const digest = docker("image", "inspect", "--format", "{{.Id}}", image);
+    const config = join(h.directory, "devcontainer.json");
+    writeFileSync(config, JSON.stringify({image, workspaceFolder: "/work"}));
+    const define = ["work", "define-environment", "--name", "retained", "--devcontainer", config, "--image-digest", digest];
+    const environment = ok(await h.cli(...define));
+    const task = ok(await h.cli("task", "create", "--title", "handoff fixture", "--criterion", "use notes", "--environment", environment.environmentId, "--repo-remote", h.remote, "--baseline", h.baseline));
+    const agent = ok(await h.cli("work", "define-agent", "--name", "fixture", "--provider", "codex"));
+    const managed = ["--mode", "managed", "--agent", agent.agentId, "--repo", h.repo];
+    const ledger = ok(await h.cli("db", "status")).database_id;
+    const awaitDelivery = async (runId: string) => {
+      const deadline = Date.now() + 45_000;
+      let status;
+      do {
+        status = ok(await h.cli("work", "managed-status", "--run", runId));
+        if (status.status === "delivered" || status.host?.state === "blocked" || status.status === "failed") break;
+        await new Promise(resolve => setTimeout(resolve, 200));
+      } while (Date.now() < deadline);
+      assert.equal(status.status, "delivered", JSON.stringify(status));
+      await withRuntimeLock(join(dataLayout().runtime, "managed-host"), "execution-" + status.executionId, async () => {}, 10_000);
+      return ok(await h.cli("work", "run", "--run", runId)).run;
+    };
+    try {
+      const first = ok(await h.cli("work", "start", "--task", task.taskId, ...managed));
+      const parent = await awaitDelivery(first.runId);
+      writeFileSync(config, JSON.stringify({image, workspaceFolder: "/new-workspace"}));
+      const newer = ok(await h.cli(...define, "--environment", environment.environmentId, "--expected-seq", "1"));
+      const next = ["work", "continue", "--work", first.workId, "--expected-head", first.runId, ...managed];
+      assert.equal((await h.cli(...next, "--environment-revision", newer.revisionId)).ok, false);
+      const child = ok(await h.cli(...next));
+      const run = await awaitDelivery(child.runId);
+      assert.equal(run.sandboxId, parent.sandboxId);
+      assert.equal(run.environment.source, "inherited");
+      assert.equal(run.environment.revision.revisionId, parent.environment.revision.revisionId);
+      const tag = "refs/tags/grounds/deliveries/" + run.manifest.items[0].id;
+      assert.equal(git(h.remote, "show", tag + ":result.txt"), "inherited uncommitted note");
+      assert.equal(git(h.remote, "ls-tree", "--name-only", tag, "scratch-note"), "");
+      assert.equal((await h.cli("work", "branch", "--work", first.workId, "--refines", first.runId, ...managed, "--sandbox", "inherit")).ok, false);
+      ok(await h.cli("work", "close", "--work", first.workId));
+    } finally {
+      for (const id of docker("ps", "-aq", "--filter", "label=dev.grounds.ledger=" + ledger).split("\n").filter(Boolean)) docker("rm", "-f", id);
+    }
+  });
+});

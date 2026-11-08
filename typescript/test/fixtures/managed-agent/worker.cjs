@@ -29,7 +29,10 @@ if (task.task.startsWith("concurrent fixture ")) {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
   }
 }
-writeFileSync("result.txt",task.task + "\n");
+const handoff = task.task === "handoff fixture";
+const content = handoff && existsSync("scratch-note") ? readFileSync("scratch-note", "utf8") : task.task;
+writeFileSync("result.txt", content + "\n");
+if (handoff) writeFileSync("scratch-note", "inherited uncommitted note");
 const git = (...args) => execFileSync("git",args,{encoding:"utf8"}).trim();
 git("add","result.txt"); git("commit","-qm","Deliver fixture");
 const message=JSON.stringify({candidate:{commit:git("rev-parse","HEAD")}});
