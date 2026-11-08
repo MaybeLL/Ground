@@ -28,10 +28,18 @@ export class SqlEvidence implements EvidenceRepository {
     const ref = await this.describe(digest);
     if (!ref) throw invalid("evidence manifest missing");
     const hash = createHash("sha256");
-    for (let i = 0; i < ref.chunkCount; i++) {
-      const data = await this.chunk(digest,i);
-      if (!data || data.length !== Math.min(chunkSize,ref.byteLength - i*chunkSize)) throw invalid("missing or incorrectly sized evidence chunk");
-      hash.update(data);
+    // Read at most 2 MiB per page while checking every ordinal and chunk digest.
+    for (let first=0;first<ref.chunkCount;first+=32) {
+      const end=Math.min(first+32,ref.chunkCount);
+      const rows=await this.client.all("SELECT ordinal, bytes, chunk_digest FROM work_evidence_chunks WHERE digest = ? AND ordinal >= ? AND ordinal < ? ORDER BY ordinal",[digest,first,end]);
+      if (rows.length!==end-first) throw invalid("missing or incorrectly sized evidence chunk");
+      for (const [offset,row] of rows.entries()) {
+        const i=first+offset;
+        const data=row.bytes;
+        if (Number(row.ordinal)!==i || !(data instanceof Uint8Array) || data.length!==Math.min(chunkSize,ref.byteLength-i*chunkSize)) throw invalid("missing or incorrectly sized evidence chunk");
+        if (fingerprint(data)!==row.chunk_digest) throw invalid("evidence chunk failed its digest check");
+        hash.update(data);
+      }
     }
     const count = await this.client.get("SELECT COUNT(*) AS total FROM work_evidence_chunks WHERE digest = ?",[digest]);
     if (Number(count?.total) !== ref.chunkCount || "sha256:" + hash.digest("hex") !== digest) throw invalid("evidence does not match its manifest");

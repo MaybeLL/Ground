@@ -825,6 +825,7 @@
         "manifestDigest": {"$ref": "#/$defs/Digest"},
         "graderRevision": {"$ref": "#/$defs/RevisionRef"},
         "materialsDigest": {"$ref": "#/$defs/Digest"},
+        "archivedEvidenceDigest": {"$ref": "#/$defs/Digest"},
         "expectedCriteria": {"type": "array", "items": {"$ref": "#/$defs/Id"}}
       },
       "required": ["taskRevision", "criteriaDigest", "manifestDigest", "graderRevision", "materialsDigest", "expectedCriteria"],

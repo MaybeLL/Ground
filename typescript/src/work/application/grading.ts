@@ -3,7 +3,7 @@
 // graders arrive with phase P4; measures with phase P3.
 import {
   createGrading, criteriaDigest, declareExternalEvaluatorStop, digestOf, isId, materialsDigest, parseTaskContent, recordEvaluatorCommand, recordEvaluatorStage, registerExternalEvaluator,
-  requestGradingCancel, submitGrade, type CommandObservation, type Digest, type GradingRecord, type Grade, type Hasher, type Id, type JsonValue, type ProtocolStage, type TargetRef,
+  requestGradingCancel, submitGrade, type CommandObservation, type Digest, type GradingRecord, type Grade, type Hasher, type Id, type JsonValue, type ProtocolStage, type TargetRef, type TaskRun, type TraceBlob,
 } from "../domain/index.js";
 import type { Clock, IdSource, WorkRepositories, WorkUnitOfWork } from "../ports/index.js";
 import { GRADING_REQUEST_COUNTER, StorageFailure } from "../ports/index.js";
@@ -19,6 +19,28 @@ export type GradingState = { gradingId: Id; status: GradingRecord["status"]; out
 
 const needId = (name: string, value: unknown) => isId(value) ? undefined : fail("invalid", `${name} is missing or malformed`);
 
+async function gateEvidence(r:WorkRepositories,run:TaskRun) {
+  const evidence = new Map<string,TraceBlob>();
+  if (run.worker?.kind === "external") for (const entry of run.worker.registration.transcripts) {
+    const raw=entry.trace?.raw ?? entry.raw;
+    if (raw) evidence.set("transcript:" + entry.digest,raw);
+    if (entry.trace) evidence.set("events:" + entry.digest,entry.trace.events);
+  }
+  if(run.worker?.kind==="managed"){
+    const job=(await r.intents.listForSubject("managed-worker","task_run",run.id))[0];
+    const recorded=job?.payload as {executionId?:string;trace?:import("../domain/index.js").FrozenTrace}|undefined;
+    if(recorded?.executionId===run.worker.executionId && recorded.trace){
+      evidence.set("transcript:"+recorded.trace.raw.digest,recorded.trace.raw);
+      evidence.set("events:"+recorded.trace.raw.digest,recorded.trace.events);
+    }
+  }
+  return evidence;
+}
+
+function evidenceFingerprint(evidence:Map<string,TraceBlob>,hash:Hasher) {
+  return digestOf([...evidence].sort(([a],[b])=>a.localeCompare(b)).map(([id,ref])=>({id,...ref})),hash);
+}
+
 export class Grading {
   private readonly context: RequestContext;
 
@@ -31,9 +53,30 @@ export class Grading {
    * the exact task revision, criteria, manifest, grader and materials, and is
    * numbered by the ledger so the latest request is the one that counts.
    */
-  requestGate(input: { requestId: string; taskRunId: Id; materials?: { id: Id; digest: Digest }[] }): Promise<Outcome<GateRequested>> {
+  async requestGate(input: { requestId: string; taskRunId: Id; materials?: { id: Id; digest: Digest }[] }): Promise<Outcome<GateRequested>> {
     const early = needId("requestId", input.requestId) ?? needId("taskRunId", input.taskRunId);
     if (early) return Promise.resolve(early);
+    const snapshot=await this.deps.units.run("read",async r=>{
+      if (await r.intents.findByRequest(input.requestId)) return succeed(null);
+      const run=await r.taskRuns.get(input.taskRunId);
+      if (!run) return fail("not-found","task run does not exist");
+      if (run.status!=="delivered") return fail("conflict","only a delivered run can be accepted");
+      const evidence=await gateEvidence(r,run);
+      for (const ref of evidence.values()) {
+        const digest=ref.digest;
+        try {
+          const stored=await r.evidence.describe(digest);
+          if (!stored || stored.byteLength!==ref.byteLength || stored.chunkCount!==ref.chunkCount) return fail("unavailable","archived transcript metadata is missing or inconsistent");
+          await r.evidence.verify(digest);
+        } catch (error) {
+          if (error instanceof StorageFailure && error.reason==="integrity") return fail("unavailable","archived transcript evidence is incomplete");
+          throw error;
+        }
+      }
+      const fingerprint=evidenceFingerprint(evidence,this.deps.hash);
+      return fingerprint.ok ? succeed(fingerprint.value) : fromRejection(fingerprint.error);
+    });
+    if (!snapshot.ok) return snapshot;
     return once<GateRequested>(this.context, { requestId: input.requestId, kind: "request-gate", input: input as unknown as JsonValue, subject: { type: "task_run", id: input.taskRunId } }, async r => {
       const run = await r.taskRuns.get(input.taskRunId);
       if (!run) return fail("not-found", `run ${input.taskRunId} does not exist`);
@@ -46,31 +89,13 @@ export class Grading {
       if (task.value.criteria.length === 0) return fail("conflict", "the task has no criteria to judge");
       const materials = [...(input.materials ?? [])];
       if (new Set(materials.map(m=>m.id)).size !== materials.length) return fail("invalid","grading material identities must be unique");
-      const evidence = new Map<string,import("../domain/index.js").TraceBlob>();
-      if (run.worker?.kind === "external") for (const entry of run.worker.registration.transcripts) {
-        const raw=entry.trace?.raw ?? entry.raw;
-        if (raw) evidence.set("transcript:" + entry.digest,raw);
-        if (entry.trace) evidence.set("events:" + entry.digest,entry.trace.events);
-      }
-      if(run.worker?.kind==="managed"){
-        const job=(await r.intents.listForSubject("managed-worker","task_run",run.id))[0];
-        const recorded=job?.payload as {executionId?:string;trace?:import("../domain/index.js").FrozenTrace}|undefined;
-        if(recorded?.executionId===run.worker.executionId && recorded.trace){
-          evidence.set("transcript:"+recorded.trace.raw.digest,recorded.trace.raw);
-          evidence.set("events:"+recorded.trace.raw.digest,recorded.trace.events);
-        }
-      }
+      const evidence=await gateEvidence(r,run);
+      const fingerprint=evidenceFingerprint(evidence,this.deps.hash);
+      if (!fingerprint.ok) return fromRejection(fingerprint.error);
+      if (fingerprint.value!==snapshot.value) return fail("stale","the run's transcript evidence changed during verification");
       if (materials.some(m=>/^(transcript|events):/.test(m.id) && !evidence.has(m.id))) return fail("invalid","transcript materials must refer to evidence archived for this run");
       for (const [id,ref] of evidence) {
         const digest=ref.digest;
-        try {
-          const stored=await r.evidence.describe(digest);
-          if (!stored || stored.byteLength!==ref.byteLength || stored.chunkCount!==ref.chunkCount) return fail("unavailable","archived transcript metadata is missing or inconsistent");
-          await r.evidence.verify(digest);
-        } catch (error) {
-          if (error instanceof StorageFailure && error.reason==="integrity") return fail("unavailable","archived transcript evidence is incomplete");
-          throw error;
-        }
         const supplied = materials.find(m=>m.id === id);
         if (supplied && supplied.digest !== digest) return fail("invalid","explicit material conflicts with frozen transcript evidence");
         if (!supplied) materials.push({id,digest});
@@ -90,7 +115,7 @@ export class Grading {
       const gradingId = this.deps.ids.next();
       const created = createGrading({
         id: gradingId, purpose: "gate", origin: { type: "gate", taskRunId: run.id }, requestSeq, targets, graderRevision: grader.value, grader: { strategy: "agent", scale: { form: "criteria" } }, materials,
-        binding: { taskRevision: run.taskRevision, criteriaDigest: criteria.value, manifestDigest: run.manifest.digest, graderRevision: grader.value, materialsDigest: materialsFingerprint.value, expectedCriteria: task.value.criteria.map(c => c.id) }, at,
+        binding: { taskRevision: run.taskRevision, criteriaDigest: criteria.value, manifestDigest: run.manifest.digest, graderRevision: grader.value, materialsDigest: materialsFingerprint.value, ...(evidence.size ? {archivedEvidenceDigest:fingerprint.value} : {}), expectedCriteria: task.value.criteria.map(c => c.id) }, at,
       });
       if (!created.ok) return fromRejection(created.error);
       await r.gradings.create(created.value.state);

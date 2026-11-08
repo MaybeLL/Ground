@@ -198,7 +198,9 @@ export function importTranscript(run: TaskRun, command: { sessionId: Id; ref: st
   const matches = run.worker.registration.transcripts.filter(t => t.digest === command.digest);
   const existing = matches.find(t => t.trace) ?? matches.find(t=>t.raw) ?? matches[0];
   if (existing?.trace && command.trace && (existing.trace.events.digest !== command.trace.events.digest || existing.trace.provider !== command.trace.provider)) return conflict("these bytes already have a different frozen interpretation");
-  if (existing && (!command.trace || existing.trace) && (!command.raw || existing.trace || existing.raw)) return advance(run, {}, [], "applied");
+  const duplicate=matches.some(entry=>entry.ref===command.ref && entry.coverage===command.coverage &&
+    (command.trace ? !!entry.trace : command.raw ? !!entry.raw : !entry.trace && !entry.raw));
+  if (duplicate) return advance(run, {}, [], "applied");
   const record: TranscriptImport = { ref: command.ref, digest: command.digest, coverage: command.coverage, ...(command.raw ? {raw:command.raw} : {}), ...(command.trace ? {trace:command.trace} : {}), importedAt: command.at };
   const registration = { ...run.worker.registration, transcripts: [...run.worker.registration.transcripts, record] };
   return advance(run, { worker: { kind: "external", registration } }, [{ type: "transcript-imported", runId: run.id, digest: command.digest, at: command.at }], "applied");
@@ -384,6 +386,12 @@ export function taskRunViolations(run: TaskRun): string[] {
   if (run.status === "cancelled" && (!run.cancelIntent || !quiescent(run))) problems.push("a cancelled run was asked to cancel and has nothing running");
   if (terminal && (run.blocked || run.pendingManifest)) problems.push("a finished run is neither blocked nor waiting for receipts");
   if (run.status === "pending" && (run.worker || run.manifest)) problems.push("a run that has not started has no worker or manifest");
+  if (run.worker?.kind==="external") for (const entry of run.worker.registration.transcripts) {
+    if ((entry.raw || entry.trace) && (entry.ref!=="sql-evidence:"+entry.digest ||
+        entry.raw && entry.raw.digest!==entry.digest || entry.trace && entry.trace.raw?.digest!==entry.digest)) {
+      problems.push("archived transcript must refer to its bound raw digest");
+    }
+  }
   if (run.worker && run.worker.kind !== run.workerMode) problems.push("the worker matches the configured mode");
   if (run.manifest && !originFor[run.workerMode].includes(run.manifest.origin)) problems.push("the manifest origin matches the mode");
   return problems;

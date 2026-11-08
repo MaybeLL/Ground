@@ -18,10 +18,11 @@ export interface GateBinding {
   readonly manifestDigest: Digest;
   readonly graderRevision: RevisionRef;
   readonly materialsDigest: Digest;
+  readonly archivedEvidenceDigest?: Digest;
   readonly expectedCriteria: readonly Id[];
 }
 export const sameBinding = (a: GateBinding, b: GateBinding): boolean => a.taskRevision.revisionId === b.taskRevision.revisionId && a.criteriaDigest === b.criteriaDigest && a.manifestDigest === b.manifestDigest
-  && a.graderRevision.revisionId === b.graderRevision.revisionId && a.materialsDigest === b.materialsDigest && a.expectedCriteria.length === b.expectedCriteria.length && a.expectedCriteria.every(id => b.expectedCriteria.includes(id));
+  && a.graderRevision.revisionId === b.graderRevision.revisionId && a.materialsDigest === b.materialsDigest && a.archivedEvidenceDigest===b.archivedEvidenceDigest && a.expectedCriteria.length === b.expectedCriteria.length && a.expectedCriteria.every(id => b.expectedCriteria.includes(id));
 /** What a verdict is about, ignoring who judged and with which materials: the unit an acceptance conclusion is read over. */
 const sameSubject = (a: GateBinding, b: GateBinding): boolean => a.taskRevision.revisionId === b.taskRevision.revisionId && a.criteriaDigest === b.criteriaDigest && a.manifestDigest === b.manifestDigest;
 
@@ -112,7 +113,7 @@ export const isGradingTerminal = (g: GradingRecord): boolean => g.status !== "ru
 const isTarget = (t: unknown): t is TargetRef => !!t && typeof t === "object" && ["candidate", "artifact", "trajectory"].includes((t as TargetRef).type) && isId((t as TargetRef).id) && isDigest((t as TargetRef).digest);
 const isBinding = (b: unknown): b is GateBinding => {
   const x = b as GateBinding;
-  return !!x && typeof x === "object" && isRevisionRef(x.taskRevision, "task") && isRevisionRef(x.graderRevision, "grader") && isDigest(x.criteriaDigest) && isDigest(x.manifestDigest) && isDigest(x.materialsDigest)
+  return !!x && typeof x === "object" && isRevisionRef(x.taskRevision, "task") && isRevisionRef(x.graderRevision, "grader") && isDigest(x.criteriaDigest) && isDigest(x.manifestDigest) && isDigest(x.materialsDigest) && (x.archivedEvidenceDigest===undefined || isDigest(x.archivedEvidenceDigest))
     && Array.isArray(x.expectedCriteria) && x.expectedCriteria.length > 0 && x.expectedCriteria.every(isId) && unique(x.expectedCriteria);
 };
 

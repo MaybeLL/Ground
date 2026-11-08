@@ -117,6 +117,8 @@ Terminal task retention pauses or releases the owned resource. Lifecycle operati
 
 The Claude Code and Codex adapters map observed JSONL records to common session, message, tool call, tool result, error and provider completion events. A normalized event stores its input line and part. Unknown, malformed and oversized records remain in the raw archive. Conversion reports partial coverage and its actual record counts.
 
+An external session can archive a generic transcript as immutable bytes. A reported reference records the session's claim. For gate admission the ledger verifies the archived streams and includes their descriptors in the binding. Reuse requires the same archived evidence fingerprint, so a historical claim-only verdict cannot stand in for a verified archive.
+
 Raw and normalized streams use separate SHA-256 receipts. Schema 2 stores each stream in `work_evidence` and ordered binary chunks in `work_evidence_chunks`. An import writes both streams and the session binding in one transaction. `db status` checks each chunk and the digest of the whole stream. `db upgrade` adds the evidence tables to a configured protocol-2 schema-1 ledger under the migration and database identity checks.
 
 For external and caller-supplied deliveries, the ledger reserves the candidate and its attachments before the Git push. Submission records the manifest proposal and the external session’s stop before checking receipts. Reconciliation reads the original proposal and observes the remote tag. If the push cannot be confirmed, the original delivery request can retry publication.
