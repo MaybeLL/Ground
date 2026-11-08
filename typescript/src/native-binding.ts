@@ -8,6 +8,7 @@ interface NativeBinding {
   tryLock(fd: number, shared: boolean): void;
   hostProcessIdentity(pid: number): string | undefined;
   signalHostProcessLeader(pid: number, identity: string, signal: number): boolean;
+  hostProcessesSinceBoot(marker:string,uptimeMs:number):import("./env-process.js").HostProcessObservation;
   hostProcesses(marker: string, startedAtMs: number, leaderPid?: number, leaderIdentity?: string): import("./env-process.js").HostProcessObservation;
   signalHostProcess(pid: number, identity: string, marker: string, signal: number): boolean;
 }
@@ -22,6 +23,7 @@ export function nativeBinding(): NativeBinding {
   for (const key of ["openChild","tryLock", "hostProcesses", "hostProcessIdentity", "signalHostProcessLeader", "signalHostProcess"] as const) {
     if (typeof loaded[key] !== "function") throw new Error(`Grounds native support lacks ${key}; retaining resources`);
   }
+  if (process.platform==="linux" && typeof loaded.hostProcessesSinceBoot!=="function") throw new Error("Grounds native support lacks boot-relative process observation; retaining resources");
   return binding = loaded;
 }
 

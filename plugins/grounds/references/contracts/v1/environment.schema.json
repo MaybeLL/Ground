@@ -837,6 +837,17 @@
             "startedAtMs"
           ],
           "properties": {
+            "platform": {"enum":["darwin","linux"]},
+            "linuxBoot": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id","uptimeMs","namespaces"],
+              "properties": {
+                "id": {"type":"string","format":"uuid"},
+                "uptimeMs": {"type":"integer","minimum":1},
+                "namespaces": {"type":"string","minLength":1}
+              }
+            },
             "marker": {
               "type": "string",
               "pattern": "^[a-f0-9]{64}$"

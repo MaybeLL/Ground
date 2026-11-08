@@ -160,3 +160,11 @@ test("shared service authorization requires exact local repository, environment 
   assert.throws(() => authorizedSharedService("db", "mysql", identity, "dev"), { code: "VALIDATION_ERROR" });
   assert.throws(() => registerSharedService({ ...shared, repository_id: "old" } as any), { code: "VALIDATION_ERROR" });
 }));
+
+test("persisted host scope schemas accept boot-relative and legacy observations",()=>{
+  const scope={marker:"f".repeat(64),startedAtMs:123456};
+  const check=(value:unknown)=>assertContract("environment.schema.json#/$defs/run/properties/host_scope",value);
+  check(scope);
+  check({...scope,linuxBoot:{id:"c9cf7e5b-f44a-48ce-b998-01edda281af1",uptimeMs:1000,namespaces:"time:[1]/pid:[2]/user:[3]/mnt:[4]"}});
+  assert.throws(()=>check({...scope,linuxBoot:{uptimeMs:1000}}));
+});
