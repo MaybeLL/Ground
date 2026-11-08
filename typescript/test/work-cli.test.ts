@@ -1209,6 +1209,20 @@ test("managed worker runs in its owned devcontainer after admission and delivers
   });
 });
 
+test("Feature install order ignores unreachable lock entries and preserves reachable dependencies",async()=>{
+  const {featureOrder}=await import("../src/work/adapters/devcontainer/build.js");
+  await withHarness(async h=>{
+    const base=join(h.repo,".devcontainer"),local=join(base,"local");
+    mkdirSync(local,{recursive:true});
+    const old="registry.invalid/team/old", pinned="registry.invalid/team/pinned", parent="registry.invalid/team/parent:1";
+    writeFileSync(join(local,"devcontainer-feature.json"),JSON.stringify({name:"local",installsAfter:[old,pinned]}));
+    const entry={integrity:"sha256:"+"a".repeat(64)};
+    const result=await featureOrder(h.repo,base,h.repo,["./local",parent],{[old+":1"]:entry,[pinned+":1"]:entry,[parent]:{...entry,dependsOn:[pinned+":1"]}},[old,"./local",pinned]);
+    assert.deepEqual(result.order,["./local",pinned+":1"]);
+    assert.deepEqual(JSON.parse(result.overlays[0]!.body).installsAfter,[pinned+":1"]);
+  });
+});
+
 test("repository environment builds reject escaping paths, unpinned nested Features and host environment interpolation",async()=>{
   await withHarness(async h=>{
     const folder=join(h.repo,".devcontainer");

@@ -52,13 +52,20 @@ async function checkout(source:string,target:string,linkFiles:boolean) {
 }
 
 /** The CLI resolves even soft ordering hints against registries. Keep only edges to the frozen graph. */
-async function featureOrder(repo:string,base:string,view:string,features:string[],locked:Record<string,unknown>,override:unknown) {
-  const known=new Set(Object.keys(locked));
+export async function featureOrder(repo:string,base:string,view:string,features:string[],locked:Record<string,unknown>,override:unknown) {
+  const known=new Set<string>();
   const manifests=new Map<string,Record<string,unknown>>();
   async function visit(name:string):Promise<void> {
+    if (known.has(name)) return;
     known.add(name);
     if (!name.startsWith("./") && !name.startsWith("../")) {
       if (!Object.hasOwn(locked,name)) throw Error("remote Feature dependencies require a frozen lock entry");
+      const entry=locked[name] as {integrity?:unknown;dependsOn?:unknown}|null;
+      if (!entry || typeof entry.integrity!=="string" || !/^sha256:[a-f0-9]{64}$/.test(entry.integrity)) throw Error("remote Feature requires a pinned content digest");
+      if (entry.dependsOn!==undefined) {
+        if (!Array.isArray(entry.dependsOn) || !entry.dependsOn.every(dep=>typeof dep==="string")) throw Error("invalid locked Feature dependencies");
+        for (const dep of entry.dependsOn) await visit(dep);
+      }
       return;
     }
     const feature=await sourcePath(repo,base,name,true);
