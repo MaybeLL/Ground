@@ -661,8 +661,13 @@ test("managed worker runs in its owned devcontainer after admission and delivers
     db.close();
     const containers = () => docker("ps", "-q", "--filter", "label=dev.grounds.ledger=" + ledger).split("\n").filter(Boolean);
     const jobs = [];
+    const keys = ["OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"];
+    const original = Object.fromEntries(keys.map(key => [key, process.env[key]]));
     try {
       for (const provider of ["codex", "claude-code", "codex"]) {
+        for (const key of keys) delete process.env[key];
+        if (jobs.length === 0) process.env.OPENAI_API_KEY = "synthetic-first";
+        if (jobs.length === 1) process.env.ANTHROPIC_API_KEY = "synthetic-second";
         const title = "concurrent fixture " + jobs.length;
         const task = ok(await h.cli("task", "create", "--title", title, "--criterion", "commit result", "--environment", env.environmentId, "--repo-remote", h.remote, "--baseline", h.baseline));
         const agent = ok(await h.cli("work", "define-agent", "--name", title, "--provider", provider));
@@ -702,6 +707,9 @@ test("managed worker runs in its owned devcontainer after admission and delivers
       }
       assert.equal(git(h.repo, "status", "--porcelain"), "");
     } finally {
+      for (const [key, value] of Object.entries(original)) {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      }
       for(const id of docker("ps","-aq","--filter","label=dev.grounds.ledger="+ledger).split("\n").filter(Boolean))docker("rm","-f",id);
     }
   });

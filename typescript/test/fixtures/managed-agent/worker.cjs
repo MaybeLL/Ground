@@ -5,6 +5,13 @@ const task = JSON.parse(readFileSync(0,"utf8"));
 if (!task.criteria?.length) process.exit(2);
 const { existsSync } = require("node:fs");
 if (task.task.startsWith("concurrent fixture ")) {
+  const expected = {
+    "concurrent fixture 0": ["synthetic-first", undefined],
+    "concurrent fixture 1": [undefined, "synthetic-second"],
+    "concurrent fixture 2": [undefined, undefined],
+  }[task.task];
+  if (!expected || process.env.OPENAI_API_KEY !== expected[0] ||
+      process.env.ANTHROPIC_API_KEY !== expected[1]) process.exit(4);
   // The test releases these processes only after seeing all three alive.
   writeFileSync("/tmp/grounds-fixture-ready", task.task);
   const deadline = Date.now() + 90000;
