@@ -50,6 +50,7 @@ for (const backend of backends) {
     for (const field of ["refines","taskRevisionId","environmentRevisionId"]) {
       refused(await t.exec.startRun({...input,[field]:""}),"invalid");
     }
+    refused(await t.exec.startRun({...input,workerMode:"managed",agent:{definitionId:"agent",revisionId:"",repositoryPath:"."}}),"invalid");
     const first=value(await t.exec.startRun(input));
     assert.deepEqual(value(await t.exec.startRun(input)),first);
     refused(await t.exec.startRun({...input,workerMode:"none"}),"request-conflict");

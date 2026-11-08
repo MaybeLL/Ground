@@ -128,6 +128,7 @@ export class TaskExecution {
     for (const field of ["refines","taskRevisionId","environmentRevisionId"] as const) {
       if (input[field]!==undefined && !isId(input[field])) return Promise.resolve(fail("invalid",field+" is malformed"));
     }
+    if (input.agent?.revisionId!==undefined && !isId(input.agent.revisionId)) return Promise.resolve(fail("invalid","agent revisionId is malformed"));
     return once<IndependentRun>(this.context,{requestId:input.requestId,kind:"start-run",input:input as unknown as JsonValue,subject:{type:"task",id:input.taskDefinitionId}},async r=>{
       const parent=input.refines ? await r.taskRuns.get(input.refines,{lock:true}) : undefined;
       if (input.refines && !parent) return fail("not-found","the run to refine does not exist");
