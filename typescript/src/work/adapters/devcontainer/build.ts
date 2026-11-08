@@ -1,3 +1,4 @@
+import {createHash} from "node:crypto";
 import {execFile,spawn} from "node:child_process";
 import {createRequire} from "node:module";
 import {dirname,isAbsolute,join,relative,resolve} from "node:path";
@@ -5,6 +6,8 @@ import {existsSync} from "node:fs";
 import {chmod,copyFile,link,lstat,mkdir,mkdtemp,readFile,readdir,readlink,realpath,rm,stat,symlink} from "node:fs/promises";
 import {promisify} from "node:util";
 import {parse,type ParseError} from "jsonc-parser";
+import {parse as parseYaml} from "yaml";
+import {checkComposeSettings,composeEnvironment,imageDigestPattern,type ComposeEnvironment} from "./compose.js";
 import {dataLayout} from "../../../data-layout.js";
 import {atomicPrivateWrite,privateDirectory,safeRead,withRuntimeLock} from "../../../runtime-files.js";
 import {MaterialWorkspaces} from "../git/material-workspaces.js";
@@ -130,6 +133,13 @@ export class DevcontainerBuilds {
         try {
           planned=await this.plan(repo,input.path,sourceRoot,view,image,owner);
         } catch(error) {return {status:"invalid",reason:error instanceof Error ? error.message : "invalid devcontainer build configuration"};}
+        if ("compose" in planned && planned.compose) {
+          const compose=await this.freezeCompose(planned.compose,planned.dockerfiles,repo,stage,root,owner,lock);
+          const imageDigest=compose.services[compose.service]!.image;
+          const config=JSON.stringify({...planned.launch,image:"grounds-compose",groundsCompose:compose});
+          pinnedConfig(config,imageDigest);
+          return {status:"built",image:{config,imageDigest,source:planned.source}};
+        }
         const args=["image","ls","--no-trunc","--filter","reference="+image,"--format","{{.ID}}"];
         const receipt=join(root,"image-id");
         const recorded=existsSync(receipt) ? safeRead(receipt,128).toString() : undefined;
@@ -155,13 +165,74 @@ export class DevcontainerBuilds {
     },120000);
   }
 
+  private async freezeCompose(compose:ComposeEnvironment,dockerfiles:Map<string,{context:string;dockerfile:string}>,repo:string,stage:string,root:string,owner:string,lock:number) {
+    const sourceRoot=join(stage,"source");
+    if (dockerfiles.size) await checkout(repo,sourceRoot,false);
+    for (const [name,spec] of Object.entries(compose.services)) {
+      const key=owner+"-"+createHash("sha256").update(name).digest("hex").slice(0,16);
+      const tag="grounds-environment:"+key,receipt=join(root,"service-"+name+".id");
+      const saved=existsSync(receipt) ? safeRead(receipt,128).toString() : undefined;
+      if (saved!==undefined && !imageDigestPattern.test(saved)) throw Error("invalid frozen Compose image receipt");
+      const present=saved ?? (await exec("docker",["image","ls","--no-trunc","--filter","reference="+tag,"--format","{{.ID}}"])).stdout.trim();
+      if (!present) {
+        const view=join(stage,"service-"+name),configDir=join(view,".devcontainer");
+        await mkdir(configDir,{recursive:true});
+        const source=dockerfiles.get(name);
+        const context=source ? join(sourceRoot,source.context) : view;
+        const dockerfile=source ? join(sourceRoot,source.dockerfile) : join(view,"Dockerfile");
+        if (!source) {
+          // FROM accepts repository names and immutable registry refs. A raw
+          // image ID is already local; give it an owned FROM name for BuildKit.
+          let base=spec.image;
+          if (imageDigestPattern.test(base)) {
+            const from=tag+"-base";
+            await exec("docker",["tag",base,from]);base=from;
+          }
+          atomicPrivateWrite(dockerfile,"FROM "+base+"\n");
+        }
+        const path=join(configDir,"devcontainer.json");
+        atomicPrivateWrite(path,JSON.stringify({build:{context:relative(configDir,context),dockerfile:relative(configDir,dockerfile),options:["--label",label+"="+key]}}));
+        await runBuild(["build","--workspace-folder",view,"--config",path,"--image-name",tag,"--oci-auth-hardening","--no-lockfile"],lock);
+      }
+      const proof=(await exec("docker",["image","inspect","--format",'{{.Id}} {{index .Config.Labels "'+label+'"}}',saved ?? tag])).stdout.trim().split(" ");
+      const id=proof[0];
+      if (!id || !imageDigestPattern.test(id) || proof[1]!==key || saved!==undefined && id!==saved) throw Error("unexpected Compose environment image");
+      if (!saved) atomicPrivateWrite(receipt,id);
+      spec.image=id;
+    }
+    return compose;
+  }
+
   private async plan(repo:string,path:string,sourceRoot:string,root:string,image:string,owner:string) {
     const original=await sourcePath(repo,repo,path,false);
     const source=await readText(original),errors:ParseError[]=[];
     const config=parse(source.replace(/^\uFEFF/,""),errors,{allowTrailingComma:true});
     if (errors.length || !config || typeof config!=="object" || Array.isArray(config)) throw Error("invalid devcontainer configuration");
     checkIsolation(config);
-    if (config.dockerComposeFile) throw Error("this environment builder requires a single image configuration");
+    if (config.dockerComposeFile!==undefined) {
+      const {dockerComposeFile,service,...launch}=config;
+      checkComposeSettings(launch);
+      const path=await sourcePath(repo,dirname(original),dockerComposeFile,false);
+      const body=parseYaml(await readText(path));
+      if (!body || typeof body!=="object" || Object.keys(body).some(k=>!["version","services","volumes"].includes(k))) throw Error("unsupported Compose project setting");
+      const volumes=body.volumes ?? {};
+      if (typeof volumes!=="object" || Array.isArray(volumes) || Object.values(volumes).some(v=>v!==null && (typeof v!=="object" || Array.isArray(v) || Object.keys(v).length))) throw Error("only project-owned default Compose volumes are supported");
+      const dockerfiles=new Map<string,{context:string;dockerfile:string}>();
+      for (const [key,raw] of Object.entries(body.services ?? {})) {
+        const spec=raw as Record<string,unknown>;
+        if (!spec || typeof spec!=="object" || !("build" in spec)) continue;
+        const build=typeof spec.build==="string" ? {context:spec.build} : spec.build as Record<string,unknown>;
+        if (!build || typeof build!=="object" || Object.keys(build).some(k=>!["context","dockerfile"].includes(k))) throw Error("unsupported Compose Dockerfile build setting");
+        const context=await sourcePath(repo,dirname(path),build.context ?? ".",true);
+        const dockerfile=await sourcePath(repo,context,build.dockerfile ?? "Dockerfile",false);
+        dockerfiles.set(key,{context:relative(repo,context),dockerfile:relative(repo,dockerfile)});
+        spec.image="grounds-compose-build";
+        delete spec.build;
+      }
+      const compose=composeEnvironment(service,body.services,false,Object.keys(volumes));
+      pinnedConfig(JSON.stringify({...launch,image:"grounds-compose"}),"sha256:"+"0".repeat(64));
+      return {compose,source,launch,dockerfiles};
+    }
     const spec=config.build ?? (config.dockerFile ? {dockerfile:config.dockerFile,context:config.context} : undefined);
     if (spec && (typeof spec!=="object" || Object.keys(spec).some(key=>!["dockerfile","context","args","target"].includes(key)))) throw Error("unsupported devcontainer build setting");
     const base=dirname(original);

@@ -1,3 +1,4 @@
+import {checkComposeSettings,composeEnvironment} from "./compose.js";
 import { parse, type ParseError } from "jsonc-parser";
 
 /** The operator's source remains immutable in the ledger. Launch a pinned
@@ -14,6 +15,12 @@ export function pinnedConfig(source: string, digest: string) {
   const config = parse(source, errors, { allowTrailingComma: true });
   if (errors.length || !config || typeof config !== "object" || Array.isArray(config) || typeof config.image !== "string") throw new Error("this environment needs a self-contained image-based devcontainer configuration");
   if (config.build || config.dockerFile || config.dockerComposeFile || Object.keys(config.features ?? {}).length) throw new Error("build the environment image before publishing its digest");
+  if (config.groundsCompose!==undefined) {
+    const {image,groundsCompose,workspaceMount,...settings}=config;
+    checkComposeSettings(settings);
+    const compose=composeEnvironment(config.groundsCompose?.service,config.groundsCompose?.services,true,config.groundsCompose?.volumes);
+    if (compose.services[compose.service]!.image!==digest) throw Error("Compose execution image differs from its environment revision");
+  }
   const [image, embedded] = config.image.split("@");
   if (embedded && embedded !== digest) throw new Error("configured image does not match the published digest");
   if (!/^[a-z0-9][a-z0-9.\-/:_]*$/i.test(image) || !/^sha256:[a-f0-9]{64}$/.test(digest)) throw new Error("invalid image reference");

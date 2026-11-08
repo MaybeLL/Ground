@@ -147,7 +147,7 @@ export class SandboxLifecycle {
         const observed = await this.deps.runtime.observe(owner);
         if (observed && observed.id !== instanceId) throw new Error("different instance under the ownership labels");
         if (action === "release") {
-          if (observed) await this.deps.runtime.remove(owner, observed.id);
+          if (observed) await this.deps.runtime.remove(owner, observed.id); else await this.deps.runtime.removeDependents?.(owner);
         } else {
           if (observed?.state === "running") await this.deps.runtime.pause(owner, observed.id);
         }

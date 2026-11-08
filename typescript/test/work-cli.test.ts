@@ -2039,3 +2039,67 @@ test("managed evaluator runs in a fresh grading sandbox and returns a numeric ze
     }
   });
 });
+
+test("external sandbox runs a frozen Compose project and releases its own dependency network",{skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async()=>{
+  await withHarness(async h=>{
+    const image=process.env.GROUNDS_TEST_MANAGED_AGENT!,folder=join(h.repo,".devcontainer");
+    const docker=(...args:string[])=>execFileSync("docker",args,{encoding:"utf8"}).trim();
+    mkdirSync(folder);
+    writeFileSync(join(folder,"devcontainer.json"),JSON.stringify({dockerComposeFile:"compose.yaml",service:"worker",workspaceFolder:"/task"}));
+    writeFileSync(join(folder,"compose.yaml"),JSON.stringify({services:{worker:{build:".",depends_on:["database"]},database:{image,command:["sleep","infinity"],volumes:["storage:/data"]}},volumes:{storage:{}}}));
+    writeFileSync(join(folder,"Dockerfile"),"FROM "+image+"\nCOPY frozen.txt /compose-snapshot\n");
+    writeFileSync(join(folder,"frozen.txt"),"frozen");
+    git(h.repo,"add",".");git(h.repo,"commit","-qm","two-service environment");
+    writeFileSync(join(folder,"frozen.txt"),"dirty");
+    const commit=git(h.repo,"rev-parse","HEAD");
+    writeFileSync(join(folder,"compose.yaml"),"invalid dirty checkout");
+    const environment=ok(await h.cli("work","build-environment","--repo",h.repo,"--commit",commit,"--name","worker and database"));
+    const task=ok(await h.cli("task","create","--title","compose workspace","--criterion","reaches database","--repo-remote",h.remote,"--baseline",commit,"--environment",environment.environmentId));
+    const definition=ok(await h.cli("work","environment","--environment",environment.environmentId,"--revision","1"));
+    const images=Object.values(JSON.parse(definition.content.config).groundsCompose.services) as {image:string}[];
+    const projects:string[]=[];
+    try {
+      const launch=async()=>{
+        const {runId}=ok(await h.cli("work","start-run","--task",task.taskId,"--mode","external","--retention","keep"));
+        const {sessionId}=ok(await h.cli("work","register","--run",runId,"--agent","external"));
+        const {instanceId}=ok(await h.cli("work","prepare-sandbox","--run",runId,"--repo",h.repo));
+        assert.equal(docker("exec",instanceId,"cat","/compose-snapshot"),"frozen");
+        const project=docker("inspect","--format",'{{index .Config.Labels "dev.grounds.compose-owner"}}',instanceId);
+        assert.match(project,/^grounds-[a-f0-9]{32}$/);
+        projects.push(project);
+        const dep=docker("ps","-q","--filter","label=dev.grounds.compose-owner="+project,"--filter","label=com.docker.compose.service=database");
+        docker("exec",dep,"sh","-ec","echo "+runId+" > /data/sentinel");
+        const access=ok(await h.cli("work","sandbox-context","--run",runId,"--session",sessionId));
+        const [tool,...args]=access.argvPrefix;
+        execFileSync(tool,[...args,"getent","hosts","database"]);
+        return {runId,sessionId,instanceId,dep,project};
+      };
+      const first=await launch(),second=await launch();
+      assert.notEqual(first.project,second.project);
+      const end=async(run:typeof first)=>{
+        ok(await h.cli("work","cancel","--run",run.runId));
+        ok(await h.cli("work","stop","--run",run.runId,"--session",run.sessionId,"--reason","abandoned"));
+        assert.equal(docker("inspect","-f","{{.State.Paused}}",run.instanceId),"true");
+        assert.equal(docker("inspect","-f","{{.State.Status}}",run.dep),"running");
+      };
+      await end(first);
+      // Simulate loss of the execution container before the pending release.
+      docker("rm","-f",first.instanceId);
+      ok(await h.cli("work","release-sandbox","--run",first.runId));
+      assert.equal(docker("ps","-aq","--filter","label=dev.grounds.compose-owner="+first.project),"");
+      assert.equal(docker("network","ls","-q","--filter","label=dev.grounds.compose-owner="+first.project),"");
+      assert.equal(docker("volume","ls","-q","--filter","label=dev.grounds.compose-owner="+first.project),"");
+      assert.equal(docker("exec",second.dep,"cat","/data/sentinel"),second.runId);
+      await end(second);
+      ok(await h.cli("work","release-sandbox","--run",second.runId));
+    } finally {
+      for (const project of projects) {
+        const filter="label=dev.grounds.compose-owner="+project;
+        for(const id of docker("ps","-aq","--filter",filter).split("\n").filter(Boolean)) docker("rm","-f",id);
+        for(const id of docker("network","ls","-q","--filter",filter).split("\n").filter(Boolean)) docker("network","rm",id);
+        for(const name of docker("volume","ls","-q","--filter",filter).split("\n").filter(Boolean)) docker("volume","rm",name);
+      }
+      for (const service of images) docker("image","rm",service.image);
+    }
+  });
+});

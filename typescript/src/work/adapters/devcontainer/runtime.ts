@@ -1,10 +1,13 @@
+import {createHash} from "node:crypto";
+import {existsSync} from "node:fs";
+import {composeEnvironment,type ComposeEnvironment} from "./compose.js";
 import { execFile, spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { hostIdentity, withRuntimeLock } from "../../../runtime-files.js";
+import { atomicPrivateWrite, privateDirectory, safeRead, hostIdentity, withRuntimeLock } from "../../../runtime-files.js";
 import { dataLayout } from "../../../data-layout.js";
 import { join, dirname } from "node:path";
 import { checkIsolation, pinnedConfig } from "./config.js";
-import { mkdir, readFile, writeFile, copyFile, realpath } from "node:fs/promises";
+import { mkdir, readFile, writeFile, copyFile, realpath, unlink } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { RuntimeOwner, RuntimeState, RuntimeWorkspace, SandboxRuntimePort } from "../../ports/index.js";
 
@@ -13,6 +16,7 @@ const ledgerLabel = "dev.grounds.ledger";
 const setupLabel = "dev.grounds.setup-attempt";
 const sandboxLabel = "dev.grounds.sandbox";
 const opts = { timeout: 120_000, maxBuffer: 8 * 1024 * 1024, encoding: "utf8" as const };
+const composeOwner="dev.grounds.compose-owner";
 const containerId = /^[a-f0-9]{64}$/;
 
 /** devcontainers CLI interprets the pinned environment configuration. Docker
@@ -85,18 +89,26 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
       await this.verifyWorkspace(prior.id, workspace);
       return prior;
     }
-    const configPath = workspace.imageDigest ? await this.effectiveConfig(workspace) : workspace.configPath;
+    const configPath = workspace.imageDigest ? await this.effectiveConfig(workspace,owner) : workspace.configPath;
+    const project=existsSync(this.composeReceipt(owner)) ? this.composeProject(owner) : undefined;
     const result = await this.startTool(["up", "--update-remote-user-uid-default", "never", "--docker-path", this.docker,
       "--workspace-folder", workspace.path, "--config", configPath, "--mount-workspace-git-root=false", ...(workspace.frozenLockfile ? ["--frozen-lockfile"] : []),
       "--id-label", ledgerLabel + "=" + owner.ledgerId, "--id-label", sandboxLabel + "=" + owner.sandboxId, ...(owner.setupAttempt ? ["--id-label", setupLabel + "=" + owner.setupAttempt] : [])]);
     const report = JSON.parse(result.stdout.trim());
     const after = await this.observe(owner);
     if (!after || after.state !== "running" || report.outcome !== "success" || report.containerId !== after.id) throw new Error("devcontainer did not confirm the owned running container");
+    if (project) {
+      if (report.composeProjectName!==project) throw Error("devcontainer launched an unexpected Compose project");
+      const record=JSON.parse(safeRead(this.composeReceipt(owner),1024*1024).toString());
+      const compose=composeEnvironment(record.service,record.services,true,record.volumes);
+      const {services}=await this.composeInventory(project,compose);
+      if (!Object.keys(compose.services).every(key=>services.has(key))) throw Error("Compose services are missing");
+    }
     await this.verifyWorkspace(after.id, workspace);
     return after;
   }
 
-  private async effectiveConfig(workspace: RuntimeWorkspace) {
+  private async effectiveConfig(workspace: RuntimeWorkspace, owner: RuntimeOwner) {
     const expected = workspace.imageDigest!;
     const parsed = pinnedConfig(await readFile(workspace.configPath,"utf8"), expected);
     const inspect = async (ref: string) => JSON.parse((await this.invoke(this.docker, ["image","inspect","--format","{{json .}}",ref],opts)).stdout);
@@ -115,6 +127,7 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
       const metadata = JSON.parse(raw);
       for (const item of Array.isArray(metadata) ? metadata : [metadata]) {
         checkIsolation(item);
+        if (parsed.groundsCompose && (item.capAdd?.length || item.securityOpt?.length)) throw Error("Compose image metadata requests elevated container privileges");
         if (item.workspaceMount || item.dockerComposeFile || item.build || item.features) throw new Error("image metadata overrides frozen environment configuration");
       }
     }
@@ -130,16 +143,46 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
     const mounts=inputs.map(({source,target})=>'type=bind,"source='+source.replaceAll('"','""')+'",target='+target+',readonly');
     const launch={...parsed,...(mounts.length ? {mounts} : {}),image:image.Id===expected ? image.Id : parsed.image};
     const path = join(dir,"devcontainer.json");
+    if (parsed.groundsCompose) {
+      const compose=composeEnvironment(parsed.groundsCompose.service,parsed.groundsCompose.services,true,parsed.groundsCompose.volumes);
+      const project=this.composeProject(owner),labels={[composeOwner]:project};
+      const services:Record<string,unknown>={};
+      for (const [name,service] of Object.entries(compose.services)) {
+        const info=await inspect(service.image);
+        const reserved=new Set(service.volumes?.map(v=>v.split(":")[1]));
+        if (info.Id!==service.image || Object.keys(info.Config?.Volumes ?? {}).some(v=>!reserved.has(v))) throw Error("unavailable Compose image or unreserved image volume");
+        const volumes=name===compose.service ? [
+          {type:"bind",source:workspace.path.replaceAll("$",()=> "$$"),target:parsed.workspaceFolder},
+          ...inputs.map(v=>({type:"bind",source:v.source.replaceAll("$",()=> "$$"),target:v.target,read_only:true})),
+        ] : service.volumes ?? [];
+        services[name]={...service,labels,pull_policy:"never",volumes};
+      }
+      const receipt=this.composeReceipt(owner),identity=JSON.stringify(compose);
+      if (existsSync(receipt) && safeRead(receipt,1024*1024).toString()!==identity) throw Error("Compose workspace identity changed");
+      await this.composeInventory(project,compose);
+      privateDirectory(dirname(receipt));
+      atomicPrivateWrite(receipt,identity);
+      await writeFile(join(dir,"compose.json"),JSON.stringify({name:project,services,volumes:Object.fromEntries(compose.volumes.map(v=>[v,{labels}])),networks:{default:{labels}}}));
+      const {groundsCompose,image,workspaceMount,mounts,...settings}=launch;
+      await writeFile(path,JSON.stringify({...settings,dockerComposeFile:"compose.json",service:compose.service}));
+      return path;
+    }
     await writeFile(path,JSON.stringify(launch));
     if (workspace.frozenLockfile) await copyFile(join(dirname(workspace.configPath),"devcontainer-lock.json"),join(dir,"devcontainer-lock.json"));
     return path;
   }
 
-  private async startTool(argv: string[]) {
-    if (this.launchLockFd === undefined) return this.invoke(this.devcontainer, argv, opts);
+  private async startTool(argv: string[],project?:string) {
+    const env={...await this.environment()};
+    if (project) {
+      for (const key of Object.keys(env)) if (key.startsWith("COMPOSE_")) delete env[key];
+      env.COMPOSE_PROJECT_NAME=project;
+      env.COMPOSE_DISABLE_ENV_FILE="1";
+    }
+    if (this.launchLockFd === undefined) return exec(this.devcontainer, argv, {...opts,env});
     // The CLI inherits the file description. Even if the helper is killed, a
     // reconciler cannot declare the attempt interrupted while the CLI is alive.
-    const child = spawn(this.devcontainer, argv, { stdio: ["ignore","pipe","ignore",this.launchLockFd], timeout: opts.timeout, env:await this.environment() });
+    const child = spawn(this.devcontainer, argv, { stdio: ["ignore","pipe","ignore",this.launchLockFd], timeout: opts.timeout, env });
     let stdout = "";
     child.stdout!.setEncoding("utf8");
     child.stdout!.on("data", (chunk: string) => {
@@ -151,6 +194,61 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
       child.once("close", code => code === 0 ? ok() : fail(new Error("devcontainer setup did not complete")));
     });
     return { stdout };
+  }
+
+  private composeProject(owner:RuntimeOwner) {
+    return "grounds-"+createHash("sha256").update(JSON.stringify([owner.ledgerId,owner.sandboxId])).digest("hex").slice(0,32);
+  }
+
+  private composeReceipt(owner:RuntimeOwner) {
+    return join(dataLayout().runtime,"compose-projects",this.composeProject(owner)+".json");
+  }
+
+  private async composeInventory(project:string,compose:ComposeEnvironment) {
+    const filter="label=com.docker.compose.project="+project;
+    const list=async(args:string[]) => (await this.invoke(this.docker,args)).stdout.trim().split(/\s+/).filter(Boolean);
+    const containers=await list(["ps","-aq","--no-trunc","--filter",filter]);
+    const services=new Set<string>();
+    for (const id of containers) {
+      const info=JSON.parse((await this.invoke(this.docker,["inspect","--type","container","--format","{{json .}}",id])).stdout);
+      const labels=info.Config.Labels,service=labels["com.docker.compose.service"];
+      if (info.Id!==id || labels[composeOwner]!==project || labels["com.docker.compose.project"]!==project ||
+          services.has(service) || !Object.hasOwn(compose.services,service) || info.Image!==compose.services[service]!.image) throw Error("Compose project contains an unrelated container");
+      services.add(service);
+    }
+    const networks=await list(["network","ls","--no-trunc","-q","--filter","name=^"+project+"_default$"]);
+    for (const id of networks) {
+      const info=JSON.parse((await this.invoke(this.docker,["network","inspect","--format","{{json .}}",id])).stdout);
+      if (info.Id!==id || info.Name!==project+"_default" || info.Labels?.[composeOwner]!==project ||
+          info.Labels["com.docker.compose.project"]!==project) throw Error("Compose network ownership differs");
+    }
+    const volumes:string[]=[];
+    for (const key of compose.volumes) {
+      const name=project+"_"+key;
+      if (!(await list(["volume","ls","-q","--filter","name=^"+name+"$"])).includes(name)) continue;
+      const info=JSON.parse((await this.invoke(this.docker,["volume","inspect","--format","{{json .}}",name])).stdout);
+      if (info.Driver!=="local" || info.Name!==name || info.Labels?.[composeOwner]!==project ||
+          info.Labels["com.docker.compose.project"]!==project || info.Labels["com.docker.compose.volume"]!==key) throw Error("Compose volume ownership differs");
+      volumes.push(name);
+    }
+    return {containers,networks,volumes,services};
+  }
+
+  /** Also runs on recovery if Compose created dependencies before the main
+   * container, or the main container disappeared before release was recorded. */
+  async removeDependents(owner:RuntimeOwner) {
+    const receipt=this.composeReceipt(owner);
+    if (!existsSync(receipt)) return;
+    const record=JSON.parse(safeRead(receipt,1024*1024).toString());
+    const compose=composeEnvironment(record.service,record.services,true,record.volumes),project=this.composeProject(owner);
+    const resources=await this.composeInventory(project,compose);
+    if (resources.services.has(compose.service)) throw Error("execution container still occupies the Compose project");
+    for (const id of resources.containers) await this.invoke(this.docker,["rm","--force",id]);
+    for (const id of resources.networks) await this.invoke(this.docker,["network","rm",id]);
+    for (const name of resources.volumes) await this.invoke(this.docker,["volume","rm",name]);
+    const after=await this.composeInventory(project,compose);
+    if (after.containers.length || after.networks.length || after.volumes.length) throw Error("Compose release is unconfirmed");
+    await unlink(receipt);
   }
 
   private async verifyWorkspace(id: string, workspace: RuntimeWorkspace) {
@@ -217,6 +315,7 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
     if (current.state !== "stopped") await this.invoke(this.docker, ["stop", id], opts);
     await this.invoke(this.docker, ["rm", id], opts);
     if (await this.observe(owner)) throw new Error("sandbox removal not confirmed");
+    await this.removeDependents(owner);
   }
 
   /** Resolve remoteEnv, image metadata and the remote user through the same

@@ -76,7 +76,7 @@ export class RetainedSetup {
           return fail("conflict", "the occupied container cannot be identified as the failed setup");
         }
         await runtime.remove(owner, observed.id);
-      }
+      } else await runtime.removeDependents?.(owner);
       try { await launcher.start(attempt, workspace, sandbox.location); }
       catch { /* The durable receipt is authoritative if the client lost its reply. */ }
       observed = await runtime.observe(owner);

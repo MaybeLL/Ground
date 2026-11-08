@@ -45,7 +45,7 @@ export class TestGradingDriver {
         if (current) {
           if (current.setupAttempt !== id || sandbox.runtime && current.id !== sandbox.runtime.instanceId) throw new Error("refusing to release an unrelated evaluator container");
           await runtime.remove(owner,current.id);
-        }
+        } else await runtime.removeDependents?.(owner);
         await process.dispose(owner);
         return true;
       });

@@ -12,6 +12,7 @@ export interface SandboxRuntimePort {
   stop(owner: RuntimeOwner, id: string): Promise<void>;
   pause(owner: RuntimeOwner, id: string): Promise<void>;
   resume(owner: RuntimeOwner, id: string): Promise<void>;
+  removeDependents?(owner: RuntimeOwner): Promise<void>;
   remove(owner: RuntimeOwner, id: string): Promise<void>;
   externalCommand(owner:RuntimeOwner,id:string,workspace:RuntimeWorkspace):Promise<string[]>;
   execute(owner: RuntimeOwner, id: string, workspace: RuntimeWorkspace, argv: readonly string[]): Promise<{ stdout: string; stderr: string; exitCode: number }>;
