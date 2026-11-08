@@ -238,7 +238,7 @@ test("managed worker runs once when its collector dies after a real Docker exit 
       'echo exporting >> /tmp/export-calls; git update-ref refs/grounds/candidate "$1"; git bundle create - refs/grounds/candidate',"grounds",commit]});
     for (const [name,value] of Object.entries({commit,handle:exportHandle,"bridge.json":JSON.stringify({target,handle:exportHandle,prompt:""})}))
       writeFileSync(join(exportRoot,name),value,{mode:0o600});
-    const lost=spawnSync(process.execPath,["--import","tsx","test/fixtures/interrupt-after-engine-exit.ts",exportRoot],{encoding:"utf8",timeout:60000});
+    const lost=spawnSync(process.execPath,["--import","tsx","test/fixtures/interrupt-after-engine-exit.ts",exportRoot,"0"],{encoding:"utf8",timeout:60000});
     assert.ifError(lost.error);
     assert.equal(lost.signal,"SIGKILL",lost.stderr);
     assert.deepEqual(await engine.observe(target,exportHandle),{running:false,exitCode:0});

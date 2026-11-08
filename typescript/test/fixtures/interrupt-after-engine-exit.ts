@@ -8,7 +8,7 @@ const start=EngineProcess.prototype.start;
 EngineProcess.prototype.start=async function(...args) {
   const result=await start.apply(this,args);
   assert.equal(result.running,false);
-  assert.equal(result.exitCode,17);
+  assert.equal(result.exitCode,Number(process.argv[3] ?? 17));
   process.kill(process.pid,"SIGKILL");
   return result;
 };
