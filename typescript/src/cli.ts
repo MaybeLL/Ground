@@ -11,6 +11,7 @@ import { bundledPluginRoot, defaultSkillsDirectory, installGroundsSkills } from 
 import { installationStatus } from "./installation-status.js";
 import { cliVersion } from "./runtime-version.js";
 import { composeWork } from "./work/composition.js";
+import { notifyManaged } from "./managed-host-client.js";
 import { executeWorkCommand, WORK_GROUPS, WORK_WRITE_ACTIONS, workHelp } from "./work/entry/index.js";
 
 export interface Warning { code: string; message: string }
@@ -295,7 +296,7 @@ const databaseIdentityMismatch = (): DomainError => new DomainError(
   { reason: "expected_database_id does not match" },
 );
 
-const openStore = async (pathOverride = ""): Promise<{ store: SQLStore; config: Config; policy: "warn" | "require_override" }> => {
+export const openStore = async (pathOverride = ""): Promise<{ store: SQLStore; config: Config; policy: "warn" | "require_override" }> => {
   const path = configPath(pathOverride);
   if (!existsSync(path)) throw new DomainError("SCHEMA_INCOMPATIBLE", `configuration file does not exist: ${path}`, false, schemaDetails(SCHEMA_VERSION, `configuration file does not exist: ${path}`));
   const config = loadConfig(path); const store = storeForConfig(config);
@@ -413,7 +414,19 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
   if ((WORK_GROUPS as readonly string[]).includes(group)) {
     if (bool(args, "help") || !action || action === "help") return { result_type: "patchledger.result.help/v1", command: "help", usage: workHelp() };
     const opened = await openStore(value(args, "config"));
-    try { return await executeWorkCommand(args, { app: composeWork(opened.store), cwd, readFile: path => readFileSync(resolve(cwd, path), "utf8") }); }
+    try {
+      const app=composeWork(opened.store);
+      const data=await executeWorkCommand(args,{app,cwd,readFile:path=>readFileSync(resolve(cwd,path),"utf8")}) as Record<string,unknown>;
+      if(group==="work" && typeof data.runId==="string" && ["start","continue","branch","resume-managed","cancel"].includes(action)){
+        let id=typeof data.executionId==="string" ? data.executionId : undefined;
+        if(!id && action==="cancel") {
+          const managed=await app.workers.context(data.runId);
+          if(managed.ok) id=managed.value.exec.id;
+        }
+        if(id) await notifyManaged({config:configPath(value(args,"config")),ledgerId:opened.config.database.expected_database_id,runId:data.runId,executionId:id,allowStart:action!=="cancel"},value(args,"operation-id"));
+      }
+      return data;
+    }
     finally { await opened.store.close(); }
   }
   // `--version` / `-v` print the installed package version without touching

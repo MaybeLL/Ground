@@ -119,7 +119,7 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
     return { tree, parents };
   }
 
-  private async archiveRemote(repositoryPath: string, remote: string): Promise<string> {
+  async archiveRemote(repositoryPath: string, remote: string): Promise<string> {
     const names = (await this.isolatedGit(repositoryPath, ["remote"])).trim().split("\n");
     const urls = names.includes(remote)
       ? (await this.isolatedGit(repositoryPath, ["remote", "get-url", "--push", "--all", remote])).trim().split("\n")

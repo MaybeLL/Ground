@@ -14,7 +14,10 @@ import { fail, failureOf, fromRejection, succeed, type Outcome } from "./outcome
 import { runEnvironment } from "./environment-definitions.js";
 import { once, type RequestContext } from "./requests.js";
 
+import type { AgentDefinitions, AgentSelection } from "./agent-definitions.js";
+
 export interface TaskExecutionDependencies {
+  readonly agents?: AgentDefinitions;
   readonly recovery?: import("./sandbox-recovery.js").SandboxRecovery;
   readonly lifecycle?: import("./sandbox-lifecycle.js").SandboxLifecycle;
   readonly units: WorkUnitOfWork;
@@ -25,10 +28,10 @@ export interface TaskExecutionDependencies {
 }
 
 type Agent = { id: string; name?: string; model?: string };
-export type RunMode = Exclude<WorkerMode, "managed">;
+export type RunMode = WorkerMode;
 
-export type StartedRun = { workId: Id; runId: Id; taskRevisionId: Id; workerMode: RunMode };
-export type ContinuedRun = { workId: Id; runId: Id; refines: Id; taskRevisionId: Id };
+export type StartedRun = { executionId?: string; workId: Id; runId: Id; taskRevisionId: Id; workerMode: RunMode };
+export type ContinuedRun = { executionId?: string; workId: Id; runId: Id; refines: Id; taskRevisionId: Id };
 export type Registered = { runId: Id; sessionId: Id };
 export type Submitted = { runId: Id; status: TaskRunStatus; outcome: string; blocked: string | null };
 export type Cancelled = { runId: Id; status: TaskRunStatus; outcome: string };
@@ -48,7 +51,7 @@ export class TaskExecution {
   // ---- work ----------------------------------------------------------------
 
   /** Begin a work on a task: a new work whose first run is pending. */
-  startWork(input: { requestId: string; taskDefinitionId: Id; taskRevisionId?: Id; environmentRevisionId?: Id; workerMode: RunMode; retention?: Retention }): Promise<Outcome<StartedRun>> {
+  startWork(input: { requestId: string; taskDefinitionId: Id; taskRevisionId?: Id; environmentRevisionId?: Id; workerMode: RunMode; agent?:AgentSelection; retention?: Retention }): Promise<Outcome<StartedRun>> {
     const early = needId("requestId", input.requestId) ?? needId("taskDefinitionId", input.taskDefinitionId);
     if (early) return Promise.resolve(early);
     return once<StartedRun>(this.context, { requestId: input.requestId, kind: "start-work", input: input as unknown as JsonValue, subject: { type: "task", id: input.taskDefinitionId } }, async r => {
@@ -62,14 +65,21 @@ export class TaskExecution {
       if (!created.ok) return fromRejection(created.error);
       const work = startWork({ id: workId, taskDefinitionId: input.taskDefinitionId, firstRunId: runId, at });
       if (!work.ok) return fromRejection(work.error);
+      const agent = await this.admitAgent(r,created.value.state,input.agent);
+      if (!agent.ok) return agent;
       await r.taskRuns.create(created.value.state);
       await r.works.create(work.value.state);
-      return succeed({ workId, runId, taskRevisionId: revision.value.id, workerMode: input.workerMode });
+      return succeed({ workId, runId, taskRevisionId: revision.value.id, workerMode: input.workerMode, ...agent.value });
     });
   }
 
+  private async admitAgent(r:WorkRepositories,run:TaskRun,selection?:AgentSelection) {
+    if (this.deps.agents) return this.deps.agents.admit(r,run,selection);
+    return run.workerMode === "managed" || selection ? fail("unsupported","managed execution service is unavailable") : succeed({});
+  }
+
   /** Refine the head of a work: a new run that starts from what the head delivered, and becomes the head if nobody moved it meanwhile. */
-  continueWork(input: { requestId: string; workId: Id; expectedHead: Id; workerMode: RunMode; taskRevisionId?: Id; environmentRevisionId?: Id; retention?: Retention }): Promise<Outcome<ContinuedRun>> {
+  continueWork(input: { requestId: string; workId: Id; expectedHead: Id; workerMode: RunMode; agent?:AgentSelection; taskRevisionId?: Id; environmentRevisionId?: Id; retention?: Retention }): Promise<Outcome<ContinuedRun>> {
     const early = needId("requestId", input.requestId) ?? needId("workId", input.workId) ?? needId("expectedHead", input.expectedHead);
     if (early) return Promise.resolve(early);
     return once<ContinuedRun>(this.context, { requestId: input.requestId, kind: "continue-work", input: input as unknown as JsonValue, subject: { type: "work", id: input.workId } }, async r => {
@@ -80,7 +90,7 @@ export class TaskExecution {
   }
 
   /** Refine any run of the work without moving its head. */
-  addBranch(input: { requestId: string; workId: Id; refines: Id; workerMode: RunMode; taskRevisionId?: Id; environmentRevisionId?: Id; retention?: Retention }): Promise<Outcome<ContinuedRun>> {
+  addBranch(input: { requestId: string; workId: Id; refines: Id; workerMode: RunMode; agent?:AgentSelection; taskRevisionId?: Id; environmentRevisionId?: Id; retention?: Retention }): Promise<Outcome<ContinuedRun>> {
     const early = needId("requestId", input.requestId) ?? needId("workId", input.workId) ?? needId("refines", input.refines);
     if (early) return Promise.resolve(early);
     return once<ContinuedRun>(this.context, { requestId: input.requestId, kind: "add-branch", input: input as unknown as JsonValue, subject: { type: "work", id: input.workId } }, async r => {
@@ -90,7 +100,7 @@ export class TaskExecution {
     });
   }
 
-  private async refine(r: WorkRepositories, work: Work, refines: Id, input: { workerMode: RunMode; taskRevisionId?: Id; environmentRevisionId?: Id; retention?: Retention }, moveWork: (work: Work, runId: Id, at: string) => Result<Decision<Work, unknown, unknown>>): Promise<Outcome<ContinuedRun>> {
+  private async refine(r: WorkRepositories, work: Work, refines: Id, input: { workerMode: RunMode; agent?:AgentSelection; taskRevisionId?: Id; environmentRevisionId?: Id; retention?: Retention }, moveWork: (work: Work, runId: Id, at: string) => Result<Decision<Work, unknown, unknown>>): Promise<Outcome<ContinuedRun>> {
     const parent = await r.taskRuns.get(refines, { lock: true });
     if (!parent || parent.workId !== work.id) return fail("not-found", `run ${refines} is not a run of work ${work.id}`);
     const revision = await this.taskRevision(r, work.taskDefinitionId, input.taskRevisionId);
@@ -104,9 +114,11 @@ export class TaskExecution {
     if (!created.ok) return fromRejection(created.error);
     const moved = moveWork(work, runId, at);
     if (!moved.ok) return fromRejection(moved.error);
+    const agent = await this.admitAgent(r,created.value.state,input.agent);
+    if (!agent.ok) return agent;
     await r.works.save(moved.value.state, work.version);
     await r.taskRuns.create(created.value.state);
-    return succeed({ workId: work.id, runId, refines, taskRevisionId: revision.value.id });
+    return succeed({ workId: work.id, runId, refines, taskRevisionId: revision.value.id, ...agent.value });
   }
 
   /** Put the head on another run of the work; the choice is the caller's and is never inferred. */

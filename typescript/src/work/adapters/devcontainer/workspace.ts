@@ -39,6 +39,8 @@ export class ManagedWorkspaces implements ManagedWorkspacePort {
         await git(["init", "--quiet", "--template=", "--object-format=" + (commit.length === 64 ? "sha256" : "sha1"), clone]);
         await git(["-C", clone, "-c", "core.hooksPath=/dev/null", "fetch", "--no-tags", "--depth=1", "--", pathToFileURL(repository).href, commit]);
         await git(["-C", clone, "-c", "core.hooksPath=/dev/null", "checkout", "--quiet", "--detach", commit]);
+        await git(["-C",clone,"config","user.name","Grounds Worker"]);
+        await git(["-C",clone,"config","user.email","worker@grounds.invalid"]);
         await writeFile(join(config, "devcontainer.json"), JSON.stringify(configSource));
         if (content.lockfile !== null) await writeFile(join(config, "devcontainer-lock.json"), content.lockfile);
         await writeFile(join(stage, "source.json"), descriptor, { mode: 0o600 });

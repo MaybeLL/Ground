@@ -51,6 +51,14 @@ export class Grading {
         evidence.set("transcript:" + entry.digest,entry.digest);
         if (entry.trace) evidence.set("events:" + entry.digest,entry.trace.events.digest);
       }
+      if(run.worker?.kind==="managed"){
+        const job=(await r.intents.listForSubject("managed-worker","task_run",run.id))[0];
+        const recorded=job?.payload as {executionId?:string;trace?:import("../domain/index.js").FrozenTrace}|undefined;
+        if(recorded?.executionId===run.worker.executionId && recorded.trace){
+          evidence.set("transcript:"+recorded.trace.raw.digest,recorded.trace.raw.digest);
+          evidence.set("events:"+recorded.trace.raw.digest,recorded.trace.events.digest);
+        }
+      }
       for (const [id,digest] of evidence) {
         const supplied = materials.find(m=>m.id === id);
         if (supplied && supplied.digest !== digest) return fail("invalid","explicit material conflicts with frozen transcript evidence");

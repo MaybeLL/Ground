@@ -67,6 +67,7 @@
       "required": ["command", "result_type", "workId", "runId", "taskRevisionId", "workerMode"],
       "properties": {
         "command": {"const": "work.start"},
+        "executionId": {"$ref":"#/$defs/Id"},
         "result_type": {"const": "grounds.result.work.start/v1"},
         "workId": {"$ref": "#/$defs/Id"},
         "runId": {"$ref": "#/$defs/Id"},
@@ -80,6 +81,7 @@
       "required": ["command", "result_type", "workId", "runId", "refines", "taskRevisionId"],
       "properties": {
         "command": {"const": "work.continue"},
+        "executionId": {"$ref":"#/$defs/Id"},
         "result_type": {"const": "grounds.result.work.continue/v1"},
         "workId": {"$ref": "#/$defs/Id"},
         "runId": {"$ref": "#/$defs/Id"},
@@ -93,6 +95,7 @@
       "required": ["command", "result_type", "workId", "runId", "refines", "taskRevisionId"],
       "properties": {
         "command": {"const": "work.branch"},
+        "executionId": {"$ref":"#/$defs/Id"},
         "result_type": {"const": "grounds.result.work.branch/v1"},
         "workId": {"$ref": "#/$defs/Id"},
         "runId": {"$ref": "#/$defs/Id"},
@@ -472,7 +475,7 @@
     "Timestamp": {"$ref": "common.schema.json#/$defs/timestamp"},
     "Digest": {"$ref": "common.schema.json#/$defs/sha256"},
     "ProtocolStage": {"enum": ["blind", "freeze", "reconcile", "handoff", "submit"]},
-    "RunMode": {"enum": ["external", "none"]},
+    "RunMode": {"enum": ["external", "none", "managed"]},
     "TaskContent": {
       "type": "object",
       "required": ["kind", "schemaVersion", "summary", "criteria"],

@@ -39,7 +39,13 @@ export class ProviderTraces {
     if (!isId(runId) || !isDigest(digest) || !["raw","events"].includes(stream) || !Number.isSafeInteger(ordinal) || ordinal < 0) return fail("invalid","invalid trace or chunk selection");
     return this.ctx.units.run("read",async r => {
       const run = await r.taskRuns.get(runId);
-      const trace = run?.worker?.kind === "external" && run.worker.registration.transcripts.find(t=>t.digest===digest && t.trace)?.trace;
+      let trace: FrozenTrace | undefined;
+      if(run?.worker?.kind==="external") trace=run.worker.registration.transcripts.find(t=>t.digest===digest && t.trace)?.trace;
+      if(run?.worker?.kind==="managed"){
+        const job=(await r.intents.listForSubject("managed-worker","task_run",run.id))[0];
+        const payload=job?.payload as {executionId?:string;trace?:FrozenTrace}|undefined;
+        if(payload?.executionId===run.worker.executionId && payload.trace?.raw.digest===digest) trace=payload.trace;
+      }
       if (!trace) return fail("not-found","run has no archived trace with this digest");
       const ref = stream === "raw" ? trace.raw : trace.events;
       if (ordinal >= ref.chunkCount) return fail("not-found","chunk is outside the archived stream");

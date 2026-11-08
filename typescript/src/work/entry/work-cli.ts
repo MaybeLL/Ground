@@ -11,7 +11,7 @@ import type { Outcome, WorkApplication } from "../application/index.js";
 export const WORK_GROUPS = ["task", "work", "grade", "suite"] as const;
 export const WORK_WRITE_ACTIONS = new Set([
   "grade:measure", "grade:define-rule", "suite:publish", "suite:measure",
-  "work:import-trace", "work:prepare-sandbox", "work:pause-sandbox", "work:release-sandbox", "work:define-environment", "task:create", "task:revise",
+  "work:resume-managed", "work:define-agent", "work:import-trace", "work:prepare-sandbox", "work:pause-sandbox", "work:release-sandbox", "work:define-environment", "task:create", "task:revise",
   "work:start", "work:continue", "work:branch", "work:select", "work:close", "work:register", "work:transcript", "work:deliver", "work:repair", "work:stop", "work:cancel",
   "grade:request", "grade:register", "grade:stage", "grade:command", "grade:submit", "grade:stop", "grade:cancel",
 ]);
@@ -32,7 +32,7 @@ const many = (args: ParsedArgs, name: string): string[] => { const v = raw(args,
 const flag = (args: ParsedArgs, name: string): boolean => raw(args, name) === true || raw(args, name) === "true";
 const integer = (args: ParsedArgs, name: string): number => { const n = Number(need(args, name)); if (!Number.isSafeInteger(n) || n < 0) throw validation(name, "must be a non-negative integer"); return n; };
 const requestId = (args: ParsedArgs): string => need(args, "operation-id");
-const mode = (args: ParsedArgs): "external" | "none" => { const m = need(args, "mode"); if (m !== "external" && m !== "none") throw validation("mode", "must be external or none"); return m; };
+const mode = (args: ParsedArgs): "external" | "none" | "managed" => { const m = need(args, "mode"); if (m !== "external" && m !== "none" && m !== "managed") throw validation("mode", "must be external, none or managed"); return m; };
 const archiveProtection = (args: ParsedArgs) => {
   const level = text(args, "protection"), evidence = text(args, "protection-evidence");
   if (level === undefined && evidence === undefined) return undefined;
@@ -107,7 +107,24 @@ async function task(args: ParsedArgs, action: string, app: WorkApplication): Pro
 }
 
 async function work(args: ParsedArgs, action: string, app: WorkApplication, deps: WorkEntryDependencies): Promise<object> {
+  const selection = () => raw(args,"agent")!==undefined || raw(args,"agent-revision")!==undefined ? {agent:{
+    definitionId:need(args,"agent"),repositoryPath:resolve(deps.cwd,text(args,"repo")??"."),
+    ...(raw(args,"agent-revision")!==undefined ? {revisionId:need(args,"agent-revision")} : {}),
+  }} : {};
   switch (action) {
+    case "managed-status":
+    case "resume-managed": {
+      const context=unwrap(await app.workers.context(need(args,"run")));
+      return {runId:context.run.id,executionId:context.exec.id,stage:context.exec.stage,stop:context.exec.stop,
+        status:context.run.status,agent:context.exec.agentRevision,receipts:context.exec.receipts,...(context.job.observation?{host:context.job.observation}:{}),...(context.job.trace?{trace:context.job.trace}:{})};
+    }
+    case "define-agent": {
+      const provider=need(args,"provider");
+      if (provider!=="codex" && provider!=="claude-code") throw validation("provider","expected codex or claude-code");
+      const definitionId=text(args,"agent");
+      return unwrap(await app.agents.publish({requestId:requestId(args),name:need(args,"name"),provider,...(raw(args,"model")!==undefined?{model:need(args,"model")} : {}),
+        ...(definitionId?{definitionId}:{}),expectedSeq:definitionId || raw(args,"expected-seq")!==undefined ? integer(args,"expected-seq") : 0}));
+    }
     case "import-trace": {
       const provider = need(args,"provider");
       if (provider !== "codex" && provider !== "claude-code") throw validation("provider","expected codex or claude-code");
@@ -133,9 +150,9 @@ async function work(args: ParsedArgs, action: string, app: WorkApplication, deps
         ...(id ? { definitionId: id } : {}), expectedSeq: id || raw(args,"expected-seq") !== undefined ? integer(args,"expected-seq") : 0 }));
     }
     case "environment": return unwrap(await app.environments.show(need(args,"environment"), integer(args,"revision")));
-    case "start": return unwrap(await app.exec.startWork({ requestId: requestId(args), taskDefinitionId: need(args, "task"), workerMode: mode(args), ...(raw(args,"environment-revision") !== undefined ? { environmentRevisionId: need(args,"environment-revision") } : {}), ...(text(args, "revision-id") ? { taskRevisionId: text(args, "revision-id")! } : {}) }));
-    case "continue": return unwrap(await app.exec.continueWork({ requestId: requestId(args), workId: need(args, "work"), expectedHead: need(args, "expected-head"), workerMode: mode(args), ...(raw(args,"environment-revision") !== undefined ? { environmentRevisionId: need(args,"environment-revision") } : {}), ...(text(args, "revision-id") ? { taskRevisionId: text(args, "revision-id")! } : {}) }));
-    case "branch": return unwrap(await app.exec.addBranch({ requestId: requestId(args), workId: need(args, "work"), refines: need(args, "refines"), workerMode: mode(args), ...(raw(args,"environment-revision") !== undefined ? { environmentRevisionId: need(args,"environment-revision") } : {}), ...(text(args, "revision-id") ? { taskRevisionId: text(args, "revision-id")! } : {}) }));
+    case "start": return unwrap(await app.exec.startWork({ requestId: requestId(args), taskDefinitionId: need(args, "task"), workerMode: mode(args), ...selection(), ...(raw(args,"environment-revision") !== undefined ? { environmentRevisionId: need(args,"environment-revision") } : {}), ...(text(args, "revision-id") ? { taskRevisionId: text(args, "revision-id")! } : {}) }));
+    case "continue": return unwrap(await app.exec.continueWork({ requestId: requestId(args), workId: need(args, "work"), expectedHead: need(args, "expected-head"), workerMode: mode(args), ...selection(), ...(raw(args,"environment-revision") !== undefined ? { environmentRevisionId: need(args,"environment-revision") } : {}), ...(text(args, "revision-id") ? { taskRevisionId: text(args, "revision-id")! } : {}) }));
+    case "branch": return unwrap(await app.exec.addBranch({ requestId: requestId(args), workId: need(args, "work"), refines: need(args, "refines"), workerMode: mode(args), ...selection(), ...(raw(args,"environment-revision") !== undefined ? { environmentRevisionId: need(args,"environment-revision") } : {}), ...(text(args, "revision-id") ? { taskRevisionId: text(args, "revision-id")! } : {}) }));
     case "select": return unwrap(await app.exec.selectHead({ requestId: requestId(args), workId: need(args, "work"), runId: need(args, "run"), ...(text(args, "expected-head") ? { expectedHead: text(args, "expected-head")! } : {}) }));
     case "close": return unwrap(await app.exec.closeWork({ requestId: requestId(args), workId: need(args, "work") }));
     case "show": {
@@ -213,6 +230,8 @@ export const workHelp = (): string => [
   "grounds suite show --suite ID --revision N | suite list | suite measure --suite ID --revision N --case KEY [--binding KEY] --run RUN --delivery ID [--repo PATH]",
   "grounds task create --title TEXT --criterion TEXT... [--context TEXT] [--environment ID] [--repo-remote URL --baseline REF]",
   "grounds task revise --task ID --expected-seq N --title TEXT --criterion [ID: ]TEXT... | task show --task ID [--revision N] | task list",
+  "grounds work define-agent --name NAME --provider codex|claude-code [--model MODEL] [--agent ID --expected-seq N]",
+  "grounds work start --task ID --mode managed --agent ID [--agent-revision REV --repo PATH] | work managed-status|resume-managed --run RUN",
   "grounds work import-trace --run RUN --session SESSION --provider codex|claude-code --file FILE --digest SHA256 | work trace --run RUN --digest SHA256 --stream raw|events --chunk N",
   "grounds work prepare-sandbox --run RUN [--repo PATH] | work reconcile-sandbox --run RUN | work pause-sandbox|release-sandbox --run RUN",
   "grounds work define-environment --name NAME --devcontainer FILE --image-digest SHA256 [--lockfile FILE] [--environment ID --expected-seq N] | work environment --environment ID --revision N",

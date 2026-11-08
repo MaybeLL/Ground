@@ -648,3 +648,61 @@ test("provider trace import preserves exact raw bytes, normalizes known records,
     assert.equal((await h.cli("work","trace","--run",other.runId,"--digest",digest,"--stream","raw","--chunk","0")).error.code,"NOT_FOUND");
   });
 });
+
+test("managed worker runs in its owned devcontainer after admission and delivers its exact declared commit", {skip:!process.env.GROUNDS_TEST_MANAGED_AGENT && "requires the managed agent fixture image"},async()=>{
+  await withHarness(async h=>{
+    const docker=(...args:string[])=>execFileSync("docker",args,{encoding:"utf8",stdio:["ignore","pipe","pipe"]}).trim();
+    const image=process.env.GROUNDS_TEST_MANAGED_AGENT!,digest=docker("image","inspect","--format","{{.Id}}",image);
+    const config=join(h.directory,"devcontainer.json");
+    writeFileSync(config,JSON.stringify({image,workspaceFolder:"/work"}));
+    const env=ok(await h.cli("work","define-environment","--name","worker fixture","--devcontainer",config,"--image-digest",digest));
+    const db = new DatabaseSync(join(h.directory, "ledger.db"));
+    const ledger = db.prepare("SELECT database_id FROM schema_metadata").get()!.database_id as string;
+    db.close();
+    const containers = () => docker("ps", "-q", "--filter", "label=dev.grounds.ledger=" + ledger).split("\n").filter(Boolean);
+    const jobs = [];
+    try {
+      for (const provider of ["codex", "claude-code", "codex"]) {
+        const title = "concurrent fixture " + jobs.length;
+        const task = ok(await h.cli("task", "create", "--title", title, "--criterion", "commit result", "--environment", env.environmentId, "--repo-remote", h.remote, "--baseline", h.baseline));
+        const agent = ok(await h.cli("work", "define-agent", "--name", title, "--provider", provider));
+        const args = ["work", "start", "--mode", "managed", "--task", task.taskId, "--agent", agent.agentId, "--repo", h.repo, "--operation-id", newUUIDv7()];
+        const started = ok(await h.cli(...args));
+        assert.deepEqual(ok(await h.cli(...args)), started);
+        jobs.push({ title, started });
+      }
+      const deadline = Date.now() + 90_000;
+      const ready = new Map<string,string>();
+      while (Date.now() < deadline && ready.size < jobs.length) {
+        for (const id of containers()) {
+          if (ready.has(id)) continue;
+          try { ready.set(id, docker("exec", id, "cat", "/tmp/grounds-fixture-ready")); }
+          catch { /* The worker has not reached the barrier yet. */ }
+        }
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+      assert.deepEqual([...ready.values()].sort(), jobs.map(job => job.title));
+      for (const id of ready.keys()) docker("exec", id, "touch", "/tmp/grounds-fixture-release");
+      for (const {title, started} of jobs) {
+        let view;
+        do {
+          view = ok(await h.cli("work", "managed-status", "--run", started.runId));
+          if (["delivered", "cancelled", "failed"].includes(view.status)) break;
+          await new Promise(resolve => setTimeout(resolve, 250));
+        } while (Date.now() < deadline);
+        assert.equal(view.status, "delivered", JSON.stringify(view));
+        assert.equal(view.stage, "succeeded");
+        assert.equal(view.stop, "verified");
+        const {run} = ok(await h.cli("work", "run", "--run", started.runId));
+        assert.equal(run.manifest.origin, "contract");
+        assert.equal(run.worker.executionId, started.executionId);
+        const tag = "refs/tags/grounds/deliveries/" + run.manifest.items[0].id;
+        assert.equal(git(h.remote, "show", tag + ":result.txt"), title);
+        ok(await h.cli("work", "close", "--work", started.workId));
+      }
+      assert.equal(git(h.repo, "status", "--porcelain"), "");
+    } finally {
+      for(const id of docker("ps","-aq","--filter","label=dev.grounds.ledger="+ledger).split("\n").filter(Boolean))docker("rm","-f",id);
+    }
+  });
+});

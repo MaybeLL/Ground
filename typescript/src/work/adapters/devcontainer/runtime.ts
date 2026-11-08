@@ -38,6 +38,15 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
     return exec(binary,argv,{...options,env:await this.environment()});
   }
 
+  async localSocket(): Promise<string> {
+    const env = await this.environment();
+    const host = env.DOCKER_CONTEXT
+      ? (await this.invoke(this.docker, ["context","inspect",env.DOCKER_CONTEXT,"--format",'{{(index .Endpoints "docker").Host}}'])).stdout.trim()
+      : env.DOCKER_HOST;
+    if (!host?.startsWith("unix:///")) throw new Error("managed execution requires the local Docker Engine socket");
+    return new URL(host).pathname;
+  }
+
   async location() {
     const daemonId = (await this.invoke(this.docker, ["info", "--format", "{{.ID}}"], opts)).stdout.trim();
     if (!daemonId) throw new Error("Docker did not identify its daemon");
@@ -150,6 +159,22 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
     const current = await this.observe(owner);
     if (!current || current.id !== id) throw new Error("sandbox container is no longer present under the recorded identity");
     return current;
+  }
+
+  async processes(owner:RuntimeOwner,id:string) {
+    const state=await this.owned(owner,id);
+    if(state.state==="stopped") return [];
+    const result=await this.invoke(this.docker,["top",id,"-eo","pid,lstart"],opts);
+    const [header,...rows]=result.stdout.trimEnd().split("\n");
+    if(!header?.includes("PID") || !header.includes("STARTED") || !rows.length) throw new Error("Docker did not report a complete container process inventory");
+    return rows.map(row=>row.trim().replace(/\s+/g," ")).sort();
+  }
+
+  async stop(owner:RuntimeOwner,id:string) {
+    const current=await this.owned(owner,id);
+    if(current.state==="paused") await this.invoke(this.docker,["unpause",id]);
+    if(current.state!=="stopped") await this.invoke(this.docker,["stop",id]);
+    if((await this.owned(owner,id)).state!=="stopped") throw new Error("cannot confirm container stop");
   }
 
   async pause(owner: RuntimeOwner, id: string) {
