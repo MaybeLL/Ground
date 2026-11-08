@@ -84,6 +84,18 @@ test("host completion includes a detached reparented Python descendant, and pers
   }
 });
 
+test("Linux scope recovery observes marked processes after a wall clock step", {skip:process.platform!=="linux"},async()=>{
+  const scope=createHostProcessScope();
+  const child=task(scope),done=exited(child);
+  try {
+    const shifted={...scope,startedAtMs:scope.startedAtMs+4500};
+    assert.equal((await observedProcess(shifted,child)).pid,child.pid);
+    const legacy={marker:scope.marker,startedAtMs:shifted.startedAtMs};
+    assert.equal((await observedProcess(legacy,child)).pid,child.pid);
+    assert.deepEqual(inspectHostProcessScope({...shifted,linuxBoot:{id:"different-boot",uptimeMs:1}}),{complete:false,processes:[]});
+  } finally {child.kill();await done;}
+});
+
 test("host signals require both the correct random scope and process birth identity", async () => {
   const own = createHostProcessScope(), other = createHostProcessScope();
   const a = task(own), b = task(other);
@@ -131,6 +143,7 @@ test("empty scopes can confirm and malformed or old absent scopes remain unknown
 
 test("absent or unreadable process environments retain unknown; a verified original leader can still be cancelled", async () => {
   const scope = createHostProcessScope();
+  if (process.platform==="linux") scope.startedAtMs+=4500; // simulated wall clock adjustment after scope creation
   const argv = process.platform === "darwin" ? ["/bin/sleep", "60"] : ["python3", "-c", "import ctypes,time;assert ctypes.CDLL(None).prctl(4,0,0,0,0)==0;print('ready',flush=True);time.sleep(60)"];
   const child = spawn(argv[0], argv.slice(1), { detached: true, stdio: ["ignore", "pipe", "ignore"], env: process.platform === "darwin" ? {} : { ...process.env, ...hostProcessEnvironment(scope) } });
   const ready = restrictedProcessReady(child);

@@ -1,5 +1,6 @@
 import { nativeBinding } from "./native-binding.js";
 import { execFileSync } from "node:child_process";
+import {readFileSync} from "node:fs";
 import { randomBytes } from "node:crypto";
 export const isProcessAlive = (pid: number): boolean => {try{process.kill(pid,0);return true;}catch(error){return (error as NodeJS.ErrnoException).code==="EPERM";}};
 export const processIdentity = (pid: number): string | undefined => {try{return execFileSync("ps",["-p",String(pid),"-o","lstart="],{encoding:"utf8",stdio:["ignore","pipe","ignore"]}).trim()||undefined;}catch{return undefined;}};
@@ -12,13 +13,19 @@ export const signalProcessGroup = (pid: number, signal: NodeJS.Signals): boolean
 
 /** Persist this random scope before launch. It identifies ordinary descendants
  * even after setsid()/reparenting; host tasks remain trusted (no OS isolation). */
-export interface HostProcessScope { marker: string; startedAtMs: number }
+export interface HostProcessScope { marker: string; startedAtMs: number; linuxBoot?:{id:string;uptimeMs:number} }
 export interface HostProcessIdentity { pid: number; identity: string }
 export interface HostProcessObservation { complete: boolean; processes: HostProcessIdentity[] }
+function linuxBootClock() {
+  const id=readFileSync("/proc/sys/kernel/random/boot_id","utf8").trim();
+  const uptimeMs=Math.floor(Number(readFileSync("/proc/uptime","utf8").split(" ")[0])*1000);
+  if (!/^[a-f0-9-]{36}$/.test(id) || !Number.isSafeInteger(uptimeMs) || uptimeMs<=0) throw Error("cannot read host boot clock");
+  return {id,uptimeMs};
+}
 export const createHostProcessScope = (): HostProcessScope => {
   // Fail before launch when this installation cannot observe descendants.
   nativeBinding();
-  return { marker: randomBytes(32).toString("hex"), startedAtMs: Date.now() };
+  return { marker: randomBytes(32).toString("hex"), startedAtMs: Date.now(), ...(process.platform==="linux" ? {linuxBoot:linuxBootClock()} : {}) };
 };
 const validScope = (scope: HostProcessScope): boolean => !!scope && /^[a-f0-9]{64}$/.test(scope.marker) && Number.isSafeInteger(scope.startedAtMs) && scope.startedAtMs > 0;
 export const hostProcessEnvironment = (scope: HostProcessScope): Record<string, string> => {
@@ -31,7 +38,15 @@ export const hostProcessEnvironment = (scope: HostProcessScope): Record<string, 
  * a pre-scope non-task parent. Linux retains conservative subreaper handling. */
 export const inspectHostProcessScope = (scope: HostProcessScope, leader?: HostProcessIdentity): HostProcessObservation => {
   if (!validScope(scope)) return { complete: false, processes: [] };
-  try { return leader ? nativeBinding().hostProcesses(scope.marker, scope.startedAtMs, leader.pid, leader.identity) : nativeBinding().hostProcesses(scope.marker, scope.startedAtMs); }
+  try {
+    if (process.platform==="linux" && scope.linuxBoot) {
+      const clock=linuxBootClock();
+      if (!Number.isSafeInteger(scope.linuxBoot.uptimeMs) || scope.linuxBoot.uptimeMs<=0 || scope.linuxBoot.id!==clock.id || scope.linuxBoot.uptimeMs>clock.uptimeMs) {
+        return {complete:false,processes:[]};
+      }
+      return nativeBinding().hostProcessesSinceBoot(scope.marker,scope.linuxBoot.uptimeMs);
+    }
+    return leader ? nativeBinding().hostProcesses(scope.marker, scope.startedAtMs, leader.pid, leader.identity) : nativeBinding().hostProcesses(scope.marker, scope.startedAtMs); }
   catch { return { complete: false, processes: [] }; }
 };
 /** Native checks birth and marker again immediately before signalling. Never
