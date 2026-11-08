@@ -177,7 +177,7 @@ test("provider recovery never creates a second exec or replays a confirmed exit"
   }
 });
 
-test("managed worker reconciles a real Docker exit after its collector dies before the result receipt",{skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async()=>{
+test("managed worker runs once when its collector dies after a real Docker exit and before the result receipt",{skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async()=>{
   const {execFileSync,spawnSync}=await import("node:child_process");
   const {readFileSync}=await import("node:fs");
   const {dataLayout}=await import("../src/data-layout.js");
