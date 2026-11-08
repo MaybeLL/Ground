@@ -59,6 +59,30 @@ const gradeFile = (directory: string, name: string, criteria: Array<{ criterion_
 };
 const ok = (r: { ok: boolean; data: any; error: any }) => { assert.ok(r.ok, JSON.stringify(r.error)); return r.data; };
 
+test("standalone runs refine a frozen delivery and never allocate a Work",async()=>{
+  await withHarness(async h=>{
+    const task=ok(await h.cli("task","create","--title","Independent run","--criterion","archive commit","--repo-remote",h.remote,"--baseline",h.baseline));
+    const start=["work","start-run","--task",task.taskId,"--mode","none","--retention","release","--operation-id",newUUIDv7()];
+    const first=ok(await h.cli(...start));
+    assertContract("work-results.schema.json",first);
+    assert.deepEqual(ok(await h.cli(...start)),first);
+    const run=ok(await h.cli("work","run","--run",first.runId)).run;
+    assert.equal(run.workId,undefined);
+    assert.equal(run.retention,"release");
+    const refine=["work","start-run","--task",task.taskId,"--mode","external","--refines",run.id];
+    assert.equal((await h.cli(...refine)).ok,false);
+    const delivery=ok(await h.cli("work","deliver","--run",run.id));
+    const second=ok(await h.cli(...refine));
+    assertContract("work-results.schema.json",second);
+    assert.equal(second.refines,run.id);
+    const workspace=ok(await h.cli("work","workspace","--run",second.runId));
+    assert.equal(workspace.base.commit,delivery.delivery.commit);
+    assert.equal(workspace.base.from,"delivery");
+    const db=new DatabaseSync(join(h.directory,"ledger.db"));
+    try {assert.equal(db.prepare("SELECT COUNT(*) AS n FROM work_works").get()?.n,0);} finally {db.close();}
+  });
+});
+
 test("the caller's own agent works a task end to end through the command line: deliver, be rejected, refine from the delivery, be accepted", async () => {
   await withHarness(async h => {
     const created = ok(await h.cli("task", "create", "--title", "Add export", "--criterion", "exports CSV", "--criterion", "keeps headers", "--repo-remote", h.remote, "--baseline", h.baseline));
@@ -1126,6 +1150,53 @@ test("managed worker runs in its owned devcontainer after admission and delivers
         if (value === undefined) delete process.env[key]; else process.env[key] = value;
       }
       for(const id of docker("ps","-aq","--filter","label=dev.grounds.ledger="+ledger).split("\n").filter(Boolean))docker("rm","-f",id);
+    }
+  });
+});
+
+test("managed worker runs a standalone refinement in its inherited sandbox and releases it", {skip:!process.env.GROUNDS_TEST_MANAGED_AGENT}, async()=>{
+  await withHarness(async h=>{
+    const docker=(...args:string[])=>execFileSync("docker",args,{encoding:"utf8"}).trim();
+    const image=process.env.GROUNDS_TEST_MANAGED_AGENT!;
+    const config=join(h.directory,"devcontainer.json");
+    writeFileSync(config,JSON.stringify({image,overrideCommand:false,workspaceFolder:"/work"}));
+    const environment=ok(await h.cli("work","define-environment","--name","standalone","--devcontainer",config,"--image-digest",docker("image","inspect","--format","{{.Id}}",image)));
+    const agent=ok(await h.cli("work","define-agent","--name","standalone","--provider","codex"));
+    const task=ok(await h.cli("task","create","--title","handoff fixture","--criterion","use notes","--environment",environment.environmentId,"--repo-remote",h.remote,"--baseline",h.baseline));
+    const start=["work","start-run","--task",task.taskId,"--mode","managed","--agent",agent.agentId,"--repo",h.repo];
+    const finished=async(runId:string,expectedPhase:string)=>{
+      const db=new DatabaseSync(join(h.directory,"ledger.db"),{readOnly:true});
+      try {
+        const phase=db.prepare("SELECT phase FROM work_sandboxes WHERE owner_id=?");
+        const deadline=Date.now()+90000;
+        let view,actualPhase;
+        do {
+          view=ok(await h.cli("work","managed-status","--run",runId));
+          actualPhase=phase.get(runId)?.phase;
+          if (view.status==="delivered" && actualPhase===expectedPhase) break;
+          if (["failed","cancelled"].includes(view.status) || view.host?.state==="blocked") break;
+          await new Promise(resolve=>setTimeout(resolve,200));
+        } while (Date.now()<deadline);
+        assert.equal(view.status,"delivered",JSON.stringify(view));
+        assert.equal(actualPhase,expectedPhase,JSON.stringify(view));
+        return ok(await h.cli("work","run","--run",runId)).run;
+      } finally { db.close(); }
+    };
+    const ledger=ok(await h.cli("db","status")).database_id;
+    try {
+      const first=ok(await h.cli(...start,"--retention","keep","--environment-revision",environment.revisionId));
+      const parent=await finished(first.runId,"paused");
+      assert.equal(parent.workId,undefined);
+      assert.equal(parent.environment.source,"specified");
+      const child=ok(await h.cli(...start,"--refines",first.runId,"--retention","release","--sandbox","inherit"));
+      const run=await finished(child.runId,"released");
+      assert.equal(run.workId,undefined);
+      assert.equal(run.sandboxId,parent.sandboxId);
+      assert.equal(run.environment.source,"inherited");
+      assert.equal(git(h.remote,"show","refs/tags/grounds/deliveries/"+run.manifest.items[0].id+":result.txt"),"inherited uncommitted note");
+      assert.equal(docker("ps","-aq","--filter","label=dev.grounds.sandbox="+run.sandboxId),"");
+    } finally {
+      for (const id of docker("ps","-aq","--filter","label=dev.grounds.ledger="+ledger).split("\n").filter(Boolean)) docker("rm","-f",id);
     }
   });
 });

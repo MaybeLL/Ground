@@ -10,6 +10,8 @@ grounds work register --run "$RUN_ID" --agent "$AGENT_ID" --json
 
 `work start` 返回 `workId/runId`；`workspace` 返回独立 `path/branch/base`；`register` 返回 worker `sessionId`。只在返回的目录开发。恢复时先 `work run` / `work show`，复用已登记的运行与会话，不无故重建。
 
+单独执行一次任务可用 `grounds work start-run --task "$TASK_ID" --mode external`。用返回的 `runId` 登记会话、交付和查询。要从同一任务已结束的独立尝试继续，在 `start-run` 加 `--refines "$RUN_ID"`；托管模式可用 `--sandbox inherit` 接手原沙箱，或用 `--retention release` 在本轮结束时释放沙箱。
+
 真实执行相关测试并保存输出与退出码。不能把命令未执行、超时或基础设施失败写成通过。提交代码前检查未跟踪文件、用户改动与凭据；只提交获准范围。Git commit 和归档标签 push 都必须在授权内。
 
 ```bash

@@ -418,7 +418,7 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
     try {
       const app=composeWork(opened.store);
       const data=await executeWorkCommand(args,{app,cwd,artifactFile:file=>captureArtifactFile(resolve(cwd,file)),readFile:path=>readFileSync(resolve(cwd,path),"utf8")}) as Record<string,unknown>;
-      if(group==="work" && typeof data.runId==="string" && ["start","continue","branch","resume-managed","cancel"].includes(action)){
+      if(group==="work" && typeof data.runId==="string" && ["start","start-run","continue","branch","resume-managed","cancel"].includes(action)){
         let id=typeof data.executionId==="string" ? data.executionId : undefined;
         if(!id && action==="cancel") {
           const managed=await app.workers.context(data.runId);

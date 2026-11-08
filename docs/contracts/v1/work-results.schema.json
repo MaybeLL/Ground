@@ -83,6 +83,20 @@
     {
       "type": "object",
       "additionalProperties": false,
+      "required": ["command", "result_type", "runId", "taskRevisionId", "workerMode"],
+      "properties": {
+        "command": {"const": "work.start-run"},
+        "executionId": {"$ref":"#/$defs/Id"},
+        "result_type": {"const": "grounds.result.work.start-run/v1"},
+        "refines": {"$ref": "#/$defs/Id"},
+        "runId": {"$ref": "#/$defs/Id"},
+        "taskRevisionId": {"$ref": "#/$defs/Id"},
+        "workerMode": {"$ref": "#/$defs/RunMode"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
       "required": ["command", "result_type", "workId", "runId", "refines", "taskRevisionId"],
       "properties": {
         "command": {"const": "work.continue"},

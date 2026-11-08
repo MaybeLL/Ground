@@ -14,7 +14,7 @@ export const WORK_WRITE_ACTIONS = new Set([
   "experiment:define", "experiment:launch", "experiment:resume", "experiment:cancel", "experiment:regrade",
   "grade:define-agent","grade:measure", "grade:resume-test","grade:resume-evaluator", "grade:define-test", "grade:define-rule", "suite:publish", "suite:measure",
   "work:resume-managed", "work:define-agent", "work:import-trace", "work:prepare-sandbox", "work:pause-sandbox", "work:release-sandbox", "work:define-environment", "task:create", "task:revise",
-  "work:save-artifact", "work:submit-artifacts", "work:start", "work:continue", "work:branch", "work:select", "work:close", "work:register", "work:transcript", "work:deliver", "work:repair", "work:stop", "work:cancel",
+  "work:save-artifact", "work:submit-artifacts", "work:start", "work:start-run", "work:continue", "work:branch", "work:select", "work:close", "work:register", "work:transcript", "work:deliver", "work:repair", "work:stop", "work:cancel",
   "grade:request", "grade:register", "grade:stage", "grade:command", "grade:submit", "grade:stop", "grade:cancel",
 ]);
 
@@ -214,6 +214,14 @@ async function work(args: ParsedArgs, action: string, app: WorkApplication, deps
         ...(id ? { definitionId: id } : {}), expectedSeq: id || raw(args,"expected-seq") !== undefined ? integer(args,"expected-seq") : 0 }));
     }
     case "environment": return unwrap(await app.environments.show(need(args,"environment"), integer(args,"revision")));
+    case "start-run": {
+      const retention=raw(args,"retention")===undefined ? "keep" : need(args,"retention");
+      if (retention!=="release" && retention!=="keep") throw validation("retention","expected keep or release");
+      return unwrap(await app.exec.startRun({requestId:requestId(args),taskDefinitionId:need(args,"task"),workerMode:mode(args),retention,...selection(),...sandboxChoice(),
+        ...(raw(args,"refines")!==undefined ? {refines:need(args,"refines")} : {}),
+        ...(raw(args,"environment-revision")!==undefined ? {environmentRevisionId:need(args,"environment-revision")} : {}),
+        ...(raw(args,"revision-id")!==undefined ? {taskRevisionId:need(args,"revision-id")} : {})}));
+    }
     case "start": return unwrap(await app.exec.startWork({ requestId: requestId(args), taskDefinitionId: need(args, "task"), workerMode: mode(args), ...selection(), ...(raw(args,"environment-revision") !== undefined ? { environmentRevisionId: need(args,"environment-revision") } : {}), ...(text(args, "revision-id") ? { taskRevisionId: text(args, "revision-id")! } : {}) }));
     case "continue": return unwrap(await app.exec.continueWork({ ...sandboxChoice(), requestId: requestId(args), workId: need(args, "work"), expectedHead: need(args, "expected-head"), workerMode: mode(args), ...selection(), ...(raw(args,"environment-revision") !== undefined ? { environmentRevisionId: need(args,"environment-revision") } : {}), ...(text(args, "revision-id") ? { taskRevisionId: text(args, "revision-id")! } : {}) }));
     case "branch": return unwrap(await app.exec.addBranch({ ...sandboxChoice(), requestId: requestId(args), workId: need(args, "work"), refines: need(args, "refines"), workerMode: mode(args), ...selection(), ...(raw(args,"environment-revision") !== undefined ? { environmentRevisionId: need(args,"environment-revision") } : {}), ...(text(args, "revision-id") ? { taskRevisionId: text(args, "revision-id")! } : {}) }));
@@ -372,6 +380,7 @@ export const workHelp = (): string => [
   "grounds work import-trace --run RUN --session SESSION --provider codex|claude-code --file FILE --digest SHA256 | work trace --run RUN --digest SHA256 --stream raw|events --chunk N",
   "grounds work prepare-sandbox --run RUN [--repo PATH] | work reconcile-sandbox --run RUN | work pause-sandbox|release-sandbox --run RUN",
   "grounds work define-environment --name NAME --devcontainer FILE --image-digest SHA256 [--lockfile FILE] [--environment ID --expected-seq N] | work environment --environment ID --revision N",
+  "grounds work start-run --task ID --mode external|none|managed [--refines RUN] [--retention release|keep] [--sandbox fresh|inherit]",
   "grounds work start --task ID --mode external|none [--environment-revision ID] | work continue --work ID --expected-head RUN --mode M [--sandbox inherit|fresh] | work branch --work ID --refines RUN --mode M [--sandbox fresh|inherit]",
   "grounds work select --work ID --run RUN [--expected-head RUN] | work close --work ID | work show --work ID [--repo PATH] | work run --run RUN [--repo PATH]",
   "grounds work save-artifact --run RUN [--session S] --slot KEY --file ARCHIVED_PATH=LOCAL_FILE... | work submit-artifacts --run RUN [--session S] --artifact ID...",
