@@ -42,7 +42,10 @@ export class AgentGradingDriver {
       if (!live) return succeed({state:"awaiting-resume" as const,providerStopped:true});
       if (frozen) {
         try {await this.process.revealGate(target,await this.evaluators.gateMaterials(id,exec.id));}
-        catch {return succeed({state:"blocked" as const,detail:"frozen author evidence or reconciliation sandbox unavailable"});}
+        catch {
+          const providerStopped=await this.process.quiescent(plan).catch(()=>false);
+          return succeed({state:"blocked" as const,detail:"frozen author evidence or reconciliation sandbox unavailable",providerStopped});
+        }
       }
       try {handle=await this.process.handle(plan,true);} catch {
         await this.process.stop(plan,true);

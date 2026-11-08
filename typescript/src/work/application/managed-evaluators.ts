@@ -18,7 +18,8 @@ export class ManagedEvaluators {
     const stream=blind ? channel.slice("blind-".length) : channel;
     if (!["raw","events","output","stderr"].includes(stream) || !Number.isSafeInteger(ordinal) || ordinal<0) return fail("invalid","select an evaluator stream and chunk ordinal");
     return this.ctx.units.run("read",async r=>{
-      const [intent]=await r.intents.listForSubject(blind ? "gate-blind" : "evaluator-output","grading_record",id);
+      const [frozen]=await r.intents.listForSubject(blind ? "gate-blind" : "evaluator-output","grading_record",id);
+      const intent=frozen ?? (blind ? (await r.intents.listForSubject("gate-blind-partial","grading_record",id))[0] : undefined);
       if (!intent) return fail("not-found","evaluator output has not been frozen");
       const record=intent.payload as {executionId:string;trace?:import("../domain/index.js").FrozenTrace;output?:import("../ports/index.js").EvidenceRef;stderr?:import("../ports/index.js").EvidenceRef};
       const ref=stream==="raw" ? record.trace?.raw : stream==="events" ? record.trace?.events : stream==="output" ? record.output : record.stderr;
@@ -237,7 +238,8 @@ export class ManagedEvaluators {
         const payload={executionId:exec.id,coverage:{stdout:!!output.trace,stderr:!!stderr},...(output.trace ? {trace:output.trace.descriptor} : {}),...(body ? {output:body} : {}),...(stderr ? {stderr} : {})};
         const digest=digestOf(payload,this.ctx.hash);
         if (!digest.ok) throw new Error(digest.error.message);
-        await r.intents.register({kind:"evaluator-output",id:this.ctx.newId(),requestId:"evaluator-output-"+exec.id,requestHash:digest.value,subject:{type:"grading_record",id},payload,state:"completed",result:{},version:1,createdAt:at,updatedAt:at});
+        const kind=g.purpose==="gate" && !exec.protocol.some(p=>p.stage==="freeze") ? "gate-blind-partial" : "evaluator-output";
+        await r.intents.register({kind,id:this.ctx.newId(),requestId:kind+"-"+exec.id,requestHash:digest.value,subject:{type:"grading_record",id},payload,state:"completed",result:{},version:1,createdAt:at,updatedAt:at});
       }
       let version=exec.version;
       for(const step of states){await r.executions.save(step,version);version=step.version;}

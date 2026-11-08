@@ -22,6 +22,12 @@ if (task.role==="independent-verifier") {
     writeFileSync(".blind-invoked","once",{flag:"wx"});
     assert.equal(fs.existsSync(material),false);
     assert.equal(JSON.stringify(task).includes("private-author-marker"),false);
+    if (task.task.summary==="cancel blind") {
+      console.log(JSON.stringify({type:"thread.started",thread_id:"blind-before-cancel"}));
+      writeFileSync("/tmp/gate-cancel-ready","ready",{flag:"wx"});
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,90000);
+      process.exit(3);
+    }
     result={findings};
   } else {
     writeFileSync(".reconcile-invoked","once",{flag:"wx"});

@@ -24,6 +24,7 @@ async function exportTree(repository:string,tree:string,dir:string,mode=0o700) {
     if (entryMode==="040000") {await exportTree(repository,oid!,path,mode);continue;}
     if (entryMode==="120000") {
       const link=await exec("git",["-C",repository,"cat-file","blob",oid!],{encoding:"buffer",env:inspectionEnvironment()});
+      if (!link.stdout.length || link.stdout.includes(0)) throw new UnsupportedGitTree("Git symlink target is empty or contains a null byte");
       await symlink(link.stdout,path);
       continue;
     }

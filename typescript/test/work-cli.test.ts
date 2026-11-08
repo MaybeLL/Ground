@@ -2154,7 +2154,7 @@ test("managed evaluator runs the built-in gate blind before reading the author's
     const transcript=join(h.directory,"author.log"),bytes="private-author-marker";
     writeFileSync(transcript,bytes);
     writeFileSync(join(h.directory,"report"),"public result");
-    for (const title of ["independent review","alter findings","pinned code","dangling link"]) {
+    for (const title of ["independent review","alter findings","pinned code","dangling link","cancel blind"]) {
       const coding=title==="pinned code" || title==="dangling link";
       const agent=judges[coding ? 1 : 0];
       const working=ok(await h.cli("task","create","--title",title,"--criterion","complete","--criterion","correct",
@@ -2184,6 +2184,20 @@ test("managed evaluator runs the built-in gate blind before reading the author's
       const started=ok(await h.cli(...args));
       assert.deepEqual(ok(await h.cli(...args)),started);
       assert.equal((await h.cli("grade","register","--grading",gradingId,"--agent","another")).ok,false);
+      if (title==="cancel blind") {
+        const until=Date.now()+45000;
+        let ready=false;
+        while (!ready && Date.now()<until) {
+          const g=ok(await h.cli("grade","show","--grading",gradingId));
+          if (g.sandboxId) {
+            const id=execFileSync("docker",["ps","-q","--filter","label=dev.grounds.sandbox="+g.sandboxId],{encoding:"utf8"}).trim();
+            if (id) try {execFileSync("docker",["exec",id,"test","-f","/tmp/gate-cancel-ready"],{stdio:"ignore"});ready=true;} catch {}
+          }
+          if (!ready) await new Promise(resolve=>setTimeout(resolve,200));
+        }
+        assert.ok(ready);
+        ok(await h.cli("grade","cancel","--grading",gradingId));
+      }
       let status,interrupted=false;
       const deadline=Date.now()+65000;
       do {
@@ -2203,6 +2217,14 @@ test("managed evaluator runs the built-in gate blind before reading the author's
       } while (Date.now()<deadline);
       if (lockFreeze) assert.equal(interrupted,true);
       assert.equal(status?.sandboxPhase,"released",JSON.stringify(status));
+      if (title==="cancel blind") {
+        assert.equal(status.status,"cancelled");
+        assert.deepEqual(status.protocol.map((p:{stage:string})=>p.stage),["blind"]);
+        const partial=ok(await h.cli("grade","evaluator-evidence","--grading",gradingId,"--stream","blind-raw","--chunk","0"));
+        assert.match(Buffer.from(partial.base64,"base64").toString(),/blind-before-cancel/);
+        assert.equal((await h.cli("grade","evaluator-evidence","--grading",gradingId,"--stream","raw","--chunk","0")).ok,false);
+        continue;
+      }
       if (title==="dangling link") {
         const fault=ok(await h.cli("grade","show","--grading",gradingId));
         assert.equal(fault.status,"grader_fault");assert.match(fault.fault,/dangling/);
