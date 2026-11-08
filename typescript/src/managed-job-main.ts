@@ -4,7 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { openStore } from "./cli.js";
 import { hostProcessIdentity } from "./env-process.js";
 import { ExperimentDriver } from "./work/driver/experiment.js";
-import { hostDirectory, notifyManaged, managedRequestRunning, launchManaged, managedId, queueRoot, type HostJob } from "./managed-host-client.js";
+import { hostDirectory, notifyManaged, managedActivityLive, managedRequestRunning, launchManaged, managedId, queueRoot, type HostJob } from "./managed-host-client.js";
 import { atomicPrivateWrite, removePrivateFile, safeRead, withRuntimeLock } from "./runtime-files.js";
 import { composeWork } from "./work/composition.js";
 
@@ -20,7 +20,7 @@ async function supervise(job: HostJob, name: string, observeOnly: boolean) {
       const birth = hostProcessIdentity(process.pid);
       if (!birth) throw new Error("cannot establish batch controller identity");
       const owner = join(hostDirectory("batches"),job.runId), issued = join(hostDirectory("issued"),name);
-      const drive = new ExperimentDriver(app,(child,requestId)=>notifyManaged({...child,ledgerId:job.ledgerId,config:job.config},requestId),name,managedRequestRunning);
+      const drive = new ExperimentDriver(app,(child,requestId)=>notifyManaged({...child,ledgerId:job.ledgerId,config:job.config},requestId),name,(id,op)=>managedRequestRunning(id,op) || managedActivityLive(id));
       const live = !observeOnly && job.allowStart && !existsSync(issued);
       atomicPrivateWrite(owner,JSON.stringify({pid:process.pid,birth,name}));
       try {

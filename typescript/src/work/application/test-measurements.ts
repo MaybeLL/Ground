@@ -32,6 +32,14 @@ export async function admitTestMeasurement(ctx: RequestContext, r: WorkRepositor
   await r.intents.register({id:ctx.newId(), requestId:"test-grading-" + gradingId, requestHash:hash.value,
     kind:"run-test-grader", subject:{type:"grading_record", id:gradingId}, state:"registered", payload,
     createdAt:at, updatedAt:at, version:1});
+  if (origin?.type === "member") {
+    const [driver] = await r.intents.listForSubject("drive-experiment","experiment_run",origin.experimentRunId);
+    if (driver?.state === "completed") {
+      const payload = driver.payload as {batchId:string;firstTerminalAt?:string};
+      await r.intents.save({...driver,state:"registered",payload:{...payload,observation:{state:"running",detail:"member test regrading is active"}},
+        updatedAt:at,version:driver.version+1},driver.version);
+    }
+  }
   return succeed({gradingId, suiteId:plan.suite.definitionId, revisionId:plan.suite.revisionId,
     caseKey:plan.caseKey, bindingKey:plan.bindingKey, runId:plan.runId, deliveryId:plan.deliveryId, status:"accepted" as const});
 }

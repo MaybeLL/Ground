@@ -11,7 +11,7 @@ import { bundledPluginRoot, defaultSkillsDirectory, installGroundsSkills } from 
 import { installationStatus } from "./installation-status.js";
 import { cliVersion } from "./runtime-version.js";
 import { composeWork } from "./work/composition.js";
-import { notifyManaged, observeManagedHost } from "./managed-host-client.js";
+import { notifyManaged, observeManagedHost, batchHostObservation } from "./managed-host-client.js";
 import { executeWorkCommand, WORK_GROUPS, WORK_WRITE_ACTIONS, workHelp } from "./work/entry/index.js";
 
 export interface Warning { code: string; message: string }
@@ -425,6 +425,16 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
         }
         if(id) await notifyManaged({config:configPath(value(args,"config")),ledgerId:opened.config.database.expected_database_id,runId:data.runId,executionId:id,allowStart:action!=="cancel"},value(args,"operation-id"));
       }
+      if (group === "experiment" && action === "results") {
+        const observed = batchHostObservation(value(args,"batch"),opened.config.database.expected_database_id,data.host as {state?:string}|undefined);
+        if (observed) data.host = observed;
+      }
+      if (group === "experiment" && action === "show" && Array.isArray(data.batches)) {
+        for (const batch of data.batches) {
+          const observed = batchHostObservation(batch.batchId,opened.config.database.expected_database_id,batch);
+          if (observed) batch.state = observed.state;
+        }
+      }
       if (group === "experiment" && typeof data.batchId === "string" && ["launch","resume","cancel"].includes(action)) {
         await notifyManaged({kind:"experiment",config:configPath(value(args,"config")),ledgerId:opened.config.database.expected_database_id,
           runId:data.batchId,executionId:data.batchId,allowStart:action !== "cancel"},value(args,"operation-id"));
@@ -434,6 +444,11 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
         const test = await app.tests.context(data.gradingId);
         if (test.ok) await notifyManaged({kind:"test-grading", config:configPath(value(args,"config")), ledgerId:opened.config.database.expected_database_id,
           runId:test.value.plan.runId, executionId:data.gradingId, allowStart:action !== "cancel"}, value(args,"operation-id"));
+      }
+      if (group === "experiment" && action === "regrade" && data.status === "accepted") {
+        const id = value(args,"batch");
+        await notifyManaged({kind:"experiment",config:configPath(value(args,"config")),ledgerId:opened.config.database.expected_database_id,
+          runId:id,executionId:id,allowStart:false},value(args,"operation-id"));
       }
       if (group === "grade" && action === "test-status" && typeof data.gradingId === "string") {
         const observation = await observeManagedHost(data.gradingId, opened.config.database.expected_database_id);

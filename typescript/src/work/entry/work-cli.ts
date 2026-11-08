@@ -83,16 +83,17 @@ async function experiment(args:ParsedArgs,action:string,app:WorkApplication,deps
   const batch = () => need(args,"batch");
   switch (action) {
     case "define": {
-      const overrides:Record<string,{repositoryPath?:string;environmentRevisionId?:string}> = Object.create(null);
+      const overrides:Record<string,{repositoryPath:string}> = Object.create(null);
       if (text(args,"overrides")) {
         let parsed;
         try { parsed = JSON.parse(deps.readFile(need(args,"overrides"))); } catch { throw validation("overrides","expected a JSON case map"); }
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw validation("overrides","expected a JSON case map");
         for (const [key,value] of Object.entries(parsed)) {
           if (!value || typeof value !== "object" || Array.isArray(value) || Object.entries(value).some(([k,v])=>
-            !["repositoryPath","environmentRevisionId"].includes(k) || typeof v !== "string" || !v.trim())) throw validation("overrides","invalid case override");
-          const v = value as {repositoryPath?:string;environmentRevisionId?:string};
-          overrides[key] = {...v,...(v.repositoryPath ? {repositoryPath:resolve(deps.cwd,v.repositoryPath)} : {})};
+            k !== "repositoryPath" || typeof v !== "string" || !v.trim())) throw validation("overrides","invalid case override");
+          const v = value as {repositoryPath?:string};
+          if (!v.repositoryPath) throw validation("overrides","each case needs a repositoryPath");
+          overrides[key] = {repositoryPath:resolve(deps.cwd,v.repositoryPath)};
         }
       }
       return unwrap(await app.experiments.define({requestId:requestId(args), name:need(args,"name"), suiteId:need(args,"suite"),seq:integer(args,"revision"),
@@ -105,7 +106,7 @@ async function experiment(args:ParsedArgs,action:string,app:WorkApplication,deps
     case "member": return unwrap<object>(await app.experimentResults.inspect(batch(),need(args,"member")));
     case "resume": return unwrap(await app.members.resume(batch(),requestId(args)));
     case "cancel": return unwrap(await app.members.cancel(batch(),requestId(args)));
-    case "regrade": return unwrap(await app.members.measure(batch(),need(args,"member"),need(args,"binding"),requestId(args)));
+    case "regrade": return unwrap<object>(await app.members.measure(batch(),need(args,"member"),need(args,"binding"),requestId(args)));
     default: throw validation("action","unknown experiment action: " + action);
   }
 }

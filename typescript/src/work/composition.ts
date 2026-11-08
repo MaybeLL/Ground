@@ -28,6 +28,7 @@ import { AgentDefinitions } from "./application/agent-definitions.js";
 import { RuleDefinitions } from "./application/rule-definitions.js";
 import { ExperimentPlans } from "./application/experiment-plans.js";
 import { ExperimentResults } from "./application/experiment-results.js";
+import { ExperimentGrading } from "./application/experiment-grading.js";
 import { ExperimentMembers } from "./application/experiment-members.js";
 import { EvaluationSuites } from "./application/evaluation-suites.js";
 import { ArchiveRepairs } from "./application/archive-repairs.js";
@@ -60,6 +61,6 @@ export function composeWork(store: SQLStore): WorkApplication & {driver:ManagedT
   const testDriver = new TestGradingDriver({tests,runtime,launcher,workspaces,ledgerId,
     process:new ContainerTestProcess(runtime,workspaces,new EvaluatorWorkspaces(workspaces,archive))});
   const experiments = new ExperimentPlans({...context,repairs,source:archive});
-  const members = new ExperimentMembers(context,agents,suites);
+  const members = new ExperimentMembers(context,agents,new ExperimentGrading(context,archive,repairs));
   return { experiments,members,experimentResults:new ExperimentResults(context),tests,testDriver,workers,driver,agents, traces:new ProviderTraces(context,new ProviderTraceCapture()), lifecycle, sandboxes, environments, rules, suites, repairs, tasks: new TaskDefinitions(shared), exec, grading: new Grading(shared), delivery };
 }

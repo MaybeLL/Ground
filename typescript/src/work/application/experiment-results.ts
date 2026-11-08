@@ -69,7 +69,7 @@ export class ExperimentResults {
             graderRevisionId:required.grader.revisionId,targets,materialsDigest:digest.value};
           const adoption = adoptGrading(history,slot,materialsFingerprint(required.materials));
           const adopted = history.find(g=>g.id === adoption.adopted);
-          requirements.push({key:required.key,...adoption,...(adopted ? {grade:adopted.grade} : {})});
+          requirements.push({key:required.key,...adoption,...(!adoption.attempts ? {notStarted:batch.cancelIntent ? "batch-cancelled" : gradingNotStarted(batch,member,run) ?? "not-scheduled"} : {}),...(adopted ? {grade:adopted.grade} : {})});
           const groupId = JSON.stringify([required.key,required.grader.revisionId,required.scale]);
           const group = groups.get(groupId) ?? {requirement:required.key,grader:required.grader,scale:required.scale,planned:0,
             adopted:0,valid:0,missing:0,indeterminate:0,errors:0,executionErrors:0,ungraded:0,numericMean:null,
@@ -79,7 +79,7 @@ export class ExperimentResults {
         }
         const complete = requirements.every(req=>req.adopted);
         if (complete) counts.fullyGraded++;
-        const why = gradingNotStarted(batch,member,run);
+        const why = batch.cancelIntent && !history.length && run?.status === "delivered" ? "batch-cancelled" : gradingNotStarted(batch,member,run);
         members.push({key:member.key,caseKey:member.caseKey,repeatIndex:member.repeatIndex,runId:runId ?? null,status:run?.status ?? "not-started",complete,
           ...(why && !history.length ? {gradingNotStarted:why} : {}),requirements,
           ...(detailKey === undefined ? {} : {run,gradings:history,executions:run ? await r.executions.listByOwner({type:"task_run",id:run.id}) : []})});

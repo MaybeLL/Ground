@@ -343,7 +343,11 @@
           "$ref": "work-results.schema.json#/$defs/Id"
         },
         "status": {
-          "const": "accepted"
+          "enum": [
+            "accepted",
+            "cancelled",
+            "grader_fault"
+          ]
         }
       },
       "required": [
@@ -800,6 +804,9 @@
               },
               "grade": {
                 "$ref": "work-results.schema.json#/$defs/Grade"
+              },
+              "notStarted": {
+                "type": "string"
               }
             },
             "required": [
@@ -882,6 +889,9 @@
               },
               "grade": {
                 "$ref": "work-results.schema.json#/$defs/Grade"
+              },
+              "notStarted": {
+                "type": "string"
               }
             },
             "required": [

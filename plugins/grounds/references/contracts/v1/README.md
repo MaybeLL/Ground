@@ -101,3 +101,19 @@ When resuming partially created MySQL evidence tables, the upgrade account must 
 `suite measure` 受理后返回 gradingId。`grade test-status --grading ID` 查询宿主观测，`grade resume-test --grading ID` 显式推进尚未启动的命令，`grade cancel --grading ID` 取消。所有命令都确认停止并有退出码后，全部为零取 pass 标签，否则取 fail 标签。无法取得可信退出码时记录 grader_fault；取消优先。评分终结后释放容器和工作区。
 
 `grade show --grading ID` 显示各命令退出码、输出摘要及内容摘要值。每条命令的 stdout、stderr 各保留前 1 MiB，正常收集时同时记录完整字节数，complete 标明是否完整。`grade test-output --grading ID --step N --stream stdout|stderr --chunk N` 按 64 KiB 分块取回选定评分的证据。
+
+### 实验与批次
+
+创建实验时固定套件快照和被测 Agent 修订。每个 case 的任务、评分绑定、Git 基线与发布地址一并固定。环境修订在创建实验时从任务要求解析，后续批次使用同一解析结果。
+
+```bash
+grounds experiment define --name comparison --suite SUITE --revision 1 --agent AGENT --agent-revision REV --repo PATH
+grounds experiment launch --experiment EXPERIMENT --repeat 2 --concurrency 1
+grounds experiment results --batch BATCH
+grounds experiment member --batch BATCH --member 'CASE#0'
+grounds experiment regrade --batch BATCH --member 'CASE#0' --binding REQUIREMENT
+```
+
+`--overrides FILE` 可为不同 case 提供本机仓库路径，格式如 `{"case-a":{"repositoryPath":"../source"}}`。批次默认每项独立执行一次，最多同时运行五个任务。每个样本有独立的 TaskRun，使用宿主的 Agent 名额，终结后释放沙箱。已受理批次通过 `experiment resume --batch BATCH` 显式继续；`experiment cancel --batch BATCH` 关闭该批次的入场入口并传播取消。
+
+`experiment show --experiment EXPERIMENT` 展示方案和各批次概况。批次结果按评分要求、评分器修订与标尺分组。planned 是预期评分数，valid 是已有有效评分数，indeterminate 是合法的无法判定，executionErrors 记录基础设施导致的样本失败。数值平均仅使用有效数值，分类结果保留各类别计数。成员明细给出采用的准确记录、较晚的评分故障及未开展原因。补评保留历史并沿用原成员身份。

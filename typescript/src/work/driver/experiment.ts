@@ -47,9 +47,19 @@ export class ExperimentDriver {
         }
         const action = cancelled ? "cancel" : live ? "run" : "observe";
         changes = await this.dispatch({runId:member.runId,executionId:member.executionId,allowStart:live && !cancelled},action) || changes;
-        if (!this.isRunning(member.executionId,operation(this.requestId,member.executionId,action)) &&
-            (member.host?.state === "blocked" || member.host?.state === "awaiting-resume")) blocked.push(member.key);
+        if (!this.isRunning(member.executionId,operation(this.requestId,member.executionId,action))) blocked.push(member.key + ": " + (member.host?.detail ?? "worker needs reconciliation"));
         else active = true;
+      }
+      for (const id of member.waitingRules) {
+        if (cancelled) {
+          const stop = await this.app.grading.cancel({requestId:operation(batchId,id,"cancel-grade"),gradingId:id});
+          if (!stop.ok) return stop;
+        }
+        if (live || cancelled) {
+          const finished = await this.app.members.finishRule(id);
+          if (!finished.ok) return finished;
+          changes = true;
+        } else blocked.push(id);
       }
       for (const grading of member.waitingTests) {
         if (cancelled && grading.status === "running") {
@@ -58,8 +68,7 @@ export class ExperimentDriver {
         }
         const action = cancelled ? "cancel" : live ? "grade" : "observe";
         changes = await this.dispatch({kind:"test-grading",runId:member.runId,executionId:grading.id,allowStart:live && !cancelled},action) || changes;
-        if (!this.isRunning(grading.id,operation(this.requestId,grading.id,action)) &&
-            (grading.host?.state === "blocked" || grading.host?.state === "awaiting-resume")) blocked.push(grading.id);
+        if (!this.isRunning(grading.id,operation(this.requestId,grading.id,action))) blocked.push(grading.id + ": " + (grading.host?.detail ?? "evaluator needs reconciliation"));
         else active = true;
       }
       if (member.status !== "delivered" || cancelled) continue;

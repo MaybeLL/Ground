@@ -12,7 +12,7 @@ type Requirement = {key:string;grader:Pinned;scale:{form:"numeric";min:number;ma
 type CasePlan = {key:string;task:Pinned;environment:Pinned;source:ArchiveSource;materialSources:ArchiveSource[];
   repository:{repositoryPath:string;baseline:string;remote:string};requirements:Requirement[]};
 export type ExperimentPlan = {id:string;name:string;suite:Pinned;agent:Pinned;cases:CasePlan[];createdAt:string};
-type CaseOverride = {repositoryPath?:string;environmentRevisionId?:string};
+type CaseOverride = {repositoryPath:string};
 type Define = {requestId:string;name:string;suiteId:string;seq:number;agentId:string;agentRevisionId:string;repositoryPath:string;
   overrides?:Record<string,CaseOverride>};
 type Dependencies = RequestContext & {repairs:ArchiveRepairs;
@@ -26,8 +26,41 @@ export async function readExperiment(r:WorkRepositories,id:string) {
 export class ExperimentPlans {
   constructor(private readonly deps:Dependencies) {}
 
-  define(input:Define) {
-    return once(this.deps,{requestId:input.requestId,kind:"define-experiment",input,subject:{type:"suite",id:input.suiteId}},async r => {
+  async define(input:Define) {
+    if (Object.values(input.overrides ?? {}).some(v=>!v || Object.keys(v).some(key=>key !== "repositoryPath") || !isText(v.repositoryPath,4096))) {
+      return fail("invalid","experiment cases can select a repository path; environment revisions are resolved from task requirements");
+    }
+    const request = {requestId:input.requestId,kind:"define-experiment",input,subject:{type:"suite",id:input.suiteId}};
+    const expected = digestOf({kind:request.kind,input},this.deps.hash);
+    if (!expected.ok) return fromRejection(expected.error);
+    const prior = await this.deps.units.run("read",r=>r.intents.findByRequest(input.requestId));
+    if (prior) return prior.requestHash === expected.value ? succeed(prior.result as {experimentId:string;digest:string;caseCount:number}) :
+      fail("request-conflict","operation was already used");
+    const inputs = await this.deps.units.run("read",async r => {
+      const suite = await r.definitions.getRevisionBySeq(input.suiteId,input.seq);
+      if (suite?.kind !== "suite") return fail("not-found","suite revision is missing");
+      const entries = [];
+      for (const item of casesOf(suite)) {
+        const task = await r.definitions.getRevision(item.taskRevision.definitionId,item.taskRevision.revisionId);
+        const source = (task?.content as {repository?:{remote:string;baseline:string}} | undefined)?.repository;
+        if (!source?.baseline || !source.remote) return fail("invalid","a coding case requires a starting repository and baseline");
+        entries.push({key:item.key,path:input.overrides?.[item.key]?.repositoryPath ?? input.repositoryPath,source});
+      }
+      return succeed(entries);
+    });
+    if (!inputs.ok) return inputs;
+    const pinned = new Map<string,CasePlan["repository"]>();
+    const repositories = new Map<string,CasePlan["repository"]>();
+    for (const entry of inputs.value) {
+      const identity = JSON.stringify([entry.path,entry.source.baseline,entry.source.remote]);
+      try {
+        const repository = repositories.get(identity) ?? await this.deps.source.freezeSource(entry.path,entry.source.baseline,entry.source.remote);
+        repositories.set(identity,repository);
+        pinned.set(entry.key,repository);
+      }
+      catch { return fail("unavailable","could not pin the starting repository for case " + entry.key); }
+    }
+    return once(this.deps,request,async r => {
       if (!isText(input.name,256)) return fail("invalid","provide an experiment name");
       const suite = await r.definitions.getRevisionBySeq(input.suiteId,input.seq);
       const agent = await r.definitions.getRevision(input.agentId,input.agentRevisionId);
@@ -37,15 +70,10 @@ export class ExperimentPlans {
       for (const item of snapshot) {
         const task = await r.definitions.getRevision(item.taskRevision.definitionId,item.taskRevision.revisionId);
         if (!task || !sameRef(refOf(task),item.taskRevision)) return fail("conflict","a frozen case task is missing");
-        const override = input.overrides?.[item.key];
-        const environment = await runEnvironment(r,task,override?.environmentRevisionId);
+        const environment = await runEnvironment(r,task);
         if (!environment.ok) return environment;
         if (!environment.value) return fail("invalid","a managed experiment case requires an environment");
-        const source = (task.content as {repository?:{remote:string;baseline:string}}).repository;
-        if (!source?.baseline || !source.remote) return fail("invalid","a coding case requires a starting repository and baseline");
-        let repository;
-        try { repository = await this.deps.source.freezeSource(override?.repositoryPath ?? input.repositoryPath,source.baseline,source.remote); }
-        catch { return fail("unavailable","could not pin the starting repository for case " + item.key); }
+        const repository = pinned.get(item.key)!;
         const archive = (s:ArchiveSource):ArchiveSource => ({runId:s.runId,deliveryId:s.deliveryId,receipt:s.receipt,commit:s.commit});
         const requirements: Requirement[] = [];
         for (const binding of item.bindings) {

@@ -1,5 +1,5 @@
 import { createTaskRun, digestOf, mayStartMember, requestExperimentCancel } from "../domain/index.js";
-import type { EvaluationSuites } from "./evaluation-suites.js";
+import type { ExperimentGrading } from "./experiment-grading.js";
 import type { AgentDefinitions } from "./agent-definitions.js";
 import { readExperiment } from "./experiment-plans.js";
 import { once, type RequestContext } from "./requests.js";
@@ -8,7 +8,7 @@ import { fail, fromRejection, succeed } from "./outcome.js";
 /** Batch row ownership serializes new admissions with cancellation and
  * bounds the number of simultaneously nonterminal task runs. */
 export class ExperimentMembers {
-  constructor(private readonly ctx:RequestContext, private readonly agents:AgentDefinitions,private readonly suites:EvaluationSuites) {}
+  constructor(private readonly ctx:RequestContext, private readonly agents:AgentDefinitions,private readonly grading:ExperimentGrading) {}
 
   async next(batchId:string) {
     return this.ctx.units.run("write",async r => {
@@ -46,23 +46,11 @@ export class ExperimentMembers {
     });
   }
 
-  async measure(batchId:string, key:string, requirement:string, requestId:string) {
-    const selected = await this.ctx.units.run("read",async r=>{
-      const batch = await r.experiments.get(batchId);
-      const member = batch?.members.find(candidate=>candidate.key === key);
-      if (!batch || !member) return fail("not-found","batch member does not exist");
-      const plan = await readExperiment(r,batch.experimentId);
-      const item = plan?.cases.find(c=>c.key === member.caseKey);
-      if (!item?.requirements.some(g=>g.key === requirement)) return fail("not-found","member has no such grading requirement");
-      const admission = await r.intents.findByRequest(member.taskRunRequestId);
-      const run = admission?.kind === "start-experiment-member" && await r.taskRuns.get(admission.subject.id);
-      const target = run && run.status === "delivered" && run.manifest?.items.find(i=>i.type === "candidate");
-      if (!run || !target) return fail("conflict","the member has no frozen delivery");
-      return succeed({repository:item.repository.repositoryPath,input:{requestId,suiteId:batch.suite.definitionId,seq:batch.suite.seq,
-        caseKey:member.caseKey,bindingKey:requirement,runId:run.id,deliveryId:target.id,member:{batchId,repeatIndex:member.repeatIndex}}});
-    });
-    return selected.ok ? this.suites.measure(selected.value.input,selected.value.repository) : selected;
+  measure(batchId:string,key:string,requirement:string,requestId:string) {
+    return this.grading.measure({batchId,key,requirement,requestId});
   }
+
+  finishRule(id:string) { return this.grading.finish(id); }
 
   async schedule(batchId:string) {
     return this.ctx.units.run("read",async r=>{
@@ -83,6 +71,7 @@ export class ExperimentMembers {
           key:requirement.key, records:history.filter(g=>g.origin.type === "member" && g.origin.requirementKey === requirement.key)
             .map(g=>({id:g.id,status:g.status,strategy:g.strategy})),
         }));
+        const waitingRules = history.filter(g=>g.strategy === "rule" && g.status === "running").map(g=>g.id);
         const waitingTests = [];
         for (const grade of history.filter(g=>g.strategy === "test")) {
           const [test] = await r.intents.listForSubject("run-test-grader","grading_record",grade.id);
@@ -92,7 +81,7 @@ export class ExperimentMembers {
         const sandbox = run.sandboxId ? await r.sandboxes.get(run.sandboxId) : undefined;
         const released = !sandbox || sandbox.phase === "released";
         members.push({key:member.key,runId:run.id,status:run.status,cancel:!!run.cancelIntent,executionId:job.executionId,
-          workerDone:worker.state === "completed" && released,host:worker.state === "completed" && !released ? {state:"awaiting-resume",detail:"worker sandbox release pending"} : job.observation,requirements,waitingTests});
+          workerDone:worker.state === "completed" && released,host:worker.state === "completed" && !released ? {state:"awaiting-resume",detail:"worker sandbox release pending"} : job.observation,requirements,waitingTests,waitingRules});
       }
       return succeed({cancelled:!!batch.cancelIntent,pending:batch.members.length - members.length,members});
     });
@@ -110,7 +99,9 @@ export class ExperimentMembers {
       const observation = {state,...(detail ? {detail} : {})};
       const prior = (job.payload as {observation?:{state:string;detail?:string}}).observation;
       if (prior?.state === state && prior.detail === detail) return;
-      await r.intents.save({...job,state:state === "terminal" ? "completed" : "registered",payload:{batchId,observation},
+      const payload = job.payload as {batchId:string;firstTerminalAt?:string};
+      const firstTerminalAt = payload.firstTerminalAt ?? (state === "terminal" ? this.ctx.now() : undefined);
+      await r.intents.save({...job,state:state === "terminal" ? "completed" : "registered",payload:{batchId,observation,...(firstTerminalAt ? {firstTerminalAt} : {})},
         updatedAt:this.ctx.now(),version:job.version+1},job.version);
     });
   }

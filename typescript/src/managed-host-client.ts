@@ -32,6 +32,34 @@ export async function launchManaged(entry: "host" | "job", args: string[] = []) 
   }
 }
 
+function localRecord(path:string): Record<string,unknown> | undefined {
+  if (!existsSync(path)) return;
+  try { return JSON.parse(safeRead(path,4096).toString()); }
+  catch (error) { if (existsSync(path)) throw error; }
+}
+
+export function managedActivityLive(id:string) {
+  const root = join(dataLayout().runtime,"managed-host");
+  return ["waiting","slots"].some(dir=>{
+    const owner = localRecord(join(root,dir,id));
+    return typeof owner?.pid === "number" && typeof owner.birth === "string" && hostProcessIdentity(owner.pid) === owner.birth;
+  });
+}
+
+/** Batch result queries report locally observed recovery state without
+ * starting a scheduler, issuing commands or modifying the ledger. */
+export function batchHostObservation(id:string,ledgerId:string,saved?:{state?:string}) {
+  if (!managedId.test(id) || saved?.state === "terminal") return;
+  const root = join(dataLayout().runtime,"managed-host");
+  const fallback = localRecord(join(root,"recovery-status",id));
+  if (fallback?.ledgerId === ledgerId) return {state:"awaiting-resume",detail:String(fallback.detail)};
+  if (saved?.state !== "running") return;
+  const owner = localRecord(join(root,"batches",id));
+  if (typeof owner?.pid !== "number" || typeof owner.birth !== "string" || hostProcessIdentity(owner.pid) !== owner.birth) {
+    return {state:"awaiting-resume",detail:"batch controller is not running; resume to continue"};
+  }
+}
+
 export function managedRequestRunning(executionId:string,operationId:string) {
   const path = join(hostDirectory("requests"),executionId + "." + operationId + ".owner");
   if (!existsSync(path)) return false;

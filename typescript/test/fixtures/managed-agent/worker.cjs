@@ -29,6 +29,14 @@ if (task.task.startsWith("concurrent fixture ")) {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
   }
 }
+if (task.task === "controlled batch fixture") {
+  writeFileSync("/tmp/worker-ready", "ready", {flag:"wx"});
+  const deadline = Date.now() + 120000;
+  while (!existsSync("/tmp/worker-release")) {
+    if (Date.now() > deadline) process.exit(5);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+  }
+}
 const handoff = task.task === "handoff fixture";
 const content = task.task === "comparison fixture" ? (process.argv[1].endsWith("claude") ? "claude result" : "codex result") : handoff && existsSync("scratch-note") ? readFileSync("scratch-note", "utf8") : task.task;
 writeFileSync("result.txt", content + "\n");

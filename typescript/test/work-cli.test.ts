@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1076,11 +1076,113 @@ test("experiment runs two pinned agents on one suite and adopts only member regr
         const detail = ok(await h.cli("experiment","member","--batch",launch.batchId,"--member",member.key));
         assert.equal(detail.member.gradings.length,2);
         assert.equal(detail.member.requirements[0].adopted,repeat.gradingId);
+        // Admit the earlier request and hold only its external read. The
+        // later request returns first and must still be the adopted record.
+        const opened = await openStore(join(h.directory,"config.yaml"));
+        let laterId;
+        try {
+          const {composeWork} = await import("../src/work/composition.js");
+          const {ExperimentGrading} = await import("../src/work/application/experiment-grading.js");
+          const {SqlWorkUnitOfWork,GitTagArchive} = await import("../src/work/adapters/index.js");
+          let reading!:()=>void, release!:()=>void;
+          const reached = new Promise<void>(resolve=>{reading=resolve;});
+          const held = new Promise<void>(resolve=>{release=resolve;});
+          const archive = new class extends GitTagArchive {
+            override async fileDigest(...args:Parameters<GitTagArchive["fileDigest"]>) { reading(); await held; return super.fileDigest(...args); }
+          }();
+          const slow = new ExperimentGrading({units:new SqlWorkUnitOfWork(opened.store),newId:newUUIDv7,now:()=>new Date().toISOString(),
+            hash:s=>createHash("sha256").update(s).digest("hex")},archive,composeWork(opened.store).repairs);
+          const earlier = slow.measure({batchId:launch.batchId,key:member.key,requirement:"answer",requestId:newUUIDv7()});
+          try {
+            await reached;
+            laterId = ok(await h.cli("experiment","regrade","--batch",launch.batchId,"--member",member.key,"--binding","answer")).gradingId;
+          } finally { release(); }
+          assert.ok((await earlier).ok);
+          const reordered = ok(await h.cli("experiment","member","--batch",launch.batchId,"--member",member.key));
+          assert.equal(reordered.member.requirements[0].adopted,laterId);
+        } finally {await opened.store.close();}
+        renameSync(h.remote,h.remote+"-offline");
+        try {
+          const failed = ok(await h.cli("experiment","regrade","--batch",launch.batchId,"--member",member.key,"--binding","answer"));
+          assert.equal(failed.status,"grader_fault");
+          const afterFault = ok(await h.cli("experiment","member","--batch",launch.batchId,"--member",member.key));
+          assert.equal(afterFault.member.requirements[0].adopted,laterId);
+          assert.equal(afterFault.member.requirements[0].latestFault.id,failed.gradingId);
+          assert.equal(afterFault.member.gradings.length,5);
+        } finally {renameSync(h.remote+"-offline",h.remote);}
         assert.equal(detail.member.run.retention,"release");
         assert.equal(detail.member.run.workId,undefined);
         assert.equal(ok(await h.cli("experiment","show","--experiment",plan.experimentId)).batches.length,1);
         await withRuntimeLock(join(dataLayout().runtime,"managed-host"),"execution-"+launch.batchId,async()=>{},10_000);
       }
+    } finally { for (const id of docker("ps","-aq","--filter","label=dev.grounds.ledger="+ledger).split("\n").filter(Boolean)) docker("rm","-f",id); }
+  });
+});
+
+test("experiment runs reconcile after controller loss and cancel only their own workers and supplementary tests", {skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async()=>{
+  await withHarness(async h=>{
+    const docker = (...args:string[]) => execFileSync("docker",args,{encoding:"utf8",stdio:["ignore","pipe","pipe"]}).trim();
+    const image = process.env.GROUNDS_TEST_MANAGED_AGENT!, ledger = ok(await h.cli("db","status")).database_id;
+    const cfg = join(h.directory,"env.json"), cases = join(h.directory,"suite.json"), command = join(h.directory,"commands.json");
+    writeFileSync(cfg,JSON.stringify({image,overrideCommand:false,workspaceFolder:"/work"}));
+    const environment = ok(await h.cli("work","define-environment","--name","controlled","--image-digest",docker("image","inspect","--format","{{.Id}}",image),"--devcontainer",cfg));
+    const agent = ok(await h.cli("work","define-agent","--name","worker","--provider","codex"));
+    const task = ok(await h.cli("task","create","--title","controlled batch fixture","--criterion","committed","--repo-remote",h.remote,"--baseline",h.baseline,"--environment",environment.environmentId));
+    const historical = ok(await h.cli("work","start","--mode","none","--task",task.taskId));
+    const delivered = ok(await h.cli("work","deliver","--run",historical.runId,"--repo",h.repo));
+    writeFileSync(command,JSON.stringify([["sh","-c","touch /tmp/test-ready; while [ ! -f /tmp/test-release ]; do sleep 0.1; done"]]));
+    const grader = ok(await h.cli("grade","define-test","--commands",command,"--name","controlled test","--environment",environment.environmentId,
+      "--environment-revision",environment.revisionId,"--pass","pass","--fail","fail"));
+    writeFileSync(cases,JSON.stringify([{key:"c",runId:historical.runId,deliveryId:delivered.delivery.id,bindings:[{key:"quality",grader:{definitionId:grader.graderId,revisionId:grader.revisionId}}]}]));
+    const suite = ok(await h.cli("suite","publish","--name","controlled suite","--cases-file",cases));
+    const experiment = ok(await h.cli("experiment","define","--name","faults","--suite",suite.suiteId,"--revision","1","--agent",agent.agentId,"--agent-revision",agent.revisionId));
+    const launch = async (n:number) => ok(await h.cli("experiment","launch","--experiment",experiment.experimentId,"--repeat",String(n),"--concurrency","1")).batchId;
+    const view = async (id:string) => ok(await h.cli("experiment","results","--batch",id));
+    const detail = async (id:string,key:string) => ok(await h.cli("experiment","member","--batch",id,"--member",key)).member;
+    async function until<T>(read:()=>Promise<T>,done:(v:T)=>boolean) {
+      const deadline=Date.now()+75_000;
+      let v;
+      do {v=await read();if(done(v)) return v; await new Promise(resolve=>setTimeout(resolve,250));} while(Date.now()<deadline);
+      throw new Error("timed out: "+JSON.stringify(v));
+    }
+    const ready = async (batch:string,repeat:number,role:"worker"|"test") => until(async()=>{
+      const member = (await view(batch)).members[repeat];
+      if (!member?.runId) return "";
+      const m = await detail(batch,member.key);
+      const sandbox = role === "worker" ? m.run.sandboxId : m.gradings.at(-1)?.sandboxId;
+      if (!sandbox) return "";
+      const id = docker("ps","-q","--filter","label=dev.grounds.sandbox="+sandbox);
+      try { if (id) { docker("exec",id,"test","-f","/tmp/"+role+"-ready"); return id; } } catch {}
+      return "";
+    },Boolean);
+    try {
+      const first = await launch(3), unrelated = await launch(1);
+      const worker = await ready(first,0,"worker"), independent = await ready(unrelated,0,"worker");
+      const owner = JSON.parse(readFileSync(join(hostDirectory("batches"),first),"utf8"));
+      assert.equal(signalHostProcessLeader(owner.pid,owner.birth,"SIGKILL"),true);
+      docker("exec",worker,"touch","/tmp/worker-release");
+      const paused = await until(()=>view(first),v=>v.counts.delivered===1 && v.host?.state==="awaiting-resume");
+      assert.equal(paused.counts.pending,2);
+      assert.equal(paused.members[0].requirements[0].attempts,0);
+      ok(await h.cli("experiment","resume","--batch",first));
+      await ready(first,1,"worker");
+      await ready(first,0,"test");
+      ok(await h.cli("experiment","cancel","--batch",first));
+      const ended = await until(()=>view(first),v=>v.host?.state==="terminal");
+      assert.equal(ended.counts.cancelled,1);assert.equal(ended.counts.delivered,1);assert.equal(ended.counts.pending,1);
+      assert.equal(ended.members[2].requirements[0].notStarted,"batch-cancelled");
+      assert.equal((await detail(first,ended.members[0].key)).gradings[0].status,"cancelled");
+      docker("exec",independent,"touch","/tmp/worker-release");
+      docker("exec",await ready(unrelated,0,"test"),"touch","/tmp/test-release");
+      const completed = await until(()=>view(unrelated),v=>v.host?.state==="terminal");
+      const key = completed.members[0].key, adopted = completed.members[0].requirements[0].adopted;
+      ok(await h.cli("experiment","regrade","--batch",unrelated,"--member",key,"--binding","quality"));
+      await ready(unrelated,0,"test");
+      ok(await h.cli("experiment","cancel","--batch",unrelated));
+      await until(()=>view(unrelated),v=>v.host?.state==="terminal" && !!v.batch.cancelIntent);
+      const final = await detail(unrelated,key);
+      assert.equal(final.gradings.at(-1).status,"cancelled");
+      assert.equal(final.requirements[0].adopted,adopted);
     } finally { for (const id of docker("ps","-aq","--filter","label=dev.grounds.ledger="+ledger).split("\n").filter(Boolean)) docker("rm","-f",id); }
   });
 });

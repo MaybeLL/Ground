@@ -90,6 +90,11 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
     } catch (error) { return { state: "unreachable", reason: (error as Error).message.split("\n")[0] ?? "the remote could not be read" }; }
   }
 
+  recordedCommit(item:{id:string;receipt:string}) {
+    const receipt = decodeReceipt(item.receipt);
+    return receipt && deliveryIdOf(receipt) === item.id ? receipt.commit : undefined;
+  }
+
   async resolveCommit(repositoryPath: string, commitish: string): Promise<string | undefined> {
     try { return (await this.git(repositoryPath, ["rev-parse", "--verify", `${commitish}^{commit}`])).trim(); } catch { return undefined; }
   }

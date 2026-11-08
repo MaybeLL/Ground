@@ -31,6 +31,7 @@ export type ArchivedFile =
 export type ArchivedDigest = { status: "read"; digest: string } | Exclude<ArchivedFile, { status: "read" }>;
 export type ArchivedFiles = { status: "read"; files: Map<string, Extract<ArchivedFile, { status: "read" }>> } | Exclude<ArchivedFile, { status: "read" }>;
 export interface CodeArchivePort {
+  recordedCommit(item:{id:string;receipt:string}):string | undefined;
   fileDigest(repositoryPath: string, item: { id: string; receipt: string }, path: string): Promise<ArchivedDigest>;
   readFiles(repositoryPath: string, item: { id: string; receipt: string }, paths: readonly string[]): Promise<ArchivedFiles>;
   readFile(repositoryPath: string, item: { id: string; receipt: string }, path: string): Promise<ArchivedFile>;

@@ -118,3 +118,9 @@ Terminal task retention pauses or releases the owned resource. Lifecycle operati
 The Claude Code and Codex adapters map observed JSONL records to common session, message, tool call, tool result, error and provider completion events. A normalized event stores its input line and part. Unknown, malformed and oversized records remain in the raw archive. Conversion reports partial coverage and its actual record counts.
 
 Raw and normalized streams use separate SHA-256 receipts. Schema 2 stores each stream in `work_evidence` and ordered binary chunks in `work_evidence_chunks`. An import writes both streams and the session binding in one transaction. `db status` checks each chunk and the digest of the whole stream. `db upgrade` adds the evidence tables to a configured protocol-2 schema-1 ledger under the migration and database identity checks.
+
+## Experiments
+
+ExperimentPlans stores the immutable plan in the ledger alongside its creation request. It resolves Git sources before the write transaction and freezes the environment resolution table in that transaction. Launch verifies the historical sources are still reproducible and registers the complete repeated member list. A batch row lock serializes cancellation and admission. Each admitted member has its own managed execution, task run and derived request identity, without a Work head.
+
+The host monitors batch controllers separately from its execution slots. The controller uses the same worker and grader hosts as standalone jobs. Observation after controller loss reconciles admitted children. Explicit resume authorizes further task and grading admission. Rule gradings receive their request sequence before archive I/O. Result queries join frozen members to runs and gradings, select the latest normal completion with the same bindings, and report subsequent grader faults alongside the adopted record.
