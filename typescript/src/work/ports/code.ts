@@ -23,7 +23,13 @@ export interface ArchiveObservation {
 export type RepairIdentity = { originalId: string; originalReceipt: string; archiveId: string };
 export type RepairInput = RepairIdentity & { repositoryPath: string; earlierReceipts: readonly string[] };
 
+/** Immutable bytes read from a regular file in a frozen delivery, never from the working tree. */
+export type ArchivedFile =
+  | { readonly status: "read"; readonly commit: string; readonly blob: string; readonly bytes: Uint8Array }
+  | { readonly status: "missing" | "unavailable" | "invalid"; readonly reason: string };
+
 export interface CodeArchivePort {
+  readFile(repositoryPath: string, item: { id: string; receipt: string }, path: string): Promise<ArchivedFile>;
   repair(input: RepairInput): Promise<CodeArchiveResult>;
   inspectRepair(identity: RepairIdentity): Promise<CodeArchiveResult>;
   inspect(repositoryPath: string, item: { id: string; receipt: string }): Promise<ArchiveObservation>;

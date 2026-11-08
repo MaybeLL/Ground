@@ -253,3 +253,32 @@ test("repair recovery verifies remote objects, reports rejected pushes and never
   assert.equal((await archive.inspectRepair(identity)).status, "unavailable");
   assert.equal((await archive.repair(input)).status, "unavailable");
 });
+
+test("grading material is the exact regular blob from a frozen delivery despite later checkout and tag changes", async t => {
+  const r = repository(); t.after(r.cleanup);
+  r.commit("initial");
+  const bytes = Buffer.from([0, 255, 10, 92, 13]);
+  writeFileSync(join(r.work, "oracle.bin"), bytes);
+  git(r.work, "add", "-A"); git(r.work, "commit", "-qm", "record grading file");
+  const commit = git(r.work, "rev-parse", "HEAD");
+  const adapter = new GitTagArchive();
+  const original = await adapter.archive({ repositoryPath: r.work, remote: r.remote, deliveryId: "candidate", commit });
+  assert.equal(original.status, "confirmed");
+  if (original.status !== "confirmed") return;
+  const item = { id: "candidate", receipt: original.receipt };
+  writeFileSync(join(r.work, "oracle.bin"), "unfrozen content");
+  const assertBytes = async () => {
+    const result = await adapter.readFile(r.work, item, "oracle.bin");
+    assert.equal(result.status, "read");
+    if (result.status === "read") {
+      assert.equal(result.commit, commit);
+      assert.equal(result.blob, git(r.work, "rev-parse", commit + ":oracle.bin"));
+      assert.deepEqual(Buffer.from(result.bytes), bytes);
+    }
+  };
+  await assertBytes();
+  git(r.remote, "update-ref", "-d", "refs/tags/grounds/deliveries/candidate");
+  await assertBytes();
+  assert.equal((await adapter.readFile(r.work, item, "../oracle.bin")).status, "invalid");
+  assert.equal((await adapter.readFile(r.work, item, "missing")).status, "missing");
+});

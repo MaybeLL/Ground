@@ -10,7 +10,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import type { DeliveryItem, ReceiptCheck } from "../../domain/index.js";
-import type { ArchiveObservation, ArchiveProtection, RepairIdentity, RepairInput, CodeArchivePort, CodeFetchResult, DeliveryReceiptPort } from "../../ports/index.js";
+import type { ArchivedFile, ArchiveObservation, ArchiveProtection, RepairIdentity, RepairInput, CodeArchivePort, CodeFetchResult, DeliveryReceiptPort } from "../../ports/index.js";
 
 const run = promisify(execFile);
 const RECEIPT_PREFIX = "git-delivery:v1:";
@@ -198,6 +198,39 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
       return { ...recorded, ...changed, status: null };
     } catch { return { ...recorded, ...changed, status: null }; }
     finally { if (scratch) await rm(scratch, { recursive: true, force: true }); }
+  }
+
+  /** Derive grading material only from a verified Git tree; symlinks and gitlinks cannot supply bytes. */
+  async readFile(repositoryPath: string, item: { id: string; receipt: string }, path: string): Promise<ArchivedFile> {
+    if (!path || path.length > 4096 || /[\x00-\x1f\\]/.test(path) || path.split("/").some(part => !part || part === "." || part === "..")) {
+      return { status: "invalid", reason: "material needs a relative Git file path" };
+    }
+    const receipt = decodeReceipt(item.receipt);
+    if (!receipt || deliveryIdOf(receipt) !== item.id || !stableRemote(receipt.remote)) return { status: "invalid", reason: "invalid frozen delivery receipt" };
+    const seen = await this.observe(receipt.remote, receipt.ref, repositoryPath, true);
+    if (seen.state === "unreachable") return { status: "unavailable", reason: "the archive endpoint could not be verified" };
+    const scratch = await mkdtemp(join(tmpdir(), "grounds-material-"));
+    try {
+      await this.isolatedGit(scratch, ["init", "--bare", "--quiet", "--template=", `--object-format=${receipt.commit.length === 64 ? "sha256" : "sha1"}`]);
+      let verified = seen.state === "present" && seen.commit === receipt.commit
+        ? await this.retrieve(scratch, receipt.remote, receipt.ref, receipt) : await this.retrieveLocal(repositoryPath, scratch, receipt).catch(() => "unknown");
+      if (verified !== "verified") verified = await this.retrieve(scratch, receipt.remote, receipt.commit, receipt);
+      if (verified === "refused") {
+        const refs = await this.isolatedGit(scratch, ["ls-remote", "--refs", "--", receipt.remote]);
+        const matching = refs.split("\n").map(line => line.split("\t")).find(([oid]) => oid === receipt.commit);
+        if (matching?.[1]) verified = await this.retrieve(scratch, receipt.remote, matching[1], receipt);
+      }
+      if (verified !== "verified") return { status: "unavailable", reason: "the frozen delivery cannot be reproduced" };
+      const entry = await this.isolatedGit(scratch, ["--literal-pathspecs", "ls-tree", "-z", receipt.commit, "--", path]);
+      if (!entry) return { status: "missing", reason: "the delivery has no file at the material path" };
+      const blob = /^(?:100644|100755) blob ([0-9a-f]+)\t/.exec(entry)?.[1];
+      if (!blob || !OID.test(blob)) return { status: "invalid", reason: "material must be a regular file" };
+      const limit = 1024 * 1024;
+      if (Number(await this.isolatedGit(scratch, ["cat-file", "-s", blob])) > limit) return { status: "invalid", reason: "material exceeds 1 MiB" };
+      const result = await run("git", ["cat-file", "blob", blob], { cwd: scratch, env: inspectionEnvironment(), encoding: "buffer", maxBuffer: limit + 1, timeout: this.options.timeoutMs ?? 60_000 });
+      return { status: "read", commit: receipt.commit, blob, bytes: result.stdout };
+    } catch { return { status: "unavailable", reason: "the archived material could not be read" }; }
+    finally { await rm(scratch, { recursive: true, force: true }); }
   }
 
   /** A repair publishes another tag. Its identity is derived from the saved intent;
