@@ -3,7 +3,7 @@
 // written first and is idempotent, so a command that stops half way is simply
 // run again.
 import { readArtifact } from "./artifacts.js";
-import { isTerminal, isId, parseTaskContent, type Id } from "../domain/index.js";
+import { canRefineFromBaseline, isTerminal, isId, parseTaskContent, type Id } from "../domain/index.js";
 import type { ArchiveProtection, RecordedProtection, CodeArchivePort, WorkUnitOfWork, WorktreePort } from "../ports/index.js";
 import { fail, failureOf, succeed, type Outcome } from "./outcome.js";
 import type { Submitted, TaskExecution } from "./task-execution.js";
@@ -144,9 +144,7 @@ export class CodeDelivery {
       if (!found) return fail("not-found", `run ${input.runId} does not exist`);
       if (found.run.status === "delivered" || found.run.status === "failed" || found.run.status === "cancelled") return fail("conflict", `run ${found.run.id} is already ${found.run.status}`);
       let base: Workspace["base"];
-      const callerWithoutDelivery = found.parent && found.parent.workerMode !== "managed" &&
-        (found.parent.status === "failed" || found.parent.status === "cancelled") && !found.parent.manifest;
-      if (found.run.refines && !callerWithoutDelivery) {
+      if (found.run.refines && !(found.parent && canRefineFromBaseline(found.parent))) {
         const item = found.parent?.manifest?.items.find(i => i.type === "candidate");
         if (!item) return fail("conflict", `run ${found.run.refines} delivered no code to continue from`);
         const { receipt } = await this.deps.repairs.current(found.run.refines, item, input.repositoryPath);

@@ -1,3 +1,4 @@
+import {canRefineFromBaseline} from "../domain/index.js";
 import { acceptExecution, createDefinition, digestOf, isId, isText, publishRevision, parseTaskContent, refOf, type TaskRun } from "../domain/index.js";
 import type { AgentProvider, ProviderName, WorkRepositories } from "../ports/index.js";
 import { fail, fromRejection, succeed } from "./outcome.js";
@@ -67,7 +68,7 @@ export class AgentDefinitions {
     const failedManaged = parent?.workerMode === "managed" && !candidate && (parent.status === "failed" || parent.status === "cancelled");
     const freshAfterFailure = failedManaged && sandbox === "fresh";
     if (parent && !candidate && !inherited && !freshAfterFailure &&
-        !(parent.workerMode !== "managed" && !parent.manifest && (parent.status === "failed" || parent.status === "cancelled"))) {
+        !canRefineFromBaseline(parent)) {
       return fail("conflict", "the parent delivered no candidate; select a retained workspace or explicitly start fresh from a failed managed run's baseline");
     }
     const previous = (inherited || freshAfterFailure) && parent ? (await r.intents.listForSubject("managed-worker", "task_run", parent.id))[0]?.payload as ManagedTask | undefined : undefined;

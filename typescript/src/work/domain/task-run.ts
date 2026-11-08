@@ -119,6 +119,12 @@ export function createTaskRun(
   return ok({ state, events: [{ type: "created", runId: state.id, ...(state.refines ? { refines: state.refines } : {}), at: command.at }], outcome: undefined });
 }
 
+/** A caller-run refinement can start from the task baseline when its parent produced no manifest. */
+export function canRefineFromBaseline(parent:TaskRun):boolean {
+  return !parent.manifest && (parent.status==="cancelled" || parent.status==="failed") &&
+    (parent.workerMode==="external" || parent.workerMode==="none" && !parent.workId);
+}
+
 const terminalRefusal = (run: TaskRun, what: string) => conflict(`the run is already ${run.status}; ${what}`);
 
 function recordLate(run: TaskRun, kind: LateRecord["kind"], at: Timestamp, detail: string): Step {
