@@ -51,3 +51,57 @@ test("trace capture retains malformed and deeply nested raw blocks and preserves
     } finally {await capture.dispose();}
   } finally {await rm(dir,{recursive:true,force:true});}
 });
+
+test("evaluator grades require a verified final provider answer",async()=>{
+  const {mkdtemp,rm,writeFile}=await import("node:fs/promises");
+  const {join}=await import("node:path"),{tmpdir}=await import("node:os");
+  const {ProviderTraceCapture}=await import("../src/work/adapters/providers/trace-capture.js");
+  const dir=await mkdtemp(join(tmpdir(),"grounds-final-evaluator-"));
+  const final=async(provider:"claude-code"|"codex",rows:string[])=>{
+    const path=join(dir,"transcript");
+    await writeFile(path,rows.join("\n")+"\n");
+    const trace=await new ProviderTraceCapture().capture(provider,path);
+    try {return trace.finalMessage;} finally {await trace.dispose();}
+  };
+  try {
+    const intermediate=JSON.stringify({type:"assistant",message:{content:[{type:"text",text:"5"}]}});
+    assert.equal(await final("claude-code",[intermediate,JSON.stringify({type:"result",subtype:"success",result:"0"})]),"0");
+    assert.equal(await final("claude-code",[intermediate,JSON.stringify({type:"result",subtype:"error",result:"0"})]),undefined);
+    const sample=JSON.stringify({type:"item.completed",item:{id:"answer",type:"agent_message",text:"5"}});
+    const end=JSON.stringify({type:"turn.completed"});
+    assert.equal(await final("codex",[sample,end]),"5");
+    assert.equal(await final("codex",[sample,"{invalid",end]),undefined);
+    assert.equal(await final("codex",[sample,"x".repeat(8*1024*1024+1),end]),undefined);
+    assert.equal(await final("codex",[sample]),undefined);
+  } finally {await rm(dir,{recursive:true,force:true});}
+});
+
+test("evaluator recovery independently captures bridge files created before interruption",async()=>{
+  const {mkdir,rm,writeFile}=await import("node:fs/promises");
+  const {join}=await import("node:path");
+  const {randomUUID}=await import("node:crypto");
+  const {dataLayout}=await import("../src/data-layout.js");
+  const {ContainerAgentProcess}=await import("../src/work/adapters/devcontainer/managed-process.js");
+  const {DevcontainerRuntime}=await import("../src/work/adapters/devcontainer/runtime.js");
+  const {ManagedWorkspaces}=await import("../src/work/adapters/devcontainer/workspace.js");
+  const {GitTagArchive}=await import("../src/work/adapters/git/tag-archive.js");
+  const owner={ledgerId:randomUUID(),sandboxId:randomUUID()},executionId=randomUUID();
+  const executionDir=join(dataLayout().runtime,"executions",owner.ledgerId,executionId);
+  const plan={role:"evaluator" as const,agent:{provider:"codex" as const},job:{executionId},prompt:"judge",
+    target:{owner,containerId:"unused",location:{daemonId:"unused",hostId:"unused"}}};
+  const process=new ContainerAgentProcess(new DevcontainerRuntime(),new ManagedWorkspaces(),new GitTagArchive());
+  await mkdir(executionDir,{recursive:true});
+  try {
+    assert.equal(await process.availableOutput(plan),undefined);
+    const path=join(executionDir,"stdout.jsonl");
+    await writeFile(path,'{"type":"thread.started","thread_id":"partial"}\n');
+    const stdout=await process.availableOutput(plan);
+    assert.ok(stdout?.trace);
+    try {assert.equal(stdout.stderr,undefined);assert.equal(stdout.trace.descriptor.records,1);}
+    finally {await stdout.trace.dispose();}
+    await rm(path);
+    await writeFile(join(executionDir,"stderr"),"a diagnostic");
+    const stderr=await process.availableOutput(plan);
+    assert.equal(stderr?.stderr?.byteLength,12);assert.equal(stderr?.trace,undefined);
+  } finally {await rm(join(dataLayout().runtime,"executions",owner.ledgerId),{recursive:true,force:true});}
+});

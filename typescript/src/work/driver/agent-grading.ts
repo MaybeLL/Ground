@@ -15,7 +15,7 @@ export class AgentGradingDriver {
       role:"evaluator",task,rubric:grader.rubric,scale:grader.scale,
       instructions:"Evaluate the read-only delivery under /grounds-delivery. Use the empty current directory as scratch. Frozen evaluator materials are available in /grounds-grader. Return a JSON object with grade in the declared scale, or an indeterminate grade with a reason."
     })};
-    const next=async(output?:Awaited<ReturnType<ManagedProcessPort["output"]>>,exitCode?:number,reason?:string)=>{
+    const next=async(output?:Partial<Awaited<ReturnType<ManagedProcessPort["output"]>>>,exitCode?:number,reason?:string)=>{
       const ended=await this.evaluators.finish(id,exec.id,output,exitCode,reason);
       return ended.ok ? succeed({state:"running" as const}) : ended;
     };
@@ -26,7 +26,7 @@ export class AgentGradingDriver {
       if (observed.state==="running") return succeed({state:"running" as const});
       const output=await this.process.availableOutput(plan);
       try {return await next(output,observed.state==="complete" ? observed.exitCode : undefined);}
-      finally {await output?.trace.dispose();}
+      finally {await output?.trace?.dispose();}
     }
     let handle=exec.sessionRef;
     if (!handle) {
@@ -42,7 +42,8 @@ export class AgentGradingDriver {
     const observed=await this.process.drive(plan,handle,live,()=>this.evaluators.authorizeStart(id,exec.id,handle));
     if (observed.state==="interrupted") {
       await this.process.stop(plan,true);
-      return next(undefined,undefined,observed.detail);
+      const partial=await this.process.availableOutput(plan);
+      try {return await next(partial,undefined,observed.detail);} finally {await partial?.trace?.dispose();}
     }
     if (observed.state!=="complete") return succeed({state:observed.state,detail:observed.detail,...(observed.state==="awaiting-resume" ? {providerStopped:await this.process.quiescent(plan)} : {})});
     const output=await this.process.output(plan);

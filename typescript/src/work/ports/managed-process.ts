@@ -13,7 +13,7 @@ export interface ManagedProcessPort {
   artifacts(plan:ProcessPlan,declared:readonly import("../domain/managed-delivery.js").ArtifactDeclaration[]):Promise<CapturedArtifacts>;
   handle(plan:AgentProcessPlan,allowCreate:boolean):Promise<string|undefined>;
   drive(plan:AgentProcessPlan,handle:string,allowStart:boolean,authorizeStart?:()=>Promise<boolean>):Promise<ProcessRead>;
-  availableOutput(plan:AgentProcessPlan):Promise<WorkerOutput|undefined>;
+  availableOutput(plan:AgentProcessPlan):Promise<Partial<WorkerOutput>|undefined>;
   output(plan:AgentProcessPlan):Promise<WorkerOutput>;
   exportCandidate(plan: ProcessPlan, commit: string, allowStart: boolean): Promise<"ready" | "invalid" | "running" | "awaiting-resume" | "interrupted">;
   candidate(plan:ProcessPlan,commit:string,baseline:string,remote:string,allowPublish:boolean):Promise<{status:"confirmed";id:string;receipt:string}|{status:"invalid"|"unavailable";reason:string}>;

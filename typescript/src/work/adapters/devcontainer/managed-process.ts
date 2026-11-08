@@ -90,13 +90,14 @@ export class ContainerAgentProcess implements ManagedProcessPort {
     }
   }
 
-  async availableOutput(plan:AgentProcessPlan) {
-    const root=this.root(plan);
-    if (!existsSync(join(root,"stdout.jsonl")) && !existsSync(join(root,"stderr"))) return;
-    return this.output(plan);
+  private async stderrSource(plan:AgentProcessPlan) {
+    const path=join(this.root(plan),"stderr"),hash=createHash("sha256");
+    let byteLength=0;
+    for await(const bytes of createReadStream(path)){hash.update(bytes);byteLength+=bytes.length;}
+    return {byteLength,digest:"sha256:"+hash.digest("hex"),open:()=>createReadStream(path)};
   }
 
-  async output(plan:AgentProcessPlan):Promise<WorkerOutput> {
+  private async messages(plan:AgentProcessPlan) {
     const trace=await new ProviderTraceCapture().capture(plan.agent.provider,join(this.root(plan),"stdout.jsonl"));
     try {
       let message="",providerFailed=false;
@@ -107,11 +108,20 @@ export class ContainerAgentProcess implements ManagedProcessPort {
         if(event.kind==="provider-ended")providerFailed=event.outcome==="failed";
       }
       if (plan.role==="evaluator") message=trace.finalMessage ?? "";
-      const stderrPath=join(this.root(plan),"stderr"),hash=createHash("sha256");
-      let byteLength=0;
-      for await(const bytes of createReadStream(stderrPath)){hash.update(bytes);byteLength+=bytes.length;}
-      return {trace,message,output:sourceOf(Buffer.from(message)),stderr:{byteLength,digest:"sha256:"+hash.digest("hex"),open:()=>createReadStream(stderrPath)},providerFailed};
+      return {trace,message,output:sourceOf(Buffer.from(message)),providerFailed};
     } catch(error){await trace.dispose();throw error;}
+  }
+
+  async availableOutput(plan:AgentProcessPlan) {
+    const root=this.root(plan);
+    const stderr=existsSync(join(root,"stderr")) ? await this.stderrSource(plan) : undefined;
+    const messages=existsSync(join(root,"stdout.jsonl")) ? await this.messages(plan) : undefined;
+    if (stderr || messages) return {...messages,...(stderr ? {stderr} : {})};
+  }
+
+  async output(plan:AgentProcessPlan):Promise<WorkerOutput> {
+    const stderr=await this.stderrSource(plan);
+    return {...await this.messages(plan),stderr};
   }
 
   async exportCandidate(plan: ProcessPlan, commit: string, allowStart: boolean) {

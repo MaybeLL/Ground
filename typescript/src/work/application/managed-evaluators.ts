@@ -15,8 +15,9 @@ export class ManagedEvaluators {
     return this.ctx.units.run("read",async r=>{
       const [intent]=await r.intents.listForSubject("evaluator-output","grading_record",id);
       if (!intent) return fail("not-found","evaluator output has not been frozen");
-      const record=intent.payload as {executionId:string;trace:import("../domain/index.js").FrozenTrace;output:import("../ports/index.js").EvidenceRef;stderr:import("../ports/index.js").EvidenceRef};
-      const ref=channel==="raw" ? record.trace.raw : channel==="events" ? record.trace.events : channel==="output" ? record.output : record.stderr;
+      const record=intent.payload as {executionId:string;trace?:import("../domain/index.js").FrozenTrace;output?:import("../ports/index.js").EvidenceRef;stderr?:import("../ports/index.js").EvidenceRef};
+      const ref=channel==="raw" ? record.trace?.raw : channel==="events" ? record.trace?.events : channel==="output" ? record.output : record.stderr;
+      if (!ref) return fail("not-found","this evaluator stream was not observed");
       if (ordinal>=ref.chunkCount) return fail("not-found","chunk is outside this stream");
       const bytes=await r.evidence.chunk(ref.digest,ordinal);
       return bytes ? succeed({gradingId:id,executionId:record.executionId,stream:channel,ordinal,ref,bytes}) : fail("unavailable","evaluator evidence chunk is missing");
@@ -89,7 +90,7 @@ export class ManagedEvaluators {
 
   /** Called after process stop has been observed. Record bytes, result,
    * runner stop and returned lease together, including on cancellation. */
-  async finish(id:string,executionId:string,output?:WorkerOutput,exitCode?:number,infrastructure?:string) {
+  async finish(id:string,executionId:string,output?:Partial<WorkerOutput>,exitCode?:number,infrastructure?:string) {
     return this.ctx.units.run("write",async r=>{
       const g=await r.gradings.get(id,{lock:true}),exec=await r.executions.get(executionId,{lock:true});
       if (!exec || g?.evaluator?.kind!=="agent" || g.evaluator.executionId!==exec.id) return fail("conflict","evaluator identity changed");
@@ -105,10 +106,10 @@ export class ManagedEvaluators {
       };
       if (output) {
         if (exitCode!==undefined) advance(providerEnded(state,{at,outcome:exitCode===0 && !output.providerFailed ? "succeeded" : "failed"}));
-        advance(recordReceipt(state,{kind:"output",ref:"sql-evidence:"+output.output.digest,at}));
-        advance(recordReceipt(state,{kind:"trajectory",ref:"sql-evidence:"+output.trace.raw.digest,at}));
+        if (output.output) advance(recordReceipt(state,{kind:"output",ref:"sql-evidence:"+output.output.digest,at}));
+        if (output.trace) advance(recordReceipt(state,{kind:"trajectory",ref:"sql-evidence:"+output.trace.raw.digest,at}));
         if (state.providerOutcome==="succeeded") try {
-          const value=JSON.parse(output.message)?.grade;
+          const value=JSON.parse(output.message ?? "")?.grade;
           if (value && typeof value==="object" && validateGrade(value,g.scale).ok) {
             if (value.form==="numeric") grade={form:"numeric",value:value.value};
             else if (value.form==="category") grade={form:"category",category:value.category};
@@ -127,9 +128,9 @@ export class ManagedEvaluators {
       const released=returnLease(sb,{holder,token:sb.lease.token,stop:"verified",at});
       if (!released.ok) return fromRejection(released.error);
       if (output) {
-        const body=await r.evidence.put(output.output),stderr=await r.evidence.put(output.stderr);
-        await r.evidence.put(output.trace.raw);await r.evidence.put(output.trace.events);
-        const payload={executionId:exec.id,trace:output.trace.descriptor,output:body,stderr};
+        const body=output.output && await r.evidence.put(output.output),stderr=output.stderr && await r.evidence.put(output.stderr);
+        if(output.trace){await r.evidence.put(output.trace.raw);await r.evidence.put(output.trace.events);}
+        const payload={executionId:exec.id,coverage:{stdout:!!output.trace,stderr:!!stderr},...(output.trace ? {trace:output.trace.descriptor} : {}),...(body ? {output:body} : {}),...(stderr ? {stderr} : {})};
         const digest=digestOf(payload,this.ctx.hash);
         if (!digest.ok) throw new Error(digest.error.message);
         await r.intents.register({kind:"evaluator-output",id:this.ctx.newId(),requestId:"evaluator-output-"+exec.id,requestHash:digest.value,subject:{type:"grading_record",id},payload,state:"completed",result:{},version:1,createdAt:at,updatedAt:at});
