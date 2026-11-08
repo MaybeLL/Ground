@@ -2246,3 +2246,42 @@ test("managed evaluator runs the built-in gate blind before reading the author's
     }
   });
 });
+
+test("a delayed job cannot consume its original start authority after recovery reported awaiting resume",async()=>{
+  await withHarness(async h=>{
+    const directory=realpathSync(mkdtempSync(join(tmpdir(),"grounds-job-reconciliation-")));
+    const config=join(h.directory,"config.yaml");
+    const {store}=await openStore(config);
+    try {
+      const cfg=join(directory,"env.json");
+      writeFileSync(cfg,'{"image":"fixture"}');
+      const environment=ok(await h.cli("work","define-environment","--name","fixture","--devcontainer",cfg,"--image-digest","sha256:"+"1".repeat(64)));
+      const task=ok(await h.cli("task","create","--title","delayed launch","--criterion","once","--environment",environment.environmentId,"--repo-remote",h.remote,"--baseline",h.baseline));
+      const agent=ok(await h.cli("work","define-agent","--name","fixture","--provider","codex"));
+      const {composeWork}=await import("../src/work/composition.js");
+      const app=composeWork(store),admission=await app.exec.startWork({requestId:newUUIDv7(),taskDefinitionId:task.taskId,workerMode:"managed",agent:{definitionId:agent.agentId,repositoryPath:h.repo}});
+      assert.ok(admission.ok && admission.value.executionId);
+      const {runId,executionId}=admission.value;
+      const ledger=(await store.inspect()).database_id,host=join(directory,"runtime","managed-host");
+      const requests=join(host,"requests"),bin=join(directory,"bin"),calls=join(directory,"docker-calls");
+      mkdirSync(requests,{recursive:true});mkdirSync(bin);
+      writeFileSync(join(bin,"docker"),'#!/bin/sh\necho "$*" >> "$GROUNDS_PROBE"\nexit 1\n',{mode:0o755});
+      const env={...process.env,GROUNDS_DATA_HOME:directory,GROUNDS_PROBE:calls,PATH:bin+":"+process.env.PATH};
+      const child=(request:string,...mode:string[])=>execFileSync(process.execPath,["--import","tsx","src/managed-job-main.ts",request,...mode],{env,stdio:"pipe",timeout:30000});
+      const publish=()=>{
+        const name=executionId+"."+newUUIDv7();
+        writeFileSync(join(requests,name),JSON.stringify({config,ledgerId:ledger,runId,executionId,allowStart:true}),{mode:0o600});
+        return name;
+      };
+      const original=publish();
+      child(original,"recover");
+      const state=await app.workers.context(runId);
+      assert.ok(state.ok && state.value.job.observation?.state==="awaiting-resume");
+      child(original);
+      assert.equal(existsSync(calls),false,"the controller dispatched before the crash cannot prepare the sandbox now");
+      child(publish());
+      assert.ok(existsSync(calls),"a new explicit operation can attempt preparation");
+      await withRuntimeLock(host,"host",async()=>{},10000);
+    } finally {await store.close();rmSync(directory,{recursive:true,force:true});}
+  });
+});

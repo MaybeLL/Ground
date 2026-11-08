@@ -9,6 +9,10 @@ import { atomicPrivateWrite, removePrivateFile, safeRead, withRuntimeLock } from
 import { composeWork } from "./work/composition.js";
 
 async function supervise(job: HostJob, name: string, observeOnly: boolean) {
+  // Observation holds the execution lock. Consume this request's start
+  // authority before reporting recovery, even if the ledger is offline.
+  const issued=join(hostDirectory("issued"),name);
+  if (observeOnly && !existsSync(issued)) atomicPrivateWrite(issued,job.executionId);
   const opened = await openStore(job.config);
   try {
     if (opened.config.database.expected_database_id !== job.ledgerId) throw new Error("job ledger identity changed");
@@ -19,7 +23,7 @@ async function supervise(job: HostJob, name: string, observeOnly: boolean) {
       if (job.executionId !== job.runId) throw new Error("invalid batch identity");
       const birth = hostProcessIdentity(process.pid);
       if (!birth) throw new Error("cannot establish batch controller identity");
-      const owner = join(hostDirectory("batches"),job.runId), issued = join(hostDirectory("issued"),name);
+      const owner = join(hostDirectory("batches"),job.runId);
       const drive = new ExperimentDriver(app,(child,requestId)=>notifyManaged({...child,ledgerId:job.ledgerId,config:job.config},requestId),name,(id,op)=>managedRequestRunning(id,op) || managedActivityLive(id));
       const live = !observeOnly && job.allowStart && !existsSync(issued);
       atomicPrivateWrite(owner,JSON.stringify({pid:process.pid,birth,name}));
@@ -56,7 +60,6 @@ async function supervise(job: HostJob, name: string, observeOnly: boolean) {
     await status();
     const slot = join(hostDirectory("slots"), job.executionId);
     const ticket = join(hostDirectory("waiting"), job.executionId);
-    const issued = join(hostDirectory("issued"), name);
     const birth = hostProcessIdentity(process.pid);
     if (!birth) throw new Error("cannot establish runner identity");
     const ticketLock = (fn: () => Promise<void>) => withRuntimeLock(queueRoot(), "ticket-" + job.executionId, fn, 10_000);
