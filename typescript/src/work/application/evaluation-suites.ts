@@ -1,9 +1,9 @@
 // A case belongs to its immutable suite revision. Private material is captured
 // from the selected delivery; the task revision remains the worker's only input.
-import { createDefinition, createGrading, digestOf, isId, isText, publishRevision, refOf, sameRef, submitGrade, unique, type JsonValue, type Revision, type RevisionRef } from "../domain/index.js";
-import { GRADING_REQUEST_COUNTER, type CodeArchivePort } from "../ports/index.js";
+import { createDefinition, createGrading, digestOf, isId, isText, publishRevision, refOf, sameRef, submitGrade, unique, type DeliveryItem, type GradingOrigin, type JsonValue, type Revision, type RevisionRef } from "../domain/index.js";
+import { GRADING_REQUEST_COUNTER, type CodeArchivePort, type WorkRepositories } from "../ports/index.js";
 import type { ArchiveRepairs } from "./archive-repairs.js";
-import { fileRule, resolveRule, type GraderSelection } from "./rule-definitions.js";
+import { fileRule, resolveRule, type GraderSelection, type Rule } from "./rule-definitions.js";
 import { fail, fromRejection, succeed, type Outcome } from "./outcome.js";
 import { once, type RequestContext } from "./requests.js";
 
@@ -157,6 +157,59 @@ export class EvaluationSuites {
     return this.deps.units.run("read", async r => succeed({ suites: (await r.definitions.list("suite")).map(d => ({ id: d.id, name: d.name, head: d.head })) }));
   }
 
+  private async score(repo: string, archive: { id: string; receipt: string }, path: string, rule: Rule, expectedDigest: string | null) {
+    const file = await this.deps.archive.fileDigest(repo, archive, path);
+    if (file.status !== "read" && file.status !== "missing") return fail(file.status, file.reason);
+    const actualDigest = file.status === "read" ? file.digest : null;
+    const passes = rule.operation === "file-exists" ? actualDigest !== null : actualDigest !== null && actualDigest === expectedDigest;
+    return succeed({ result: rule.scale.categories[passes ? 0 : 1]!, actualDigest, expectedDigest });
+  }
+
+  private async record(r: WorkRepositories, item: DeliveryItem, origin: GradingOrigin, revision: RevisionRef, rule: Rule,
+    result: string, materials: { id: string; digest: string }[]) {
+    const digest = digestOf(json(item), this.deps.hash);
+    if (!digest.ok) return fromRejection(digest.error);
+    const at = this.deps.now(), gradingId = this.deps.newId();
+    const created = createGrading({ id: gradingId, purpose: "measure", origin, graderRevision: revision, grader: rule,
+      requestSeq: await r.sequences.next(GRADING_REQUEST_COUNTER), targets: [{ type: item.type, id: item.id, digest: digest.value }], materials, at });
+    if (!created.ok) return fromRejection(created.error);
+    const completed = submitGrade(created.value.state, { grade: { form: "category", category: result }, at });
+    if (!completed.ok) return fromRejection(completed.error);
+    await r.gradings.create(created.value.state);
+    await r.gradings.save(completed.value.state, created.value.state.version);
+    return succeed(gradingId);
+  }
+
+  async measureDirect(input: { requestId: string; runId: string; deliveryId: string; answerPath: string; grader: GraderSelection;
+    reference?: DeliverySelection & { path: string } }, repo: string) {
+    type DirectResult = { gradingId: string; runId: string; deliveryId: string; result: string; actualDigest: string | null; expectedDigest: string | null };
+    if (!validPath(input.answerPath) || (input.reference && !validPath(input.reference.path))) return fail("invalid", "select a relative regular file path");
+    const request = { requestId: input.requestId, input: json(input), kind: "measure-direct", subject: { type: "task_run", id: input.runId } };
+    const replay = await this.replay<DirectResult>(request.requestId, request.kind, request.input);
+    if (replay) return replay;
+    const chosen = await this.deps.units.run("read", r => resolveRule(r, this.deps, input.grader));
+    if (!chosen.ok) return chosen;
+    if ((chosen.value.rule.operation === "equal-file-bytes") !== !!input.reference) return fail("invalid", "reference answer does not match the grader's input contract");
+    const target = await this.delivery(input.runId, input.deliveryId, repo);
+    if (!target.ok) return target;
+    let reference;
+    if (input.reference) {
+      const source = await this.delivery(input.reference.runId, input.reference.deliveryId, repo);
+      if (!source.ok) return source;
+      const file = await this.deps.archive.fileDigest(repo, source.value.archive, input.reference.path);
+      if (file.status !== "read") return fail(file.status === "missing" ? "not-found" : file.status, file.reason);
+      reference = { taskRunId: input.reference.runId, deliveryId: input.reference.deliveryId, path: input.reference.path, digest: file.digest };
+    }
+    const basis = reference;
+    const scored = await this.score(repo, target.value.archive, input.answerPath, chosen.value.rule, basis?.digest ?? null);
+    if (!scored.ok) return scored;
+    return once<DirectResult>(this.deps, request, async r => {
+      const origin: GradingOrigin = { type: "standalone", direct: { taskRunId: input.runId, answerPath: input.answerPath, actualDigest: scored.value.actualDigest, ...(basis ? { reference: basis } : {}) } };
+      const recorded = await this.record(r, target.value.item, origin, chosen.value.ref, chosen.value.rule, scored.value.result, basis ? [{ id: "reference-answer", digest: basis.digest }] : []);
+      return recorded.ok ? succeed({ gradingId: recorded.value, runId: input.runId, deliveryId: input.deliveryId, ...scored.value }) : recorded;
+    });
+  }
+
   async measure(input: { requestId: string; suiteId: string; seq: number; caseKey: string; bindingKey?: string; runId: string; deliveryId: string }, repo: string): Promise<Outcome<Measurement>> {
     const request = { requestId: input.requestId, input: json(input), kind: "measure-file-match", subject: {type: "task_run", id: input.runId} };
     const replay = await this.replay<Measurement>(request.requestId, request.kind, request.input);
@@ -173,25 +226,15 @@ export class EvaluationSuites {
     const delivery = await this.delivery(input.runId, input.deliveryId, repo);
     if (!delivery.ok) return delivery;
     if (!sameRef(delivery.value.taskRevision, selected.taskRevision)) return fail("conflict", "delivery uses a different task revision");
-    const file = await this.deps.archive.fileDigest(repo, delivery.value.archive, binding.answerPath);
-    if (file.status !== "read" && file.status !== "missing") return fail(file.status, file.reason);
-    const actualDigest = file.status === "read" ? file.digest : null;
     const expected = binding.materials.find(m => m.role === "reference-answer");
-    const passes = rule.operation === "file-exists" ? actualDigest !== null : actualDigest !== null && actualDigest === expected?.digest;
-    const result = rule.scale.categories[passes ? 0 : 1]!;
+    const scored = await this.score(repo, delivery.value.archive, binding.answerPath, rule, expected?.digest ?? null);
+    if (!scored.ok) return scored;
     return once<Measurement>(this.deps, request, async r => {
-      const { item } = delivery.value;
-      const digest = digestOf(json(item), this.deps.hash);
-      if (!digest.ok) return fromRejection(digest.error);
-      const at = this.deps.now(), gradingId = this.deps.newId();
-      const created = createGrading({ id: gradingId, purpose: "measure", origin: { type: "standalone", historical: { taskRunId: input.runId, caseKey: input.caseKey, bindingKey: binding.key, suite: refOf(revision) } }, graderRevision: binding.graderRevision, grader: rule, requestSeq: await r.sequences.next(GRADING_REQUEST_COUNTER),
-        targets: [{ type: item.type, id: item.id, digest: digest.value }], materials: [...(expected ? [{ id: "reference-answer", digest: expected.digest }] : []), { id: "suite-snapshot", digest: revision.digest }], at });
-      if (!created.ok) return fromRejection(created.error);
-      const completed = submitGrade(created.value.state, { grade: { form: "category", category: result }, at });
-      if (!completed.ok) return fromRejection(completed.error);
-      await r.gradings.create(created.value.state);
-      await r.gradings.save(completed.value.state, created.value.state.version);
-      return succeed({ gradingId, suiteId: input.suiteId, revisionId: revision.id, caseKey: selected.key, runId: input.runId, deliveryId: item.id, bindingKey: binding.key, result, actualDigest, expectedDigest: expected?.digest ?? null });
+      const origin: GradingOrigin = { type: "standalone", historical: { taskRunId: input.runId, caseKey: input.caseKey, bindingKey: binding.key, suite: refOf(revision) } };
+      const materials = [...(expected ? [{ id: "reference-answer", digest: expected.digest }] : []), { id: "suite-snapshot", digest: revision.digest }];
+      const recorded = await this.record(r, delivery.value.item, origin, binding.graderRevision, rule, scored.value.result, materials);
+      return recorded.ok ? succeed({ gradingId: recorded.value, suiteId: input.suiteId, revisionId: revision.id, caseKey: selected.key,
+        runId: input.runId, deliveryId: delivery.value.item.id, bindingKey: binding.key, ...scored.value }) : recorded;
     });
   }
 }

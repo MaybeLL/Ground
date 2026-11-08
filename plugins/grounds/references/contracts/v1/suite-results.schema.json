@@ -334,6 +334,61 @@
           "$ref": "work-results.schema.json#/$defs/Digest"
         }
       }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "grade.measure"
+        },
+        "result_type": {
+          "const": "grounds.result.grade.measure/v1"
+        },
+        "gradingId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "runId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "deliveryId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "result": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actualDigest": {
+          "oneOf": [
+            {
+              "$ref": "work-results.schema.json#/$defs/Digest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expectedDigest": {
+          "oneOf": [
+            {
+              "$ref": "work-results.schema.json#/$defs/Digest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "result_type",
+        "gradingId",
+        "runId",
+        "deliveryId",
+        "result",
+        "actualDigest",
+        "expectedDigest"
+      ]
     }
   ],
   "$defs": {

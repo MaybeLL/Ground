@@ -9,7 +9,7 @@ import type { Outcome, WorkApplication } from "../application/index.js";
 
 export const WORK_GROUPS = ["task", "work", "grade", "suite"] as const;
 export const WORK_WRITE_ACTIONS = new Set([
-  "grade:define-rule", "suite:publish", "suite:measure",
+  "grade:measure", "grade:define-rule", "suite:publish", "suite:measure",
   "task:create", "task:revise",
   "work:start", "work:continue", "work:branch", "work:select", "work:close", "work:register", "work:transcript", "work:deliver", "work:repair", "work:stop", "work:cancel",
   "grade:request", "grade:register", "grade:stage", "grade:command", "grade:submit", "grade:stop", "grade:cancel",
@@ -137,6 +137,14 @@ async function work(args: ParsedArgs, action: string, app: WorkApplication, deps
 async function grade(args: ParsedArgs, action: string, app: WorkApplication, deps: WorkEntryDependencies): Promise<object> {
   const grading = need.bind(null, args, "grading");
   switch (action) {
+    case "measure": {
+      const reference = text(args, "reference-path") || text(args, "reference-run") || text(args, "reference-delivery") ? {
+        path: need(args, "reference-path"), runId: need(args, "reference-run"), deliveryId: need(args, "reference-delivery"),
+      } : undefined;
+      return unwrap(await app.suites.measureDirect({ requestId: requestId(args), runId: need(args, "run"), deliveryId: need(args, "delivery"),
+        grader: { definitionId: need(args, "grader"), revisionId: need(args, "grader-revision") }, answerPath: need(args, "answer-path"),
+        ...(reference ? { reference } : {}) }, text(args, "repo") ?? deps.cwd));
+    }
     case "define-rule": {
       const graderId = text(args, "grader");
       return unwrap(await app.rules.publish({ requestId: requestId(args), name: need(args, "name"), operation: need(args, "rule"),
@@ -157,7 +165,7 @@ async function grade(args: ParsedArgs, action: string, app: WorkApplication, dep
     case "cancel": return unwrap(await app.grading.cancel({ requestId: requestId(args), gradingId: grading() }));
     case "show": {
       const record = unwrap(await app.grading.getGrading(grading()));
-      const runId = record.origin.type === "gate" ? record.origin.taskRunId : record.origin.type === "standalone" ? record.origin.historical?.taskRunId : undefined;
+      const runId = record.origin.type === "gate" ? record.origin.taskRunId : record.origin.type === "standalone" ? record.origin.historical?.taskRunId ?? record.origin.direct?.taskRunId : undefined;
       if (!runId) return record;
       const { run } = unwrap(await app.exec.getRun(runId));
       return { ...record, archiveIntegrity: await app.repairs.inspectRun(run, text(args, "repo") ?? deps.cwd) };
@@ -173,6 +181,7 @@ async function grade(args: ParsedArgs, action: string, app: WorkApplication, dep
 }
 
 export const workHelp = (): string => [
+  "grounds grade measure --run RUN --delivery ID --grader ID --grader-revision ID --answer-path PATH [--reference-run RUN --reference-delivery ID --reference-path PATH]",
   "grounds grade define-rule --name NAME --rule equal-file-bytes|file-exists --pass LABEL --fail LABEL [--grader ID --expected-seq N]",
   "grounds suite publish --name NAME --cases-file FILE [--suite ID --expected-seq N] [--repo PATH]",
   "grounds suite show --suite ID --revision N | suite list | suite measure --suite ID --revision N --case KEY [--binding KEY] --run RUN --delivery ID [--repo PATH]",

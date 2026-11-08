@@ -6,7 +6,7 @@ import { protocolStages, type CommandObservation, type ProtocolRecord, type Prot
 export type Purpose = "gate" | "measure";
 export type TargetRef = { readonly type: "candidate" | "artifact" | "trajectory"; readonly id: Id; readonly digest: Digest };
 export type GradingOrigin =
-  | { readonly type: "standalone"; readonly historical?: { readonly taskRunId: Id; readonly suite: RevisionRef; readonly caseKey: Id; readonly bindingKey: Id } }
+  | { readonly type: "standalone"; readonly direct?: { readonly taskRunId: Id; readonly answerPath: string; readonly actualDigest: Digest | null; readonly reference?: { readonly taskRunId: Id; readonly deliveryId: Id; readonly path: string; readonly digest: Digest } }; readonly historical?: { readonly taskRunId: Id; readonly suite: RevisionRef; readonly caseKey: Id; readonly bindingKey: Id } }
   | { readonly type: "gate"; readonly taskRunId: Id }
   | { readonly type: "member"; readonly experimentRunId: Id; readonly caseKey: string; readonly repeatIndex: number; readonly requirementKey: string };
 
@@ -130,6 +130,11 @@ export function createGrading(command: {
   } else {
     if (origin.type === "gate") return invalid("a measure is not run for a task run's acceptance");
     if (command.binding !== undefined) return invalid("only a gate has a binding");
+    if (origin.type === "standalone" && origin.direct) {
+      const direct = origin.direct, reference = direct.reference;
+      if (origin.historical || !isId(direct.taskRunId) || !isText(direct.answerPath) || (direct.actualDigest !== null && !isDigest(direct.actualDigest)) ||
+          (reference && !(isId(reference.taskRunId) && isId(reference.deliveryId) && isText(reference.path) && isDigest(reference.digest)))) return invalid("invalid standalone measurement basis");
+    }
     if (origin.type === "standalone" && origin.historical && !(isId(origin.historical.taskRunId) && isId(origin.historical.caseKey) && isId(origin.historical.bindingKey) && isRevisionRef(origin.historical.suite, "suite"))) return invalid("historical measurement requires an exact suite, case and task run");
     if (origin.type === "member" && !(isId(origin.experimentRunId) && isText(origin.caseKey, 256) && isNonNegativeInteger(origin.repeatIndex) && isText(origin.requirementKey, 256))) return invalid("a member origin names its run, case, repeat and requirement");
   }

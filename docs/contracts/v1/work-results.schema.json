@@ -719,7 +719,15 @@
       "anyOf": [
         {
           "type": "object",
-          "properties": {"type": {"const": "standalone"}, "historical": {
+          "not": {"required":["direct","historical"]},
+          "properties": {"type": {"const": "standalone"}, "direct": {
+            "type":"object","additionalProperties":false,"required":["taskRunId","answerPath","actualDigest"],
+            "properties":{"taskRunId":{"$ref":"#/$defs/Id"},"answerPath":{"type":"string","minLength":1},"actualDigest":{"oneOf":[{"$ref":"#/$defs/Digest"},{"type":"null"}]},
+              "reference":{"type":"object","additionalProperties":false,"required":["taskRunId","deliveryId","path","digest"],"properties":{
+                "taskRunId":{"$ref":"#/$defs/Id"},"deliveryId":{"$ref":"#/$defs/Id"},"path":{"type":"string","minLength":1},"digest":{"$ref":"#/$defs/Digest"}
+              }}
+            }
+          }, "historical": {
             "type": "object", "additionalProperties": false, "required": ["taskRunId","suite","caseKey","bindingKey"],
             "properties":{"bindingKey":{"$ref":"#/$defs/Id"},"taskRunId":{"$ref":"#/$defs/Id"},"suite":{"allOf":[{"$ref":"#/$defs/RevisionRef"},{"properties":{"kind":{"const":"suite"}}}]},"caseKey":{"$ref":"#/$defs/Id"}}
           }},

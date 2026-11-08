@@ -33,7 +33,7 @@ const executionSpec: TableSpec<AgentExecution> = { table: "work_executions", kin
 const gradingSpec: TableSpec<GradingRecord> = {
   table: "work_gradings", kind: "grading record", violations: gradingViolations,
   columns: g => ({
-    purpose: g.purpose, origin_type: g.origin.type, task_run_id: g.origin.type === "gate" ? g.origin.taskRunId : g.origin.type === "standalone" ? g.origin.historical?.taskRunId ?? null : null,
+    purpose: g.purpose, origin_type: g.origin.type, task_run_id: g.origin.type === "gate" ? g.origin.taskRunId : g.origin.type === "standalone" ? g.origin.historical?.taskRunId ?? g.origin.direct?.taskRunId ?? null : null,
     experiment_run_id: g.origin.type === "member" ? g.origin.experimentRunId : null, case_key: g.origin.type === "member" ? g.origin.caseKey : null,
     repeat_index: g.origin.type === "member" ? g.origin.repeatIndex : null, request_seq: g.requestSeq, evaluator_execution_id: g.evaluator?.kind === "agent" ? g.evaluator.executionId : null, status: g.status,
   }),

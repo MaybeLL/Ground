@@ -399,3 +399,27 @@ test("20 historical runs become an immutable suite with traceable private materi
     assert.equal(ok(await h.cli("suite", "list")).suites[0].head.seq, 2);
   });
 });
+
+test("a standalone measure scores a historical candidate against an explicit reference without a suite", async () => {
+  await withHarness(async h => {
+    const task = ok(await h.cli("task", "create", "--title", "fixture", "--criterion", "write answer", "--repo-remote", h.remote, "--baseline", h.baseline));
+    const { runId } = ok(await h.cli("work", "start", "--task", task.taskId, "--mode", "none"));
+    const { delivery } = ok(await h.cli("work", "deliver", "--run", runId, "--repo", h.repo));
+    const rule = ok(await h.cli("grade", "define-rule", "--name", "Output", "--rule", "equal-file-bytes", "--pass", "yes", "--fail", "no"));
+    const args = ["grade", "measure", "--run", runId, "--delivery", delivery.id, "--grader", rule.graderId, "--grader-revision", rule.revisionId, "--answer-path", "app.txt"];
+    assert.equal((await h.cli(...args)).ok, false);
+    args.push("--reference-run", runId, "--reference-delivery", delivery.id, "--reference-path", "app.txt");
+    const op = newUUIDv7();
+    const score = ok(await h.cli(...args, "--operation-id", op));
+    assert.equal(score.result, "yes");
+    assert.equal(score.actualDigest, score.expectedDigest);
+    const saved = ok(await h.cli("grade", "show", "--grading", score.gradingId));
+    assert.equal(saved.origin.direct.reference.deliveryId, delivery.id);
+    assert.equal(saved.origin.direct.reference.digest, score.expectedDigest);
+    assert.equal(saved.origin.direct.actualDigest, score.actualDigest);
+    assert.deepEqual(ok(await h.cli("suite", "list")).suites, []);
+    rmSync(h.remote, { recursive: true, force: true });
+    assert.deepEqual(ok(await h.cli(...args, "--operation-id", op)), score);
+    assert.equal((await h.cli(...args)).ok, false);
+  });
+});
