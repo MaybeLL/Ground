@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { RuntimeOwner } from "../../ports/index.js";
 import { GitTagArchive } from "../git/tag-archive.js";
@@ -34,11 +34,12 @@ export class EvaluatorWorkspaces {
         if ("sha256:" + createHash("sha256").update(bytes).digest("hex") !== material.digest) throw new Error("private grading material digest changed");
         const path = join(stage,material.path);
         await mkdir(dirname(path), {recursive:true});
-        await writeFile(path,bytes,{mode:material.executable ? 0o555 : 0o444,flag:"wx"});
+        for (let dir = dirname(path); dir !== stage; dir = dirname(dir)) await chmod(dir,0o755);
+        await writeFile(path,bytes,{flag:"wx"});
+        await chmod(path,material.executable ? 0o555 : 0o444);
       }
       // The sandbox's private parent is only traversable by its host owner.
       // The mount itself must also be traversable by its container remoteUser.
-      const {chmod} = await import("node:fs/promises");
       await chmod(stage,0o755);
       try { await rename(stage,dest); }
       catch (error) {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
@@ -71,12 +71,18 @@ test("evaluator runs frozen hidden tests against its own target checkout with a 
     git(remote,"update-ref","-d","refs/tags/grounds/deliveries/target");
     assert.equal((await archive.inspect(checkout,{id:"target",receipt:archived.receipt})).status,"ref-changed");
     const adapter = new EvaluatorWorkspaces(new ManagedWorkspaces(shared),archive);
-    const workspace = await adapter.prepare(owner,{commit,archiveId:"target",receipt:archived.receipt,repository:checkout},{
+    const priorMask = process.umask(0o077);
+    let workspace;
+    try {
+      workspace = await adapter.prepare(owner,{commit,archiveId:"target",receipt:archived.receipt,repository:checkout},{
       imageDigest:image.split("@")[1]!,config:JSON.stringify({image,workspaceFolder:"/work"}),lockfile:null,
-    },[{path:"check.sh", digest:"sha256:"+createHash("sha256").update(bytes).digest("hex"), base64:bytes.toString("base64")}]);
+    },[{path:"private/check.sh", executable:true, digest:"sha256:"+createHash("sha256").update(bytes).digest("hex"), base64:bytes.toString("base64")}]);
+    } finally { process.umask(priorMask); }
+    assert.equal((await stat(join(workspace.graderMaterials,"private"))).mode & 0o777,0o755);
+    assert.equal((await stat(join(workspace.graderMaterials,"private","check.sh"))).mode & 0o777,0o555);
     const instance = await runtime.up(owner,workspace);
     const result = await runtime.execute(owner, instance.id, workspace, ["sh","-c",
-      "cd /work && sh /grounds-grader/check.sh && ! (echo tamper >> /grounds-grader/check.sh)"]);
+      "cd /work && sh /grounds-grader/private/check.sh && ! (echo tamper >> /grounds-grader/private/check.sh)"]);
     assert.equal(result.exitCode,0);
     assert.equal(await readFile(join(checkout,"result"),"utf8"),"different");
   } finally {

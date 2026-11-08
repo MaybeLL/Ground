@@ -53,7 +53,18 @@ export class TestGradingDriver {
     if (!sandbox.runtime) {
       const setup = await launcher.status(owner);
       if (setup === "not-started") {
-        if (!live) return succeed({state:"awaiting-resume",detail:"evaluator setup has not started",providerStopped:launcher.dispatched?.(owner) === false});
+        if (!live) {
+          if (launcher.dispatched?.(owner) === false) return succeed({state:"awaiting-resume",detail:"evaluator setup has not started",providerStopped:true});
+          // Fence a helper that may have been spawned just before the host
+          // died. It must acquire this same lock before creating a container.
+          try {
+            if (await launcher.cancelPending(owner)) {
+              const ended = await tests.fault(id,"evaluator setup dispatch was interrupted");
+              return ended.ok ? this.drive(id,false) : ended;
+            }
+          } catch { /* The live helper owns the launch lock. */ }
+          return succeed({state:"running",detail:"reconciling evaluator setup dispatch"});
+        }
         let workspace;
         try { workspace = await process.prepare(owner,plan,environment,materials); }
         catch { return succeed({state:"blocked",detail:"frozen evaluator workspace or target could not be prepared",providerStopped:true}); }
@@ -91,7 +102,7 @@ export class TestGradingDriver {
       return fail("conflict","evaluator command no longer owns its sandbox");
     }
     const result = await process.command({owner,location,containerId:sandbox.runtime.instanceId},ordinal,token,grader.commands[ordinal]!,live,!!grading.cancelIntent);
-    if (result.state === "running" || result.state === "awaiting-resume") return succeed({state:result.state});
+    if (result.state === "running" || result.state === "awaiting-resume") return succeed(result);
     if (result.state !== "stopped") return fail("unavailable","test command stop is unconfirmed");
     const output = await process.output(owner,ordinal,token);
     const ended = await tests.stopped(id,ordinal,token,result.exitCode,output);

@@ -79,7 +79,7 @@ export async function executeWorkCommand(args: ParsedArgs, deps: WorkEntryDepend
 }
 
 async function suite(args: ParsedArgs, action: string, app: WorkApplication, deps: WorkEntryDependencies): Promise<object> {
-  const repo = text(args, "repo") ?? deps.cwd;
+  const repo = resolve(deps.cwd, text(args,"repo") ?? ".");
   switch (action) {
     case "publish": {
       const path = need(args, "cases-file");
@@ -253,6 +253,7 @@ async function grade(args: ParsedArgs, action: string, app: WorkApplication, dep
 
 export const workHelp = (): string => [
   "grounds grade measure --run RUN --delivery ID --grader ID --grader-revision ID --answer-path PATH [--reference-run RUN --reference-delivery ID --reference-path PATH]",
+  "grounds grade test-status|resume-test --grading ID | grade test-output --grading ID --step N --stream stdout|stderr --chunk N",
   "grounds grade define-test --name NAME --commands FILE --environment ID --environment-revision REV --pass LABEL --fail LABEL",
   "grounds grade define-rule --name NAME --rule equal-file-bytes|file-exists --pass LABEL --fail LABEL [--grader ID --expected-seq N]",
   "grounds suite publish --name NAME --cases-file FILE [--suite ID --expected-seq N] [--repo PATH]",

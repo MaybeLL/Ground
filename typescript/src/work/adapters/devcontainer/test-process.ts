@@ -36,8 +36,11 @@ export class ContainerTestProcess implements TestProcessPort {
     };
     if (cancel || !observed) return stop();
     if (!existsSync(handlePath)) {
-      if (!allowStart) return {state:"awaiting-resume"};
       if (existsSync(join(root,"create-attempt"))) return stop();
+      if (!allowStart) {
+        if (observed.state !== "stopped") await this.runtime.stop(owner,containerId);
+        return {state:"awaiting-resume",providerStopped:true};
+      }
       if (observed.state !== "running") await this.runtime.resume(owner,containerId);
       const config = JSON.parse(safeRead(join(parent,"prepared",".devcontainer","effective","devcontainer.json"),1024*1024).toString());
       const effective = await this.runtime.evaluatorEnvironment(owner,containerId,join(parent,"prepared","workspace"),
@@ -64,7 +67,18 @@ export class ContainerTestProcess implements TestProcessPort {
         throw error;
       }
     }
-    if (!allowStart) return {state:"awaiting-resume"};
+    if (!allowStart) {
+      try {
+        return await withRuntimeLock<StepRead>(root,"bridge",async () => {
+          // A delayed collector must see the fence before touching Engine.
+          atomicPrivateWrite(join(root,"start-attempt"),handle);
+          return stop(bridgeResult(root)?.exitCode);
+        });
+      } catch (error) {
+        if (String(error).includes("another local controller")) return {state:"running"};
+        throw error;
+      }
+    }
     await spawnProviderBridge(root,{target,handle,prompt:"",boundedTestOutput:true});
     return {state:"running"};
   }

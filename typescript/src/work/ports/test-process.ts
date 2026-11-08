@@ -1,7 +1,7 @@
 import type { EvidenceSource } from "./evidence.js";
 import type { RuntimeLocation, RuntimeOwner, RuntimeWorkspace } from "./sandbox-runtime.js";
 export type EvaluatorTarget = {owner:RuntimeOwner;location:RuntimeLocation;containerId:string};
-export type StepRead = {state:"running" | "awaiting-resume"} | {state:"stopped";exitCode?:number};
+export type StepRead = {state:"running" | "awaiting-resume";providerStopped?:boolean} | {state:"stopped";exitCode?:number};
 export type TestStreams = Partial<Record<"stdout"|"stderr",{source:EvidenceSource;observedBytes?:number}>>;
 export interface TestProcessPort {
   prepare(owner:RuntimeOwner,target:{commit:string;archiveId:string;receipt:string;repository:string},environment:{config:string;lockfile:string|null;imageDigest:string},

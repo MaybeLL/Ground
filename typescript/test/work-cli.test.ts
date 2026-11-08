@@ -912,11 +912,16 @@ test("test grading runs ordered commands in its own sandbox and releases the pri
     writeFileSync(cases, JSON.stringify([{key:"example",...target,bindings:[{key:"tests",grader:{definitionId:grader.graderId,revisionId:grader.revisionId},
       hiddenTestPaths:["check.sh"],materialSource:curator}]}]));
     const suite = ok(await h.cli("suite","publish","--name","private suite","--cases-file",cases));
-    const args = ["suite","measure","--suite",suite.suiteId,"--revision","1","--case","example","--run",target.runId,"--delivery",target.deliveryId,"--operation-id",newUUIDv7()];
+    const args = ["suite","measure","--suite",suite.suiteId,"--revision","1","--case","example","--run",target.runId,"--delivery",target.deliveryId,"--repo",".","--operation-id",newUUIDv7()];
     const ledger = ok(await h.cli("db","status")).database_id;
     try {
       const admitted = ok(await h.cli(...args));
       assert.deepEqual(ok(await h.cli(...args)),admitted);
+      const db = new DatabaseSync(join(h.directory,"ledger.db"));
+      try {
+        const row = db.prepare("SELECT body_json FROM work_intents WHERE kind='run-test-grader' AND subject_id=?").get(admitted.gradingId);
+        assert.equal(JSON.parse(String(row?.body_json)).payload.repository,h.repo);
+      } finally { db.close(); }
       const deadline = Date.now() + 90_000;
       let status;
       do {
@@ -937,6 +942,52 @@ test("test grading runs ordered commands in its own sandbox and releases the pri
       assert.equal(docker("ps","-aq","--filter","label=dev.grounds.ledger="+ledger),"");
       assert.equal(existsSync(join(dataLayout().workspaces,"sandboxes",ledger,record.sandboxId)),false);
       assert.equal(ok(await h.cli("work","run","--run",target.runId)).run.status,"delivered");
+      // Recreate two crash boundaries without launching a background host.
+      const opened = await openStore(join(h.directory,"config.yaml"));
+      try {
+        const {composeWork} = await import("../src/work/composition.js");
+        const {DevcontainerRuntime} = await import("../src/work/adapters/devcontainer/runtime.js");
+        const {ManagedWorkspaces} = await import("../src/work/adapters/devcontainer/workspace.js");
+        const {EvaluatorWorkspaces} = await import("../src/work/adapters/devcontainer/evaluator-workspace.js");
+        const {DurableSandboxLauncher} = await import("../src/work/adapters/devcontainer/launch.js");
+        const {GitTagArchive} = await import("../src/work/adapters/git/tag-archive.js");
+        const app = composeWork(opened.store), runtime = new DevcontainerRuntime(), files = new ManagedWorkspaces();
+        for (const boundary of ["saved-plan", "reserved-command"]) {
+          const fresh = await app.suites.measure({requestId:newUUIDv7(),suiteId:suite.suiteId,seq:1,caseKey:"example",...target},h.repo);
+          assert.ok(fresh.ok);
+          const id = fresh.value.gradingId, location = await runtime.location();
+          const allocation = await app.tests.allocate(id,location);
+          assert.ok(allocation.ok);
+          const owner = {ledgerId:ledger,sandboxId:allocation.value.sandboxId,setupAttempt:id};
+          if (boundary === "saved-plan") {
+            writeFileSync(join(files.setupRoot(owner),"launch.json"),"{}",{mode:0o600});
+            const stopped = await app.testDriver.drive(id,false);
+            assert.ok(stopped.ok && stopped.value.state === "terminal" && stopped.value.providerStopped);
+            assert.equal(ok(await h.cli("grade","show","--grading",id)).status,"grader_fault");
+          } else {
+            const ctx = await app.tests.context(id);
+            assert.ok(ctx.ok);
+            const {plan,environment,materials} = ctx.value;
+            const ws = await new EvaluatorWorkspaces(files,new GitTagArchive()).prepare(owner,plan,environment,materials);
+            await new DurableSandboxLauncher(files).start(owner,ws,location);
+            const instance = await files.receipt(owner);
+            assert.ok(instance);
+            assert.ok((await app.tests.ready(id,instance)).ok && (await app.tests.beginStep(id,0)).ok);
+            const awaiting = await app.testDriver.drive(id,false);
+            assert.ok(awaiting.ok && awaiting.value.state === "awaiting-resume" && awaiting.value.providerStopped);
+            assert.equal((await runtime.observe(owner))?.state,"stopped");
+            ok(await h.cli("grade","cancel","--grading",id));
+            const deadline = Date.now() + 30_000;
+            do {
+              status = ok(await h.cli("grade","test-status","--grading",id));
+              if (status.host?.state === "terminal") break;
+              await new Promise(resolve=>setTimeout(resolve,200));
+            } while (Date.now() < deadline);
+            assert.equal(status.status,"cancelled");
+            assert.equal(status.sandboxPhase,"released");
+          }
+        }
+      } finally { await opened.store.close(); }
       writeFileSync(commands, JSON.stringify([["sh","-c","touch /tmp/grader-command-ready && exec sleep 180"]]));
       const slow = ok(await h.cli("grade","define-test","--name","interruptible check","--commands",commands,
         "--environment",env.environmentId,"--environment-revision",env.revisionId,"--pass","yes","--fail","no"));
