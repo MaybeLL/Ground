@@ -2156,9 +2156,22 @@ test("managed evaluator runs the built-in gate blind before reading the author's
     writeFileSync(transcript,bytes);
     writeFileSync(join(h.directory,"report"),"public result");
     const controllers:{gradingId:string;operationId:string}[]=[];
+    const realDocker=execFileSync("which",["docker"],{encoding:"utf8"}).trim(),bin=join(h.directory,"docker-bin");
+    mkdirSync(bin);
+    writeFileSync(join(bin,"real-docker"),realDocker);
+    writeFileSync(join(bin,"docker"),readFileSync(new URL("fixtures/gate-resume-docker.cjs",import.meta.url)),{mode:0o755});
+    const priorPath=process.env.PATH;
+    const fixtureKeys=["GROUNDS_FIXTURE_GATE","GROUNDS_FIXTURE_STAMP","GROUNDS_FIXTURE_PHASE"];
+    const previous=Object.fromEntries(fixtureKeys.map(key=>[key,process.env[key]]));
+    const resetDocker=()=>{
+      process.env.PATH=priorPath;
+      for (const [key,value] of Object.entries(previous)) {
+        if (value===undefined) delete process.env[key];else process.env[key]=value;
+      }
+    };
     let failure:unknown;
     try {
-    for (const title of ["independent review","alter findings","pinned code","dangling link","cancel blind"]) {
+    for (const title of ["independent review","alter findings","pinned code","dangling link","cancel blind","before reveal resume","after reveal resume"]) {
       const coding=title==="pinned code" || title==="dangling link";
       const agent=judges[coding ? 1 : 0];
       const working=ok(await h.cli("task","create","--title",title,"--criterion","complete","--criterion","correct",
@@ -2179,6 +2192,9 @@ test("managed evaluator runs the built-in gate blind before reading the author's
         writeFileSync(join(h.repo,"report"),"later change");
       } else ok(await h.cli("work","submit-artifacts","--run",runId,"--session",sessionId,...ids.flatMap(id=>["--artifact",id])));
       const {gradingId}=ok(await h.cli("grade","request","--run",runId));
+      const reveal=title.endsWith("reveal resume"),stamp=join(h.directory,"interrupted-"+gradingId);
+      if (reveal) Object.assign(process.env,{PATH:bin+":"+priorPath,
+        GROUNDS_FIXTURE_GATE:gradingId,GROUNDS_FIXTURE_STAMP:stamp,GROUNDS_FIXTURE_PHASE:title.split(" ")[0]});
       const args=["grade","start-managed","--grading",gradingId,"--agent",agent.agentId,"--agent-revision",agent.revisionId,"--environment",env.environmentId,"--environment-revision",env.revisionId,"--operation-id",newUUIDv7()];
       const lockFreeze=title==="independent review";
       const sql=(statement:string)=>{
@@ -2208,6 +2224,16 @@ test("managed evaluator runs the built-in gate blind before reading the author's
       const deadline=Date.now()+65000;
       do {
         status=ok(await h.cli("grade","evaluator-status","--grading",gradingId));
+        if (reveal && !interrupted && existsSync(stamp) && status.host?.state==="awaiting-resume") {
+          assert.deepEqual(status.protocol.map((p:{stage:string})=>p.stage),["blind","freeze","reconcile"]);
+          const g=ok(await h.cli("grade","show","--grading",gradingId)),ledger=ok(await h.cli("db","status")).database_id;
+          const evidence=join(dataLayout().workspaces,"sandboxes",ledger,g.sandboxId,"evaluator-materials","author","index.json");
+          assert.equal(JSON.parse(readFileSync(evidence,"utf8")).manifest.items.length,2);
+          assert.equal(existsSync(stamp+".starts"),title.startsWith("after"));
+          interrupted=true;
+          const operationId=newUUIDv7();controllers.push({gradingId,operationId});
+          ok(await h.cli("grade","resume-evaluator","--grading",gradingId,"--operation-id",operationId));
+        }
         if (status.host?.state==="blocked" && lockFreeze && !interrupted) {
           assert.deepEqual(status.protocol.map((p:{stage:string})=>p.stage),["blind"]);
           assert.equal((await h.cli("grade","evaluator-evidence","--grading",gradingId,"--stream","blind-output","--chunk","0")).ok,false);
@@ -2222,7 +2248,11 @@ test("managed evaluator runs the built-in gate blind before reading the author's
         if (status.sandboxPhase==="released") break;
         await new Promise(resolve=>setTimeout(resolve,250));
       } while (Date.now()<deadline);
-      if (lockFreeze) assert.equal(interrupted,true);
+      if (lockFreeze || reveal) assert.equal(interrupted,true,JSON.stringify({title,status,stamp:existsSync(stamp)}));
+      if (reveal) {
+        assert.equal(readFileSync(stamp+".starts","utf8").trim().split("\n").length,1);
+        resetDocker();
+      }
       assert.equal(status?.sandboxPhase,"released",JSON.stringify(status));
       if (title==="cancel blind") {
         assert.equal(status.status,"cancelled");
@@ -2252,6 +2282,7 @@ test("managed evaluator runs the built-in gate blind before reading the author's
       assert.equal(ok(await h.cli("work","run","--run",runId)).acceptance,title==="alter findings" ? "pending" : "accepted");
     }
     } catch (error) {failure=error;throw error;} finally {
+      resetDocker();
       // The cancelling or resuming controller may still be queued behind the
       // controller that recorded release. Keep its test ledger until both exit.
       const {managedRequestRunning,queueRoot}=await import("../src/managed-host-client.js");
