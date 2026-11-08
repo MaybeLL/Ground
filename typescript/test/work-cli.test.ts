@@ -32,7 +32,7 @@ async function withHarness(run: (h: Harness) => Promise<void>, objectFormat: "sh
         const lines: string[] = [], errors: string[] = [];
         const code = await runCLI([...args, "--json", "--config", config, "--cwd", repo], { stdout: l => lines.push(l), stderr: l => errors.push(l) });
         const envelope = JSON.parse(lines[lines.length - 1]!);
-        if (envelope.ok) assertContract("cli-envelope.schema.json", envelope);
+        assertContract("cli-envelope.schema.json", envelope);
         return { code, ok: envelope.ok, data: envelope.data, error: envelope.error, stderr: errors };
       };
       await run({ cli, repo, remote, directory, baseline });

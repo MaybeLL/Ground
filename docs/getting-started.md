@@ -29,14 +29,15 @@ grounds help --json
 
 SQLite is available for a local ledger. MySQL and PostgreSQL provide networked ledger options; CI includes TLS database conformance checks for both alongside SQLite. Use the run results for the exact commit to determine which checks passed.
 
-Run `grounds init --help` before configuring a database. `grounds init` validates the selected SQL connection and pins the database identity before writing canonical local configuration. An empty database requires explicit initialization authorization; an existing database may require a separately authorized schema migration. See the [configuration contract](contracts/v1/README.md#local-config) for credential sources and safety rules.
+Run `grounds init --help` before configuring a database. `grounds init` validates the selected SQL connection and pins the database identity before writing canonical local configuration. An empty database requires explicit initialization authorization; an existing ledger must have the current work protocol and schema. See the [configuration contract](contracts/v1/README.md#local-config) for credential sources and safety rules.
 
-The development refactor does not provide brand or data-directory migration (`migrate patchledger` / `migrate data`); historical directories are ignored and never moved or deleted automatically. Use a fresh configuration and data root for this refactor. Old business tables and SQL schema migration remain temporarily while the model cutover is completed; see the [retirement boundary](architecture.md#retirement-boundary-p1d-in-progress).
+The development refactor does not provide brand or data-directory migration (`migrate patchledger` / `migrate data`); historical directories are ignored and never moved or deleted automatically. Use a fresh configuration and data root for this refactor. Old business tables and SQL schema migration remain temporarily while the model cutover is completed; see the [retirement boundary](architecture.md#legacy-retirement).
 
 Keep credentials outside the repository. Do not reuse production credentials for development or CI. A GitHub checkout and a SQL ledger are separate resources: copying code is not a database migration.
 
 ## Start a workflow
 
-Use `grounds help --json` for the installed command surface and the [workflow skill](../plugins/grounds/skills/grounds/SKILL.md) for the supported requirement → candidate → independent verification → delivery workflow. The [contracts](contracts/v1/README.md) define structured inputs and outputs. For GitHub repositories, follow [GitHub archive onboarding](../plugins/grounds/skills/grounds/references/github-archive-onboarding.md) to configure authentication, immutable tag rules, and the ledger binding. Candidate submission also checks archive protection on the target host; a repository plan without those protections cannot satisfy that requirement.
 
 The legacy TUI has been retired from this source tree. Use `grounds help --json` and the development skill; a new work-model TUI is not implemented.
+
+Use the [development skill](../plugins/grounds/skills/grounds/SKILL.md) to publish a task, deliver a Git commit and request an independent gate.

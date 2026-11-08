@@ -38,7 +38,6 @@ static napi_value peer_uid(napi_env env, napi_callback_info info) {
   return value;
 }
 
-napi_status register_safe_tree(napi_env env, napi_value exports);
 napi_status register_host_process(napi_env env, napi_value exports);
 
 
@@ -48,7 +47,6 @@ static napi_value init(napi_env env, napi_value exports) {
                            &function) != napi_ok ||
       napi_set_named_property(env, exports, "peerUid", function) != napi_ok)
     return NULL;
-  if (register_safe_tree(env, exports) != napi_ok) return NULL;
   if (register_host_process(env, exports) != napi_ok) return NULL;
   return exports;
 }

@@ -181,17 +181,17 @@ class SqlIntents extends SqlRepository<IntentRecord> implements IntentRepository
   }
 }
 
+export function decodeCompletionEvent(row: Record<string, unknown>): CompletionEvent {
+  const subject = textOf(row.id);
+  const body = textOf(row.body_json);
+  let event: CompletionEvent;
+  try { event = JSON.parse(body) as CompletionEvent; } catch { throw new StorageFailure("integrity", `stored completion event ${subject} is damaged: its body is not valid JSON`, subject); }
+  if (canonicalBody(event) !== body || digestText(body) !== textOf(row.record_digest) || event.id !== subject) throw new StorageFailure("integrity", `stored completion event ${subject} is damaged`, subject);
+  return row.delivered_at === null || row.delivered_at === undefined ? event : { ...event, deliveredAt: textOf(row.delivered_at) };
+}
+
 class SqlEvents implements CompletionEventRepository {
   constructor(private readonly client: SQLClient, private readonly writable: boolean) {}
-
-  private decode(row: Record<string, unknown>): CompletionEvent {
-    const subject = textOf(row.id);
-    const body = textOf(row.body_json);
-    let event: CompletionEvent;
-    try { event = JSON.parse(body) as CompletionEvent; } catch { throw new StorageFailure("integrity", `stored completion event ${subject} is damaged: its body is not valid JSON`, subject); }
-    if (canonicalBody(event) !== body || digestText(body) !== textOf(row.record_digest) || event.id !== subject) throw new StorageFailure("integrity", `stored completion event ${subject} is damaged`, subject);
-    return row.delivered_at === null || row.delivered_at === undefined ? event : { ...event, deliveredAt: textOf(row.delivered_at) };
-  }
 
   async append(event: CompletionEvent): Promise<{ created: boolean }> {
     if (!this.writable) throw new StorageFailure("read-only", "completion events cannot be appended in a read unit");
@@ -211,7 +211,7 @@ class SqlEvents implements CompletionEventRepository {
 
   async listUndelivered(limit: number): Promise<CompletionEvent[]> {
     const rows = await this.client.all<Record<string, unknown>>(`SELECT * FROM work_completion_events WHERE delivered_at IS NULL ORDER BY seq LIMIT ${Math.max(0, Math.floor(limit))}`);
-    return rows.map(row => this.decode(row));
+    return rows.map(decodeCompletionEvent);
   }
 
   async markDelivered(id: Id, at: string): Promise<void> {

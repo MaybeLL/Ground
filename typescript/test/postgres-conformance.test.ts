@@ -1,3 +1,4 @@
+import { isolateStatement } from "../src/sql-shared.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -6,43 +7,13 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { runCLI } from "../src/cli.js";
-import { SCHEMA_VERSION, SQLStore, postgresMigrationLockKey } from "../src/sql-store.js";
+import { SQLStore, postgresMigrationLockKey } from "../src/sql-store.js";
 import { DomainError } from "../src/errors.js";
 import { isDuplicateKeyError, isMissingTableError } from "../src/sql-shared.js";
 import { newUUIDv7 } from "../src/identity.js";
-import { testAgent, LedgerFixture } from "./fixture.js";
 import { isolatedPostgres, postgresEnabled, postgresTarget, rawConnection } from "./isolated-postgres.js";
 
 const skip = postgresEnabled ? false : "GROUNDS_TEST_PG_* is not configured; PostgreSQL is NOT verified by this run";
-
-test("postgres: the full development chain runs through the shared module", { skip }, async () => {
-  const pg = await isolatedPostgres();
-  try {
-    const fixture = await LedgerFixture.createWithStore(pg.store, async () => undefined);
-    const submitted = await fixture.submitCandidate("pg-chain");
-    const descriptor = await fixture.module.candidateArtifactDescriptor(submitted.candidate.candidate_id);
-    assert.equal(descriptor.patch_digest, submitted.candidate.patch_digest);
-    const metadata = await pg.store.inspect();
-    assert.equal(metadata.schema_version, SCHEMA_VERSION);
-    const { report } = await pg.store.inspectIntegrity();
-    assert.equal(report.valid, true, JSON.stringify(report.issues));
-  } finally { await pg.cleanup(); }
-});
-
-test("postgres: migrating a current database writes nothing and keeps its identity", { skip }, async () => {
-  const pg = await isolatedPostgres();
-  try {
-    const initialized = await pg.store.initialize("require_override");
-    const raw = await pg.raw();
-    const rowsBefore = (await raw.query("SELECT (SELECT count(*) FROM schema_migrations) AS migrations, (SELECT count(*) FROM schema_metadata) AS metadata")).rows[0];
-    const after = await pg.store.migrate();
-    const rowsAfter = (await raw.query("SELECT (SELECT count(*) FROM schema_migrations) AS migrations, (SELECT count(*) FROM schema_metadata) AS metadata")).rows[0];
-    await raw.end();
-    assert.equal(after.database_id, initialized.metadata.database_id);
-    assert.equal(after.migration_state, "clean");
-    assert.deepEqual(rowsAfter, rowsBefore);
-  } finally { await pg.cleanup(); }
-});
 
 test("postgres: TLS identity verification is enforced", { skip }, async () => {
   const target = postgresTarget();
@@ -63,13 +34,13 @@ test("postgres: TLS identity verification is enforced", { skip }, async () => {
 test("postgres: a read transaction sees one snapshot while writers commit", { skip }, async () => {
   const pg = await isolatedPostgres();
   try {
-    await LedgerFixture.createWithStore(pg.store, async () => undefined);
+    await pg.store.initialize("warn");
     const reader = await pg.raw();
     const writer = await pg.raw();
-    const count = async (client: typeof reader): Promise<number> => Number((await client.query("SELECT count(*) AS n FROM requirements")).rows[0].n);
+    const count = async (client: typeof reader): Promise<number> => Number((await client.query("SELECT count(*) AS n FROM work_counters")).rows[0].n);
     const insert = async (): Promise<void> => {
-      const id = newUUIDv7();
-      await writer.query("INSERT INTO requirements (id, created_at, attribution_json) VALUES ($1, $2, $3)", [id, "2026-10-14T00:00:00.000Z", JSON.stringify(testAgent)]);
+      const id = newUUIDv7().replaceAll("-", "");
+      await writer.query("INSERT INTO work_counters (name, value) VALUES ($1, $2)", [id, 1]);
     };
     // Control: PostgreSQL's default isolation shows the concurrent commit mid-transaction,
     // which is exactly the page-skipping hazard the dialect must avoid.
@@ -97,43 +68,6 @@ test("postgres: a read transaction sees one snapshot while writers commit", { sk
   } finally { await pg.cleanup(); }
 });
 
-test("postgres: an integrity scan over more than one page stays valid under concurrent writes", { skip }, async () => {
-  const pg = await isolatedPostgres();
-  try {
-    const fixture = await LedgerFixture.createWithStore(pg.store, async () => undefined);
-    const raw = await pg.raw();
-    const attribution = JSON.stringify(testAgent);
-    // Cross the 1,000-row page boundary of the scan with orphan-free requirements.
-    for (let index = 0; index < 1100; index += 1) {
-      const id = newUUIDv7();
-      const revision = newUUIDv7();
-      await raw.query("INSERT INTO requirements (id, created_at, attribution_json) VALUES ($1, $2, $3)", [id, "2026-10-14T00:00:00.000Z", attribution]);
-      await raw.query("INSERT INTO requirement_revisions (id, requirement_id, revision_number, summary, created_at, attribution_json) VALUES ($1, $2, 1, $3, $4, $5)", [revision, id, `r${index}`, "2026-10-14T00:00:00.000Z", attribution]);
-      await raw.query("INSERT INTO requirement_outcomes (requirement_revision_id, ordinal, statement) VALUES ($1, 0, 'o')", [revision]);
-    }
-    const scan = pg.store.inspectIntegrity();
-    // Concurrent writers commit whole aggregates atomically, as real writers do, so any
-    // snapshot sees each one completely or not at all.
-    const noise = (async () => {
-      const writer = await pg.raw();
-      for (let index = 0; index < 50; index += 1) {
-        const id = newUUIDv7();
-        const revision = newUUIDv7();
-        await writer.query("BEGIN");
-        await writer.query("INSERT INTO requirements (id, created_at, attribution_json) VALUES ($1, $2, $3)", [id, "2026-10-14T00:00:00.000Z", attribution]);
-        await writer.query("INSERT INTO requirement_revisions (id, requirement_id, revision_number, summary, created_at, attribution_json) VALUES ($1, $2, 1, $3, $4, $5)", [revision, id, `n${index}`, "2026-10-14T00:00:00.000Z", attribution]);
-        await writer.query("INSERT INTO requirement_outcomes (requirement_revision_id, ordinal, statement) VALUES ($1, 0, 'o')", [revision]);
-        await writer.query("COMMIT");
-      }
-      await writer.end();
-    })();
-    const [{ report }] = await Promise.all([scan, noise]);
-    assert.equal(report.valid, true, JSON.stringify(report.issues.slice(0, 3)));
-    await raw.end();
-    void fixture;
-  } finally { await pg.cleanup(); }
-});
-
 test("postgres: a lock wait is bounded and surfaces as a retryable storage error", { skip }, async () => {
   const pg = await isolatedPostgres({ lockWaitTimeoutMs: 300, retryAttempts: 1 });
   try {
@@ -142,12 +76,12 @@ test("postgres: a lock wait is bounded and surfaces as a retryable storage error
     await holder.query("BEGIN");
     await holder.query("SELECT * FROM schema_metadata WHERE singleton = 1 FOR UPDATE");
     const started = Date.now();
-    await assert.rejects(pg.store.write(async () => "never"), (error) => error instanceof DomainError && error.code === "STORAGE_TRANSIENT" && error.retryable === true);
+    await assert.rejects(pg.store.transaction(true, async () => "never"), (error) => error instanceof DomainError && error.code === "STORAGE_TRANSIENT" && error.retryable === true);
     const elapsed = Date.now() - started;
     assert.ok(elapsed < 5000, `the wait must be bounded by lock_timeout, took ${elapsed}ms`);
     await holder.query("ROLLBACK");
     await holder.end();
-    assert.equal(await pg.store.write(async () => "recovered"), "recovered", "the store must work once the lock is released");
+    assert.equal(await pg.store.transaction(true, async () => "recovered"), "recovered", "the store must work once the lock is released");
   } finally { await pg.cleanup(); }
 });
 
@@ -158,12 +92,12 @@ const holdMigrationLock = async (pg: Awaited<ReturnType<typeof isolatedPostgres>
   return { release: async () => { await holder.query("SELECT pg_advisory_unlock($1::bigint)", [key]); await holder.end(); } };
 };
 
-test("postgres: another holder of the migration lock makes initialize and migrate fail fast and retryable", { skip }, async () => {
+test("postgres: another holder of the migration lock makes initialize fail fast and retryable", { skip }, async () => {
   // The default retry budget is kept on purpose: the wait is one bound, not one bound per retry.
   const pg = await isolatedPostgres({ lockWaitTimeoutMs: 500 });
   try {
     const held = await holdMigrationLock(pg);
-    for (const [name, call] of [["initialize", () => pg.store.initialize("warn")], ["migrate", () => pg.store.migrate()]] as const) {
+    for (const [name, call] of [["initialize", () => pg.store.initialize("warn")]] as const) {
       const started = Date.now();
       await assert.rejects(call(), (error) => error instanceof DomainError && error.code === "STORAGE_TRANSIENT" && error.retryable === true, name);
       const elapsed = Date.now() - started;
@@ -172,7 +106,7 @@ test("postgres: another holder of the migration lock makes initialize and migrat
     await held.release();
     const initialized = await pg.store.initialize("warn");
     assert.equal(initialized.action, "initialized", "once the holder lets go the lifecycle call proceeds");
-    assert.equal((await pg.store.migrate()).migration_state, "clean");
+    assert.equal((await pg.store.open()).migration_state, "clean");
   } finally { await pg.cleanup(); }
 });
 
@@ -180,14 +114,14 @@ test("postgres: the store keeps working after the server terminates its idle con
   const pg = await isolatedPostgres();
   try {
     await pg.store.initialize("warn");
-    assert.equal(await pg.store.write(async () => "before"), "before");
-    assert.ok((await pg.store.read(async () => 1)) === 1);
+    assert.equal(await pg.store.transaction(true, async () => "before"), "before");
+    assert.ok((await pg.store.transaction(false, async () => 1)) === 1);
     const admin = await rawConnection(process.env.GROUNDS_TEST_PG_DATABASE ?? "postgres");
     try { await admin.query("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()", [pg.database]); }
     finally { await admin.end(); }
     // An idle pooled connection that the server closes is reported on the pool, not on a query.
     await new Promise((resolve) => setTimeout(resolve, 1500));
-    assert.equal(await pg.store.write(async () => "after"), "after");
+    assert.equal(await pg.store.transaction(true, async () => "after"), "after");
   } finally { await pg.cleanup(); }
 });
 
@@ -211,23 +145,23 @@ test("postgres: a failed statement aborts the transaction unless the caller isol
   const pg = await isolatedPostgres();
   try {
     await pg.store.initialize("warn");
-    const duplicate = "INSERT INTO schema_migrations (schema_version, applied_at) VALUES (?, ?)";
-    const args = [SCHEMA_VERSION, "2026-01-01T00:00:00.000Z"];
+    const duplicate = "INSERT INTO work_counters (name, value) VALUES (?, ?)";
+    const args = ["test", 1];
+    await pg.store.transaction(true, client => client.run(duplicate, args));
     // The engine behaviour the dialect declares with errorAbortsTransaction: without isolation the
     // statement after a handled error is refused.
     const raw = await pg.raw();
     try {
       await raw.query("BEGIN");
-      await assert.rejects(raw.query("INSERT INTO schema_migrations (schema_version, applied_at) VALUES ($1, $2)", args), (error: { code?: string }) => isDuplicateKeyError(error));
+      await assert.rejects(raw.query("INSERT INTO work_counters (name, value) VALUES ($1, $2)", args), (error: { code?: string }) => isDuplicateKeyError(error));
       await assert.rejects(raw.query("SELECT 1"), (error: { code?: string }) => error.code === "25P02");
       await raw.query("ROLLBACK");
     } finally { await raw.end(); }
     // The store's own helper isolates it, so duplicate-key and missing-table probes can carry on.
-    await pg.store.write(async (tx) => {
-      const inner = tx as unknown as { client: { run(sql: string, params: unknown[]): Promise<unknown>; get(sql: string): Promise<Record<string, unknown> | undefined> }; recoverable<T>(statement: () => Promise<T>): Promise<T> };
-      await assert.rejects(inner.recoverable(() => inner.client.run(duplicate, args)), (error) => isDuplicateKeyError(error));
-      await assert.rejects(inner.recoverable(() => inner.client.get("SELECT 1 FROM table_that_does_not_exist")), (error) => isMissingTableError(error));
-      assert.equal(Number((await inner.client.get("SELECT 1 AS one"))?.one), 1, "the transaction is still usable after handled failures");
+    await pg.store.transaction(true, async (tx) => {
+      await assert.rejects(isolateStatement(tx, () => tx.run(duplicate, args)), (error) => isDuplicateKeyError(error));
+      await assert.rejects(isolateStatement(tx, () => tx.get("SELECT 1 FROM table_that_does_not_exist")), (error) => isMissingTableError(error));
+      assert.equal(Number((await tx.get("SELECT 1 AS one"))?.one), 1, "the transaction is still usable after handled failures");
     });
   } finally { await pg.cleanup(); }
 });
@@ -242,19 +176,6 @@ test("postgres: concurrent initialization serializes on the advisory lock", { sk
     const raw = await pg.raw();
     assert.equal(Number((await raw.query("SELECT count(*) AS n FROM schema_metadata")).rows[0].n), 1);
     await raw.end();
-  } finally { await pg.cleanup(); }
-});
-
-test("postgres: identifiers and remotes compare exactly, including case", { skip }, async () => {
-  const pg = await isolatedPostgres();
-  try {
-    const fixture = await LedgerFixture.createWithStore(pg.store, async () => undefined);
-    const lower = await fixture.module.registerRepository({ operation_id: newUUIDv7(), attribution: testAgent, canonical_remote: "ssh://git@example.test/team/repo-case" });
-    const upper = await fixture.module.registerRepository({ operation_id: newUUIDv7(), attribution: testAgent, canonical_remote: "ssh://git@example.test/team/Repo-Case" });
-    assert.notEqual(lower.result.repository_id, upper.result.repository_id, "paths that differ only by case are different repositories");
-    const found = await pg.store.read((tx) => tx.findRepositoryByRemote("ssh://git@example.test/team/Repo-Case"));
-    assert.equal(found.id, upper.result.repository_id);
-    await assert.rejects(pg.store.read((tx) => tx.findRepositoryByRemote("ssh://git@example.test/team/REPO-CASE")), (error) => error instanceof DomainError && error.code === "NOT_FOUND");
   } finally { await pg.cleanup(); }
 });
 
@@ -287,7 +208,7 @@ test("postgres: init and status work through the public CLI and no secret reache
 
     // A config that points at a different database identity is refused.
     writeFileSync(configFile, written.replace(/expected_database_id: .*/, `expected_database_id: ${newUUIDv7()}`));
-    const mismatch = await run(["requirement", "list"]);
+    const mismatch = await run(["task", "list"]);
     assert.equal(mismatch.json.ok, false);
     assert.equal(mismatch.json.error?.code, "DATABASE_ID_MISMATCH");
   } finally {

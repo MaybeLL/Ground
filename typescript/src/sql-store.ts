@@ -1,26 +1,21 @@
-import type { GitArtifactResolver } from "./git-artifact-storage.js";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { deflateSync } from "node:zlib";
 import { isUUIDv7, newUUIDv7 } from "./identity.js";
-import { sha256 } from "./canonical-json.js";
 import { DomainError, schemaDetails, storageTransient, validation } from "./errors.js";
 import type { SqlDialect } from "./sql-dialect.js";
 import { mysqlDialect, postgresDialect, sqliteDialect } from "./sql-dialects.js";
 import { mysql, mysqlClient, postgresClient, sqliteClient, DatabaseSync, type SQLClient } from "./sql-client.js";
 import { Pool as PgPool } from "pg";
-import { applySchema, ensureLegacyColumns, migrateCandidateArtifacts, SCHEMA_VERSION, PROTOCOL_VERSION, REMOTE_NORMALIZATION_VERSION, MINIMUM_CLI_VERSION } from "./sql-schema.js";
+import { applySchema, SCHEMA_VERSION, PROTOCOL_VERSION, REMOTE_NORMALIZATION_VERSION, MINIMUM_CLI_VERSION } from "./sql-schema.js";
 export type DatabaseTarget = { state: "empty" } | { state: "unrecognized" } | { state: "initialized"; metadata: Metadata };
-import { type Candidate } from "./domain.js";
-import type { IntegrityReport, Metadata, ReadTx, Store, Tx } from "./store-types.js";
+import type { IntegrityReport, Metadata } from "./store-types.js";
 
 export { SCHEMA_VERSION, PROTOCOL_VERSION, REMOTE_NORMALIZATION_VERSION, MINIMUM_CLI_VERSION } from "./sql-schema.js";
-const CLI_VERSION = "0.1.0";
+const CLI_VERSION = "0.2.53";
 import { asText, isMissingTableError, isSchemaShapeError, retryDelay, safeInteger, isSafeTransactionRetry, mapStorageError, compareVersions } from "./sql-shared.js";
 
-import { SqlTx } from "./sql-tx.js";
-import { scanIntegrity } from "./sql-integrity.js";
+import { inspectWorkIntegrity } from "./work/adapters/sql/integrity.js";
 
 /**
  * The advisory-lock key that serializes migrations on one PostgreSQL database.  A stable 64-bit
@@ -35,10 +30,8 @@ export const postgresMigrationLockKey = (config: { host: string; port: number; d
 /** Migration-lock timeouts: their wait is spent, so the lifecycle retry loop must not repeat it. */
 const lockWaitExpired = new WeakSet<object>();
 
-export class SQLStore implements Store {
+export class SQLStore {
   private queue: Promise<void> = Promise.resolve();
-  private gitArtifactResolver?: GitArtifactResolver;
-  setGitArtifactResolver(resolver: GitArtifactResolver): void { this.gitArtifactResolver = resolver; }
   private constructor(readonly dialect: SqlDialect, private readonly connectionFactory: () => Promise<SQLClient>, private readonly closeFactory: () => Promise<void>, private readonly migrationLockKey = "", private readonly retryAttempts = 7) {}
 
   /**
@@ -234,24 +227,6 @@ export class SQLStore implements Store {
     if (metadata.schema_version !== SCHEMA_VERSION || metadata.protocol_version !== PROTOCOL_VERSION || metadata.remote_normalization_version !== REMOTE_NORMALIZATION_VERSION || compareVersions(metadata.minimum_cli_version, CLI_VERSION) > 0) throw new DomainError("SCHEMA_INCOMPATIBLE", "database schema is incompatible with this CLI", false, schemaDetails(SCHEMA_VERSION, `schema=${metadata.schema_version}, protocol=${metadata.protocol_version}, minimum_cli=${metadata.minimum_cli_version}, remote_normalization=${metadata.remote_normalization_version}`));
   }
 
-  private assertMigratable(metadata: Metadata): void {
-    // A previous migration may have left either durable marker behind. Every
-    // non-clean state is a recovery stop: callers must inspect the database
-    // and make an explicit recovery decision rather than silently replaying DDL.
-    if (metadata.migration_state !== "clean") throw new DomainError("MIGRATION_DIRTY", "database migration is incomplete", false, { reason: `migration_state=${metadata.migration_state}` });
-    // The current schema with a stale normalization version is not a
-    // migration candidate: there is no safe rewrite for already-persisted
-    // repository identities.  Only strictly older schema versions may pass
-    // through the versioned upgrade path (the exact current version is
-    // handled by the fast path above).
-    // An older schema can be upgraded even when its remote-normalization marker
-    // predates the current one; migration rewrites that marker. A mismatch is
-    // unrecoverable only when the database already claims the current schema.
-    if (metadata.schema_version < 1 || metadata.schema_version >= SCHEMA_VERSION || metadata.protocol_version !== PROTOCOL_VERSION || compareVersions(metadata.minimum_cli_version, CLI_VERSION) > 0) {
-      throw new DomainError("SCHEMA_INCOMPATIBLE", "database cannot be migrated by this CLI", false, schemaDetails(SCHEMA_VERSION, `schema=${metadata.schema_version}, protocol=${metadata.protocol_version}, remote_normalization=${metadata.remote_normalization_version}`));
-    }
-  }
-
   async classifyTarget(): Promise<DatabaseTarget> {
     return this.exclusive(() => this.lifecycleRetry(async () => {
       const client = await this.acquireClient();
@@ -307,7 +282,6 @@ export class SQLStore implements Store {
       }
       const id = newUUIDv7();
       await client.run("INSERT INTO schema_metadata (singleton, database_id, schema_version, protocol_version, minimum_cli_version, remote_normalization_version, baseline_reachability_policy, migration_state) VALUES (1, ?, ?, ?, ?, ?, ?, 'clean')", [id, SCHEMA_VERSION, PROTOCOL_VERSION, MINIMUM_CLI_VERSION, REMOTE_NORMALIZATION_VERSION, policy]);
-      await client.run("INSERT INTO schema_migrations (schema_version, applied_at) VALUES (?, CURRENT_TIMESTAMP)", [SCHEMA_VERSION]);
       const metadata = await this.metadataFrom(client, this.lifecycleLock);
       await client.commit();
       transaction = false;
@@ -372,99 +346,10 @@ export class SQLStore implements Store {
   async inspect(): Promise<Metadata> { return this.exclusive(() => this.lifecycleRetry(() => this.inspectUnlocked())); }
 
   async inspectIntegrity(): Promise<{ metadata: Metadata; report: IntegrityReport }> {
-    return this.exclusive(() => this.lifecycleRetry(async () => {
-      const metadata = await this.inspectUnlocked();
-      const client = await this.acquireClient();
-      try { return await scanIntegrity(this.dialect, client, metadata, this.gitArtifactResolver); }
-      catch (error) {
-        try { await client.rollback(); } catch { /* preserve the original storage error */ }
-        throw mapStorageError(error, this.dialect);
-      } finally { if (this.dialect.pooled) await client.close(); }
+    return this.transaction(false, async client => ({
+      metadata: await this.metadataFrom(client),
+      report: await inspectWorkIntegrity(client),
     }));
-  }
-
-  async migrate(): Promise<Metadata> {
-    return this.exclusive(() => this.lifecycleRetry(() => this.migrateExclusive()));
-  }
-
-  private async migrateExclusive(): Promise<Metadata> {
-      const client = await this.acquireClient();
-      let lock = false;
-      let transaction = false;
-      let foreignKeysDisabled = false;
-      try {
-        lock = await this.acquireMigrationLock(client);
-        // SQLite cannot change FK enforcement inside a transaction. The store
-        // queue plus BEGIN IMMEDIATE protects the parent-table rebuild below.
-        if (this.dialect.tableRebuild) {
-          const current = await this.metadataFrom(client, this.lifecycleLock);
-          if (current.migration_state === "clean" && current.schema_version === SCHEMA_VERSION && current.protocol_version === PROTOCOL_VERSION && current.remote_normalization_version === REMOTE_NORMALIZATION_VERSION) {
-            this.assertCompatible(current);
-            return current;
-          }
-          await client.exec(this.dialect.tableRebuild.disableForeignKeysSql);
-          foreignKeysDisabled = true;
-        }
-        await client.begin(true); transaction = true;
-        let metadata = await this.metadataFrom(client, this.lifecycleLock);
-        if (metadata.migration_state === "clean" && metadata.schema_version === SCHEMA_VERSION && metadata.protocol_version === PROTOCOL_VERSION && metadata.remote_normalization_version === REMOTE_NORMALIZATION_VERSION) {
-          this.assertCompatible(metadata);
-          await client.commit(); transaction = false;
-          return metadata;
-        }
-        this.assertMigratable(metadata);
-
-        if (!this.dialect.ddlIsTransactional) {
-          // The metadata row is taken exclusively so a locking read waits for
-          // every business transaction's shared lock.  The dirty marker is
-          // committed before DDL because this engine's DDL auto-commits, so no
-          // transaction may span schema creation.
-          await client.run("UPDATE schema_metadata SET migration_state = 'in_progress' WHERE singleton = 1");
-          await client.commit(); transaction = false;
-          // Create any tables first, but defer the refinement foreign key
-          // until the legacy column has been added.  Older databases may have
-          // a dev_runs table without refines_candidate_id; attempting to add
-          // the constraint before ensureLegacyColumns would fail with an
-          // unknown-column error.  Running schema twice is intentional:
-          // CREATE IF NOT EXISTS is idempotent, while the second pass installs
-          // the constraint after the additive ALTER TABLE steps.
-          await applySchema(client, this.dialect, false);
-          await ensureLegacyColumns(client, this.dialect);
-          await migrateCandidateArtifacts(client, this.dialect);
-          await applySchema(client, this.dialect);
-          await client.begin(true); transaction = true;
-          metadata = await this.metadataFrom(client, "exclusive");
-        } else {
-          await client.run("UPDATE schema_metadata SET migration_state = 'in_progress' WHERE singleton = 1");
-          await applySchema(client, this.dialect, false);
-          await ensureLegacyColumns(client, this.dialect);
-          await migrateCandidateArtifacts(client, this.dialect);
-          await applySchema(client, this.dialect);
-        }
-
-        if (this.dialect.foreignKeyCheckSql && (await client.all(this.dialect.foreignKeyCheckSql)).length) throw new DomainError("SCHEMA_INCOMPATIBLE", "Migration would leave invalid foreign-key bindings");
-        await client.run("UPDATE schema_metadata SET schema_version = ?, protocol_version = ?, minimum_cli_version = ?, remote_normalization_version = ?, migration_state = 'clean' WHERE singleton = 1", [SCHEMA_VERSION, PROTOCOL_VERSION, MINIMUM_CLI_VERSION, REMOTE_NORMALIZATION_VERSION]);
-        await client.run("INSERT INTO schema_migrations (schema_version, applied_at) SELECT ?, CURRENT_TIMESTAMP WHERE NOT EXISTS (SELECT 1 FROM schema_migrations WHERE schema_version = ?)", [SCHEMA_VERSION, SCHEMA_VERSION]);
-        metadata = await this.metadataFrom(client, this.lifecycleLock);
-        this.assertCompatible(metadata);
-        await client.commit(); transaction = false;
-        return metadata;
-      } catch (error) {
-        if (transaction) await client.rollback();
-        throw mapStorageError(error, this.dialect);
-      } finally {
-        if (foreignKeysDisabled) await client.exec(this.dialect.tableRebuild!.restoreForeignKeysSql);
-        await this.releaseMigrationLock(client, lock);
-        if (this.dialect.pooled) await client.close();
-      }
-  }
-
-  async write<T>(callback: (tx: Tx) => Promise<T>): Promise<T> {
-    return this.exclusive(() => this.businessTransaction(true, (client) => callback(new SqlTx(client, false, true, this.gitArtifactResolver))));
-  }
-
-  async read<T>(callback: (tx: ReadTx) => Promise<T>): Promise<T> {
-    return this.exclusive(() => this.businessTransaction(false, (client) => callback(new SqlTx(client, true, true, this.gitArtifactResolver))));
   }
 
   /**
@@ -507,11 +392,3 @@ export class SQLStore implements Store {
 
   async close(): Promise<void> { await this.exclusive(() => this.closeFactory()); }
 }
-
-export const artifactChunks = (patch: Buffer): Buffer[] => {
-  const compressed = deflateSync(patch);
-  const chunks: Buffer[] = [];
-  for (let offset = 0; offset < compressed.length; offset += 1024 * 1024) chunks.push(compressed.subarray(offset, Math.min(compressed.length, offset + 1024 * 1024)));
-  if (chunks.length === 0) chunks.push(Buffer.from([0x78, 0x9c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01]));
-  return chunks;
-};

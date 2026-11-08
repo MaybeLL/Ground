@@ -61,7 +61,7 @@ const createStore = (client: RecordingMySQLClient): SQLStore => {
 const metadata = (migrationState = "clean"): MetadataState => ({
   database_id: "019c0000-0000-7000-8000-000000000001",
   schema_version: SCHEMA_VERSION,
-  protocol_version: 1,
+  protocol_version: 2,
   minimum_cli_version: "0.1.0",
   remote_normalization_version: 1,
   baseline_reachability_policy: "require_override",
@@ -71,35 +71,18 @@ const metadata = (migrationState = "clean"): MetadataState => ({
 test("ordinary MySQL write transactions hold an exclusive metadata lock through commit", async () => {
   const client = new RecordingMySQLClient(metadata());
   const store = createStore(client);
-  await store.write(async () => "done");
+  await store.transaction(true, async () => "done");
   const gate = client.log.findIndex((entry) => entry.includes("FROM schema_metadata") && entry.endsWith("FOR UPDATE"));
   const commit = client.log.indexOf("commit");
   assert.ok(gate > client.log.indexOf("begin:write"));
   assert.ok(commit > gate);
 });
 
-test("MySQL migration drains shared locks and commits in-progress before DDL", async () => {
-  const client = new RecordingMySQLClient(metadata("clean"));
-  client.metadata.schema_version = 6;
-  const store = createStore(client);
-  const result = await store.migrate();
-  assert.equal(result.migration_state, "clean");
-
-  const exclusiveGate = client.log.findIndex((entry) => entry.includes("FROM schema_metadata") && entry.endsWith("FOR UPDATE"));
-  const inProgress = client.log.findIndex((entry) => entry.includes("migration_state = 'in_progress'"));
-  const inProgressCommit = client.log.indexOf("commit", inProgress);
-  const firstDDL = client.log.findIndex((entry) => entry.startsWith("exec:CREATE TABLE"));
-  const clean = client.log.findIndex((entry) => entry.includes("migration_state = 'clean'"));
-  assert.ok(exclusiveGate >= 0 && inProgress > exclusiveGate);
-  assert.ok(inProgressCommit > inProgress && firstDDL > inProgressCommit);
-  assert.ok(clean > firstDDL);
-});
-
 test("deadlocks retry the whole transaction within a bounded budget", async () => {
   const client = new RecordingMySQLClient(metadata());
   const store = createStore(client);
   let attempts = 0;
-  const result = await store.write(async () => {
+  const result = await store.transaction(true, async () => {
     attempts += 1;
     if (attempts < 3) throw Object.assign(new Error("deadlock"), { code: "ER_LOCK_DEADLOCK", errno: 1213 });
     return "committed";

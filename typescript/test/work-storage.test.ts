@@ -45,22 +45,31 @@ for (const backend of backends) {
   const write = <T>(uow: SqlWorkUnitOfWork, work: (r: WorkRepositories) => Promise<T>) => uow.run("write", work);
   const read = <T>(uow: SqlWorkUnitOfWork, work: (r: WorkRepositories) => Promise<T>) => uow.run("read", work);
 
-  check("schema 24 creates every table, and an older ledger gains them on migration", async store => {
-    assert.equal(SCHEMA_VERSION, 24);
-    assert.equal((await store.inspect()).schema_version, 24);
-    const count = (table: string) => store.transaction(false, async client => Number((await client.get<{ n: unknown }>(`SELECT COUNT(*) AS n FROM ${table}`))!.n));
-    for (const table of workTables) assert.equal(await count(table), 0, table);
-    // Pretend the ledger is at schema 23: no work tables yet.
-    await store.transaction(true, async client => {
-      for (const table of workTables) await client.exec(`DROP TABLE IF EXISTS ${table}`);
-      await client.run("UPDATE schema_metadata SET schema_version = 23 WHERE singleton = 1");
+  check("initializes only work-model tables and rejects an old ledger without modifying it", async store => {
+    const metadata = await store.open();
+    assert.equal(metadata.schema_version, SCHEMA_VERSION);
+    assert.equal(metadata.protocol_version, 2);
+    await store.transaction(false, async client => {
+      for (const table of workTables) {
+        const row = await client.get<{ n: unknown }>(`SELECT COUNT(*) AS n FROM ${table}`);
+        assert.equal(Number(row!.n), 0, table);
+      }
+      const count = await client.get<{ total: unknown }>(client.dialect.userTableCountSql);
+      assert.equal(Number(count!.total), workTables.length + 1);
     });
-    const migrated = await store.migrate();
-    assert.equal(migrated.schema_version, 24);
-    for (const table of workTables) assert.equal(await count(table), 0, `${table} after migration`);
-    const uow = new SqlWorkUnitOfWork(store);
-    await write(uow, r => r.taskRuns.create(aRun("run-after-migration")));
-    assert.equal((await read(uow, r => r.taskRuns.get("run-after-migration")))?.status, "pending");
+    await store.transaction(true, client => client.run("UPDATE schema_metadata SET protocol_version = 1"));
+    await assert.rejects(store.open(), { code: "SCHEMA_INCOMPATIBLE" });
+    await assert.rejects(store.initialize("warn"), { code: "SCHEMA_INCOMPATIBLE" });
+    assert.equal((await store.inspect()).protocol_version, 1);
+  });
+
+  check("status detects an indexed field changed outside the work repository", async (store, uow) => {
+    await write(uow, r => r.taskRuns.create(aRun("integrity-run")));
+    assert.equal((await store.inspectIntegrity()).report.valid, true);
+    await store.transaction(true, client => client.run("UPDATE work_task_runs SET status = 'delivered' WHERE id = ?", ["integrity-run"]));
+    const { report } = await store.inspectIntegrity();
+    assert.equal(report.valid, false);
+    assert.match(report.issues[0].reason, /status column differs/);
   });
 
   check("definitions keep their head and immutable, numbered revisions", async (_store, uow) => {

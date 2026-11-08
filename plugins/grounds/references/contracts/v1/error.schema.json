@@ -18,22 +18,15 @@
         "STATE_CONFLICT",
         "AUTH_FAILED",
         "VERSION_CONFLICT",
-        "PREDECESSOR_CONFLICT",
         "IDEMPOTENCY_CONFLICT",
         "SCHEMA_INCOMPATIBLE",
         "MIGRATION_DIRTY",
         "DATABASE_ID_MISMATCH",
-        "REPOSITORY_NOT_RESOLVED",
-        "REPOSITORY_AMBIGUOUS",
         "BASELINE_UNAVAILABLE",
         "WORKTREE_MISMATCH",
         "ENVIRONMENT_CAPABILITY_UNSUPPORTED",
         "ENVIRONMENT_SETUP_FAILED",
-        "UNSUPPORTED_CANDIDATE_ARTIFACT",
-        "ARTIFACT_TOO_LARGE",
         "ARTIFACT_INTEGRITY_ERROR",
-        "VERIFICATION_SET_CHANGED",
-        "LIST_CHANGED",
         "STORAGE_TRANSIENT",
         "INTERNAL"
       ]
@@ -55,32 +48,12 @@
             "config",
             "database",
             "repository",
-            "requirement",
-            "issue",
-            "dev_run",
-            "candidate",
-            "verification",
-            "delivery_link",
-            "selection",
-            "artifact",
-            "eval_grader",
-            "eval_suite",
-            "eval_snapshot",
-            "eval_experiment",
-            "eval_run",
-            "eval_execution",
-            "eval_result",
-            "eval_notice",
-            "eval_qa",
-            "eval_artifact",
-            "eval_environment",
-            "eval_envcheck",
-            "eval_preparation",
-            "eval_instance",
             "environment",
-            "environment_revision",
-            "environment_default",
-            "runtime_operation"
+            "credential",
+            "run",
+            "work",
+            "task",
+            "grading"
           ]
         },
         "resource_id": {
@@ -103,12 +76,6 @@
         "actual_version": {
           "type": "integer",
           "minimum": 0
-        },
-        "expected_predecessor_id": {
-          "$ref": "common.schema.json#/$defs/id"
-        },
-        "actual_predecessor_id": {
-          "$ref": "common.schema.json#/$defs/id"
         },
         "existing_command": {
           "type": "string",
@@ -195,11 +162,6 @@
           ],
           "minimum": 0
         },
-        "artifact_format": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256
-        },
         "diagnostic_directory": {
           "type": "string"
         },
@@ -224,9 +186,6 @@
             "unknown",
             "failed"
           ]
-        },
-        "recheck_archive_id": {
-          "$ref": "common.schema.json#/$defs/id"
         }
       }
     }
@@ -236,11 +195,7 @@
       "if": {
         "properties": {
           "code": {
-            "enum": [
-              "STORAGE_TRANSIENT",
-              "VERIFICATION_SET_CHANGED",
-              "LIST_CHANGED"
-            ]
+            "const": "STORAGE_TRANSIENT"
           }
         },
         "required": [
@@ -272,120 +227,6 @@
             "retryable": {
               "const": false
             }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "code": {
-            "const": "AUTH_FAILED"
-          }
-        },
-        "required": [
-          "code"
-        ]
-      },
-      "then": {
-        "properties": {
-          "details": {
-            "required": [
-              "auth_mode",
-              "auth_reason"
-            ]
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "code": {
-            "const": "NOT_FOUND"
-          }
-        },
-        "required": [
-          "code"
-        ]
-      },
-      "then": {
-        "properties": {
-          "details": {
-            "required": [
-              "resource_type"
-            ]
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "code": {
-            "const": "VERSION_CONFLICT"
-          }
-        },
-        "required": [
-          "code"
-        ]
-      },
-      "then": {
-        "properties": {
-          "details": {
-            "required": [
-              "resource_type",
-              "resource_id",
-              "expected_version",
-              "actual_version"
-            ]
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "code": {
-            "const": "PREDECESSOR_CONFLICT"
-          }
-        },
-        "required": [
-          "code"
-        ]
-      },
-      "then": {
-        "properties": {
-          "details": {
-            "required": [
-              "resource_type",
-              "resource_id",
-              "expected_predecessor_id",
-              "actual_predecessor_id"
-            ]
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "code": {
-            "const": "IDEMPOTENCY_CONFLICT"
-          }
-        },
-        "required": [
-          "code"
-        ]
-      },
-      "then": {
-        "properties": {
-          "details": {
-            "required": [
-              "existing_command",
-              "request_hash",
-              "existing_request_hash"
-            ]
           }
         }
       }

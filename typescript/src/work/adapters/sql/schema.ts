@@ -1,7 +1,7 @@
 import type { SqlDialect } from "../../../sql-dialect.js";
 
 /**
- * Tables of the work model (schema version 24).
+ * Tables of the work model (work ledger protocol 2, schema 1).
  *
  * One table per aggregate. What a rule needs the database to enforce (identity,
  * uniqueness, ordering, lookups) is a column; everything else is the aggregate

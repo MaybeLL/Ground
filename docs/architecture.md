@@ -4,7 +4,7 @@ Current implementation structure and storage boundaries. Product meaning lives i
 
 ## The work model (`typescript/src/work/`)
 
-A hexagonal subtree replacing the DevRun, Verification and evaluation paths. The CLI already calls its task, work and grade entry points (P1c); retirement of the old paths is in progress (P1d).
+A hexagonal subtree replacing the DevRun, Verification and evaluation paths. The CLI already calls its task, work and grade entry points (P1c); the old development services have been retired.
 
 | Layer | Contents | May import |
 | --- | --- | --- |
@@ -20,16 +20,16 @@ A hexagonal subtree replacing the DevRun, Verification and evaluation paths. The
 
 Domain code is pure: functions take the current state and a command and return `Result<Decision>` (new state, events, outcome) or a rejection. Aggregates carry a version; a decision that changes anything advances it by one and must record an event (`advance()` throws otherwise). Each aggregate exports a `*Violations` checker that storage runs on every write and read.
 
-## Storage (schema 24)
+## Storage (work ledger protocol 2, schema 1)
 
-The work tables live in the same SQL ledger as the older tables and work on SQLite, MySQL and PostgreSQL. `sql-schema.ts` appends `workSchemaStatements`, so a new ledger gets them at initialization and an older one at `grounds db migrate`. A ledger at schema 23 must be migrated explicitly before this build opens it.
+Initialization creates schema metadata and twelve work-model tables. Protocol 2 distinguishes this ledger from historical databases even if their numeric schema versions coincide. A caller can initialize an empty target or attach the same compatible database. An existing database with an older protocol is rejected before DDL.
 
 - One table per aggregate: `work_definitions`, `work_revisions`, `work_works`, `work_task_runs`, `work_sandboxes`, `work_executions`, `work_gradings`, `work_experiment_runs` (members in `work_experiment_members`), `work_intents`, `work_completion_events`, `work_counters`.
 - Each aggregate row has `id`, `version`, `record_digest` and `body_json` (canonical JSON of the aggregate). What a rule needs the database to enforce is also a column: one live sandbox per runtime instance (`live_instance_id`, null once released), one task run per managed worker execution, one grading per evaluator execution, a ledger-assigned request order for gradings, one task run per experiment member.
 - Writes are optimistic: `save(state, expectedVersion)` succeeds only for the version the caller read, otherwise `StorageFailure("stale")`. A state that breaks its invariants is refused (`"invalid"`); a stored row whose digest, identity or invariants do not hold is refused on read (`"integrity"`).
 - Foreign keys exist only between a revision and its definition. Aggregates refer to each other by identity; the application owns cross-aggregate consistency.
 - Lookups rely on composite UNIQUE constraints ending in the identity column instead of secondary indexes, because MySQL has no `CREATE INDEX IF NOT EXISTS`.
-- A request identity is registered in `work_intents` (unique `request_id` plus a hash of the input); the same identity with different input raises `RequestConflict`. This is separate from the older `idempotency_records`, which is tied to ledger events.
+- A request identity is registered in `work_intents` (unique `request_id` plus a hash of the input); the same identity with different input raises `RequestConflict`.
 - `SqlWorkUnitOfWork.run("read" | "write", ...)` runs repositories in one transaction through `SQLStore.transaction`, which shares the store's retry, compatibility check and error mapping. A read unit rejects writes.
 
 ## Use cases (`work/application/`)
@@ -63,23 +63,11 @@ Crash safety needs no intent log here: every use case is one transaction, and th
 
 Three groups, each action one use case: `task` (create, revise, show, list), `work` (start, continue, branch, select, close, show, run, register, transcript, workspace, deliver, stop, cancel) and `grade` (request, register, stage, command, submit, stop, cancel, show, list); `grounds work help` lists the options. The operation id every write prints is its request identity: repeating a call with `--operation-id` is safe. `composition.ts` is the only place that wires the SQL repositories, git and the real clock together; the entry layer calls application classes and never adapters. Task text is passed as `--title` (`--summary` is an existing boolean option). A grade is a JSON file of criterion verdicts (`criterion_id`, `independent`, `reconciliation`, `final`, `rationale`, `evidence`).
 
-Not yet covered: JSON schemas for the new result types under `docs/contracts/v1` (P1d). The development skill now uses these commands directly.
+The published task, work and grade schemas cover the CLI envelope and evaluator grade file. The development skill calls these commands directly.
 
-## Retirement boundary (P1d, in progress)
+## Legacy retirement
 
-D149 cancels data migration. The `migrate data` and `migrate patchledger` commands, their filesystem relocation and binding repair modules, old configuration readers, old-location discovery and migration-only command lock are removed. Ordinary commands no longer inspect historical directories or migration journals; they resolve only the current configuration and data root. Configuration version 1 is rejected rather than converted. Existing files are **not** moved, rewritten or deleted automatically.
-
-The Python command wrapper, legacy experiment coordinator, Codex capture, managed preparation proxy and repository snapshot adapter are also removed, together with their dedicated tests and skill/package callers. `skill-assets.ts` now distributes only the development skill, with no Python scripts. The development skill describes direct task/work/grade calls and requires the main agent to launch a fresh, non-inherited verifier session after delivery freeze. The old TypeScript evaluation service, CLI, grading runner and QA draft/source-clue chain have also been removed. Their TUI workspace, publication/query client methods, trace views, two skills and file-only knowledge helper retire together, including dedicated tests and 11 schemas in both contract trees. The remaining Candidate TUI has subsequently been retired with owner approval: the package, client, views, dedicated tests and PTY scripts, build/release jobs, and development-image dependencies are removed. CLI/plugin packaging remains; release installation checks now exercise the installed task list against SQLite rather than opening a TUI client. A new work-model TUI is deferred, not replaced by a compatibility screen. No replacement runner or compatibility shim is introduced.
-
-The old `code-workspace` cluster is also retired: instance configuration, preparation, route execution/controllers, Git/sync routing, service/volume lifecycle, repository environment defaults and image/recipe preparation, together with their CLI dispatch, seven public schemas and dedicated tests. DevRun/Candidate calls now use only the remaining host worktree implementation; no container route fallback is provided. Shared `env` is preserved. Under D150, shared `env` now resolves credential/service authorization directly from the local Git common-directory identity (`env-repository.ts`: canonical path plus device/inode), rather than the old Repository/DevRun SQL callback. Linked worktrees share authorization; separate clones do not. `env repository` exposes the identity for explicit host grants. Preparation and direct/CLI command launch recheck the identity and reject retired bindings; `env` does not implement TaskRun admission. Old owner markers and external workspace reservations are refusal-only evidence, including child paths and unreadable records. Read-only checks do not create or chmod the registry root; final host admission and env occupancy publication share the existing `directory-registry` lock with legacy DevRun publication. Corrupt reservation identity fields reject even unrelated paths. The small `code-route-fence.ts` exclusion check still refuses reserved directories (including corrupt markers and child paths); it cannot execute, recover or clean retired resources. `workspace-operation-integrity.ts` remains referenced by SQL integrity inspection until the storage retirement batch. Archive setting tests retain replay/CAS and corruption coverage independently of the removed environment-default service.
-
-Legacy draft/workspace publication, its publish preflight CLI, contract editor, static exports and diagram runtime are retired. Historical SQL operation validation and DevRun workspace ownership still have consumers.
-
-Candidate selection, Issue completion, delivery worktrees and the dependent integration commands are retired. Historical selection, completion and landing facts remain readable in existing Issue and Candidate views. DevRun reconciliation inspects the local run and its lease. The `candidate materialize` command supports an existing checkout or detached review. The old delivery-link and trace commands are retired. Candidate diff still reads immutable Candidate evidence. The legacy review command and its summary and Markdown exports have been removed. Verification sessions continue to use detached worktrees. Shared Git inspection continues to support preflight and branch synchronization. SQL integrity checks still validate historical delivery-link versions.
-
-These are bounded deletions, not the completed model cutover. The remaining old development commands, SQL tables and `db migrate` still exist until their consumers retire together. In particular, `evaluation.ts`, `eval-qa.ts` and `eval-environment.ts` are still imported by SQL record/integrity checks. They and the old evaluation record/blob transaction methods remain solely for the separate schema-retirement batch, not as a public evaluation API. Their storage-integrity and blob conformance tests remain; only tests of retired services or UI are removed. Schema 24 and its SQL transaction/initialization safeguards are unchanged in this batch. The final schema reset and removal of old business services remain P1d work; no compatibility layer will replace them.
-
-`test/retired-migration.test.ts` checks rejected command/help forms, untouched historical bytes, initialization and new-model queries despite historical markers, rejection of old config/credential names, and removal of migration result schemas. The original CLI concurrency/identity tests and work-model end-to-end tests remain.
+The old Requirement, Issue, DevRun, Candidate and Verification services and their ledger tables are retired. The standalone environment still checks repository grants, ownership and stop evidence before releasing resources. Historical runtime directories and databases remain under the owner's control.
 
 ## Verifying a storage change
 

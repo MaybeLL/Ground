@@ -56,6 +56,12 @@ export class AggregateTable<S extends Versioned & { readonly id: Id }> {
     if (digestText(body) !== textOf(row.record_digest)) throw fail("its digest does not match its body");
     const state = (this.spec.restore ? this.spec.restore(parsed) : parsed) as unknown as S;
     if (state.id !== subject || state.version !== Number(row.version)) throw fail("its identity or version differs from its columns");
+    for (const [column, expected] of Object.entries(this.spec.columns(state))) {
+      const actual = row[column];
+      if (expected === null ? actual !== null : actual === null || String(actual) !== String(expected)) {
+        throw fail(`its ${column} column differs from the stored body`);
+      }
+    }
     const problems = this.spec.violations(state);
     if (problems.length > 0) throw fail(problems.join("; "));
     return state;

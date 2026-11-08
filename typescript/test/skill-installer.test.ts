@@ -103,7 +103,7 @@ test("install skill creates self-contained skills at an explicit path and can up
     assert.match(verification, /全新上下文，不 fork 主会话、不 resume worker/);
     assert.match(verification, /时间必须在交付冻结后，且不同于 worker session/);
     assert.match(verification, /--stage freeze --blind-digest/);
-    for (const name of ["github-archive-onboarding.md", "gitlab-archive-onboarding.md", "preparation.md"]) {
+    for (const name of ["preparation.md", "contracts/v1/work-results.schema.json", "contracts/v1/grade-input.schema.json"]) {
       assert.equal(existsSync(join(development.path, "references", name)), true);
     }
     assert.equal(existsSync(join(development.path, "evals")), false);
@@ -147,8 +147,8 @@ test("source plugin and assembled bundle install the same self-contained, skill-
     }
     const sourceInstall = installGroundsSkills(join(directory, "from-source"), sourcePluginRoot);
     const bundleInstall = installGroundsSkills(join(directory, "from-bundle"), bundle);
-    assert.equal(readFileSync(join(contractAssetsRoot(bundle), "candidate-submission.schema.json"), "utf8"),
-      readFileSync(join(contractAssetsRoot(sourcePluginRoot), "candidate-submission.schema.json"), "utf8"));
+    assert.equal(readFileSync(join(contractAssetsRoot(bundle), "grade-input.schema.json"), "utf8"),
+      readFileSync(join(contractAssetsRoot(sourcePluginRoot), "grade-input.schema.json"), "utf8"));
     for (const skill of sourceInstall.skills) {
       const packed = join(bundleInstall.target_path, skill.name);
       const expectedFiles = markdownFiles(skill.path).map(path => relative(skill.path, path)).sort();

@@ -1,42 +1,34 @@
-import { gitCLICandidate } from "./git-cli-ledger-fixture.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { commandNeedsOperationID, execute, exitCode, parseArgs, runCLI } from "../src/cli.js";
 import { loadConfig, mysqlKeychainLocator, mysqlPassword, validateConfig, writeConfig, type DatabaseConfig } from "../src/config.js";
 import { asDomainError, DomainError } from "../src/errors.js";
 import { assertContract } from "./schema-fixture.js";
-import { LedgerFixture, testVerifier } from "./fixture.js";
-import { createVerificationHandoff } from "../src/verification-handoff.js";
-import { SCHEMA_VERSION, SQLStore } from "../src/sql-store.js";
+import { SCHEMA_VERSION } from "../src/sql-store.js";
 
 test("CLI exit codes follow the stable error registry", () => {
   assert.equal(exitCode(new DomainError("VALIDATION_ERROR", "invalid")), 2);
   assert.equal(exitCode(new DomainError("NOT_FOUND", "missing")), 3);
-  for (const code of ["STATE_CONFLICT", "AUTH_FAILED", "VERSION_CONFLICT", "PREDECESSOR_CONFLICT", "IDEMPOTENCY_CONFLICT"] as const) {
+  for (const code of ["STATE_CONFLICT", "AUTH_FAILED", "VERSION_CONFLICT", "IDEMPOTENCY_CONFLICT"] as const) {
     assert.equal(exitCode(new DomainError(code, "conflict")), 4);
   }
   for (const code of ["SCHEMA_INCOMPATIBLE", "MIGRATION_DIRTY", "DATABASE_ID_MISMATCH"] as const) {
     assert.equal(exitCode(new DomainError(code, "schema")), 5);
   }
-  for (const code of ["REPOSITORY_NOT_RESOLVED", "BASELINE_UNAVAILABLE", "ARTIFACT_TOO_LARGE"] as const) {
+  for (const code of ["BASELINE_UNAVAILABLE"] as const) {
     assert.equal(exitCode(new DomainError(code, "boundary")), 6);
   }
   assert.equal(exitCode(new DomainError("STORAGE_TRANSIENT", "retry", true)), 7);
 });
 
 test("only business writes receive generated operation IDs", async () => {
-  assert.equal(commandNeedsOperationID(parseArgs(["repository", "register"])), true);
-  assert.equal(commandNeedsOperationID(parseArgs(["requirement", "create"])), false);
-  assert.equal(commandNeedsOperationID(parseArgs(["requirement", "show"])), false);
-  assert.equal(commandNeedsOperationID(parseArgs(["workspace", "publish"])), false);
-  // Cleanup appends a ledger event under a registered operation, so it is a business write like abandon.
-  assert.equal(commandNeedsOperationID(parseArgs(["devrun", "cleanup"])), true);
-  assert.equal(commandNeedsOperationID(parseArgs(["devrun", "reconcile"])), false);
+  assert.equal(commandNeedsOperationID(parseArgs(["work", "deliver"])), true);
+  assert.equal(commandNeedsOperationID(parseArgs(["grade", "submit"])), true);
+  assert.equal(commandNeedsOperationID(parseArgs(["work", "show"])), false);
   assert.equal(commandNeedsOperationID(parseArgs(["init"])), false);
-
   const output: string[] = [];
   const errors: string[] = [];
   const status = await runCLI(
@@ -178,114 +170,7 @@ test("retired authoring and delivery commands are unavailable, including through
   }
 });
 
-test("retired publication preflight fails before opening the ledger", async () => {
-  const output: string[] = [];
-  const code = await runCLI(["preflight", "observe", "--phase", "publish", "--config", "/missing/grounds.yaml", "--json"], {
-    stdout: line => output.push(line), stderr: () => undefined,
-  });
-  assert.equal(code, 2);
-  assert.equal(JSON.parse(output[0]).error.details.field, "phase");
-});
-
-test("blind templates and signed handoffs work without opening a ledger", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "grounds-offline-verification-"));
-  try {
-    const contextPath = join(directory, "blind.json");
-    const reportPath = join(directory, "report.json");
-    writeFileSync(contextPath, JSON.stringify({
-      format: "patchledger.verification-context/v1", phase: "blind",
-      candidate_id: "018f0000-0000-7000-8000-000000000001",
-      result_tree_oid: `sha1:${"1".repeat(40)}`,
-      blind_context_digest: `sha256:${"2".repeat(64)}`,
-      issue: {
-        goals: [{ id: "018f0000-0000-7000-8000-000000000002", criteria: [{ id: "018f0000-0000-7000-8000-000000000003" }] }],
-        constraints: [],
-      },
-    }));
-    const templateOutput: string[] = [];
-    assert.equal(await runCLI(["verification", "template", "--context", contextPath, "--json"], { stdout: (line) => templateOutput.push(line), stderr: () => undefined }), 0);
-    const template = JSON.parse(templateOutput[0]) as { data: { report: Record<string, unknown> } };
-    assertContract("command-results.schema.json", template.data);
-    writeFileSync(reportPath, JSON.stringify(template.data.report));
-
-    const handoffOutput: string[] = [];
-    assert.equal(await runCLI(["verification", "handoff", "--file", reportPath, "--agent-id", "offline-verifier", "--agent-name", "Offline Verifier", "--json"], { stdout: (line) => handoffOutput.push(line), stderr: () => undefined }), 0);
-    const handoff = JSON.parse(handoffOutput[0]) as { data: Record<string, unknown> };
-    assertContract("command-results.schema.json", handoff.data);
-  } finally { rmSync(directory, { recursive: true, force: true }); }
-});
-
-test("a coordinator can submit a signed verifier handoff without impersonating the verifier", async t => {
-  const directory = realpathSync(mkdtempSync(join(tmpdir(), "grounds-handoff-submit-")));
-  let fixture: LedgerFixture | undefined;
-  try {
-    const config = join(directory, "config.yaml");
-    const database = join(directory, "ledger.db");
-    await execute(["init", "--driver", "sqlite", "--non-interactive", "--config", config, "--path", database]);
-    fixture = await LedgerFixture.createWithStore(SQLStore.sqlite(database));
-    const candidate = await gitCLICandidate(t, directory, config, fixture);
-    const template = await fixture.module.verificationReportTemplate(candidate.candidate.candidate_id);
-    const assessment = template.report.assessments[0].criteria[0];
-    assessment.independent = { verdict: "qualified", explanation: "The rendered home preserves the existing search and navigation behavior", evidence: [] };
-    assessment.reconciliation = { claim_relation: "corroborated", explanation: "agrees" };
-    assessment.final = { verdict: "qualified", explanation: "qualified" };
-    const handoffPath = join(directory, "handoff.json");
-    writeFileSync(handoffPath, JSON.stringify(createVerificationHandoff(template.report, testVerifier)));
-
-    const blockedOutput: string[] = [];
-    assert.equal(await runCLI(["verification", "submit", candidate.candidate.candidate_id, "--handoff", handoffPath, "--content-language", "zh-CN", "--config", config, "--json"], { cwd: candidate.repository, stdout: (line) => blockedOutput.push(line), stderr: () => undefined }), 2);
-    assert.equal(JSON.parse(blockedOutput[0]).error.details.field, "content_language");
-
-    const output: string[] = [];
-    assert.equal(await runCLI(["verification", "submit", candidate.candidate.candidate_id, "--handoff", handoffPath, "--content-language", "zh-CN", "--language-override-reason", "引用上游英文检查结果", "--config", config, "--json"], { cwd: candidate.repository, stdout: (line) => output.push(line), stderr: () => undefined }), 0);
-    const envelope = JSON.parse(output[0]) as { data: { command: string; verification_id: string }; warnings: { code: string }[] };
-    assert.equal(envelope.data.command, "verification.submit");
-    assert.ok(envelope.warnings.some(warning => warning.code === "CONTENT_LANGUAGE_OVERRIDE"));
-    const stored = await fixture.module.showVerification(envelope.data.verification_id);
-    assert.deepEqual(stored.attribution, testVerifier);
-  } finally {
-    if (fixture) await fixture.close();
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
-test("paged verification list returns the set summary without reports", async t => {
-  const directory = realpathSync(mkdtempSync(join(tmpdir(), "grounds-review-cli-")));
-  let fixture: LedgerFixture | undefined;
-  try {
-    const config = join(directory, "config.yaml");
-    const database = join(directory, "ledger.db");
-    await execute(["init", "--driver", "sqlite", "--non-interactive", "--config", config, "--path", database]);
-    fixture = await LedgerFixture.createWithStore(SQLStore.sqlite(database));
-    const candidate = await gitCLICandidate(t, directory, config, fixture);
-    await fixture.verify(candidate);
-    const result = await execute(["verification", "list", "--candidate", candidate.candidate.candidate_id, "--paged", "--config", config, "--cwd", candidate.repository]);
-    assertContract("query-results.schema.json", result);
-    assert.partialDeepStrictEqual(result, { verification_set: { reports_included: false } });
-  } finally {
-    if (fixture) await fixture.close();
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
 test("command-family help lists actions and link mode explains its behavior", async () => {
-  const candidateOutput: string[] = [];
-  const candidateStatus = await runCLI(["candidate", "--help", "--json"], {
-    stdout: (line) => candidateOutput.push(line), stderr: () => undefined,
-  });
-  assert.equal(candidateStatus, 0);
-  const candidate = JSON.parse(candidateOutput[0]) as { data: { usage: string } };
-  assert.match(candidate.data.usage, /candidate template/);
-  assert.match(candidate.data.usage, /candidate materialize/);
-  assert.match(candidate.data.usage, /candidate <操作> --help/);
-
-  const devRunOutput: string[] = [];
-  const devRunStatus = await runCLI(["devrun", "--help", "--json"], {
-    stdout: (line) => devRunOutput.push(line), stderr: () => undefined,
-  });
-  assert.equal(devRunStatus, 0);
-  assert.match((JSON.parse(devRunOutput[0]) as { data: { usage: string } }).data.usage, /devrun cleanup/);
-
   const installOutput: string[] = [];
   const installStatus = await runCLI(["install", "skill", "--help", "--json"], {
     stdout: (line) => installOutput.push(line), stderr: () => undefined,
@@ -316,25 +201,11 @@ test("--version prints the package version under the stable contract", async () 
   assert.match(envelope.data.version, /^\d+\.\d+\.\d+/);
 });
 
-test("ledger show with an invalid ID points the caller at ledger list", async () => {
-  const output: string[] = [];
-  const status = await runCLI(["ledger", "show", "not-a-uuid", "--json"], {
-    stdout: (line) => output.push(line),
-    stderr: () => undefined,
-  });
-  assert.equal(status, 2);
-  const envelope = JSON.parse(output[0]) as { ok: boolean; error?: { details?: { field?: string; reason?: string } } };
-  assertContract("cli-envelope.schema.json", envelope);
-  assert.equal(envelope.ok, false);
-  assert.equal(envelope.error?.details?.field, "event");
-  assert.match(String(envelope.error?.details?.reason), /ledger list/);
-});
-
 test("invalid supplied operation IDs fail before opening the configured store", async () => {
   const output: string[] = [];
   const errors: string[] = [];
   const status = await runCLI(
-    ["repository", "register", "--json", "--operation-id", "not-a-uuid", "--config", "/definitely/missing/grounds-config.yaml"],
+    ["task", "create", "--json", "--operation-id", "not-a-uuid", "--config", "/definitely/missing/grounds-config.yaml"],
     { stdout: (line) => output.push(line), stderr: (line) => errors.push(line) },
   );
   assert.equal(status, 2);
@@ -468,12 +339,6 @@ test("numeric CLI options reject non-decimal integer spellings before storage ac
   }
 });
 
-test("file options accept the documented stdin sentinel", () => {
-  const parsed = parseArgs(["issue", "create", "--requirement", "019c0000-0000-7000-8000-000000000001", "--file", "-"]);
-  assert.equal(parsed.values.file, "-");
-  assert.deepEqual(parsed.positionals, ["issue", "create"]);
-});
-
 test("boolean option values are case-insensitive in execution", async () => {
   const output: string[] = [];
   const status = await runCLI(
@@ -506,19 +371,6 @@ test("explicit empty config and SQLite paths fail before filesystem access", asy
   assert.equal(initEnvelope.ok, false);
   assert.equal(initEnvelope.error?.code, "VALIDATION_ERROR");
   assert.equal(initEnvelope.error?.details?.field, "path");
-});
-
-test("CLI rejects the retired --worktree clone selector before opening storage", async () => {
-  const output: string[] = [];
-  const status = await runCLI(
-    ["config", "path", "--worktree", "/tmp/two", "--json"],
-    { stdout: (line) => output.push(line), stderr: () => undefined },
-  );
-  assert.equal(status, 2);
-  const envelope = JSON.parse(output[0]) as { ok: boolean; error?: { code: string; details?: { field?: string } } };
-  assert.equal(envelope.ok, false);
-  assert.equal(envelope.error?.code, "VALIDATION_ERROR");
-  assert.equal(envelope.error?.details?.field, "--worktree");
 });
 
 test("schema and database identity failures keep their details contract-valid", async () => {
@@ -560,42 +412,13 @@ test("schema and database identity failures keep their details contract-valid", 
   }
 });
 
-test("repository move rejects both canonical remote option spellings", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "grounds-cli-test-"));
-  try {
-    const configFile = join(directory, "config.yaml");
-    await execute(["init", "--driver", "sqlite", "--non-interactive", "--config", configFile, "--path", join(directory, "ledger.db")]);
-    const output: string[] = [];
-    const status = await runCLI([
-      "repository", "move", "--json", "--config", configFile,
-      "--repository", "019c0000-0000-7000-8000-000000000001",
-      "--canonical-remote", "https://example.test/one",
-      "--remote-url", "https://example.test/two",
-      "--operation-id", "019c0000-0000-7000-8000-000000000002",
-      "--agent-id", "agent", "--agent-name", "agent",
-    ], { stdout: (line) => output.push(line), stderr: () => undefined });
-    assert.equal(status, 2);
-    const envelope = JSON.parse(output[0]) as { ok: boolean; error?: { code?: string; details?: { field?: string } } };
-    assertContract("cli-envelope.schema.json", envelope);
-    assert.equal(envelope.ok, false);
-    assert.equal(envelope.error?.code, "VALIDATION_ERROR");
-    assert.equal(envelope.error?.details?.field, "canonical-remote");
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
-
-test("candidate artifact help advertises only supported Git artifacts", async () => {
-  for (const json of [false, true]) {
-    const output: string[] = [], errors: string[] = [];
-    assert.equal(await runCLI(["candidate", "artifact", "--help", ...(json ? ["--json"] : [])], {
-      stdout: (line) => output.push(line), stderr: (line) => errors.push(line),
-    }), 0);
-    assert.deepEqual(errors, []);
-    const help = json ? JSON.stringify(JSON.parse(output[0]).data) : output.join("\n");
-    assert.match(help, /protected remote Git source/);
-    assert.match(help, /historical patch-only Candidates are unsupported/);
-    assert.doesNotMatch(help, /legacy base\/SQL patch\/tree/);
+test("retired ledger commands reject before configuration or database access", async () => {
+  for (const command of ["requirement list", "issue list", "devrun start", "candidate submit", "verification run", "preflight assess", "repository register", "ledger list", "db migrate", "config set-development-mode"]) {
+    const args = command.split(" ");
+    for (const flags of [["--config", "/missing/retired-ledger.yaml"], ["--help"]]) {
+      const output: string[] = [];
+      assert.equal(await runCLI([...args, ...flags, "--json"], { stdout: line => output.push(line) }), 2, command);
+      assert.equal(JSON.parse(output[0]).error.code, "VALIDATION_ERROR");
+    }
   }
 });

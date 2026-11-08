@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { DomainError } from "../src/errors.js";
-import { Module } from "../src/module.js";
+import { newUUIDv7 } from "../src/identity.js";
 import { SQLStore } from "../src/sql-store.js";
 
 const tsxLoader = import.meta.resolve("tsx");
@@ -68,7 +68,7 @@ test("a real CLI read waits for another process's SQLite writer", async () => {
     const initialized = await runProcess(["--import", tsxLoader, "src/main.ts", "init", "--driver", "sqlite", "--path", database, "--config", config, "--non-interactive", "--json"]);
     assert.equal(initialized.code, 0, initialized.stderr || initialized.stdout);
     const holder = await lockDatabase(database, 300);
-    const reader = await runProcess(["--import", tsxLoader, "src/main.ts", "requirement", "list", "--config", config, "--json"]);
+    const reader = await runProcess(["--import", tsxLoader, "src/main.ts", "task", "list", "--config", config, "--json"]);
     await release(holder);
     assert.equal(reader.code, 0, reader.stderr || reader.stdout);
     const envelope = JSON.parse(reader.stdout) as { ok: boolean; error?: { code: string } };
@@ -79,7 +79,7 @@ test("a real CLI read waits for another process's SQLite writer", async () => {
   }
 });
 
-test("concurrent real CLI reads and Repository registrations never return INTERNAL", async () => {
+test("concurrent real CLI reads and task publications never return INTERNAL", async () => {
   const directory = mkdtempSync(join(tmpdir(), "grounds-sqlite-cli-race-"));
   const repository = join(directory, "repo");
   const database = join(directory, "ledger.db");
@@ -95,15 +95,16 @@ test("concurrent real CLI reads and Repository registrations never return INTERN
     execFileSync("git", ["remote", "add", "origin", "ssh://git@example.test/team/concurrent-cli"], { cwd: repository });
     const initialized = await runProcess(["--import", tsxLoader, source, "init", "--driver", "sqlite", "--path", database, "--config", config, "--non-interactive", "--json"]);
     assert.equal(initialized.code, 0, initialized.stderr || initialized.stdout);
-    const register = () => runProcess(["--import", tsxLoader, source, "repository", "register", "--config", config, "--json"], repository);
+    const operation = newUUIDv7();
+    const register = () => runProcess(["--import", tsxLoader, source, "task", "create", "--title", "Race", "--criterion", "Publish once", "--operation-id", operation, "--config", config, "--json"], repository);
     const writes = await Promise.all([register(), register()]);
     assert.ok(writes.every((result) => result.code === 0), JSON.stringify(writes));
     assert.ok(writes.every((result) => result.stdout.trim()), JSON.stringify(writes));
     const envelopes = writes.map((result) => JSON.parse(result.stdout));
     assert.ok(envelopes.every((envelope) => envelope.ok === true));
-    assert.equal(envelopes[0].data.repository_id, envelopes[1].data.repository_id);
+    assert.equal(envelopes[0].data.taskId, envelopes[1].data.taskId);
 
-    const readArgs = ["--import", tsxLoader, source, "requirement", "list", "--config", config, "--json"];
+    const readArgs = ["--import", tsxLoader, source, "task", "list", "--config", config, "--json"];
     const reads = await Promise.all([runProcess(readArgs), runProcess(readArgs), runProcess(readArgs)]);
     assert.ok(reads.every((result) => result.code === 0), JSON.stringify(reads));
     assert.ok(reads.every((result) => JSON.parse(result.stdout).error?.code !== "INTERNAL"));
@@ -122,7 +123,7 @@ test("exhausted SQLite lock retries map to retryable STORAGE_TRANSIENT", async (
   const store = SQLStore.sqlite(database, { busyTimeoutMs: 25, retryAttempts: 2 });
   try {
     await assert.rejects(
-      new Module(store).listRequirements(),
+      store.transaction(true, client => client.get("SELECT 1")),
       (error: unknown) => error instanceof DomainError && error.code === "STORAGE_TRANSIENT" && error.retryable,
     );
   } finally {
