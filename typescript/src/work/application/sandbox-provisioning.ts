@@ -1,4 +1,4 @@
-import { attachSandbox, parseTaskContent, digestOf, isId, isTerminal, requestSandbox } from "../domain/index.js";
+import { canRefineFromBaseline, attachSandbox, parseTaskContent, digestOf, isId, isTerminal, requestSandbox } from "../domain/index.js";
 import type { RuntimeLocation, RuntimeOwner } from "../ports/index.js";
 import type { ManagedTask } from "../domain/managed.js";
 import type { EnvironmentContent } from "./environment-definitions.js";
@@ -54,8 +54,7 @@ export class SandboxProvisioning {
       const [intent] = await r.intents.listForSubject("managed-worker", "task_run", runId);
       const job = intent?.payload as ManagedTask | undefined;
       const parent = run.refines ? await r.taskRuns.get(run.refines) : undefined;
-      const useTaskBaseline = !run.refines || job?.freshAfterFailure || (parent?.workerMode === "external" &&
-        (parent.status === "failed" || parent.status === "cancelled") && !parent.manifest);
+      const useTaskBaseline = !run.refines || job?.freshAfterFailure || (parent && canRefineFromBaseline(parent));
       return {working,allowed: job?.repositoryPath === repository, baseline: job?.baseline, parentCandidate:job?.parentCandidate, useTaskBaseline};
     });
     if (authorized.missing) return fail("not-found","task run does not exist");
