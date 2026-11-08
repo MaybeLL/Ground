@@ -715,15 +715,17 @@
     },
     "GradingRecord": {"type": "object", "allOf": [{"$ref": "#/$defs/GradingRecordFields"}], "unevaluatedProperties": false},
     "Purpose": {"enum": ["gate", "measure"]},
+    "MeasurementArchive":{"type":"object","additionalProperties":false,"required":["archiveId","archiveReceipt","originalReceipt"],
+      "properties":{"archiveId":{"$ref":"#/$defs/Id"},"archiveReceipt":{"type":"string","minLength":1,"maxLength":1024},"originalReceipt":{"type":"string","minLength":1,"maxLength":1024}}},
     "GradingOrigin": {
       "anyOf": [
         {
           "type": "object",
           "not": {"required":["direct","historical"]},
           "properties": {"type": {"const": "standalone"}, "direct": {
-            "type":"object","additionalProperties":false,"required":["taskRunId","answerPath","actualDigest"],
-            "properties":{"taskRunId":{"$ref":"#/$defs/Id"},"answerPath":{"type":"string","minLength":1},"actualDigest":{"oneOf":[{"$ref":"#/$defs/Digest"},{"type":"null"}]},
-              "reference":{"type":"object","additionalProperties":false,"required":["taskRunId","deliveryId","path","digest"],"properties":{
+            "type":"object","additionalProperties":false,"required":["archive","taskRunId","answerPath","actualDigest"],
+            "properties":{"archive":{"$ref":"#/$defs/MeasurementArchive"},"taskRunId":{"$ref":"#/$defs/Id"},"answerPath":{"type":"string","minLength":1},"actualDigest":{"oneOf":[{"$ref":"#/$defs/Digest"},{"type":"null"}]},
+              "reference":{"type":"object","additionalProperties":false,"required":["archive","taskRunId","deliveryId","path","digest"],"properties":{"archive":{"$ref":"#/$defs/MeasurementArchive"},
                 "taskRunId":{"$ref":"#/$defs/Id"},"deliveryId":{"$ref":"#/$defs/Id"},"path":{"type":"string","minLength":1},"digest":{"$ref":"#/$defs/Digest"}
               }}
             }

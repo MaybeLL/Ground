@@ -17,6 +17,7 @@ type FrozenCase = { key: string; taskRevision: RevisionRef; source: Source; bind
 type Published = { suiteId: string; revisionId: string; seq: number; digest: string; caseCount: number };
 type Measurement = { gradingId: string; suiteId: string; revisionId: string; caseKey: string; runId: string; deliveryId: string; bindingKey: string; result: string; actualDigest: string | null; expectedDigest: string | null };
 type SuiteDeps = RequestContext & { archive: CodeArchivePort; repairs: ArchiveRepairs; capture(bytes: Uint8Array): { digest: string; base64: string } };
+const measurementArchive = (source: Source) => ({ archiveId: source.archiveId, archiveReceipt: source.archiveReceipt, originalReceipt: source.receipt });
 const json = (value: unknown) => value as JsonValue;
 const validPath = (value: unknown): value is string => typeof value === "string" && value.length > 0 && value.length <= 4096 && !/[\x00-\x1f\\]/.test(value) && value.split("/").every(part => part && part !== "." && part !== "..");
 
@@ -198,13 +199,13 @@ export class EvaluationSuites {
       if (!source.ok) return source;
       const file = await this.deps.archive.fileDigest(repo, source.value.archive, input.reference.path);
       if (file.status !== "read") return fail(file.status === "missing" ? "not-found" : file.status, file.reason);
-      reference = { taskRunId: input.reference.runId, deliveryId: input.reference.deliveryId, path: input.reference.path, digest: file.digest };
+      reference = { archive: measurementArchive(source.value.source), taskRunId: input.reference.runId, deliveryId: input.reference.deliveryId, path: input.reference.path, digest: file.digest };
     }
     const basis = reference;
     const scored = await this.score(repo, target.value.archive, input.answerPath, chosen.value.rule, basis?.digest ?? null);
     if (!scored.ok) return scored;
     return once<DirectResult>(this.deps, request, async r => {
-      const origin: GradingOrigin = { type: "standalone", direct: { taskRunId: input.runId, answerPath: input.answerPath, actualDigest: scored.value.actualDigest, ...(basis ? { reference: basis } : {}) } };
+      const origin: GradingOrigin = { type: "standalone", direct: { archive: measurementArchive(target.value.source), taskRunId: input.runId, answerPath: input.answerPath, actualDigest: scored.value.actualDigest, ...(basis ? { reference: basis } : {}) } };
       const recorded = await this.record(r, target.value.item, origin, chosen.value.ref, chosen.value.rule, scored.value.result, basis ? [{ id: "reference-answer", digest: basis.digest }] : []);
       return recorded.ok ? succeed({ gradingId: recorded.value, runId: input.runId, deliveryId: input.deliveryId, ...scored.value }) : recorded;
     });
