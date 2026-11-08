@@ -287,3 +287,18 @@ test("failed setup can close and cancellation racing setup pauses the actual own
     assert.equal(value(await taskExec.closeWork({requestId:"close-four",workId:fourth.workId})).status,"closed");
   });
 });
+
+test("managed admission binds the repository and reserves publication to its worker", async () => {
+  await scenario(async ({ app, repo, remote, baseline, root }) => {
+    const environment = value(await app.environments.publish({ requestId: "env", name: "fixture", expectedSeq: 0,
+      config: '{"image":"fixture","workspaceFolder":"/work"}', imageDigest: "sha256:" + "1".repeat(64) }));
+    const agent = value(await app.agents.publish({ requestId: "agent", name: "worker", provider: "codex", expectedSeq: 0 }));
+    const task = value(await app.tasks.createTask({ requestId: "task", summary: "managed", criteria: [{statement: "committed"}],
+      environmentDefinitionId: environment.environmentId, repository: {remote, baseline} }));
+    const run = value(await app.exec.startWork({requestId: "start", taskDefinitionId: task.taskId, workerMode: "managed",
+      agent: {definitionId: agent.agentId, repositoryPath: repo}}));
+    refused(await app.sandboxes.prepare("override", run.runId, root), "forbidden");
+    refused(await app.delivery.deliver({requestId: "publish", runId: run.runId, repositoryPath: repo, commit: baseline}), "unsupported");
+    assert.equal(git(repo, "ls-remote", "--tags", remote), "");
+  });
+});

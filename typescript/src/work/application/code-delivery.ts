@@ -28,6 +28,7 @@ export class CodeDelivery {
     if (!isId(input.requestId) || !isId(input.runId)) return fail("invalid", "requestId and runId are required");
     const known = await this.taskRemote(input.runId);
     if (!known.found) return fail("not-found", `run ${input.runId} does not exist`);
+    if (known.managed) return fail("unsupported", "a managed round delivers through its own execution");
     const remote = input.remote ?? known.remote;
     if (!remote) return fail("invalid", "the task names no repository remote; pass one explicitly");
     const commit = await this.deps.archive.resolveCommit(input.repositoryPath, input.commit);
@@ -102,13 +103,13 @@ export class CodeDelivery {
     } catch (error) { const failure = failureOf(error); if (failure) return { ok: false, error: failure }; throw error; }
   }
 
-  private async taskRemote(runId: Id): Promise<{ found: boolean; remote?: string }> {
+  private async taskRemote(runId: Id): Promise<{ found: boolean; managed?: boolean; remote?: string }> {
     return this.deps.units.run("read", async r => {
       const run = await r.taskRuns.get(runId);
       if (!run) return { found: false };
       const revision = await r.definitions.getRevision(run.taskRevision.definitionId, run.taskRevision.revisionId);
       const remote = revision && parseTaskContent(revision.content).ok ? repositoryOf(revision.content).remote : undefined;
-      return { found: true, ...(remote ? { remote } : {}) };
+      return { found: true, managed: run.workerMode === "managed", ...(remote ? { remote } : {}) };
     });
   }
 }

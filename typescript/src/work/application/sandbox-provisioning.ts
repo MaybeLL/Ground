@@ -15,6 +15,13 @@ export class SandboxProvisioning {
 
   async prepare(requestId: string, runId: string, repository: string): Promise<Outcome<Prepared>> {
     if (!isId(requestId) || !isId(runId)) return fail("invalid", "provide a run and operation identity");
+    const authorized = await this.deps.units.run("read", async r => {
+      const run = await r.taskRuns.get(runId);
+      if (run?.workerMode !== "managed") return true;
+      const [intent] = await r.intents.listForSubject("managed-worker", "task_run", runId);
+      return (intent?.payload as {repositoryPath?: string} | undefined)?.repositoryPath === repository;
+    });
+    if (!authorized) return fail("forbidden", "this repository was not selected for the managed worker");
     const kind = "reserve-task-sandbox";
     const input = { runId, repository };
     const saved = await this.deps.units.run("read", async r => await r.intents.findByRequest(requestId) ??
