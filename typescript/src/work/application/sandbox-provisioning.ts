@@ -1,4 +1,4 @@
-import { attachSandbox, digestOf, isId, isTerminal, requestSandbox } from "../domain/index.js";
+import { attachSandbox, parseTaskContent, digestOf, isId, isTerminal, requestSandbox } from "../domain/index.js";
 import type { RuntimeLocation, RuntimeOwner } from "../ports/index.js";
 import type { ManagedTask } from "../domain/managed.js";
 import type { EnvironmentContent } from "./environment-definitions.js";
@@ -44,7 +44,12 @@ export class SandboxProvisioning {
     if (!isId(requestId) || !isId(runId)) return fail("invalid", "provide a run and operation identity");
     const authorized = await this.deps.units.run("read", async r => {
       const run = await r.taskRuns.get(runId);
-      if (run?.workerMode !== "managed") return {allowed: true};
+      if (!run) return {missing:true};
+      if (run.workerMode !== "managed") {
+        const revision=await r.definitions.getRevision(run.taskRevision.definitionId,run.taskRevision.revisionId);
+        const task=parseTaskContent(revision?.content);
+        return {allowed:true,unsupported:!task.ok || task.value.kind!=="coding" || !!task.value.materialRepositories?.length};
+      }
       const [intent] = await r.intents.listForSubject("managed-worker", "task_run", runId);
       const job = intent?.payload as ManagedTask | undefined;
       const parent = run.refines ? await r.taskRuns.get(run.refines) : undefined;
@@ -52,6 +57,8 @@ export class SandboxProvisioning {
         (parent.status === "failed" || parent.status === "cancelled") && !parent.manifest);
       return {allowed: job?.repositoryPath === repository, baseline: job?.baseline, parentCandidate:job?.parentCandidate, useTaskBaseline};
     });
+    if (authorized.missing) return fail("not-found","task run does not exist");
+    if (authorized.unsupported) return fail("unsupported","this container setup requires a coding workspace without extra material mounts");
     if (!authorized.allowed) return fail("forbidden", "this repository was not selected for the managed worker");
     const inherited = await this.transferred(runId, true);
     if (inherited) return inherited;

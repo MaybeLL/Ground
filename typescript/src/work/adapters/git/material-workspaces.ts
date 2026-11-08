@@ -1,17 +1,40 @@
 import {checkCommit,verifyTree} from "./material-integrity.js";
-import {execFile} from "node:child_process";
-import {chmod,lstat,mkdir,mkdtemp,readFile,readdir,realpath,rename,rm,writeFile} from "node:fs/promises";
+import {execFile,spawn} from "node:child_process";
+import {chmod,lstat,mkdir,mkdtemp,open,symlink,readFile,readdir,realpath,rename,rm,writeFile} from "node:fs/promises";
 import {isAbsolute,join,relative} from "node:path";
-import {pathToFileURL} from "node:url";
 import {promisify} from "node:util";
 import {dataLayout} from "../../../data-layout.js";
-import {withRuntimeLock} from "../../../runtime-files.js";
+import {atomicPrivateWrite,privateDirectory,withRuntimeLock} from "../../../runtime-files.js";
 import type {MaterialRepository} from "../../domain/index.js";
 import {inspectionEnvironment} from "./inspection-environment.js";
 
 const exec = promisify(execFile);
-const git = (args:string[])=>exec("git",["-c","core.hooksPath=/dev/null","-c","protocol.ext.allow=never",...args],
-  {env:inspectionEnvironment(),timeout:120000});
+/** Export the pinned blobs without checkout filters, EOL conversion or
+ * repository-configured smudge commands. The staging directory is private. */
+async function exportTree(repository:string,tree:string,dir:string) {
+  const {stdout}=await exec("git",["-C",repository,"ls-tree","-z",tree],{env:inspectionEnvironment(),maxBuffer:64*1024*1024,encoding:"buffer"});
+  const records=new TextDecoder("utf-8",{fatal:true}).decode(stdout).split("\0");
+  await mkdir(dir,{mode:0o700});
+  for (const record of records.slice(0,-1)) {
+    const match=/^(100644|100755|120000|040000) (blob|tree) ([a-f0-9]+)\t([\s\S]+)$/.exec(record);
+    if (!match || [".","..",".git"].includes(match[4]!.toLowerCase()) || match[4]!.includes("/")) throw new Error("unsupported material tree entry");
+    const [,mode,,oid,name]=match, path=join(dir,name!);
+    if (mode==="040000") {await exportTree(repository,oid!,path);continue;}
+    if (mode==="120000") {
+      const link=await exec("git",["-C",repository,"cat-file","blob",oid!],{encoding:"buffer",env:inspectionEnvironment()});
+      await symlink(link.stdout,path);
+      continue;
+    }
+    const output=await open(path,"wx",mode==="100755"?0o755:0o644);
+    try {
+      const child=spawn("git",["-C",repository,"cat-file","blob",oid!],{env:inspectionEnvironment(),stdio:["ignore",output.fd,"ignore"]});
+      await new Promise<void>((resolve,reject)=>{
+        child.once("error",reject);
+        child.once("close",code=>code===0 ? resolve() : reject(new Error("could not read pinned Git blob")));
+      });
+    } finally {await output.close();}
+  }
+}
 
 async function protect(root:string,dir=root):Promise<void> {
   for (const entry of await readdir(dir,{withFileTypes:true})) {
@@ -34,11 +57,17 @@ async function discard(dir:string) {
   await rm(dir,{recursive:true,force:true});
 }
 
+async function commitObject(repository:string,commit:string) {
+  const object=await exec("git",["-C",repository,"cat-file","commit",commit],{encoding:"buffer",env:inspectionEnvironment(),maxBuffer:32*1024*1024});
+  checkCommit(commit,object.stdout);
+  return object.stdout.toString("base64");
+}
+
 export class MaterialWorkspaces {
   async prepare(ledgerId:string,runId:string,repositories:readonly MaterialRepository[]) {
     if (![ledgerId,runId].every(id=>/^[a-f0-9-]{36}$/.test(id))) throw new Error("invalid workspace owner");
     const parent = join(dataLayout().workspaces,"working",ledgerId);
-    await mkdir(parent,{recursive:true,mode:0o700});
+    privateDirectory(parent);
     const root = join(parent,runId), descriptor = JSON.stringify(repositories);
     const result = (created:boolean)=>({kind:"working" as const,runId,path:join(root,"output"),created,
       materials:repositories.map(({name,commit})=>({name,commit,path:join(root,"materials",name)}))});
@@ -50,11 +79,14 @@ export class MaterialWorkspaces {
         const materialRoot=join(root,"materials"), manifest=join(root,"sources.json");
         if (!(await lstat(materialRoot)).isDirectory() || !(await lstat(manifest)).isFile()) throw new Error("invalid working material layout");
         const record=JSON.parse(await readFile(manifest,"utf8"));
-        if (JSON.stringify(record.repositories)!==descriptor || (await readdir(materialRoot)).length!==repositories.length) throw new Error("working material identity conflict");
+        const legacy=Array.isArray(record);
+        if (JSON.stringify(legacy ? record : record.repositories)!==descriptor || (await readdir(materialRoot)).length!==repositories.length) throw new Error("working material identity conflict");
+        const commits = legacy ? await Promise.all(repositories.map(repo=>commitObject(repo.repository,repo.commit))) : record.commits;
         for (const [index,repo] of repositories.entries()) {
-          const expected=checkCommit(repo.commit,Buffer.from(record.commits[index],"base64"));
+          const expected=checkCommit(repo.commit,Buffer.from(commits[index],"base64"));
           if ((await verifyTree(join(materialRoot,repo.name),repo.commit)).toString("hex")!==expected) throw new Error("material differs from its frozen commit");
         }
+        if (legacy) atomicPrivateWrite(manifest,JSON.stringify({repositories,commits}));
         return result(false);
       }
       const stage = await mkdtemp(join(parent,"prepare-"));
@@ -65,13 +97,10 @@ export class MaterialWorkspaces {
         for (const repo of repositories) {
           if (!isAbsolute(repo.repository)) throw new Error("material checkout requires an absolute repository path");
           const destination = join(stage,"materials",repo.name);
-          await git(["init","--quiet","--template=","--object-format="+(repo.commit.length===64 ? "sha256" : "sha1"),destination]);
-          await git(["-C",destination,"fetch","--depth=1","--no-tags","--",pathToFileURL(repo.repository).href,repo.commit]);
-          const object = await exec("git",["-C",destination,"cat-file","commit",repo.commit],{encoding:"buffer",env:inspectionEnvironment(),maxBuffer:32*1024*1024});
-          const expected = checkCommit(repo.commit,object.stdout);
-          commits.push(object.stdout.toString("base64"));
-          await git(["-C",destination,"checkout","--quiet","--detach",repo.commit]);
-          await rm(join(destination,".git"),{recursive:true,force:true});
+          const proof = await commitObject(repo.repository,repo.commit);
+          const expected = checkCommit(repo.commit,Buffer.from(proof,"base64"));
+          commits.push(proof);
+          await exportTree(repo.repository,expected,destination);
           await protect(await realpath(destination));
           if ((await verifyTree(destination,repo.commit)).toString("hex")!==expected) throw new Error("material checkout differs from its frozen tree");
         }

@@ -273,7 +273,10 @@ test("working materials reject an annotated tag object in place of its commit",a
 test("working workspace keeps pinned input separate from writable output on replay", async () => {
   await withHarness(async h=>{
     const file = join(h.directory,"materials.json");
-    writeFileSync(file,JSON.stringify([{name:"source",repository:h.repo,commit:h.baseline}]));
+    writeFileSync(join(h.repo,".gitattributes"),"*.txt text eol=crlf\n");
+    symlinkSync("app.txt",join(h.repo,"internal-link"));
+    git(h.repo,"add","-A"); git(h.repo,"commit","-qm","pin checkout attributes and link");
+    writeFileSync(file,JSON.stringify([{name:"source",repository:h.repo,commit:git(h.repo,"rev-parse","HEAD")}]));
     const task = ok(await h.cli("task","create","--kind","working","--title","Inspect","--criterion","cite source","--materials",file));
     const savedTask = ok(await h.cli("task","show","--task",task.taskId));
     assert.deepEqual(savedTask.revision.content.outputs,[{key:"result",required:true}]);
@@ -283,11 +286,16 @@ test("working workspace keeps pinned input separate from writable output on repl
     const workspace = ok(await h.cli("work","workspace","--run",runId)), material = workspace.materials[0].path;
     try {
       assert.equal(workspace.kind,"working");
+      assert.equal(readFileSync(join(material,"internal-link"),"utf8"),"v0\n");
+      assert.match((await h.cli("work","prepare-sandbox","--run",runId)).error.message,/container setup requires/);
       assert.equal(readFileSync(join(material,"app.txt"),"utf8"),"v0\n");
       assert.equal(statSync(join(material,"app.txt")).mode & 0o222,0);
       assert.equal(statSync(material).mode & 0o222,0);
       assert.equal(existsSync(join(material,".git")),false);
       writeFileSync(join(workspace.path,"report"),"draft");
+      const manifest = join(dirname(workspace.path),"sources.json");
+      chmodSync(manifest,0o600);
+      writeFileSync(manifest,JSON.stringify(JSON.parse(readFileSync(manifest,"utf8")).repositories));
       const again = ok(await h.cli("work","workspace","--run",runId));
       assert.equal(again.created,false);
       assert.equal(readFileSync(join(again.path,"report"),"utf8"),"draft");
