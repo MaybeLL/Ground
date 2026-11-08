@@ -253,7 +253,8 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
         const matching = refs.split("\n").map(line => line.split("\t")).find(([oid]) => oid === receipt.commit);
         if (matching?.[1]) verified = await this.retrieve(scratch, receipt.remote, matching[1], receipt);
       }
-      if (verified !== "verified") return { status: "unavailable", reason: "the frozen delivery cannot be reproduced" };
+      if (verified === "unknown") return { status: "unavailable", reason: "Git could not confirm that the frozen delivery is reproducible" };
+      if (verified !== "verified") return { status: "unavailable", reason: "the remote refused the frozen object and no verified copy was obtained" };
       return await read(scratch, receipt.commit);
     } catch { return { status: "unavailable", reason: "the archived material could not be read" }; }
     finally { await rm(scratch, { recursive: true, force: true }); }
