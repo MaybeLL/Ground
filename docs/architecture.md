@@ -86,3 +86,9 @@ They need Docker and OpenSSL. Tests that touch local data layout need an isolate
 ## Native host support
 
 The package carries a Node-API binary for each supported operating system and architecture. It implements nonblocking shared and exclusive file locks and inspects host process identity. Grounds loads it on the first operation that needs these capabilities. Lock contention is retried by the caller, and missing host support leaves ownership and release checks in effect. The release workflow collects binaries built and tested on their respective platforms.
+
+### Evaluation suites and historical measurements
+
+`EvaluationSuites` resolves each selected TaskRun and frozen Candidate, checks current archive integrity (including repairs), then reads regular Git blobs from a verified tree. The suite revision stores each case's stable key, exact TaskRevision and GraderRevision, source delivery and manifest digest, answer path, and grader-only material bytes with SHA-256 digests. Git reads precede the transaction. One transaction publishes the definition revision and records the operation receipt. Replaying it does not require Git.
+
+The built-in exact-file rule compares the target delivery's file bytes against the case's reference answer. A verified tree lacking the answer file produces a mismatch. Unreadable archives cannot supply an observation. Measurements use standalone GradingRecords with their historical task run, suite revision and case key. They preserve the independent gate and original run. Historical suite queries expose material metadata. Hidden tests are stored for a sandbox evaluator in P4.

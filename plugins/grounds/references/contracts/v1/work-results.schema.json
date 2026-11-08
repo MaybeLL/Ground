@@ -719,7 +719,10 @@
       "anyOf": [
         {
           "type": "object",
-          "properties": {"type": {"const": "standalone"}},
+          "properties": {"type": {"const": "standalone"}, "historical": {
+            "type": "object", "additionalProperties": false, "required": ["taskRunId","suite","caseKey"],
+            "properties":{"taskRunId":{"$ref":"#/$defs/Id"},"suite":{"allOf":[{"$ref":"#/$defs/RevisionRef"},{"properties":{"kind":{"const":"suite"}}}]},"caseKey":{"$ref":"#/$defs/Id"}}
+          }},
           "required": ["type"],
           "additionalProperties": false
         },

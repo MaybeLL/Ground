@@ -180,7 +180,7 @@ const validateHelpArguments = (args: ParsedArgs): void => {
   if (args.positionals[0] === "help") {
     if (args.positionals.length > 2) throw validation("command", "help expects at most one topic");
     const topic = args.positionals[1];
-    if (topic && !Object.hasOwn(actionSets, topic) && !["init", "doctor", "config", "task", "work", "grade", "env"].includes(topic))
+    if (topic && !Object.hasOwn(actionSets, topic) && !["init", "doctor", "config", "task", "work", "grade", "suite", "env"].includes(topic))
       throw validation("command", `command is not implemented: ${topic}`);
   }
 };
@@ -438,9 +438,9 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
       }
       return { result_type: "patchledger.result.help/v1", command: "help", usage: formatCommandHelp(commandHelp(helpGroup, helpAction)) };
     }
-    return { result_type: "patchledger.result.help/v1", command: "help", usage: "grounds doctor | task | work | grade | install skill [path] | init | env | db | config" };
+    return { result_type: "patchledger.result.help/v1", command: "help", usage: "grounds doctor | task | work | grade | suite | install skill [path] | init | env | db | config" };
   }
-  if (!group) throw validation("command", "expected env, task, work, grade, install, init, doctor, config, or db");
+  if (!group) throw validation("command", "expected env, task, work, grade, suite, install, init, doctor, config, or db");
   if (group === "doctor") {
     validateCommandArguments(args, group, action);
     if (action) throw validation("command", "doctor does not take an action");

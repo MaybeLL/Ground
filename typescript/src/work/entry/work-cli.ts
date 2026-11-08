@@ -7,8 +7,9 @@ import type { ParsedArgs } from "../../cli.js";
 import type { CriterionVerdict, Grade, ProtocolStage } from "../domain/index.js";
 import type { Outcome, WorkApplication } from "../application/index.js";
 
-export const WORK_GROUPS = ["task", "work", "grade"] as const;
+export const WORK_GROUPS = ["task", "work", "grade", "suite"] as const;
 export const WORK_WRITE_ACTIONS = new Set([
+  "suite:publish", "suite:measure",
   "task:create", "task:revise",
   "work:start", "work:continue", "work:branch", "work:select", "work:close", "work:register", "work:transcript", "work:deliver", "work:repair", "work:stop", "work:cancel",
   "grade:request", "grade:register", "grade:stage", "grade:command", "grade:submit", "grade:stop", "grade:cancel",
@@ -71,8 +72,27 @@ export interface WorkEntryDependencies { readonly app: WorkApplication; readonly
 export async function executeWorkCommand(args: ParsedArgs, deps: WorkEntryDependencies): Promise<unknown> {
   const [group, action] = [args.positionals[0] ?? "", args.positionals[1] ?? ""];
   const { app } = deps;
-  const r = group === "task" ? await task(args, action, app) : group === "work" ? await work(args, action, app, deps) : await grade(args, action, app, deps);
+  const r = group === "suite" ? await suite(args, action, app, deps) : group === "task" ? await task(args, action, app) : group === "work" ? await work(args, action, app, deps) : await grade(args, action, app, deps);
   return result(group, action, r);
+}
+
+async function suite(args: ParsedArgs, action: string, app: WorkApplication, deps: WorkEntryDependencies): Promise<object> {
+  const repo = text(args, "repo") ?? deps.cwd;
+  switch (action) {
+    case "publish": {
+      const path = need(args, "cases-file");
+      let cases: unknown;
+      try { cases = JSON.parse(deps.readFile(path)); } catch { throw validation("cases-file", "must be a readable JSON array"); }
+      const suiteId = text(args, "suite");
+      return unwrap(await app.suites.publish({ requestId: requestId(args), name: need(args, "name"), cases,
+        ...(suiteId ? { suiteId } : {}), expectedSeq: text(args, "expected-seq") === undefined && !suiteId ? 0 : integer(args, "expected-seq") }, repo));
+    }
+    case "show": return unwrap(await app.suites.show(need(args, "suite"), integer(args, "revision")));
+    case "list": return unwrap(await app.suites.list());
+    case "measure": return unwrap(await app.suites.measure({ requestId: requestId(args), suiteId: need(args, "suite"), seq: integer(args, "revision"),
+      caseKey: need(args, "case"), runId: need(args, "run"), deliveryId: need(args, "delivery") }, repo));
+    default: throw validation("action", `unknown suite action: ${action}`);
+  }
 }
 
 async function task(args: ParsedArgs, action: string, app: WorkApplication): Promise<object> {
@@ -131,8 +151,9 @@ async function grade(args: ParsedArgs, action: string, app: WorkApplication, dep
     case "cancel": return unwrap(await app.grading.cancel({ requestId: requestId(args), gradingId: grading() }));
     case "show": {
       const record = unwrap(await app.grading.getGrading(grading()));
-      if (record.origin.type !== "gate") return record;
-      const { run } = unwrap(await app.exec.getRun(record.origin.taskRunId));
+      const runId = record.origin.type === "gate" ? record.origin.taskRunId : record.origin.type === "standalone" ? record.origin.historical?.taskRunId : undefined;
+      if (!runId) return record;
+      const { run } = unwrap(await app.exec.getRun(runId));
       return { ...record, archiveIntegrity: await app.repairs.inspectRun(run, text(args, "repo") ?? deps.cwd) };
     }
     case "list": {
@@ -146,6 +167,8 @@ async function grade(args: ParsedArgs, action: string, app: WorkApplication, dep
 }
 
 export const workHelp = (): string => [
+  "grounds suite publish --name NAME --cases-file FILE [--suite ID --expected-seq N] [--repo PATH]",
+  "grounds suite show --suite ID --revision N | suite list | suite measure --suite ID --revision N --case KEY --run RUN --delivery ID [--repo PATH]",
   "grounds task create --title TEXT --criterion TEXT... [--context TEXT] [--repo-remote URL --baseline REF]",
   "grounds task revise --task ID --expected-seq N --title TEXT --criterion [ID: ]TEXT... | task show --task ID [--revision N] | task list",
   "grounds work start --task ID --mode external|none | work continue --work ID --expected-head RUN --mode M | work branch --work ID --refines RUN --mode M",

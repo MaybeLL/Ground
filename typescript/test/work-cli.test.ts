@@ -319,3 +319,55 @@ test("work repair publishes a separate archive and exposes the original beside t
     }
   });
 });
+
+test("20 historical runs become an immutable suite with traceable private materials and repeatable rule measurements", async () => {
+  await withHarness(async h => {
+    const cases = [];
+    const taskRevisions = [];
+    for (let i = 0; i < 20; i++) {
+      const task = ok(await h.cli("task", "create", "--title", "Render sample " + i, "--criterion", "Render the fixture", "--repo-remote", h.remote, "--baseline", h.baseline));
+      taskRevisions.push(task.revisionId);
+      const { runId } = ok(await h.cli("work", "start", "--task", task.taskId, "--mode", "none"));
+      writeFileSync(join(h.repo, "reference.txt"), "sample " + i);
+      writeFileSync(join(h.repo, "answer.txt"), i % 2 ? "incorrect" : "sample " + i);
+      git(h.repo, "add", "-A"); git(h.repo, "commit", "-qm", "sample " + i);
+      const { delivery } = ok(await h.cli("work", "deliver", "--run", runId, "--repo", h.repo));
+      cases.push({ key: "case-" + i, runId, deliveryId: delivery.id, answerPath: "answer.txt", referencePath: "reference.txt", hiddenTestPaths: i === 0 ? ["app.txt"] : [] });
+    }
+    const path = join(h.directory, "cases.json");
+    writeFileSync(path, JSON.stringify(cases));
+    const publish = ["suite", "publish", "--name", "Fixture suite", "--cases-file", path, "--operation-id", newUUIDv7()];
+    const snapshot = ok(await h.cli(...publish));
+    assert.equal(snapshot.caseCount, 20);
+    assert.deepEqual(ok(await h.cli(...publish)), snapshot);
+    const show = ["suite", "show", "--suite", snapshot.suiteId, "--revision", "1"];
+    const first = ok(await h.cli(...show));
+    assert.equal(first.suite.digest, snapshot.digest);
+    assert.equal(first.cases.length, 20);
+    assert.equal(first.cases[0].materials[1].role, "hidden-test");
+    assert.equal(JSON.stringify(first).includes("base64"), false);
+    for (let i = 0; i < cases.length; i++) {
+      const original = cases[i]!, frozen = first.cases[i];
+      assert.equal(frozen.source.runId, original.runId);
+      assert.equal(frozen.source.deliveryId, original.deliveryId);
+      assert.equal(frozen.taskRevision.revisionId, taskRevisions[i]);
+      const expected = "sha256:" + createHash("sha256").update("sample " + i).digest("hex");
+      assert.equal(frozen.materials[0].digest, expected);
+      const args = ["suite", "measure", "--suite", snapshot.suiteId, "--revision", "1", "--case", original.key, "--run", original.runId, "--delivery", original.deliveryId];
+      const measured = ok(await h.cli(...args));
+      assert.equal(measured.result, i % 2 ? "mismatch" : "match");
+      assert.equal(measured.expectedDigest, expected);
+      const record = ok(await h.cli("grade", "show", "--grading", measured.gradingId));
+      assert.deepEqual(record.origin.historical, { taskRunId: original.runId, caseKey: original.key, suite: first.suite });
+      assert.equal(record.purpose, "measure"); assert.equal(record.grade.category, measured.result);
+      const repeated = ok(await h.cli(...args));
+      assert.notEqual(repeated.gradingId, measured.gradingId);
+      assert.equal(repeated.actualDigest, measured.actualDigest); assert.equal(repeated.result, measured.result);
+    }
+    writeFileSync(path, JSON.stringify(cases.slice(0, 1)));
+    const revised = ok(await h.cli("suite", "publish", "--suite", snapshot.suiteId, "--expected-seq", "1", "--name", "Fixture suite", "--cases-file", path));
+    assert.equal(revised.seq, 2);
+    assert.deepEqual(ok(await h.cli(...show)), first);
+    assert.equal(ok(await h.cli("suite", "list")).suites[0].head.seq, 2);
+  });
+});

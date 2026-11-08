@@ -1,0 +1,332 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/suite-results.schema.json",
+  "title": "Evaluation suite commands",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "suiteId",
+        "revisionId",
+        "seq",
+        "digest",
+        "caseCount"
+      ],
+      "properties": {
+        "command": {
+          "const": "suite.publish"
+        },
+        "result_type": {
+          "const": "grounds.result.suite.publish/v1"
+        },
+        "suiteId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "revisionId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "digest": {
+          "$ref": "work-results.schema.json#/$defs/Digest"
+        },
+        "caseCount": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "suite",
+        "cases"
+      ],
+      "properties": {
+        "command": {
+          "const": "suite.show"
+        },
+        "result_type": {
+          "const": "grounds.result.suite.show/v1"
+        },
+        "suite": {
+          "allOf": [
+            {
+              "$ref": "work-results.schema.json#/$defs/RevisionRef"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "suite"
+                },
+                "seq": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          ]
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "key",
+              "taskRevision",
+              "source",
+              "answerPath",
+              "graderRevision",
+              "materials"
+            ],
+            "properties": {
+              "key": {
+                "$ref": "work-results.schema.json#/$defs/Id"
+              },
+              "taskRevision": {
+                "allOf": [
+                  {
+                    "$ref": "work-results.schema.json#/$defs/RevisionRef"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "task"
+                      },
+                      "seq": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              "source": {
+                "type": "object",
+                "required": [
+                  "runId",
+                  "deliveryId",
+                  "manifestDigest",
+                  "receipt",
+                  "archiveId",
+                  "commit"
+                ],
+                "properties": {
+                  "runId": {
+                    "$ref": "work-results.schema.json#/$defs/Id"
+                  },
+                  "deliveryId": {
+                    "$ref": "work-results.schema.json#/$defs/Id"
+                  },
+                  "manifestDigest": {
+                    "$ref": "work-results.schema.json#/$defs/Digest"
+                  },
+                  "receipt": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "archiveId": {
+                    "$ref": "work-results.schema.json#/$defs/Id"
+                  },
+                  "commit": {
+                    "type": "string",
+                    "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "answerPath": {
+                "type": "string",
+                "minLength": 1
+              },
+              "graderRevision": {
+                "allOf": [
+                  {
+                    "$ref": "work-results.schema.json#/$defs/RevisionRef"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "grader"
+                      },
+                      "seq": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              "materials": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "role",
+                    "visibility",
+                    "path",
+                    "blob",
+                    "digest"
+                  ],
+                  "properties": {
+                    "role": {
+                      "enum": [
+                        "reference-answer",
+                        "hidden-test"
+                      ]
+                    },
+                    "visibility": {
+                      "const": "grader"
+                    },
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "blob": {
+                      "type": "string",
+                      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                    },
+                    "digest": {
+                      "$ref": "work-results.schema.json#/$defs/Digest"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "suites"
+      ],
+      "properties": {
+        "command": {
+          "const": "suite.list"
+        },
+        "result_type": {
+          "const": "grounds.result.suite.list/v1"
+        },
+        "suites": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "head"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "work-results.schema.json#/$defs/Id"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "head": {
+                "type": "object",
+                "required": [
+                  "seq",
+                  "revisionId",
+                  "digest"
+                ],
+                "properties": {
+                  "seq": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "revisionId": {
+                    "$ref": "work-results.schema.json#/$defs/Id"
+                  },
+                  "digest": {
+                    "$ref": "work-results.schema.json#/$defs/Digest"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "gradingId",
+        "suiteId",
+        "revisionId",
+        "caseKey",
+        "runId",
+        "deliveryId",
+        "result",
+        "actualDigest",
+        "expectedDigest"
+      ],
+      "properties": {
+        "command": {
+          "const": "suite.measure"
+        },
+        "result_type": {
+          "const": "grounds.result.suite.measure/v1"
+        },
+        "gradingId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "suiteId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "revisionId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "caseKey": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "runId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "deliveryId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "result": {
+          "enum": [
+            "match",
+            "mismatch"
+          ]
+        },
+        "actualDigest": {
+          "oneOf": [
+            {
+              "$ref": "work-results.schema.json#/$defs/Digest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expectedDigest": {
+          "$ref": "work-results.schema.json#/$defs/Digest"
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

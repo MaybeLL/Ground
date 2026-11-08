@@ -6,7 +6,7 @@ import { protocolStages, type CommandObservation, type ProtocolRecord, type Prot
 export type Purpose = "gate" | "measure";
 export type TargetRef = { readonly type: "candidate" | "artifact" | "trajectory"; readonly id: Id; readonly digest: Digest };
 export type GradingOrigin =
-  | { readonly type: "standalone" }
+  | { readonly type: "standalone"; readonly historical?: { readonly taskRunId: Id; readonly suite: RevisionRef; readonly caseKey: Id } }
   | { readonly type: "gate"; readonly taskRunId: Id }
   | { readonly type: "member"; readonly experimentRunId: Id; readonly caseKey: string; readonly repeatIndex: number; readonly requirementKey: string };
 
@@ -130,6 +130,7 @@ export function createGrading(command: {
   } else {
     if (origin.type === "gate") return invalid("a measure is not run for a task run's acceptance");
     if (command.binding !== undefined) return invalid("only a gate has a binding");
+    if (origin.type === "standalone" && origin.historical && !(isId(origin.historical.taskRunId) && isId(origin.historical.caseKey) && isRevisionRef(origin.historical.suite, "suite"))) return invalid("historical measurement requires an exact suite, case and task run");
     if (origin.type === "member" && !(isId(origin.experimentRunId) && isText(origin.caseKey, 256) && isNonNegativeInteger(origin.repeatIndex) && isText(origin.requirementKey, 256))) return invalid("a member origin names its run, case, repeat and requirement");
   }
   const state: GradingRecord = {

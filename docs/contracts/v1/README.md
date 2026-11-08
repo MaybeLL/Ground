@@ -40,3 +40,9 @@ Git 传输不会返回托管服务的标签保护规则。已核对策略的操�
 准备需要凭据或共享服务的环境时，从工作区实际 Git 元数据解析身份，不接受调用者自报身份。准备期间及每次启动命令前重新核对仓库实例；身份改变或旧绑定出现时，在产生新 run 或启动进程前拒绝。无凭据、无共享服务的独立 host 目录无需是 Git 仓库。Git 配置解析清除外部 `GIT_*` 覆盖；本机拥有者仍可改动文件和授权，检查不提供对恶意同用户进程的强隔离。
 
 旧受管目录旁的 `owner.json` / `state.json`、外部工作区注册预约、旧路线保留标记和损坏私有 Git 指针仍作为拒绝依据；检查覆盖子目录，未知或损坏状态不会授予执行，也不修改这些记录；即使损坏记录的目录不重叠，也必须拒绝。只读查询不会创建注册根目录或更改其权限。host 运行的最终预约检查与 env lease 发布在同一个 `directory-registry` 文件锁内执行，与尚未退役的 DevRun 发布互斥；锁被占用时明确失败，不等待或重试执行命令。此保护不恢复旧 DevRun 执行功能。
+
+### Historical evaluation suites
+
+`suite publish --name NAME --cases-file FILE` creates a suite and its first snapshot. To publish another snapshot supply `--suite ID --expected-seq N`. Each JSON array entry selects `key`, `runId`, `deliveryId`, `answerPath`, `referencePath` and optional `hiddenTestPaths`. Paths are relative to the frozen Git tree. Each material is a regular file of at most 1 MiB. The snapshot persists material bytes. Public views return provenance, visibility and digests.
+
+`suite show --suite ID --revision N` reads an exact snapshot. `suite list` lists suite heads. `suite measure --suite ID --revision N --case KEY --run RUN --delivery ID` evaluates the selected delivery of the same TaskRevision against its reference. Use a new operation ID to recompute and record a new measurement. `grade show` reads the resulting grading. See [suite command results](suite-results.schema.json).
