@@ -2,10 +2,11 @@
 // it again later (D147): push the tag, read it back, and trust only what the
 // remote shows now. A receipt is self-describing; a historical receipt is never
 // taken as a fresh observation.
-import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { execFile, spawn } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import type { DeliveryItem, ReceiptCheck } from "../../domain/index.js";
 import type { ArchiveObservation, ArchiveProtection, CodeArchivePort, CodeFetchResult, DeliveryReceiptPort } from "../../ports/index.js";
@@ -53,6 +54,16 @@ export type ArchiveResult =
 
 type Observed = { readonly state: "present"; readonly commit: string } | { readonly state: "absent" } | { readonly state: "unreachable"; readonly reason: string };
 
+function stableRemote(value: string): boolean {
+  return isAbsolute(value) || /^(?:https?|ssh|git|file):\/\//i.test(value) || /^[^/\s:]+:[^:]/.test(value);
+}
+
+function inspectionEnvironment(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_NO_REPLACE_OBJECTS: "1", GIT_NO_LAZY_FETCH: "1", GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C" };
+  for (const key of ["GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_SHALLOW_FILE", "GIT_QUARANTINE_PATH"]) delete env[key];
+  return env;
+}
+
 export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
   constructor(private readonly options: { timeoutMs?: number } = {}) {}
 
@@ -61,10 +72,8 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
   }
 
   private inspectGit(cwd: string | undefined, args: string[]): Promise<string> {
-    const env = { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_NO_REPLACE_OBJECTS: "1", LC_ALL: "C" } as NodeJS.ProcessEnv;
-    for (const key of ["GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_SHALLOW_FILE", "GIT_QUARANTINE_PATH"]) delete env[key];
     return run("git", ["-c", "core.hooksPath=/dev/null", "-c", "protocol.ext.allow=never", ...args], {
-      ...(cwd ? { cwd } : {}), timeout: this.options.timeoutMs ?? 60_000, maxBuffer: 8 * 1024 * 1024, env,
+      ...(cwd ? { cwd } : {}), timeout: this.options.timeoutMs ?? 60_000, maxBuffer: 8 * 1024 * 1024, env: inspectionEnvironment(),
     }).then(r => r.stdout);
   }
 
@@ -82,44 +91,103 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
     try { return (await this.git(repositoryPath, ["rev-parse", "--verify", `${commitish}^{commit}`])).trim(); } catch { return undefined; }
   }
 
-  private async matchesRecordedObject(repositoryPath: string, receipt: GitDeliveryReceipt): Promise<boolean> {
+  /** Read raw headers, including parents hidden by a shallow boundary. Drain a large message without buffering it. */
+  private async commitFacts(cwd: string, oid: string): Promise<{ tree: string; parents: string[] }> {
+    const child = spawn("git", ["cat-file", "commit", oid], { cwd, env: inspectionEnvironment(), stdio: ["ignore", "pipe", "ignore"], timeout: this.options.timeoutMs ?? 60_000 });
+    const ended = new Promise<void>((ok, fail) => {
+      child.once("error", fail);
+      child.once("close", code => code === 0 ? ok() : fail(new Error("could not read commit headers")));
+    });
+    let headers = "", done = false;
+    const consume = async () => {
+      for await (const bytes of child.stdout) {
+        if (done) continue;
+        headers += bytes.toString("latin1");
+        const end = headers.indexOf("\n\n");
+        if (end >= 0) { headers = headers.slice(0, end); done = true; }
+        if (headers.length > 1024 * 1024) { child.kill(); throw new Error("commit headers exceed inspection limit"); }
+      }
+    };
+    await Promise.all([ended, consume()]);
+    const lines = headers.split("\n");
+    const tree = lines[0]?.slice(5);
+    const parents = lines.filter(line => line.startsWith("parent ")).map(line => line.slice(7));
+    if (!done || !lines[0]?.startsWith("tree ") || !tree || !OID.test(tree) || parents.some(p => !OID.test(p))) throw new Error("invalid commit headers");
+    return { tree, parents };
+  }
+
+  private async archiveRemote(repositoryPath: string, remote: string): Promise<string> {
+    const names = (await this.inspectGit(repositoryPath, ["remote"])).trim().split("\n");
+    const urls = names.includes(remote)
+      ? (await this.inspectGit(repositoryPath, ["remote", "get-url", "--push", "--all", remote])).trim().split("\n")
+      : [(await this.inspectGit(repositoryPath, ["ls-remote", "--get-url", "--", remote])).trim()];
+    if (urls.length !== 1 || !urls[0]) throw new Error("one publication destination is required");
+    const url = urls[0];
+    if (/^https?:\/\//i.test(url) && (new URL(url).username || new URL(url).password)) throw new Error("use a credential helper for archive authentication");
+    return stableRemote(url) ? url : resolve(repositoryPath, url);
+  }
+
+  /** An isolated shallow fetch plus fsck verifies the recorded commit and the contents of its entire tree. */
+  private async retrieve(scratch: string, source: string, ref: string, receipt: GitDeliveryReceipt): Promise<"verified" | "refused" | "unknown"> {
     try {
-      const body = await this.inspectGit(repositoryPath, ["--no-replace-objects", "cat-file", "commit", receipt.commit]);
-      const headers = body.split("\n\n", 1)[0]!.split("\n");
-      const parents = headers.filter(line => line.startsWith("parent ")).map(line => line.slice(7));
-      if (!headers.includes(`tree ${receipt.tree}`) || parents.join(" ") !== receipt.parents.join(" ")) return false;
-      await this.inspectGit(repositoryPath, ["--no-replace-objects", "rev-list", "--quiet", "--objects", "--missing=error", "--max-count=1", receipt.commit, "--"]);
-      return true;
-    } catch { return false; }
+      await this.inspectGit(scratch, ["-c", "fetch.fsckObjects=true", "fetch", "--quiet", "--no-tags", "--depth=1", "--", source, ref]);
+    } catch (error) {
+      const message = String((error as { stderr?: string }).stderr ?? "");
+      return /not our ref|couldn't find remote ref|unadvertised object|not a valid object/i.test(message) ? "refused" : "unknown";
+    }
+    try {
+      if ((await this.inspectGit(scratch, ["rev-parse", "--verify", "FETCH_HEAD^{commit}"])).trim() !== receipt.commit) return "unknown";
+      const facts = await this.commitFacts(scratch, receipt.commit);
+      if (facts.tree !== receipt.tree || facts.parents.join(" ") !== receipt.parents.join(" ")) return "unknown";
+      await this.inspectGit(scratch, ["fsck", "--full", "--no-dangling", "--no-reflogs", "--no-progress", receipt.commit]);
+      return "verified";
+    } catch { return "unknown"; }
+  }
+
+  /** Export only objects already present in the caller's cache. The temporary
+   * repository owns the config, shallow boundary and every ref used by upload-pack. */
+  private async retrieveLocal(repositoryPath: string, scratch: string, receipt: GitDeliveryReceipt): Promise<"verified" | "refused" | "unknown"> {
+    let objects: string;
+    try { objects = (await this.inspectGit(repositoryPath, ["rev-parse", "--path-format=absolute", "--git-path", "objects"])).trimEnd(); }
+    catch (error) { return String((error as { stderr?: string }).stderr).includes("not a git repository") ? "refused" : "unknown"; }
+    if (!isAbsolute(objects) || /[\r\n]/.test(objects)) return "unknown";
+    const cache = join(scratch, "local-cache");
+    await mkdir(cache);
+    await this.inspectGit(cache, ["init", "--bare", "--quiet", "--template=", `--object-format=${receipt.commit.length === 64 ? "sha256" : "sha1"}`]);
+    await writeFile(join(cache, "objects/info/alternates"), objects + "\n");
+    try { await this.inspectGit(cache, ["cat-file", "-e", receipt.commit]); }
+    catch (error) { return (error as { code?: number }).code === 1 ? "refused" : "unknown"; }
+    await writeFile(join(cache, "shallow"), receipt.commit + "\n");
+    await this.inspectGit(cache, ["update-ref", "refs/heads/recorded", receipt.commit]);
+    return this.retrieve(scratch, pathToFileURL(cache).href, "refs/heads/recorded", receipt);
   }
 
   async inspect(repositoryPath: string, item: { id: string; receipt: string }): Promise<ArchiveObservation> {
     const receipt = decodeReceipt(item.receipt);
     if (!receipt || deliveryIdOf(receipt) !== item.id) return { id: item.id, status: "unavailable", tag: "unknown", protection: { level: "unknown" } };
     const recorded = { id: item.id, recordedCommit: receipt.commit, protection: receipt.protection ?? { level: "unknown" as const } };
+    // An older receipt naming "origin" cannot identify which clone owned that configuration.
+    if (!stableRemote(receipt.remote)) return { ...recorded, status: null, tag: "unknown" };
     const seen = await this.observe(receipt.remote, receipt.ref, repositoryPath, true);
     if (seen.state === "unreachable") return { ...recorded, status: null, tag: "unknown" };
-    if (seen.state === "present" && seen.commit === receipt.commit) {
-      return { ...recorded, status: "intact", tag: "unchanged", remoteCommit: seen.commit };
-    }
+    if (seen.state === "present" && seen.commit === receipt.commit) return { ...recorded, status: "intact", tag: "unchanged", remoteCommit: seen.commit };
     const changed = seen.state === "present" ? { tag: "moved" as const, remoteCommit: seen.commit } : { tag: "missing" as const };
-    if (await this.matchesRecordedObject(repositoryPath, receipt)) return { ...recorded, ...changed, status: "ref-changed" };
-
-    // Fetch into a temporary object store. An inspection never writes FETCH_HEAD,
-    // refs or objects in the user's repository, even when the tag has moved.
     let scratch: string | undefined;
     try {
       scratch = await mkdtemp(join(tmpdir(), "grounds-archive-check-"));
-      const url = (await this.inspectGit(repositoryPath, ["ls-remote", "--get-url", "--", receipt.remote])).trim();
-      const remote = isAbsolute(url) || /^[a-z][a-z0-9+.-]*:|^[^/]+:/i.test(url) ? url : resolve(repositoryPath, url);
       await this.inspectGit(scratch, ["init", "--bare", "--quiet", "--template=", `--object-format=${receipt.commit.length === 64 ? "sha256" : "sha1"}`]);
-      try { await this.inspectGit(scratch, ["fetch", "--quiet", "--no-tags", "--depth=1", "--", remote, receipt.commit]); }
-      catch (error) {
-        const message = (error as { stderr?: string }).stderr ?? "";
-        const absent = /not our ref|couldn't find remote ref|unadvertised object|not a valid object/.test(message);
-        return { ...recorded, ...changed, status: absent ? "unavailable" : null };
+      const localResult = await this.retrieveLocal(repositoryPath, scratch, receipt).catch(() => "unknown" as const);
+      if (localResult === "verified") return { ...recorded, ...changed, status: "ref-changed" };
+      const byOid = await this.retrieve(scratch, receipt.remote, receipt.commit, receipt);
+      if (byOid === "verified") return { ...recorded, ...changed, status: "ref-changed" };
+      if (byOid === "refused") {
+        // Some servers disallow direct OID fetches. An advertised ref may still supply the object.
+        const refs = (await this.inspectGit(repositoryPath, ["ls-remote", "--refs", "--", receipt.remote])).trim();
+        if (!refs && localResult !== "unknown") return { ...recorded, ...changed, status: "unavailable" };
+        const match = refs.split("\n").map(line => line.split("\t")).find(([oid]) => oid === receipt.commit);
+        if (match?.[1] && await this.retrieve(scratch, receipt.remote, match[1], receipt) === "verified") return { ...recorded, ...changed, status: "ref-changed" };
       }
-      return { ...recorded, ...changed, status: await this.matchesRecordedObject(scratch, receipt) ? "ref-changed" : "unavailable" };
+      return { ...recorded, ...changed, status: null };
     } catch { return { ...recorded, ...changed, status: null }; }
     finally { if (scratch) await rm(scratch, { recursive: true, force: true }); }
   }
@@ -141,22 +209,23 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
     if (!validProtection(input.protection)) return { status: "invalid", reason: "invalid archive protection evidence" };
     if (!/^[A-Za-z0-9._-]{1,128}$/.test(input.deliveryId)) return { status: "invalid", reason: "the delivery identity is not usable in a reference name" };
     const ref = `${REF_NAMESPACE}${input.deliveryId}`;
-    let commit: string, tree: string, parents: string[];
+    let commit: string, tree: string, parents: string[], remote: string;
     try {
       commit = (await this.git(input.repositoryPath, ["rev-parse", "--verify", `${input.commit}^{commit}`])).trim();
-      tree = (await this.git(input.repositoryPath, ["rev-parse", `${commit}^{tree}`])).trim();
-      parents = (await this.git(input.repositoryPath, ["rev-list", "--parents", "-n", "1", commit])).trim().split(/\s+/).slice(1);
-    } catch { return { status: "invalid", reason: `${input.commit} is not a commit of ${input.repositoryPath}` }; }
-    const receipt = encodeReceipt({ format: "grounds.git-delivery/v1", remote: input.remote, ref, commit, tree, parents, ...(input.protection ? { protection: input.protection } : {}) });
+      ({ tree, parents } = await this.commitFacts(input.repositoryPath, commit));
+    } catch { return { status: "invalid", reason: `the commit and its headers could not be read in ${input.repositoryPath}` }; }
+    try { remote = await this.archiveRemote(input.repositoryPath, input.remote); }
+    catch { return { status: "invalid", reason: "archive requires one stable remote destination without embedded HTTPS credentials" }; }
+    const receipt = encodeReceipt({ format: "grounds.git-delivery/v1", remote, ref, commit, tree, parents, ...(input.protection ? { protection: input.protection } : {}) });
     if (receipt.length > 1024) return { status: "invalid", reason: "archive receipt exceeds the delivery manifest limit" };
-    const before = await this.observe(input.remote, ref, input.repositoryPath);
+    const before = await this.observe(remote, ref, input.repositoryPath);
     if (before.state === "unreachable") return { status: "unavailable", reason: before.reason };
     if (before.state === "present" && before.commit !== commit) return { status: "conflict", reason: `${ref} already points at ${before.commit}` };
     if (before.state === "absent") {
       // A plain push of a new tag: never forced, so an existing different tag wins any race.
-      try { await this.git(input.repositoryPath, ["push", "--porcelain", "--", input.remote, `${commit}:${ref}`]); }
+      try { await this.git(input.repositoryPath, ["push", "--porcelain", "--", remote, `${commit}:${ref}`]); }
       catch { /* A lost answer is not a failed write: read it back before deciding. */ }
-      const after = await this.observe(input.remote, ref, input.repositoryPath);
+      const after = await this.observe(remote, ref, input.repositoryPath);
       if (after.state === "unreachable") return { status: "unavailable", reason: after.reason };
       if (after.state === "absent") return { status: "unavailable", reason: "the push was not confirmed by reading the tag back" };
       if (after.commit !== commit) return { status: "conflict", reason: `${ref} points at ${after.commit}` };

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { deflateSync } from "node:zlib";
 import { join } from "node:path";
 import { test } from "node:test";
 import { decodeReceipt, deliveryIdOf, encodeReceipt, GitTagArchive } from "../src/work/adapters/index.js";
@@ -130,4 +131,79 @@ test("live integrity distinguishes tag movement, recoverable objects, confirmed 
   assert.equal((await archive.inspect(clean, item)).status, "unavailable");
   rmSync(r.remote, { recursive: true, force: true });
   assert.equal((await archive.inspect(r.work, item)).status, null, "transport errors cannot prove the reference is missing");
+});
+
+test("shallow SHA-256 deliveries retain physical parents and are bound to the original remote", async t => {
+  const r = repository(); t.after(r.cleanup);
+  const source = join(r.root, "sha256"), remote = join(r.root, "sha256.git"), shallow = join(r.root, "shallow");
+  git(r.root, "init", "-q", "-b", "main", "--object-format=sha256", source);
+  git(r.root, "init", "-q", "--bare", "-b", "main", "--object-format=sha256", remote);
+  git(source, "commit", "--allow-empty", "-qm", "parent");
+  const parent = git(source, "rev-parse", "HEAD");
+  git(source, "commit", "--allow-empty", "-qm", "child");
+  const commit = git(source, "rev-parse", "HEAD");
+  git(source, "push", remote, "main");
+  git(r.root, "clone", "-q", "--depth=1", "file://" + source, shallow);
+  git(shallow, "remote", "set-url", "origin", remote);
+  const archive = new GitTagArchive();
+  const result = await archive.archive({ repositoryPath: shallow, remote: "origin", commit: "HEAD", deliveryId: "shallow" });
+  assert.equal(result.status, "confirmed");
+  if (result.status !== "confirmed") return;
+  const receipt = decodeReceipt(result.receipt)!;
+  assert.deepEqual(receipt.parents, [parent]);
+  assert.equal(receipt.remote, remote);
+  git(shallow, "remote", "set-url", "origin", r.remote);
+  git(remote, "update-ref", "-d", receipt.ref);
+  assert.equal((await archive.inspect(shallow, { id: "shallow", receipt: result.receipt })).status, "ref-changed");
+  assert.equal((await archive.inspect(shallow, { id: "shallow", receipt: encodeReceipt({ ...receipt, remote: "origin" }) })).status, null);
+});
+
+test("inspection does not fill a partial clone's object store", async t => {
+  const r = repository(); t.after(r.cleanup);
+  const oid = r.commit("blob");
+  git(r.remote, "config", "uploadpack.allowFilter", "true");
+  git(r.work, "push", r.remote, "HEAD:refs/heads/main");
+  git(r.remote, "symbolic-ref", "HEAD", "refs/heads/main");
+  const archive = new GitTagArchive();
+  const stored = await archive.archive({ repositoryPath: r.work, remote: r.remote, commit: oid, deliveryId: "partial" });
+  assert.equal(stored.status, "confirmed");
+  if (stored.status !== "confirmed") return;
+  const partial = join(r.root, "partial");
+  git(r.root, "clone", "--filter=blob:none", "--no-checkout", "file://" + r.remote, partial);
+  git(r.remote, "update-ref", "-d", decodeReceipt(stored.receipt)!.ref);
+  const inventory = () => git(partial, "rev-list", "--objects", "--missing=print", "HEAD");
+  const before = inventory();
+  assert.match(before, /^\?[0-9a-f]+$/m, "fixture really omits a promised blob");
+  assert.equal((await archive.inspect(partial, { id: "partial", receipt: stored.receipt })).status, "ref-changed");
+  assert.equal(inventory(), before);
+});
+
+test("a substituted blob under the recorded loose OID cannot establish reproducibility", async t => {
+  const r = repository(); t.after(r.cleanup);
+  const commit = r.commit("original"), blob = git(r.work, "rev-parse", "HEAD:original");
+  const archive = new GitTagArchive();
+  const stored = await archive.archive({ repositoryPath: r.work, remote: r.remote, commit, deliveryId: "tampered" });
+  assert.equal(stored.status, "confirmed");
+  if (stored.status !== "confirmed") return;
+  git(r.remote, "update-ref", "-d", decodeReceipt(stored.receipt)!.ref);
+  git(r.remote, "reflog", "expire", "--expire=now", "--all"); git(r.remote, "gc", "--prune=now");
+  const object = join(r.work, ".git", "objects", blob.slice(0, 2), blob.slice(2));
+  rmSync(object);
+  writeFileSync(object, deflateSync(Buffer.from("blob 8\0replaced")));
+  const observation = await archive.inspect(r.work, { id: "tampered", receipt: stored.receipt });
+  assert.equal(observation.tag, "missing");
+  assert.notEqual(observation.status, "ref-changed");
+});
+
+test("large commit messages do not turn successful object retrieval into loss", async t => {
+  const r = repository(); t.after(r.cleanup); r.commit("file");
+  const message = join(r.root, "large-message");
+  writeFileSync(message, "x".repeat(8 * 1024 * 1024 + 1));
+  git(r.work, "commit", "--allow-empty", "-q", "-F", message);
+  const archive = new GitTagArchive();
+  const stored = await archive.archive({ repositoryPath: r.work, remote: r.remote, commit: "HEAD", deliveryId: "large" });
+  assert.equal(stored.status, "confirmed");
+  if (stored.status !== "confirmed") return;
+  git(r.remote, "update-ref", "-d", decodeReceipt(stored.receipt)!.ref);
+  assert.equal((await archive.inspect(r.work, { id: "large", receipt: stored.receipt })).status, "ref-changed");
 });
