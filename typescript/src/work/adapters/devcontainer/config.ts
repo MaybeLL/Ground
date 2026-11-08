@@ -3,6 +3,11 @@ import { parse, type ParseError } from "jsonc-parser";
 /** The operator's source remains immutable in the ledger. Launch a pinned
  * image and an explicit private mount so mutable tags and repository config
  * cannot change the effective workspace during devcontainer startup. */
+export function checkIsolation(config: Record<string, unknown>) {
+  if ((Array.isArray(config.mounts) && config.mounts.length) || config.privileged || config.initializeCommand) throw new Error("this profile requires an isolated workspace and container-only initialization");
+  if (config.runArgs !== undefined && (!Array.isArray(config.runArgs) || !config.runArgs.every(arg => arg === "--init"))) throw new Error("unsupported Docker run arguments for an isolated workspace");
+}
+
 export function pinnedConfig(source: string, digest: string) {
   const errors: ParseError[] = [];
   const config = parse(source, errors, { allowTrailingComma: true });
@@ -14,9 +19,9 @@ export function pinnedConfig(source: string, digest: string) {
   const slash = image.lastIndexOf("/"), colon = image.lastIndexOf(":");
   const repository = colon > slash ? image.slice(0, colon) : image;
   const folder = config.workspaceFolder ?? "/workspaces/grounds";
-  if (typeof folder !== "string" || !/^\/(?:[\w.-]+\/?)+$/.test(folder) || folder.split("/").some(part => part === ".." || part === ".")) throw new Error("invalid container workspace folder");
+  if (typeof folder !== "string" || !folder.startsWith("/") || !folder.slice(1).split("/").every(part => /^[\w.-]+$/.test(part) && part !== "." && part !== "..")) throw new Error("invalid container workspace folder");
   const mount = "source=${localWorkspaceFolder},target=" + folder + ",type=bind";
-  if ((config.workspaceMount && config.workspaceMount !== mount) || config.mounts?.length || config.privileged ||
-      config.runArgs?.some((arg: string) => /^(?:-v|--(?:mount|volume|volumes-from|privileged)(?:=|$))/.test(arg))) throw new Error("the environment overrides the isolated workspace mount");
+  checkIsolation(config);
+  if (config.workspaceMount && config.workspaceMount !== mount) throw new Error("the environment overrides the isolated workspace mount");
   return { ...config, image: repository + "@" + digest, workspaceFolder: folder, workspaceMount: mount };
 }

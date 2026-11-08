@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -18,7 +18,7 @@ import { refused, value } from "./work-application-harness.js";
 const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "T", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "T", GIT_COMMITTER_EMAIL: "t@t" } }).trim();
 
 async function scenario(run: (t: { app: WorkApplication; store: SQLStore; repo: string; remote: string; baseline: string; root: string }) => Promise<void>, backend: Backend = "sqlite"): Promise<void> {
-  const root = mkdtempSync(join(tmpdir(), "grounds-delivery-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "grounds-delivery-")));
   const fixture = await openLedger(backend);
   try {
     const repo = join(root, "repo"), remote = join(root, "remote.git");
@@ -258,7 +258,7 @@ test("failed setup can close and cancellation racing setup pauses the actual own
     refused(await provision.prepare("prepare-one",first.runId,repo),"unavailable");
     assert.equal(value(await taskExec.getRun(first.runId)).run.sandboxId,undefined);
     daemonDown = false;
-    refused(await provision.prepare("prepare-one",first.runId,repo),"unavailable");
+    refused(await provision.prepare("prepare-one",first.runId,repo),"conflict");
     assert.equal(value(await taskExec.getRun(first.runId)).run.failure?.class,"infrastructure");
     assert.equal(value(await taskExec.closeWork({requestId:"close-one",workId:first.workId})).status,"closed");
     const second = value(await taskExec.startWork({requestId:"two",workerMode:"external",taskDefinitionId:task.taskId}));

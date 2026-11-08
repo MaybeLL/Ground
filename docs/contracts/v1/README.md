@@ -68,7 +68,7 @@ For a historical measurement without a suite, use `grade measure --run RUN --del
 
 ### Task environments and sandbox lifecycle
 
-Publish a trusted environment using `work define-environment --name NAME --devcontainer FILE --image-digest sha256:…`. The digest identifies the image in Docker or its registry. Use `--lockfile FILE` to pin feature resolution. Configuration accepts JSON with comments. For a revision supply `--environment ID --expected-seq N`. `work environment --environment ID --revision N` returns the frozen sources. Configuration and lockfile are stored in the ledger. Use runtime credential injection for secrets.
+Publish a trusted environment using `work define-environment --name NAME --devcontainer FILE --image-digest sha256:…`. The digest identifies the image in Docker or its registry. Use `--lockfile FILE` to preserve the source lockfile and its digest beside the effective configuration. Build features into the pinned image before publishing it. Configuration accepts JSON with comments. For a revision supply `--environment ID --expected-seq N`. `work environment --environment ID --revision N` returns the frozen sources. Configuration and lockfile are stored in the ledger. Use runtime credential injection for secrets.
 
 Declare `--environment ID` when authoring a task. `work start`, `continue` and `branch` record the resolved revision and its selection source. Use `--environment-revision REVISION_ID` to pin a specific revision of the required definition. External tasks and tasks without an environment remain available on machines without Docker.
 

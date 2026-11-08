@@ -515,7 +515,7 @@ test("invalid devcontainer inputs cannot replace the image or mount another task
     const config = join(h.directory,"devcontainer.json");
     const digest = "sha256:" + "1".repeat(64);
     for (const input of [{image:"alpine@sha256:"+"2".repeat(64)}, {image:"alpine",workspaceMount:"source=shared,target=/work,type=volume"},
-      {image:"alpine",mounts:["source=/,target=/host,type=bind"]}]) {
+      {image:"alpine",mounts:["source=/,target=/host,type=bind"]}, {image:"alpine",runArgs:["-iv","/tmp/shared:/work/shared"]}, {image:"alpine",workspaceFolder:"/"+"a".repeat(10000)+"!"}]) {
       writeFileSync(config,JSON.stringify(input));
       const out = await h.cli("work","define-environment","--name","wrong","--devcontainer",config,"--image-digest",digest);
       assert.equal(out.error.code,"VALIDATION_ERROR");
@@ -565,6 +565,37 @@ test("killing the preparing CLI leaves one verified container and the launch hel
       assert.equal(docker("ps","-aq","--filter",filter),"");
     } finally {
       child.kill("SIGKILL"); await ended;
+      for (const id of docker("ps","-aq","--no-trunc","--filter",filter).split("\n").filter(Boolean)) docker("rm","-f",id);
+    }
+  });
+});
+
+test("verified local image setup failure retains a paused blocked sandbox that Work can release", { skip: !process.env.GROUNDS_TEST_DEVCONTAINER && "requires Docker" }, async () => {
+  await withHarness(async h => {
+    const docker = (...args:string[]) => execFileSync("docker",args,{encoding:"utf8",stdio:["ignore","pipe","pipe"]}).trim();
+    const digest = docker("image","inspect","--format","{{.Id}}",process.env.GROUNDS_TEST_CONTAINER_IMAGE ?? "alpine:latest");
+    const config = join(h.directory,"devcontainer.json"), lock = join(h.directory,"devcontainer-lock.json");
+    writeFileSync(config,JSON.stringify({image:"local/test-image",postCreateCommand:"exit 31"}));
+    writeFileSync(lock,JSON.stringify({features:{}}));
+    const env = ok(await h.cli("work","define-environment","--name","local-immutable","--image-digest",digest,"--devcontainer",config,"--lockfile",lock));
+    const task = ok(await h.cli("task","create","--title","failed setup","--criterion","isolated","--environment",env.environmentId,"--baseline",h.baseline,"--repo-remote",h.remote));
+    const {runId,workId} = ok(await h.cli("work","start","--task",task.taskId,"--mode","external"));
+    const db = new DatabaseSync(join(h.directory,"ledger.db"));
+    const ledgerId = db.prepare("SELECT database_id FROM schema_metadata").get()!.database_id as string;
+    db.close();
+    const filter = "label=dev.grounds.ledger="+ledgerId;
+    try {
+      const failed = await h.cli("work","prepare-sandbox","--run",runId,"--repo",h.repo);
+      assert.equal(failed.error.code,"STATE_CONFLICT"); assert.equal(failed.error.retryable,false);
+      const run = ok(await h.cli("work","run","--run",runId)).run;
+      assert.equal(run.status,"failed"); assert.equal(run.failure.class,"infrastructure");
+      const id = docker("ps","--no-trunc","-aq","--filter",filter);
+      assert.match(id,/^[a-f0-9]{64}$/);
+      assert.equal(docker("inspect","--format","{{.State.Paused}}",id),"true");
+      assert.equal((await h.cli("work","reconcile-sandbox","--run",runId)).error.retryable,false);
+      ok(await h.cli("work","close","--work",workId));
+      assert.equal(docker("ps","-aq","--filter",filter),"");
+    } finally {
       for (const id of docker("ps","-aq","--no-trunc","--filter",filter).split("\n").filter(Boolean)) docker("rm","-f",id);
     }
   });

@@ -11,13 +11,13 @@ export type RecoveryDeps = RequestContext & { runtime: SandboxRuntimePort; launc
 export class SandboxRecovery {
   constructor(private readonly deps: RecoveryDeps) {}
 
-  async failedPreparation(reserved: Reserved, reason: string, instanceId?: string): Promise<Outcome<never>> {
+  async failedPreparation(reserved: Reserved, reason: string, instanceId?: string, workspacePrepared = true): Promise<Outcome<never>> {
     return this.deps.units.run("write", async r => {
       const run = await r.taskRuns.get(reserved.runId, {lock:true});
       const sandbox = await r.sandboxes.get(reserved.sandboxId, {lock:true});
       if (!run || sandbox?.phase !== "preparing") return fail("conflict", "sandbox is no longer preparing");
       const at = this.deps.now();
-      const blocked = markBlocked(sandbox, { reason, at, workspace:{ref:sandbox.id,origin:"own"}, ...(instanceId ? {runtime:{instanceId,environmentRevisionId:reserved.environmentRevisionId}} : {}) });
+      const blocked = markBlocked(sandbox, { reason, at, ...(workspacePrepared ? {workspace:{ref:sandbox.id,origin:"own" as const}} : {}), ...(instanceId ? {runtime:{instanceId,environmentRevisionId:reserved.environmentRevisionId}} : {}) });
       if (!blocked.ok) return fromRejection(blocked.error);
       const failed = failInfrastructure(run, { detail: reason, at });
       if (!failed.ok) return fromRejection(failed.error);
@@ -25,7 +25,7 @@ export class SandboxRecovery {
       if (launch?.state === "registered") await r.intents.save({ ...launch,state:"failed",result:{reason},updatedAt:at,version:launch.version + 1 },launch.version);
       await r.sandboxes.save(blocked.value.state,sandbox.version);
       await r.taskRuns.save(failed.value.state,run.version);
-      return fail("unavailable", reason);
+      return fail("conflict", reason);
     });
   }
 
@@ -52,7 +52,7 @@ export class SandboxRecovery {
       return (await r.intents.listForSubject("launch-devcontainer", "sandbox", run.sandboxId))[0];
     });
     if (!claim) return fail("not-found", "run has no recorded devcontainer launch");
-    if (claim.state === "failed") return fail("unavailable", (claim.result as {reason:string}).reason);
+    if (claim.state === "failed") return fail("conflict", (claim.result as {reason:string}).reason);
     const payload = claim.payload as Reserved & {workspace: string};
     const owner: RuntimeOwner = { ledgerId: await this.deps.ledgerId(), sandboxId: payload.sandboxId };
     try {
@@ -67,7 +67,10 @@ export class SandboxRecovery {
           const run = await this.deps.units.run("read",r => r.taskRuns.get(runId));
           if (run && isTerminal(run) && !observed && await this.deps.launcher.cancelPending(owner)) return this.failedPreparation(payload, "owner ended before devcontainer setup began");
         }
-        if (status === "failed" || status === "interrupted") return this.failedPreparation(payload, "devcontainer setup ended without a successful completion receipt", observed?.id);
+        if (status === "failed" || status === "interrupted") {
+          const final = await this.deps.runtime.observe(owner);
+          return this.failedPreparation(payload, "devcontainer setup ended without a successful completion receipt", final?.id);
+        }
       }
       if (!id || observed?.id !== id || observed.state !== "running") return fail("unavailable", "cannot confirm the recorded running sandbox and completed devcontainer setup");
       const result = await this.deps.units.run("write", async r => {

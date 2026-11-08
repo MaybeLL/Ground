@@ -31,6 +31,7 @@ export interface Sandbox extends Versioned {
   /** The user's own agent worked in this worktree; its stop can only be declared, so the worktree is never handed on. */
   readonly externalWorkerUsed: boolean;
   readonly blockedReason?: string;
+  readonly blockedRuntimePaused?: boolean;
   readonly reservation?: Reservation;
   readonly transfers: readonly TransferRecord[];
   readonly workspaceDisposition?: WorkspaceDisposition;
@@ -157,7 +158,7 @@ export function reserve(sandbox: Sandbox, command: ReserveCommand): Step {
   const event: SandboxEvent = { type: "reserved", sandboxId: sandbox.id, kind: command.kind, operationId: command.operationId, at: command.at };
   switch (command.kind) {
     case "pause":
-      if (sandbox.phase !== "ready") return conflict("only a ready sandbox can be paused");
+      if (sandbox.phase !== "ready" && !(sandbox.phase === "blocked" && sandbox.runtime)) return conflict("only an owned ready or blocked runtime can be paused");
       return advance(sandbox, { reservation }, [event], undefined);
     case "resume":
       if (sandbox.phase !== "paused") return conflict("only a paused sandbox can be resumed");
@@ -194,7 +195,7 @@ export function completeReservation(sandbox: Sandbox, command: { operationId: Id
   if (!r || r.operationId !== command.operationId) return conflict("no such operation is reserved");
   let phase: SandboxPhase;
   switch (r.kind) {
-    case "pause": phase = "paused"; break;
+    case "pause": phase = sandbox.phase === "blocked" ? "blocked" : "paused"; break;
     case "resume": phase = "ready"; break;
     case "transfer":
       if (!r.ownerChanged) return conflict("the owner has not been changed yet");
@@ -202,7 +203,7 @@ export function completeReservation(sandbox: Sandbox, command: { operationId: Id
       break;
     default: return conflict("a release finishes with completeRelease");
   }
-  return advance(sandbox, { phase, reservation: undefined, ...(phase === "preparing" ? {} : { blockedReason: undefined }) },
+  return advance(sandbox, { phase, reservation: undefined, ...(phase === "blocked" ? {blockedRuntimePaused:true} : phase === "preparing" ? {} : { blockedReason: undefined, blockedRuntimePaused:undefined }) },
     [{ type: "reservation-completed", sandboxId: sandbox.id, kind: r.kind, phase, at: command.at }], undefined);
 }
 

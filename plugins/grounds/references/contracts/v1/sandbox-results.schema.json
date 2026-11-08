@@ -203,7 +203,10 @@
           "$ref": "work-results.schema.json#/$defs/Id"
         },
         "phase": {
-          "const": "paused"
+          "enum": [
+            "paused",
+            "blocked"
+          ]
         }
       },
       "additionalProperties": false

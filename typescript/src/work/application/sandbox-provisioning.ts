@@ -69,7 +69,7 @@ export class SandboxProvisioning {
     if (content.format !== "grounds.devcontainer/v1") return fail("unsupported", "unsupported environment revision");
     let workspace;
     try { workspace = await this.deps.workspaces.prepare(owner, repository, reserved.commit, content); }
-    catch { return this.recovery.failedPreparation(reserved, "the frozen sandbox workspace could not be prepared"); }
+    catch { return this.recovery.failedPreparation(reserved, "the frozen sandbox workspace could not be prepared",undefined,false); }
     const winner = await this.deps.units.run("write", async r => {
       const current = await r.taskRuns.get(runId, {lock:true});
       const sb = await r.sandboxes.get(reserved.sandboxId, {lock:true});

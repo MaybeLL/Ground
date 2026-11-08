@@ -4,7 +4,7 @@ import { fail, fromRejection, succeed, type Outcome } from "./outcome.js";
 import type { RequestContext } from "./requests.js";
 
 type Action = "pause" | "release";
-type Result = { sandboxId: string; runId: string; phase: "ready" | "paused" | "released" };
+type Result = { sandboxId: string; runId: string; phase: "blocked" | "paused" | "released" };
 
 export class SandboxLifecycle {
   constructor(private readonly deps: RequestContext & { runtime: SandboxRuntimePort; ledgerId(): Promise<string> }) {}
@@ -58,6 +58,8 @@ export class SandboxLifecycle {
       const location = await this.deps.runtime.location();
       if (!expected || location.daemonId !== expected.daemonId || location.hostId !== expected.hostId) return fail("conflict", "the recorded Docker daemon and runtime host are required");
       await this.deps.runtime.exclusive(owner, async () => {
+        const active = await this.deps.runtime.location();
+        if (active.daemonId !== expected.daemonId || active.hostId !== expected.hostId) throw new Error("runtime location changed");
         const saved = await this.deps.units.run("read", r => r.intents.get(intent.id));
         if (saved?.state === "completed") return;
         const observed = await this.deps.runtime.observe(owner);
@@ -80,7 +82,7 @@ export class SandboxLifecycle {
       const at = this.deps.now();
       const completed = action === "release" ? completeRelease(sandbox, { operationId: saved.id, at, workspace: "retained" }) : completeReservation(sandbox, { operationId: saved.id, at });
       if (!completed.ok) return fromRejection(completed.error);
-      const result: Result = { sandboxId, runId, phase: action === "release" ? "released" : "paused" };
+      const result: Result = { sandboxId, runId, phase: action === "release" ? "released" : completed.value.state.phase === "blocked" ? "blocked" : "paused" };
       await r.sandboxes.save(completed.value.state, sandbox.version);
       await r.intents.save({ ...saved, state: "completed", result, updatedAt: at, version: saved.version + 1 }, saved.version);
       return succeed(result);
@@ -105,7 +107,7 @@ export class SandboxLifecycle {
       return resumed.ok ? succeed(null) : resumed;
     }
     const action = run.retention === "release" ? "release" : "pause";
-    if (action === "pause" && (sandbox.phase === "paused" || sandbox.phase === "blocked")) return succeed(null);
+    if (action === "pause" && (sandbox.phase === "paused" || (sandbox.phase === "blocked" && (!sandbox.runtime || sandbox.blockedRuntimePaused)))) return succeed(null);
     const result = await this.lifecycle("terminal-" + action + "-" + sandbox.id,runId,action);
     return result.ok ? succeed(null) : result;
   }
