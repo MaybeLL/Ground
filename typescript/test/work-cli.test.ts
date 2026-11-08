@@ -1248,12 +1248,15 @@ test("external sandbox runs a working task against read-only materials and retur
     const image=process.env.GROUNDS_TEST_MANAGED_AGENT!,cfg=join(h.directory,"env.json"),sources=join(h.directory,"sources.json");
     const docker=(...args:string[])=>execFileSync("docker",args,{encoding:"utf8"}).trim();
     writeFileSync(cfg,JSON.stringify({image,workspaceFolder:"/work",overrideCommand:false}));
-    writeFileSync(sources,JSON.stringify([{name:"input",repository:h.repo,commit:h.baseline}]));
+    const input=join(h.directory,"material-clone");
+    git(h.directory,"clone","-q",h.repo,input);
+    writeFileSync(sources,JSON.stringify([{name:"input",repository:input,commit:h.baseline}]));
     const env=ok(await h.cli("work","define-environment","--name","materials","--devcontainer",cfg,"--image-digest",docker("image","inspect","--format","{{.Id}}",image)));
     const task=ok(await h.cli("task","create","--title","external report","--kind","working","--criterion","matches input","--materials",sources,"--environment",env.environmentId));
     const {runId}=ok(await h.cli("work","start-run","--task",task.taskId,"--mode","external","--retention","release"));
     const {sessionId}=ok(await h.cli("work","register","--run",runId,"--agent","external"));
     const workspace=ok(await h.cli("work","workspace","--run",runId));
+    renameSync(input,input+"-offline");
     const ledger=ok(await h.cli("db","status")).database_id;
     try {
       ok(await h.cli("work","prepare-sandbox","--run",runId));
@@ -1268,21 +1271,32 @@ test("external sandbox runs a working task against read-only materials and retur
   });
 });
 
-test("external sandbox runs commands in the registered task workspace", {skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async()=>{
+test("external sandbox runs commands in the registered task workspace", {skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async t=>{
   await withHarness(async h=>{
     const image=process.env.GROUNDS_TEST_MANAGED_AGENT!,config=join(h.directory,"devcontainer.json");
     const docker=(...args:string[])=>execFileSync("docker",args,{encoding:"utf8"}).trim();
     writeFileSync(config,JSON.stringify({image,workspaceFolder:"/task",overrideCommand:false}));
     const environment=ok(await h.cli("work","define-environment","--name","external commands","--devcontainer",config,"--image-digest",docker("image","inspect","--format","{{.Id}}",image)));
-    const task=ok(await h.cli("task","create","--title","external runtime","--criterion","runtime output","--repo-remote",h.remote,"--baseline",h.baseline,"--environment",environment.environmentId));
+    const task=ok(await h.cli("task","create","--title","external runtime","--criterion","runtime output","--repo-remote",h.remote,"--baseline","main","--environment",environment.environmentId));
     const {runId}=ok(await h.cli("work","start-run","--task",task.taskId,"--mode","external","--retention","release"));
     const {sessionId}=ok(await h.cli("work","register","--run",runId,"--agent","host-agent"));
-    const {path}=ok(await h.cli("work","workspace","--run",runId,"--repo",h.repo));
-    writeFileSync(join(path,"host-note.txt"),"from the external agent");
     const ledger=ok(await h.cli("db","status")).database_id;
     try {
       const [prepared,context]=["prepare-sandbox","sandbox-context"].map(action=>["work",action,"--run",runId]);
-      const sandbox=ok(await h.cli(...prepared,"--repo",h.repo));
+      const {DevcontainerRuntime}=await import("../src/work/adapters/devcontainer/runtime.js");
+      t.mock.method(DevcontainerRuntime.prototype,"exclusive",async()=>{throw Error("interrupted after reserving the sandbox");},{times:1});
+      const original=[...prepared,"--repo",h.repo,"--operation-id",newUUIDv7()];
+      assert.equal((await h.cli(...original)).ok,false);
+      writeFileSync(join(h.repo,"late.txt"),"after reservation");
+      git(h.repo,"add","late.txt");git(h.repo,"commit","-qm","advance branch after reservation");
+      const sandbox=ok(await h.cli(...original));
+      assert.equal(sandbox.commit,h.baseline);
+      const {path}=ok(await h.cli("work","workspace","--run",runId,"--repo",h.repo));
+      assert.equal(git(path,"rev-parse","HEAD"),h.baseline);
+      const second=join(h.directory,"other-clone");
+      git(h.directory,"clone","-q",h.repo,second);
+      assert.equal((await h.cli("work","workspace","--run",runId,"--repo",second)).error.code,"STATE_CONFLICT");
+      writeFileSync(join(path,"host-note.txt"),"from the external agent");
       assert.equal((await h.cli(...context,"--session",newUUIDv7())).error.code,"AUTH_FAILED");
       const access=ok(await h.cli(...context,"--session",sessionId));
       assertContract("sandbox-results.schema.json",access);

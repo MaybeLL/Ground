@@ -3,7 +3,8 @@
 // written first and is idempotent, so a command that stops half way is simply
 // run again.
 import { readArtifact } from "./artifacts.js";
-import { canRefineFromBaseline, isTerminal, isId, parseTaskContent, type Id } from "../domain/index.js";
+import type {RequestContext} from "./requests.js";
+import { digestOf,canRefineFromBaseline, isTerminal, isId, parseTaskContent, type Id } from "../domain/index.js";
 import type { ArchiveProtection, RecordedProtection, CodeArchivePort, WorkUnitOfWork, WorktreePort } from "../ports/index.js";
 import { fail, failureOf, succeed, type Outcome } from "./outcome.js";
 import type { Submitted, TaskExecution } from "./task-execution.js";
@@ -17,7 +18,7 @@ const repositoryOf = (content: unknown): { remote?: string; baseline?: string } 
 };
 
 export class CodeDelivery {
-  constructor(private readonly deps: { units: WorkUnitOfWork; exec: TaskExecution; archive: CodeArchivePort; worktrees: WorktreePort; materials:import("../ports/index.js").WorkingWorkspacePort; ledgerId():Promise<string>; repairs: import("./archive-repairs.js").ArchiveRepairs }) {}
+  constructor(private readonly deps: { context:RequestContext; units: WorkUnitOfWork; exec: TaskExecution; archive: CodeArchivePort; worktrees: WorktreePort; materials:import("../ports/index.js").WorkingWorkspacePort; ledgerId():Promise<string>; repairs: import("./archive-repairs.js").ArchiveRepairs }) {}
 
   /**
    * Archive a commit of the worker's repository and hand it in as the round's
@@ -94,7 +95,7 @@ export class CodeDelivery {
    * fetched back from its archive, never from whatever the earlier worker left
    * on disk.
    */
-  async workspace(input:{runId:Id;repositoryPath:string}) {
+  async workspace(input:{runId:Id;repositoryPath:string},reservedCommit?:string) {
     const known = await this.deps.units.run("read",async r=>{
       const run = await r.taskRuns.get(input.runId);
       if (!run) return;
@@ -104,7 +105,7 @@ export class CodeDelivery {
     if (!known) return fail("not-found","task run does not exist");
     if (!known.task.ok) return fail("invalid",known.task.error.message);
     if (known.task.value.kind === "coding") {
-      const workspace=await this.prepareWorkspace(input);
+      const workspace=await this.prepareWorkspace(input,reservedCommit);
       if (!workspace.ok || !known.task.value.materialRepositories?.length) return workspace;
       const {materials}=await this.deps.materials.prepare(await this.deps.ledgerId(),input.runId,known.task.value.materialRepositories);
       return succeed({...workspace.value,materials});
@@ -113,8 +114,8 @@ export class CodeDelivery {
     return succeed(await this.deps.materials.prepare(await this.deps.ledgerId(),input.runId,known.task.value.materialRepositories ?? []));
   }
 
-  async prepareWorkspace(input: { runId: Id; repositoryPath: string }): Promise<Outcome<Workspace>> {
-    const base = await this.workspaceBase(input);
+  async prepareWorkspace(input: { runId: Id; repositoryPath: string },reservedCommit?:string): Promise<Outcome<Workspace>> {
+    const base = await this.workspaceBase(input,reservedCommit);
     if (!base.ok) return base;
     try {
       const made = await this.deps.worktrees.create({ ...input, commit: base.value.commit });
@@ -131,7 +132,7 @@ export class CodeDelivery {
     return succeed({commit});
   }
 
-  async workspaceBase(input: { runId: Id; repositoryPath: string }): Promise<Outcome<Workspace["base"]>> {
+  async workspaceBase(input: { runId: Id; repositoryPath: string },reservedCommit?:string): Promise<Outcome<Workspace["base"]>> {
     if (!isId(input.runId)) return fail("invalid", "runId is required");
     try {
       const found = await this.deps.units.run("read", async r => {
@@ -139,12 +140,24 @@ export class CodeDelivery {
         if (!run) return undefined;
         const revision = await r.definitions.getRevision(run.taskRevision.definitionId, run.taskRevision.revisionId);
         const parent = run.refines ? await r.taskRuns.get(run.refines) : undefined;
-        return { run, content: revision?.content, parent };
+        const binding=run.workerMode==="external" ? (await r.intents.listForSubject("external-workspace","task_run",run.id))[0] : undefined;
+        return { run, content: revision?.content, parent,binding };
       });
       if (!found) return fail("not-found", `run ${input.runId} does not exist`);
       if (found.run.status === "delivered" || found.run.status === "failed" || found.run.status === "cancelled") return fail("conflict", `run ${found.run.id} is already ${found.run.status}`);
+      const repository=found.run.workerMode==="external" ? await this.deps.worktrees.repositoryIdentity(input.repositoryPath) : undefined;
+      const bound=(payload:unknown)=>{
+        const binding=payload as {repository:string;base:Workspace["base"]};
+        if (binding.repository!==repository) return fail("conflict","this run is bound to a different Git clone");
+        if (reservedCommit && binding.base.commit!==reservedCommit) return fail("conflict","external workspace base differs from its sandbox reservation");
+        return succeed(binding.base);
+      };
+      if (found.binding) return bound(found.binding.payload);
       let base: Workspace["base"];
-      if (found.run.refines && !(found.parent && canRefineFromBaseline(found.parent))) {
+      if (reservedCommit) {
+        const parent=found.run.refines && !(found.parent && canRefineFromBaseline(found.parent)) ? found.run.refines : undefined;
+        base={commit:reservedCommit,from:parent ? "delivery" : "baseline",of:parent ?? repositoryOf(found.content).baseline ?? reservedCommit};
+      } else if (found.run.refines && !(found.parent && canRefineFromBaseline(found.parent))) {
         const item = found.parent?.manifest?.items.find(i => i.type === "candidate");
         if (!item) return fail("conflict", `run ${found.run.refines} delivered no code to continue from`);
         const { receipt } = await this.deps.repairs.current(found.run.refines, item, input.repositoryPath);
@@ -158,7 +171,18 @@ export class CodeDelivery {
         if (!commit) return fail("invalid", `baseline ${baseline} is not a commit of ${input.repositoryPath}`);
         base = { commit, from: "baseline", of: baseline };
       }
-      return succeed(base);
+      if (!repository) return succeed(base);
+      return await this.deps.units.run("write",async r=>{
+        const run=await r.taskRuns.get(input.runId,{lock:true});
+        if (!run || run.cancelIntent || isTerminal(run)) return fail("conflict","external run is no longer active");
+        const [prior]=await r.intents.listForSubject("external-workspace","task_run",run.id);
+        if (prior) return bound(prior.payload);
+        const ctx=this.deps.context,at=ctx.now(),id=ctx.newId();
+        const payload={repository,base},hash=digestOf(payload,ctx.hash);
+        if (!hash.ok) return fail("invalid",hash.error.message);
+        await r.intents.register({id,requestId:id,kind:"external-workspace",requestHash:hash.value,subject:{type:"task_run",id:run.id},payload,state:"completed",result:payload,createdAt:at,updatedAt:at,version:1});
+        return succeed(base);
+      });
     } catch (error) { const failure = failureOf(error); if (failure) return { ok: false, error: failure }; throw error; }
   }
 

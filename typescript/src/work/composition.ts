@@ -66,7 +66,7 @@ export function composeWork(store: SQLStore): WorkApplication & {driver:ManagedT
   const rules = new RuleDefinitions(context);
   const builds=new DevcontainerBuilds(ledgerId);
   const environments = new EnvironmentDefinitions(context,pinnedConfig,builds.build.bind(builds));
-  const delivery = new CodeDelivery({ units, exec, archive, repairs, ledgerId, materials:new MaterialWorkspaces(), worktrees: new GitWorktrees() });
+  const delivery = new CodeDelivery({ context,units, exec, archive, repairs, ledgerId, materials:new MaterialWorkspaces(), worktrees: new GitWorktrees() });
   const sandboxes = new SandboxProvisioning({ ...managed, delivery }, recovery);
   const workers=new ManagedWorkers({...context,lifecycle});
   const agentProcess=new ContainerAgentProcess(runtime,workspaces,archive);

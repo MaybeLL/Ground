@@ -153,9 +153,11 @@ export class SandboxProvisioning {
     let workspace;
     try {
       if (known.run.workerMode==="external") {
-        const selected=await this.deps.delivery.workspace({runId,repositoryPath:repository});
-        if (!selected.ok) return selected;
-        workspace=await this.deps.workspaces.prepareExternal(owner,runId,repository,reserved.commit,content,selected.value.path,known.task.value.materialRepositories ?? []);
+        workspace=await this.deps.workspaces.prepareExternal(owner,runId,repository,reserved.commit,content,async()=>{
+          const selected=await this.deps.delivery.workspace({runId,repositoryPath:repository},reserved.commit ?? undefined);
+          if (!selected.ok) throw Error(selected.error.message);
+          return selected.value;
+        },known.task.value.materialRepositories ?? []);
       } else workspace=await this.deps.workspaces.prepare(owner,repository,reserved.commit,content,false,known.task.value.materialRepositories);
     }
     catch { return this.recovery.failedPreparation(reserved, "the frozen sandbox workspace could not be prepared",undefined,false); }

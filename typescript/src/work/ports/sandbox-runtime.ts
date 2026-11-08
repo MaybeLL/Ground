@@ -20,7 +20,7 @@ export interface SandboxRuntimePort {
 /** The configuration and completion evidence live outside the worker's mount. */
 export interface ManagedWorkspacePort {
   prepare(owner: RuntimeOwner, repository: string, commit: string|null, content: { config: string; lockfile: string | null; imageDigest: string }, requireExisting?: boolean,repositories?:readonly import("../domain/definitions.js").MaterialRepository[]): Promise<RuntimeWorkspace>;
-  prepareExternal(owner:RuntimeOwner,runId:string,repository:string,commit:string|null,content:{config:string;lockfile:string|null;imageDigest:string},path:string,repositories:readonly import("../domain/definitions.js").MaterialRepository[]):Promise<RuntimeWorkspace>;
+  prepareExternal(owner:RuntimeOwner,runId:string,repository:string,commit:string|null,content:{config:string;lockfile:string|null;imageDigest:string},select:()=>Promise<{path:string;materials?:readonly {path:string}[]}>,repositories:readonly import("../domain/definitions.js").MaterialRepository[]):Promise<RuntimeWorkspace>;
   receipt(owner: RuntimeOwner): Promise<string | null>;
   record(owner: RuntimeOwner, containerId: string): Promise<void>;
 }

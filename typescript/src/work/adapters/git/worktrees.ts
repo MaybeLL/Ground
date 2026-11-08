@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync,realpathSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { repositoryDataRoot } from "../../../data-layout.js";
@@ -9,6 +9,11 @@ const run = promisify(execFile);
 
 /** One git worktree per run, under the repository's own data directory, on a branch named for the run. */
 export class GitWorktrees implements WorktreePort {
+  async repositoryIdentity(repositoryPath:string) {
+    const {stdout}=await run("git",["-C",repositoryPath,"rev-parse","--path-format=absolute","--git-common-dir"]);
+    return realpathSync(stdout.trim());
+  }
+
   async create(input: { repositoryPath: string; runId: string; commit: string }): Promise<{ path: string; branch: string; created: boolean }> {
     if (!/^[A-Za-z0-9._-]{1,128}$/.test(input.runId)) throw new Error("the run identity is not usable in a path");
     const parent = join(repositoryDataRoot(input.repositoryPath), "work", input.runId);
