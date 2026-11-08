@@ -19,7 +19,9 @@ npm install -g @maybell/grounds@0.2.53
 grounds --help
 ```
 
-Use Node.js 22.13 or later. The CLI's native dependencies may require Python 3 and a C/C++ build toolchain (Xcode Command Line Tools on macOS, or make and a C/C++ compiler on Linux). The same installation artifacts are also available as [GitHub release tarballs](docs/releases.md#install-a-github-release). Stateful workflows require a configured SQL ledger; see the [getting started guide](docs/getting-started.md).
+Use Node.js 22.13 or later. Published releases through 0.2.53 may require Python 3 and a C/C++ build toolchain (Xcode Command Line Tools on macOS, or make and a C/C++ compiler on Linux). The same installation artifacts are also available as [GitHub release tarballs](docs/releases.md#install-a-github-release). Stateful workflows require a configured SQL ledger; see the [getting started guide](docs/getting-started.md).
+
+The refactor build bundles native support for macOS and glibc Linux on x64 and arm64. Its staged tarball can be installed with `npm install -g /path/to/package.tgz`.
 
 ## Build from source
 

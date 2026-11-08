@@ -1,6 +1,6 @@
 import { dataLayout } from "./data-layout.js";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { flockSync } from "./native-binding.js";
+import { flockSync, lockContended } from "./native-binding.js";
 import {
   constants,
   lstatSync,
@@ -155,7 +155,7 @@ export function withRuntimeLockSync<T>(root: string, key: string, fn: () => T): 
   const fd = openSync(path, constants.O_CREAT | constants.O_RDWR | constants.O_NOFOLLOW, 0o600);
   try {
     try { flockSync(fd, "exnb"); }
-    catch { throw runtimeError("busy: another local controller holds the operation lock", undefined, "busy"); }
+    catch (error) { if (!lockContended(error)) throw error; throw runtimeError("busy: another local controller holds the operation lock", undefined, "busy"); }
     return fn();
   } finally { closeSync(fd); }
 }
@@ -182,16 +182,15 @@ export async function withRuntimeLock<T>(
       try {
         flockSync(fd, mode === "shared" ? "shnb" : "exnb");
         break;
-      } catch (error: any) {
-        const contended = ["EAGAIN", "EWOULDBLOCK"].includes(error.code);
-        if (waitMs > 0 && performance.now() < deadline && contended) {
+      } catch (error) {
+        if (!lockContended(error)) throw error;
+        if (waitMs > 0 && performance.now() < deadline) {
           // Never block libuv's worker pool on flock: multiple waiters can
           // otherwise starve the owner's asynchronous work. Only acquisition
           // is retried; the protected operation is invoked exactly once.
           await new Promise(resolve => setTimeout(resolve, 25));
           continue;
         }
-        if (waitMs > 0 && !contended) throw error;
         throw runtimeError(
           "busy: another local controller holds the operation lock",
           undefined,

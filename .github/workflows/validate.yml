@@ -84,6 +84,37 @@ jobs:
           path: typescript/prebuilds/${{ matrix.target }}/peercred.node
           if-no-files-found: error
 
+  assembled:
+    name: Install assembled four-platform package
+    needs: native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - run: npm ci --registry=https://registry.npmjs.org && npm run build
+        working-directory: typescript
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: native-*
+          path: native-artifacts
+      - name: Assemble the four verified Node-API binaries
+        run: |
+          for platform in darwin-x64 darwin-arm64 linux-x64 linux-arm64; do
+            mkdir -p "typescript/prebuilds/$platform"
+            cp "native-artifacts/native-$platform/peercred.node" "typescript/prebuilds/$platform/peercred.node"
+          done
+      - run: node scripts/release-artifacts.mjs --all-platforms
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: tested-package
+          path: output/release/*
+          if-no-files-found: error
+
   integration:
     name: Integration (MySQL, PostgreSQL, SQLite)
     runs-on: ubuntu-24.04

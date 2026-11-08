@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, openSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { flockSync } from "./native-binding.js";
+import { flockSync, lockContended } from "./native-binding.js";
 import { environmentStoreRoot, readRecord, writeRecord, instanceDirectories } from "./env-store.js";
 import { atomicPrivateWrite, digestBytes, privateDirectory, safeRead, directoryRegistryRoot } from "./runtime-files.js";
 import { stateConflict, validation } from "./errors.js";
@@ -22,7 +22,7 @@ export const acquireCredentialSourceLocks = (sourceFiles: string[]): (() => void
       const fd = openSync(join(privateDirectory(join(directoryRegistryRoot(), "credential-locks")), key), "a", 0o600);
       descriptors.push(fd);
       try { flockSync(fd, "exnb"); }
-      catch { throw stateConflict("credential", key, "credential source is in use by preparation, synchronization or authentication; explicitly retry"); }
+      catch (error) { if (!lockContended(error)) throw error; throw stateConflict("credential", key, "credential source is in use by preparation, synchronization or authentication; explicitly retry"); }
     }
     return release;
   } catch (error) { release(); throw error; }

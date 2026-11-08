@@ -7,6 +7,8 @@
 #include <errno.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
+#include <uv.h>
 
 static napi_value peer_uid(napi_env env, napi_callback_info info) {
   size_t argc = 1;
@@ -55,7 +57,8 @@ static napi_value try_lock(napi_env env, napi_callback_info info) {
   int rc;
   do { rc = flock(fd, (shared ? LOCK_SH : LOCK_EX) | LOCK_NB); } while (rc < 0 && errno == EINTR);
   if (rc < 0) {
-    napi_throw_error(env, errno == EWOULDBLOCK ? "EWOULDBLOCK" : "FLOCK_ERROR", "could not acquire file lock");
+    const int failure = errno;
+    napi_throw_error(env, failure == EWOULDBLOCK ? "EWOULDBLOCK" : uv_err_name(uv_translate_sys_error(failure)), strerror(failure));
     return NULL;
   }
   napi_get_undefined(env, &result);

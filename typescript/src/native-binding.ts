@@ -25,3 +25,6 @@ export function nativeBinding(): NativeBinding {
 }
 
 export const flockSync = (fd: number, mode: "exnb" | "shnb"): void => nativeBinding().tryLock(fd, mode === "shnb");
+
+export const lockContended = (error: unknown): boolean =>
+  error instanceof Error && ["EAGAIN", "EWOULDBLOCK"].includes((error as NodeJS.ErrnoException).code ?? "");

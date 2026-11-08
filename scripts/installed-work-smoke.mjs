@@ -3,19 +3,23 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 
-export function acceptFirstWork(cli, directory, env) {
+export function acceptFirstWork(cli, directory, env, githubRemote) {
   const command = (program, args, cwd = directory) => execFileSync(program, args, { cwd, env, encoding: 'utf8' }).trim();
   const grounds = (...args) => JSON.parse(command(cli, [...args, '--json'])).data;
   const git = (cwd, ...args) => command('git', args, cwd);
-  const source = join(directory, 'source'), remote = join(directory, 'remote.git');
-  git(directory, 'init', '--bare', remote);
+  const setupStarted = performance.now();
+  const source = join(directory, 'source'), bare = join(directory, 'remote.git');
+  if (!githubRemote) git(directory, 'init', '--bare', bare);
+  const remote = githubRemote ?? pathToFileURL(bare).href;
   git(directory, 'init', '-b', 'main', source);
   writeFileSync(join(source, 'example.txt'), 'before\n');
   git(source, 'add', 'example.txt');
   git(source, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'base');
 
+  console.log(`Test repository setup: ${((performance.now() - setupStarted) / 1000).toFixed(2)} s`);
   grounds('init');
   const task = grounds('task', 'create', '--title', 'Update example', '--criterion', 'Contains after', '--repo-remote', remote, '--baseline', git(source, 'rev-parse', 'HEAD'));
   const run = grounds('work', 'start', '--task', task.taskId, '--mode', 'none');
@@ -24,7 +28,13 @@ export function acceptFirstWork(cli, directory, env) {
   git(workspace.path, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-am', 'update');
   const delivered = grounds('work', 'deliver', '--run', run.runId, '--repo', workspace.path);
   assert.equal(delivered.submitted.status, 'delivered');
-  assert.equal(git(remote, 'show', `refs/tags/grounds/deliveries/${delivered.delivery.id}:example.txt`), 'after');
+  const ref = `refs/tags/grounds/deliveries/${delivered.delivery.id}`;
+  const head = git(workspace.path, 'rev-parse', 'HEAD');
+  assert.equal(delivered.delivery.commit, head);
+  assert.equal(git(source, 'ls-remote', '--exit-code', '--refs', '--', remote, ref), `${head}\t${ref}`);
+  git(source, 'fetch', '--no-tags', '--', remote, ref);
+  assert.equal(git(source, 'rev-parse', 'FETCH_HEAD^{commit}'), head);
+  assert.equal(git(source, 'show', 'FETCH_HEAD:example.txt'), 'after');
   const gate = grounds('grade', 'request', '--run', run.runId);
   const registered = grounds('grade', 'register', '--grading', gate.gradingId, '--agent', 'package-smoke');
   const session = ['--grading', gate.gradingId, '--session', registered.sessionId];

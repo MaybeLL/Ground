@@ -2,9 +2,9 @@
 
 ## Prerequisites
 
-Packaged installations on macOS and glibc Linux (x64 or arm64) need Node.js 22.13 or newer, npm and Git. Building a checkout from source also requires Python 3 and a C/C++ toolchain.
+The staged refactor tarball on macOS and glibc Linux (x64 or arm64) needs Node.js 22.13 or newer, npm and Git. Building a checkout from source also requires Python 3 and a C/C++ toolchain.
 
-Follow [npm installation](../README.md#install-a-published-version) for a published version, or use the [source build](../README.md#build-from-source). Inspect installed commands without opening a database:
+Install the staged file with `npm install -g /path/to/package.tgz`. Follow [npm installation](../README.md#install-a-published-version) for a published version, or use the [source build](../README.md#build-from-source). Inspect installed commands without opening a database:
 
 ```sh
 grounds help --json

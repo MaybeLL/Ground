@@ -225,6 +225,21 @@ test("unexpected failures use the stable internal error message", () => {
   assert.equal(exitCode(domain), 1);
 });
 
+test("bare init on a terminal creates the default SQLite ledger without prompting", async () => {
+  const root = mkdtempSync(join(tmpdir(), "grounds-default-install-"));
+  const savedRoot = process.env.GROUNDS_DATA_HOME, savedConfig = process.env.GROUNDS_CONFIG;
+  try {
+    process.env.GROUNDS_DATA_HOME = root;
+    delete process.env.GROUNDS_CONFIG;
+    const result = await execute(["init"], { isTTY: true, prompt: async () => { throw new Error("unexpected prompt"); } }) as { config_path: string };
+    assert.equal(loadConfig(result.config_path).database.driver, "sqlite");
+  } finally {
+    if (savedRoot === undefined) delete process.env.GROUNDS_DATA_HOME; else process.env.GROUNDS_DATA_HOME = savedRoot;
+    if (savedConfig === undefined) delete process.env.GROUNDS_CONFIG; else process.env.GROUNDS_CONFIG = savedConfig;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("interactive init uses the same config model as flags", async () => {
   const directory = mkdtempSync(join(tmpdir(), "grounds-cli-test-"));
   try {

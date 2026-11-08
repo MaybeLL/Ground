@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, openSync, closeSync } from "node:fs";
 import { join } from "node:path";
-import { flockSync } from "./native-binding.js";
+import { flockSync, lockContended } from "./native-binding.js";
 import { stateConflict, validation } from "./errors.js";
 import { isUUIDv7 } from "./identity.js";
 import { atomicPrivateWrite, privateDirectory, runtimeRoot, safeRead } from "./runtime-files.js";
@@ -53,6 +53,6 @@ export const withEnvironmentOperation = <T>(id: string, action: () => T): T => {
   if(!existsSync(join(directory,"environment.json")))throw validation("environment_id","no environment with this identifier");
   const file = join(directory, "operation.lock");
   const fd = openSync(file,"a",0o600);
-  try { try { flockSync(fd,"exnb"); } catch { throw stateConflict("environment",id,"another controller is updating this instance"); } return action(); }
+  try { try { flockSync(fd,"exnb"); } catch (error) { if (!lockContended(error)) throw error; throw stateConflict("environment",id,"another controller is updating this instance"); } return action(); }
   finally { closeSync(fd); }
 };
