@@ -1618,6 +1618,11 @@ test("experiment runs rule and sandbox test graders against the selected working
       assert.deepEqual(after.requirements.map((v:{adopted:string})=>v.adopted),member.requirements.map((v:{adopted:string})=>v.adopted));
       assert.equal(after.requirements.filter((v:{key:string})=>v.key!=="numeric").every((v:{latestFault?:unknown})=>!!v.latestFault),true);
       assert.equal(ok(await h.cli("experiment","results","--batch",batchId)).counts.fullyGraded,1);
+      // The result is durable before the detached controllers finish housekeeping.
+      const host=join(dataLayout().runtime,"managed-host");
+      for (const key of ["execution-"+accepted.gradingId,"execution-"+batchId,"host"]) {
+        await withRuntimeLock(host,key,async()=>{},30000);
+      }
     } finally {await store.close();}
   });
 });
