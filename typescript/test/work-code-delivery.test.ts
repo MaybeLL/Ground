@@ -576,5 +576,18 @@ for (const backend of backends) test(backend + ": working runs freeze selected a
     assert.ok("result" in score && score.result==="match");
     refused(await app.suites.measure({requestId:"wrong-slot",suiteId:suite.suiteId,seq:1,caseKey:"review",runId,deliveryId:data.id},"."),"conflict");
 
+    const environment=value(await app.environments.publish({requestId:"grader-environment",name:"evaluator",expectedSeq:0,config:'{"image":"fixture"}',imageDigest:"sha256:"+"1".repeat(64)}));
+    const agent=value(await app.agents.publish({requestId:"judge",name:"reviewer",provider:"claude-code",expectedSeq:0}));
+    const judge=value(await app.rules.publishAgent({requestId:"judge-definition",name:"quality",expectedSeq:0,agentId:agent.agentId,agentRevisionId:agent.revisionId,
+      environmentId:environment.environmentId,environmentRevisionId:environment.revisionId,rubric:"Compare evidence",scale:{form:"numeric",min:0,max:5}}));
+    const judged=value(await app.suites.publish({requestId:"judge-suite",name:"evaluated reports",expectedSeq:0,cases:[
+      {key:"case",runId,deliveryId:saved.id,bindings:[{key:"rubric",referencePath:"report.txt",grader:{definitionId:judge.graderId,revisionId:judge.revisionId}}]}
+    ]},"."));
+    const request={requestId:"judge-measure",suiteId:judged.suiteId,seq:1,caseKey:"case",runId,deliveryId:saved.id};
+    const measure=value(await app.suites.measure(request,"."));
+    assert.equal(value(await app.tests.context(measure.gradingId)).grading.strategy,"agent");
+    value(await app.grading.cancel({requestId:"cancel-before-evaluator",gradingId:measure.gradingId}));
+    assert.equal(value(await app.tests.context(measure.gradingId)).grading.status,"cancelled");
+    assert.deepEqual(value(await app.suites.measure(request,".")),measure);
   },backend);
 });

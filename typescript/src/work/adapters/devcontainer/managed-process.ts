@@ -47,7 +47,7 @@ export class ContainerAgentProcess implements ManagedProcessPort {
     environment.push(...gitEnvironment(config.workspaceFolder));
     atomicPrivateWrite(join(root,"inventory.json"),JSON.stringify(await this.runtime.processes(plan.target.owner,plan.target.containerId)));
     atomicPrivateWrite(join(root,"create-attempt"),plan.job.executionId);
-    const id=await this.engine.create(plan.target,{argv:provider.command(plan.agent.model),cwd:config.workspaceFolder,user:config.remoteUser,environment});
+    const id=await this.engine.create(plan.target,{argv:provider.command(plan.agent.model,plan.role),cwd:config.workspaceFolder,user:config.remoteUser,environment});
     atomicPrivateWrite(path,id);
     return id;
   }
@@ -68,12 +68,13 @@ export class ContainerAgentProcess implements ManagedProcessPort {
     return {state: "complete", exitCode: result.exitCode};
   }
 
-  async drive(plan:AgentProcessPlan,id:string,allowStart:boolean):Promise<ProcessRead> {
+  async drive(plan:AgentProcessPlan,id:string,allowStart:boolean,authorizeStart?:()=>Promise<boolean>):Promise<ProcessRead> {
     const root=this.root(plan),result=bridgeResult(root);
     if(result) return this.confirmExit(plan, id, result);
     if(!existsSync(join(root,"start-attempt"))){
       if(bridgeStarting(root))return {state:"running",detail:"provider bridge is starting"};
       if(!allowStart)return {state:"awaiting-resume",detail:"provider has not started"};
+      if (authorizeStart && !await authorizeStart()) return {state:"running",detail:"evaluator start authority changed"};
       await spawnProviderBridge(root,{target:plan.target,handle:id,prompt:plan.prompt});
       return {state:"running",detail:"provider bridge dispatched"};
     }
@@ -89,6 +90,12 @@ export class ContainerAgentProcess implements ManagedProcessPort {
     }
   }
 
+  async availableOutput(plan:AgentProcessPlan) {
+    const root=this.root(plan);
+    if (!existsSync(join(root,"stdout.jsonl")) && !existsSync(join(root,"stderr"))) return;
+    return this.output(plan);
+  }
+
   async output(plan:AgentProcessPlan):Promise<WorkerOutput> {
     const trace=await new ProviderTraceCapture().capture(plan.agent.provider,join(this.root(plan),"stdout.jsonl"));
     try {
@@ -99,6 +106,7 @@ export class ContainerAgentProcess implements ManagedProcessPort {
         if(event.kind==="message"&&event.role==="assistant")message=event.text;
         if(event.kind==="provider-ended")providerFailed=event.outcome==="failed";
       }
+      if (plan.role==="evaluator") message=trace.finalMessage ?? "";
       const stderrPath=join(this.root(plan),"stderr"),hash=createHash("sha256");
       let byteLength=0;
       for await(const bytes of createReadStream(stderrPath)){hash.update(bytes);byteLength+=bytes.length;}

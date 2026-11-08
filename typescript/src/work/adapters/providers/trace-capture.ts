@@ -21,6 +21,7 @@ export class ProviderTraceCapture implements TraceCapturePort {
       const adapter = commandLineProviders[provider];
       let records = 0, convertedRecords = 0, eventCount = 0, length = 0;
       const omissions = {invalidUtf8:0,invalidJson:0,oversized:0,unknownRecords:0,unknownParts:0,unserializableParts:0};
+      let lastCodexMessage:string|undefined,finalMessage:string|undefined;
       let fragments: Buffer[] = [];
       const add = (part: Buffer) => {
         length += part.length;
@@ -28,7 +29,8 @@ export class ProviderTraceCapture implements TraceCapturePort {
       };
       const finish = async () => {
         records++;
-        if (length > maxRecord) omissions.oversized++;
+        finalMessage=undefined;
+        if (length > maxRecord) {omissions.oversized++;lastCodexMessage=undefined;}
         else {
           let text: string | undefined;
           try { text = new TextDecoder("utf-8",{fatal:true}).decode(Buffer.concat(fragments,length)); } catch { omissions.invalidUtf8++; }
@@ -36,7 +38,15 @@ export class ProviderTraceCapture implements TraceCapturePort {
           if (text !== undefined) {
             try { parsed = JSON.parse(text); } catch { omissions.invalidJson++; }
           }
+          if (parsed===undefined) lastCodexMessage=undefined;
           if (parsed !== undefined) {
+            if (provider==="claude-code" && parsed?.type==="result" && parsed.subtype==="success" && !parsed.is_error && typeof parsed.result==="string") {
+              finalMessage=parsed.result;
+            } else if (provider==="codex") {
+              if (parsed?.type==="turn.completed") finalMessage=lastCodexMessage;
+              else if (parsed?.type==="item.completed" && parsed.item?.type==="agent_message" && typeof parsed.item.text==="string") lastCodexMessage=parsed.item.text;
+              else lastCodexMessage=undefined;
+            }
             const decoded = adapter.decode(parsed);
             const before = eventCount;
             if (!decoded.events.length) omissions.unknownRecords++;
@@ -70,7 +80,7 @@ export class ProviderTraceCapture implements TraceCapturePort {
       } finally { await input.close(); }
       const rawSource = raw.source(), eventSource = events.source();
       const ref = (s: typeof rawSource) => ({digest:s.digest,byteLength:s.byteLength,chunkCount:Math.ceil(s.byteLength/evidenceChunkBytes)});
-      return { descriptor: {format:"grounds.provider-trace/v1",provider,raw:ref(rawSource),events:ref(eventSource),records,convertedRecords,eventCount,omissions},
+      return { ...(finalMessage!==undefined ? {finalMessage} : {}), descriptor: {format:"grounds.provider-trace/v1",provider,raw:ref(rawSource),events:ref(eventSource),records,convertedRecords,eventCount,omissions},
         raw:rawSource,events:eventSource,dispose:()=>rm(root,{recursive:true,force:true}) };
     } catch (error) { await rm(root,{recursive:true,force:true}); throw error; }
     finally { await Promise.all(handles.map(h=>h.close())); }

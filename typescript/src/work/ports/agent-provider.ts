@@ -14,7 +14,7 @@ export type ProviderEvent =
 export interface AgentProvider {
   readonly name: ProviderName;
   readonly capabilities: Capabilities;
-  command(model?: string): readonly string[];
+  command(model?: string, role?:"evaluator"): readonly string[];
   events(record: JsonValue): ProviderEvent[];
   /** Physical positions in the input record. Multiple normalized events can
    * share a source part when a provider reports a terminal error. */
@@ -23,6 +23,7 @@ export interface AgentProvider {
 
 export type ProviderTrace = import("../domain/index.js").FrozenTrace;
 export interface CapturedTrace {
+  finalMessage?:string;
   descriptor: ProviderTrace;
   raw: import("./evidence.js").EvidenceSource;
   events: import("./evidence.js").EvidenceSource;

@@ -17,6 +17,14 @@ const containerId = /^[a-f0-9]{64}$/;
 
 /** devcontainers CLI interprets the pinned environment configuration. Docker
  * observes exact ownership and performs lifecycle operations on one container. */
+function readonlyMounts(workspace:RuntimeWorkspace) {
+  const mounts:{source:string;target:string}[]=[];
+  if (workspace.taskMaterials) mounts.push({source:workspace.taskMaterials,target:"/grounds-materials"});
+  if (workspace.graderMaterials) mounts.push({source:workspace.graderMaterials,target:"/grounds-grader"});
+  if (workspace.evaluatorDelivery) mounts.push({source:workspace.evaluatorDelivery,target:"/grounds-delivery"});
+  return mounts;
+}
+
 export class DevcontainerRuntime implements SandboxRuntimePort {
   constructor(private readonly devcontainer = createRequire(import.meta.url).resolve("@devcontainers/cli/devcontainer.js"), private readonly docker = "docker", private readonly launchLockFd?: number) {}
 
@@ -115,12 +123,12 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
     await mkdir(dir,{recursive:true,mode:0o700});
     // Registry references select manifests; a local build can instead be pinned
     // by its Docker image ID. Docker accepts that immutable ID directly.
-    const source=workspace.graderMaterials ?? workspace.taskMaterials;
-    const target=workspace.graderMaterials ? "/grounds-grader" : "/grounds-materials";
-    if (source && (parsed.workspaceFolder===target || String(parsed.workspaceFolder).startsWith(target+"/") || target.startsWith(String(parsed.workspaceFolder)+"/"))) {
-      throw new Error("workspace overlaps its reserved material mount");
+    const inputs=readonlyMounts(workspace);
+    for (const {target} of inputs) {
+      if (parsed.workspaceFolder===target || String(parsed.workspaceFolder).startsWith(target+"/") || target.startsWith(String(parsed.workspaceFolder)+"/")) throw new Error("workspace overlaps its reserved material mount");
     }
-    const launch={...parsed,...(source ? {mounts:['type=bind,"source='+source.replaceAll('"','""')+'",target='+target+',readonly']} : {}),image:image.Id===expected ? image.Id : parsed.image};
+    const mounts=inputs.map(({source,target})=>'type=bind,"source='+source.replaceAll('"','""')+'",target='+target+',readonly');
+    const launch={...parsed,...(mounts.length ? {mounts} : {}),image:image.Id===expected ? image.Id : parsed.image};
     const path = join(dir,"devcontainer.json");
     await writeFile(path,JSON.stringify(launch));
     if (workspace.frozenLockfile) await copyFile(join(dirname(workspace.configPath),"devcontainer-lock.json"),join(dir,"devcontainer-lock.json"));
@@ -151,12 +159,12 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
     const data = await this.invoke(this.docker, ["inspect", "--type", "container", "--format", "{{json .Mounts}}", id], opts);
     const mounts = JSON.parse(data.stdout) as {Type: string; Source: string; Destination: string; RW: boolean}[];
     const mount = mounts.find(m => m.Destination === workspace.containerFolder);
-    const source=workspace.graderMaterials ?? workspace.taskMaterials;
-    if (source) {
-      const materials=mounts.find(m=>m.Destination===(workspace.graderMaterials ? "/grounds-grader" : "/grounds-materials"));
-      if (!materials || materials.Type!=="bind" || materials.RW || await realpath(materials.Source)!==await realpath(source)) throw new Error("material mount does not match its read-only source");
+    const inputs=readonlyMounts(workspace);
+    for (const {source,target} of inputs) {
+      const actual=mounts.find(m=>m.Destination===target);
+      if (!actual || actual.Type!=="bind" || actual.RW || await realpath(actual.Source)!==await realpath(source)) throw new Error("material mount does not match its read-only source");
     }
-    if (mounts.length !== (source ? 2 : 1) || !mount || mount.Type !== "bind" || !mount.RW || await realpath(mount.Source) !== await realpath(workspace.path)) throw new Error("Docker did not mount the reserved workspace");
+    if (mounts.length !== 1+inputs.length || !mount || mount.Type !== "bind" || !mount.RW || await realpath(mount.Source) !== await realpath(workspace.path)) throw new Error("Docker did not mount the reserved workspace");
   }
 
   private async verifyImage(id: string, expected: string) {

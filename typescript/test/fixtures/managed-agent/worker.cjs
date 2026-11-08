@@ -4,6 +4,7 @@ const { execFileSync } = require("node:child_process");
 const task = JSON.parse(readFileSync(0,"utf8"));
 if (task.role==="evaluator") {
   if(task.rubric==="wait to cancel") {
+    process.stdout.write(JSON.stringify({type:"system",subtype:"init",session_id:"partial-cancelled-evaluation"})+"\n");
     writeFileSync("/tmp/grounds-judge-ready","ready",{flag:"wx"});
     const deadline=Date.now()+90000;
     while(!require("node:fs").existsSync("/tmp/grounds-judge-release")) {
@@ -12,14 +13,18 @@ if (task.role==="evaluator") {
     }
   }
   const report=task.rubric==="exact report";
-  const answer=readFileSync(report ? "report.txt" : "answer.txt","utf8"),expected=readFileSync(report ? "/grounds-grader/report.txt" : "/grounds-grader/reference.txt","utf8");
+  if (!report && !require("node:fs").existsSync("/grounds-delivery/.claude/settings.json")) process.exit(7);
+  if (process.argv[1].endsWith("claude") && (!process.argv.includes("--safe-mode") || !process.argv.includes("--strict-mcp-config"))) process.exit(8);
+  if (require("node:fs").existsSync("answer.txt") || require("node:fs").existsSync("report.txt") || require("node:fs").existsSync(".claude/settings.json")) process.exit(9);
+  try {writeFileSync("/grounds-delivery/should-be-readonly","invalid");process.exit(10);} catch(error){if(error.code!=="EROFS") throw error;}
+  const answer=readFileSync(report ? "/grounds-delivery/report.txt" : "/grounds-delivery/answer.txt","utf8"),expected=readFileSync(report ? "/grounds-grader/report.txt" : "/grounds-grader/reference.txt","utf8");
   const grade=task.rubric==="invalid grade" ? {form:"numeric",value:999} : {form:"numeric",value:answer===expected ? 5 : 0};
   const message=JSON.stringify({grade});
   const emit=event=>process.stdout.write(JSON.stringify(event)+"\n");
   if(process.argv[1].endsWith("claude")) {
     emit({type:"system",subtype:"init",session_id:"independent-evaluator"});
-    emit({type:"assistant",message:{content:[{type:"text",text:message}]}});
-    emit({type:"result",subtype:"success",is_error:false});
+    emit({type:"assistant",message:{content:[{type:"text",text:JSON.stringify({grade:{form:"numeric",value:3}})}]}});
+    emit({type:"result",subtype:"success",is_error:false,result:message});
   } else {
     emit({type:"thread.started",thread_id:"independent-evaluator"});
     emit({type:"item.completed",item:{id:"evaluation",type:"agent_message",text:message}});

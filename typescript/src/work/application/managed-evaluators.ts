@@ -36,7 +36,7 @@ export class ManagedEvaluators {
       if (g.evaluator?.kind==="agent") {
         const exec=await r.executions.get(g.evaluator.executionId);
         if (!exec || exec.owner.type!=="grading_record" || exec.owner.id!==id || !sandbox.lease || !authorizeBridge(sandbox,{holder:{type:"agent_execution",id:exec.id},token:sandbox.lease.token}).ok) return fail("conflict","evaluator execution no longer owns its sandbox");
-        return succeed({exec,settings});
+        return succeed({exec,settings,cancelled:!!g.cancelIntent});
       }
       if (!live || g.cancelIntent) return succeed(null);
       const at=this.ctx.now(),executionId=this.ctx.newId();
@@ -55,7 +55,7 @@ export class ManagedEvaluators {
       await r.executions.save(claimed.value.state,prepared.value.state.version);
       await r.sandboxes.save(leased.value.state,sandbox.version);
       await r.gradings.save(attached.value.state,g.version);
-      return succeed({exec:claimed.value.state,settings});
+      return succeed({exec:claimed.value.state,settings,cancelled:false});
     });
   }
 
@@ -68,6 +68,22 @@ export class ManagedEvaluators {
       if (!started.ok) return fromRejection(started.error);
       await r.executions.save(started.value.state,exec.version);
       return succeed({});
+    });
+  }
+
+  async authorizeStart(id:string,executionId:string,handle:string) {
+    return this.ctx.units.run("write",async r=>{
+      const grading=await r.gradings.get(id,{lock:true});
+      if (!grading || grading.cancelIntent || isGradingTerminal(grading) || grading.evaluator?.kind!=="agent" || grading.evaluator.executionId!==executionId) return false;
+      const exec=await r.executions.get(executionId),sb=grading.sandboxId && await r.sandboxes.get(grading.sandboxId);
+      if (!exec || exec.sessionRef!==handle || exec.cancelIntent || !sb || !sb.lease || !authorizeBridge(sb,{holder:{type:"agent_execution",id:executionId},token:sb.lease.token}).ok) return false;
+      const key="dispatch-evaluator-"+executionId,prior=await r.intents.findByRequest(key);
+      if (prior) return prior.subject.id===id && (prior.payload as {handle:string}).handle===handle;
+      const at=this.ctx.now(),payload={executionId,handle,token:sb.lease.token},hash=digestOf(payload,this.ctx.hash);
+      if (!hash.ok) throw new Error(hash.error.message);
+      await r.intents.register({id:this.ctx.newId(),requestId:key,requestHash:hash.value,kind:"dispatch-evaluator",subject:{type:"grading_record",id},
+        payload,state:"completed",result:{},createdAt:at,updatedAt:at,version:1});
+      return true;
     });
   }
 
@@ -88,7 +104,7 @@ export class ManagedEvaluators {
         if (state!==result.value.state) {state=result.value.state;states.push(state);}
       };
       if (output) {
-        advance(providerEnded(state,{at,outcome:exitCode===0 && !output.providerFailed ? "succeeded" : "failed"}));
+        if (exitCode!==undefined) advance(providerEnded(state,{at,outcome:exitCode===0 && !output.providerFailed ? "succeeded" : "failed"}));
         advance(recordReceipt(state,{kind:"output",ref:"sql-evidence:"+output.output.digest,at}));
         advance(recordReceipt(state,{kind:"trajectory",ref:"sql-evidence:"+output.trace.raw.digest,at}));
         if (state.providerOutcome==="succeeded") try {
@@ -106,7 +122,7 @@ export class ManagedEvaluators {
       const stopped=evaluatorStopped(g,{at});
       if (!stopped.ok) return fromRejection(stopped.error);
       const next=stopped.value.state;
-      const ended=isGradingTerminal(next) ? undefined : grade ? submitGrade(next,{grade,at}) : faultGrader(next,{detail:infrastructure ?? "evaluator did not return a valid grade",at});
+      const ended=grade ? submitGrade(next,{grade,at}) : isGradingTerminal(next) ? undefined : faultGrader(next,{detail:infrastructure ?? "evaluator did not return a valid grade",at});
       if (ended && !ended.ok) return fromRejection(ended.error);
       const released=returnLease(sb,{holder,token:sb.lease.token,stop:"verified",at});
       if (!released.ok) return fromRejection(released.error);

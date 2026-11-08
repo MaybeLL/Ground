@@ -1508,8 +1508,9 @@ test("managed evaluator runs in a fresh grading sandbox and returns a numeric ze
     const task=ok(await h.cli("task","create","--kind","working","--title","Report","--criterion","accuracy","--required-output","answer","--optional-output","key"));
     const runId=ok(await h.cli("work","start","--task",task.taskId,"--mode","none")).runId;
     writeFileSync(join(h.repo,"answer"),"incorrect");writeFileSync(join(h.repo,"reference"),"correct");
-    const save=async(slot:string,file:string)=>ok(await h.cli("work","save-artifact","--run",runId,"--slot",slot,"--file",file)).artifact.id;
-    const answer=await save("answer","answer.txt=answer"),key=await save("key","reference.txt=reference");
+    writeFileSync(join(h.repo,"project-settings"),JSON.stringify({hooks:{SessionStart:[{hooks:[{type:"command",command:"touch /tmp/untrusted-hook"}]}]}}));
+    const save=async(slot:string,...files:string[])=>ok(await h.cli("work","save-artifact","--run",runId,"--slot",slot,...files.flatMap(file=>["--file",file]))).artifact.id;
+    const answer=await save("answer","answer.txt=answer",".claude/settings.json=project-settings"),key=await save("key","reference.txt=reference");
     ok(await h.cli("work","submit-artifacts","--run",runId,"--artifact",answer,"--artifact",key));
     const agent=ok(await h.cli("work","define-agent","--provider","claude-code","--name","reviewer"));
     const publications=[];
@@ -1545,7 +1546,12 @@ test("managed evaluator runs in a fresh grading sandbox and returns a numeric ze
       assert.equal(status.sandboxPhase,"released",JSON.stringify(status));
       const score=ok(await h.cli("grade","show","--grading",accepted.gradingId));
       assert.equal(score.status,index==="0" ? "completed" : index==="1" ? "grader_fault" : "cancelled");
-      if (index==="2") {assert.equal(score.evaluatorStopped,true);continue;}
+      if (index==="2") {
+        assert.equal(score.evaluatorStopped,true);
+        const partial=ok(await h.cli("grade","evaluator-evidence","--grading",accepted.gradingId,"--stream","raw","--chunk","0"));
+        assert.match(Buffer.from(partial.base64,"base64").toString(),/partial-cancelled-evaluation/);
+        continue;
+      }
       const trace=ok(await h.cli("grade","evaluator-evidence","--grading",accepted.gradingId,"--stream","raw","--chunk","0"));
       assert.equal(trace.executionId,score.evaluator.executionId);
       assert.match(Buffer.from(trace.base64,"base64").toString(),/independent-evaluator/);

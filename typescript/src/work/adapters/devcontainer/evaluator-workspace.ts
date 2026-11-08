@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {portableArtifactPaths} from "../../domain/managed-delivery.js";
-import {TestTargetFault,type EvidenceSource,type RuntimeOwner} from "../../ports/index.js";
+import {TestTargetFault,type EvidenceSource,type RuntimeWorkspace,type RuntimeOwner} from "../../ports/index.js";
 import { GitTagArchive } from "../git/tag-archive.js";
 import { ManagedWorkspaces } from "./workspace.js";
 
@@ -14,7 +14,7 @@ type Environment = {config:string; lockfile:string | null; imageDigest:string};
 export class EvaluatorWorkspaces {
   constructor(private readonly workspaces:ManagedWorkspaces, private readonly archive:GitTagArchive,private readonly artifactFiles:(runId:string,id:string,receipt:string)=>Promise<{path:string;source:EvidenceSource}[]>) {}
 
-  async prepare(owner:RuntimeOwner, target:{runId:string;commit:string|null;archiveId:string;receipt:string;repository:string}, environment:Environment, materials:Material[]) {
+  async prepare(owner:RuntimeOwner, target:{runId:string;commit:string|null;archiveId:string;receipt:string;repository:string}, environment:Environment, materials:Material[],role:"agent"|"test"="test") {
     if (target.commit===null) {
       const files=await this.artifactFiles(target.runId,target.archiveId,target.receipt);
       if (!portableArtifactPaths(files.map(f=>f.path))) throw new TestTargetFault("frozen artifact contains incompatible evaluator paths");
@@ -37,14 +37,25 @@ export class EvaluatorWorkspaces {
           throw error;
         }
       }});
-      return {...prepared,graderMaterials:await this.materials(owner,materials)};
+      return this.layout(owner,prepared,materials,role);
     }
     const prepared = await this.archive.withTree(target.repository,{id:target.archiveId,receipt:target.receipt},async (scratch,commit) => {
       if (commit !== target.commit) throw new Error("evaluation target identity changed");
       return this.workspaces.prepare(owner,scratch,commit,environment);
     });
     if ("status" in prepared) throw new Error("the frozen evaluation target is unavailable");
-    return {...prepared,graderMaterials:await this.materials(owner, materials)};
+    return this.layout(owner,prepared,materials,role);
+  }
+
+  private async layout(owner:RuntimeOwner,prepared:RuntimeWorkspace,materials:Material[],role:"agent"|"test") {
+    const graderMaterials=await this.materials(owner,materials);
+    if (role==="test") return {...prepared,graderMaterials};
+    const path=join(this.workspaces.root(owner),"judge-workspace");
+    await mkdir(path,{recursive:true,mode:0o700});
+    // The sandbox parent is private; the configured remoteUser needs a
+    // writable scratch mount. No submitted files are placed in this directory.
+    await chmod(path,0o777);
+    return {...prepared,path,graderMaterials,evaluatorDelivery:prepared.path};
   }
 
   private async materials(owner:RuntimeOwner, materials:Material[]) {

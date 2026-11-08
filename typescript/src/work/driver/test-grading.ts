@@ -79,7 +79,7 @@ export class TestGradingDriver {
             }
             target = {...plan,archiveId:"activeArchiveId" in observation ? observation.activeArchiveId : plan.deliveryId,receipt};
           }
-          workspace = await process.prepare(owner,target,environment,materials);
+          workspace = await process.prepare(owner,target,environment,materials,grader.strategy);
         }
         catch (error) {
           if (error instanceof TestTargetFault) {

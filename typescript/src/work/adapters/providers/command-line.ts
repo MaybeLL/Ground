@@ -9,7 +9,7 @@ export const codexProvider: AgentProvider = {
   name: "codex", capabilities,
   // The prompt is read from standard input. The container is the workspace
   // boundary; workspace-write applies the provider's own filesystem policy.
-  command: model => ["codex","exec","--json","--ephemeral","--sandbox","workspace-write",...(model ? ["--model",model] : []),"-"],
+  command: model => ["codex","exec","--skip-git-repo-check","--json","--ephemeral","--sandbox","workspace-write",...(model ? ["--model",model] : []),"-"],
   decode(record) {
     const events = this.events(record).map(event => ({part:0,event}));
     return {events,unknownParts:events.length ? 0 : 1};
@@ -42,7 +42,7 @@ export const codexProvider: AgentProvider = {
 
 export const claudeCodeProvider: AgentProvider = {
   name: "claude-code", capabilities,
-  command: model => ["claude","-p","--verbose","--output-format","stream-json","--no-session-persistence","--permission-mode","acceptEdits",...(model ? ["--model",model] : [])],
+  command: (model,role) => ["claude","-p",...(role==="evaluator" ? ["--safe-mode","--strict-mcp-config"] : []),"--verbose","--output-format","stream-json","--no-session-persistence","--permission-mode","acceptEdits",...(model ? ["--model",model] : [])],
   decode(record) {
     const row = object(record), message = object(row?.message);
     if (!row || !Array.isArray(message?.content) || (row.type !== "assistant" && row.type !== "user")) {
