@@ -51,9 +51,9 @@ async function withHarness(run: (h: Harness) => Promise<void>, objectFormat: "sh
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }
 
-const gradeFile = (directory: string, name: string, criteria: Array<{ criterion_id: string; final: string }>) => {
+const gradeFile = (directory: string, name: string, criteria: Array<{ criterion_id: string; final: string; reused_from?: string }>) => {
   const path = join(directory, name);
-  writeFileSync(path, JSON.stringify({ criteria: criteria.map(c => ({ criterion_id: c.criterion_id, independent: c.final, reconciliation: "corroborated", final: c.final, rationale: "checked", evidence: ["ran the tests"] })) }));
+  writeFileSync(path, JSON.stringify({ criteria: criteria.map(c => ({ ...c, independent: c.final, reconciliation: "corroborated", final: c.final, rationale: "checked", evidence: ["ran the tests"] })) }));
   assertContract("grade-input.schema.json", JSON.parse(readFileSync(path, "utf8")));
   return path;
 };
@@ -162,6 +162,17 @@ test("the caller's own agent works a task end to end through the command line: d
     const otherEvaluator = ok(await h.cli("grade", "register", "--grading", abandoned.gradingId, "--agent", "second-reviewer"));
     ok(await h.cli("grade", "cancel", "--grading", abandoned.gradingId));
     assert.equal(ok(await h.cli("grade", "stop", "--grading", abandoned.gradingId, "--session", otherEvaluator.sessionId)).status, "cancelled");
+    const regrade = ok(await h.cli("grade","request","--run",started.runId));
+    const reviewer = ok(await h.cli("grade","register","--grading",regrade.gradingId,"--agent","reviewer"));
+    const scope=["--grading",regrade.gradingId,"--session",reviewer.sessionId];
+    ok(await h.cli("grade","stage",...scope,"--stage","blind"));
+    ok(await h.cli("grade","stage",...scope,"--stage","freeze","--blind-digest",blindDigest));
+    const rejudge=(source:string)=>gradeFile(h.directory,"recheck.json",[
+      {criterion_id:criteria[0]!.id,final:"satisfied",reused_from:source},{criterion_id:criteria[1]!.id,final:"unsatisfied"},
+    ]);
+    assert.equal((await h.cli("grade","submit",...scope,"--grade-file",rejudge(abandoned.gradingId))).error.code,"STATE_CONFLICT");
+    ok(await h.cli("grade","submit",...scope,"--grade-file",rejudge(gate.gradingId)));
+    assert.equal(ok(await h.cli("grade","show","--grading",regrade.gradingId)).grade.items[0].reusedFrom,gate.gradingId);
     const branch = ok(await h.cli("work", "branch", "--work", started.workId, "--refines", started.runId, "--mode", "external"));
     ok(await h.cli("work", "select", "--work", started.workId, "--run", branch.runId));
     const otherWorker = ok(await h.cli("work", "register", "--run", branch.runId, "--agent", "branch-worker"));

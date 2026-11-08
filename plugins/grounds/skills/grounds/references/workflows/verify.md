@@ -97,6 +97,8 @@ grounds grade submit --grading "$GRADING_ID" --session "$EVALUATOR_SESSION" --gr
 {"criteria":[{"criterion_id":"实际标准 ID","independent":"satisfied","reconciliation":"not_determined","final":"satisfied","rationale":"真实检查依据与局限","evidence":["本轮保存的输出引用"]}]}
 ```
 
+补验时，若沿用同一交付、同一完整绑定下已完成验收的满足条目，在该条目上填写 `"reused_from": "原 gradingId"`。用 `grade show` 可回读条目的 `reusedFrom`。
+
 判定允许 `satisfied/unsatisfied/indeterminate`；对照允许 `corroborated/contradicted/not_determined`。不能机械复制示例里的成功值。不确定项不算通过。协调者不得改写子 agent 的判定；如报告无效，退回该评价者修正格式或记录失败，不能代它补造结论。
 
 ## 4. 主 agent 回读

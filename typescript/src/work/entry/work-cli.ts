@@ -6,7 +6,7 @@ import { commandList } from "../application/rule-definitions.js";
 import { resolve } from "node:path";
 import { DomainError, validation } from "../../errors.js";
 import type { ParsedArgs } from "../../cli.js";
-import type { CriterionVerdict, Grade, ProtocolStage } from "../domain/index.js";
+import { isId, type CriterionVerdict, type Grade, type ProtocolStage } from "../domain/index.js";
 import type { Outcome, WorkApplication } from "../application/index.js";
 
 export const WORK_GROUPS = ["task", "work", "grade", "suite", "experiment"] as const;
@@ -89,7 +89,9 @@ export function parseGrade(json: unknown): Grade {
     if (!verdicts.includes(independent as never) || !verdicts.includes(final as never)) throw validation("grade", `each criterion needs independent and final verdicts from: ${verdicts.join(", ")}`);
     if (!relations.includes(reconciliation as never)) throw validation("grade", `reconciliation must be one of: ${relations.join(", ")}`);
     if (evidence !== undefined && !(Array.isArray(evidence) && evidence.every(e => typeof e === "string"))) throw validation("grade", "evidence is a list of text");
-    return { criterionId: criterion_id, independent: independent as CriterionVerdict["independent"], reconciliation: reconciliation as CriterionVerdict["reconciliation"], final: final as CriterionVerdict["final"], rationale, evidence: (evidence as string[] | undefined) ?? [] };
+    const reusedFrom = entry.reused_from;
+    if (reusedFrom !== undefined && (!isId(reusedFrom) || final !== "satisfied")) throw validation("reused_from","requires a prior grading ID and a satisfied verdict");
+    return { criterionId: criterion_id, ...(reusedFrom !== undefined ? {reusedFrom} : {}), independent: independent as CriterionVerdict["independent"], reconciliation: reconciliation as CriterionVerdict["reconciliation"], final: final as CriterionVerdict["final"], rationale, evidence: (evidence as string[] | undefined) ?? [] };
   });
   return { form: "criteria", items };
 }

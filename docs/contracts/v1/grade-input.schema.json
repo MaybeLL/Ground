@@ -10,6 +10,8 @@
       "minItems": 1,
       "items": {
         "type": "object",
+        "if": {"required": ["reused_from"]},
+        "then": {"properties": {"final": {"const": "satisfied"}}},
         "required": ["criterion_id", "independent", "reconciliation", "final", "rationale"],
         "properties": {
           "criterion_id": {"$ref": "work-results.schema.json#/$defs/Id"},
@@ -22,6 +24,7 @@
             "maxLength": 4096,
             "pattern": "^[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]+$"
           },
+          "reused_from": {"$ref": "work-results.schema.json#/$defs/Id"},
           "evidence": {"type": "array", "items": {"type": "string"}}
         }
       }
