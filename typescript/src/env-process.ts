@@ -13,7 +13,7 @@ export const signalProcessGroup = (pid: number, signal: NodeJS.Signals): boolean
 
 /** Persist this random scope before launch. It identifies ordinary descendants
  * even after setsid()/reparenting; host tasks remain trusted (no OS isolation). */
-export interface HostProcessScope { marker: string; startedAtMs: number; linuxBoot?:{id:string;uptimeMs:number;namespaces:string} }
+export interface HostProcessScope { marker: string; startedAtMs: number; platform?:"linux"|"darwin"; linuxBoot?:{id:string;uptimeMs:number;namespaces:string} }
 export interface HostProcessIdentity { pid: number; identity: string }
 export interface HostProcessObservation { complete: boolean; processes: HostProcessIdentity[] }
 function linuxBootClock() {
@@ -33,9 +33,21 @@ function linuxBootClock() {
 export const createHostProcessScope = (): HostProcessScope => {
   // Fail before launch when this installation cannot observe descendants.
   nativeBinding();
-  return { marker: randomBytes(32).toString("hex"), startedAtMs: Date.now(), ...(process.platform==="linux" ? {linuxBoot:linuxBootClock()} : {}) };
+  if (process.platform!=="darwin" && process.platform!=="linux") throw Error("unsupported host process platform");
+  return { platform:process.platform, marker: randomBytes(32).toString("hex"), startedAtMs: Date.now(), ...(process.platform==="linux" ? {linuxBoot:linuxBootClock()} : {}) };
 };
 const validScope = (scope: HostProcessScope): boolean => !!scope && /^[a-f0-9]{64}$/.test(scope.marker) && Number.isSafeInteger(scope.startedAtMs) && scope.startedAtMs > 0;
+export function localHostScope(scope:HostProcessScope):boolean {
+  if (!validScope(scope) || scope.platform!==undefined && scope.platform!==process.platform) return false;
+  if (!scope.linuxBoot) return scope.platform!=="linux";
+  if (process.platform!=="linux") return false;
+  try {
+    const clock=linuxBootClock(), recorded=scope.linuxBoot;
+    return Number.isSafeInteger(recorded.uptimeMs) && recorded.uptimeMs>0 && recorded.id===clock.id &&
+      recorded.namespaces===clock.namespaces && recorded.uptimeMs<=clock.uptimeMs;
+  } catch {return false;}
+}
+
 export const hostProcessEnvironment = (scope: HostProcessScope): Record<string, string> => {
   if (!validScope(scope)) throw Error("invalid host process scope");
   return { GROUNDS_HOST_PROCESS_SCOPE: scope.marker };
@@ -45,23 +57,16 @@ export const hostProcessEnvironment = (scope: HostProcessScope): Record<string, 
  * With a fixed leader, Darwin may exclude stable untraced ancestry rooted in
  * a pre-scope non-task parent. Linux retains conservative subreaper handling. */
 export const inspectHostProcessScope = (scope: HostProcessScope, leader?: HostProcessIdentity): HostProcessObservation => {
-  if (!validScope(scope)) return { complete: false, processes: [] };
+  if (!localHostScope(scope)) return {complete:false,processes:[]};
   try {
-    if (scope.linuxBoot) {
-      if (process.platform!=="linux") return {complete:false,processes:[]};
-      const clock=linuxBootClock();
-      if (!Number.isSafeInteger(scope.linuxBoot.uptimeMs) || scope.linuxBoot.uptimeMs<=0 || scope.linuxBoot.id!==clock.id || scope.linuxBoot.namespaces!==clock.namespaces || scope.linuxBoot.uptimeMs>clock.uptimeMs) {
-        return {complete:false,processes:[]};
-      }
-      return nativeBinding().hostProcessesSinceBoot(scope.marker,scope.linuxBoot.uptimeMs);
-    }
+    if (scope.linuxBoot) return nativeBinding().hostProcessesSinceBoot(scope.marker,scope.linuxBoot.uptimeMs);
     return leader ? nativeBinding().hostProcesses(scope.marker, scope.startedAtMs, leader.pid, leader.identity) : nativeBinding().hostProcesses(scope.marker, scope.startedAtMs); }
   catch { return { complete: false, processes: [] }; }
 };
 /** Native checks birth and marker again immediately before signalling. Never
  * signal a PGID or a PID supplied without its observed birth identity. */
 export const signalHostProcessIdentity = (scope: HostProcessScope, process: HostProcessIdentity, signal: "SIGTERM" | "SIGKILL"): boolean => {
-  if (!validScope(scope)) return false;
+  if (!localHostScope(scope)) return false;
   return nativeBinding().signalHostProcess(process.pid, process.identity, scope.marker, signal === "SIGTERM" ? 15 : 9);
 };
 export const signalHostProcessScope = (scope: HostProcessScope, signal: "SIGTERM" | "SIGKILL", leader?: HostProcessIdentity): HostProcessObservation => {
@@ -73,5 +78,5 @@ export const signalHostProcessScope = (scope: HostProcessScope, signal: "SIGTERM
 /** Read native, subsecond birth identity while the newly spawned leader lives. */
 export const hostProcessIdentity = (pid: number): string | undefined => nativeBinding().hostProcessIdentity(pid);
 /** Signal the original PGID only while its original leader still matches. */
-export const signalHostProcessLeader = (pid: number, identity: string, signal: "SIGTERM" | "SIGKILL"): boolean =>
-  nativeBinding().signalHostProcessLeader(pid, identity, signal === "SIGTERM" ? 15 : 9);
+export const signalHostProcessLeader = (pid: number, identity: string, signal: "SIGTERM" | "SIGKILL", scope?:HostProcessScope): boolean =>
+  (!scope || localHostScope(scope)) && nativeBinding().signalHostProcessLeader(pid, identity, signal === "SIGTERM" ? 15 : 9);

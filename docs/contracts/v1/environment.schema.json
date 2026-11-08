@@ -837,6 +837,7 @@
             "startedAtMs"
           ],
           "properties": {
+            "platform": {"enum":["darwin","linux"]},
             "linuxBoot": {
               "type": "object",
               "additionalProperties": false,

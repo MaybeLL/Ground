@@ -84,6 +84,15 @@ test("host completion includes a detached reparented Python descendant, and pers
   }
 });
 
+test("a foreign platform scope cannot confirm termination or authorize a leader signal",async()=>{
+  const scope=createHostProcessScope(),child=task(scope),done=exited(child);
+  try {
+    const foreign:HostProcessScope={marker:scope.marker,startedAtMs:scope.startedAtMs,platform:process.platform==="linux"?"darwin":"linux"};
+    assert.deepEqual(inspectHostProcessScope(foreign),{complete:false,processes:[]});
+    assert.equal(signalHostProcessLeader(child.pid!,hostProcessIdentity(child.pid!)!,"SIGTERM",foreign),false);
+  } finally {child.kill();await done;}
+});
+
 test("Linux scope recovery observes marked processes after a wall clock step", {skip:process.platform!=="linux"},async()=>{
   const scope=createHostProcessScope();
   const child=task(scope),done=exited(child);
