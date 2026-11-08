@@ -90,9 +90,10 @@ test("Linux scope recovery observes marked processes after a wall clock step", {
   try {
     const shifted={...scope,startedAtMs:scope.startedAtMs+4500};
     assert.equal((await observedProcess(shifted,child)).pid,child.pid);
+    assert.deepEqual(inspectHostProcessScope({...shifted,linuxBoot:{...scope.linuxBoot!,namespaces:"other"}}),{complete:false,processes:[]});
     const legacy={marker:scope.marker,startedAtMs:shifted.startedAtMs};
     assert.equal((await observedProcess(legacy,child)).pid,child.pid);
-    assert.deepEqual(inspectHostProcessScope({...shifted,linuxBoot:{id:"different-boot",uptimeMs:1}}),{complete:false,processes:[]});
+    assert.deepEqual(inspectHostProcessScope({...shifted,linuxBoot:{...scope.linuxBoot!,id:"different-boot"}}),{complete:false,processes:[]});
   } finally {child.kill();await done;}
 });
 

@@ -36,7 +36,7 @@ Initialization creates schema metadata and twelve work-model tables. Protocol 2 
 
 `TaskExecution` admits external, human-supplied and managed work. For managed work it freezes the agent revision and records the worker intent in the same transaction as the run and its execution.
 
-Linux host process scopes persist the kernel boot ID and elapsed boot time. Observation compares process birth ticks in that same clock domain. Older scopes undergo a conservative same-user census. An unavailable clock or mismatched boot identity leaves the stop observation unknown.
+Linux host process scopes persist the kernel boot ID, namespace identities and elapsed boot time. Observation compares process birth ticks in that same clock domain. Older scopes undergo a conservative same-user census. An unavailable clock or mismatched boot identity leaves the stop observation unknown.
 
 A scheduler for each data root grants up to twenty persistent execution slots. Each admitted job has its own runner process, database connection and CLI environment. A runner can outlive the CLI that admitted it. A lost runner continues to occupy its slot until observation verifies stop. The scheduler starts read-only reconciliation for orphaned slots. A status query can wake the scheduler after a machine restart.
 

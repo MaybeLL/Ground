@@ -97,7 +97,7 @@ export const reconcileRun=(runId:string):RunRecord=>{
   if(matches.length===1){record.container_id=matches[0];record.termination="unknown";saveRun(record);}
   else if(!record.pid){record.termination="confirmed";record.state=stateFrom(record,null);record.cleanup="complete";record.finished_at??=new Date().toISOString();saveRun(record);}
  }
- if(record.termination==="confirmed"&&(environment.backend!=="host"||record.host_scope)){return record;}
+ if(record.termination==="confirmed"&&(environment.backend!=="host"||record.host_scope && (process.platform!=="linux" || record.host_scope.linuxBoot))){return record;}
  try{
   if(record.container_id){
    const actual=inspectOwnedContainer(record.container_id,environment.id);

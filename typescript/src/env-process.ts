@@ -1,6 +1,6 @@
 import { nativeBinding } from "./native-binding.js";
 import { execFileSync } from "node:child_process";
-import {readFileSync} from "node:fs";
+import {readFileSync,readlinkSync} from "node:fs";
 import { randomBytes } from "node:crypto";
 export const isProcessAlive = (pid: number): boolean => {try{process.kill(pid,0);return true;}catch(error){return (error as NodeJS.ErrnoException).code==="EPERM";}};
 export const processIdentity = (pid: number): string | undefined => {try{return execFileSync("ps",["-p",String(pid),"-o","lstart="],{encoding:"utf8",stdio:["ignore","pipe","ignore"]}).trim()||undefined;}catch{return undefined;}};
@@ -13,14 +13,22 @@ export const signalProcessGroup = (pid: number, signal: NodeJS.Signals): boolean
 
 /** Persist this random scope before launch. It identifies ordinary descendants
  * even after setsid()/reparenting; host tasks remain trusted (no OS isolation). */
-export interface HostProcessScope { marker: string; startedAtMs: number; linuxBoot?:{id:string;uptimeMs:number} }
+export interface HostProcessScope { marker: string; startedAtMs: number; linuxBoot?:{id:string;uptimeMs:number;namespaces:string} }
 export interface HostProcessIdentity { pid: number; identity: string }
 export interface HostProcessObservation { complete: boolean; processes: HostProcessIdentity[] }
 function linuxBootClock() {
   const id=readFileSync("/proc/sys/kernel/random/boot_id","utf8").trim();
   const uptimeMs=Math.floor(Number(readFileSync("/proc/uptime","utf8").split(" ")[0])*1000);
   if (!/^[a-f0-9-]{36}$/.test(id) || !Number.isSafeInteger(uptimeMs) || uptimeMs<=0) throw Error("cannot read host boot clock");
-  return {id,uptimeMs};
+  const namespaces=["time","pid","user","mnt"].map(name=>{
+    try {return readlinkSync("/proc/self/ns/"+name);}
+    catch (error) {
+      // Kernels before Linux 5.6 do not support time namespaces.
+      if (name==="time" && (error as NodeJS.ErrnoException).code==="ENOENT") return "time:initial";
+      throw error;
+    }
+  }).join("/");
+  return {id,uptimeMs,namespaces};
 }
 export const createHostProcessScope = (): HostProcessScope => {
   // Fail before launch when this installation cannot observe descendants.
@@ -39,9 +47,10 @@ export const hostProcessEnvironment = (scope: HostProcessScope): Record<string, 
 export const inspectHostProcessScope = (scope: HostProcessScope, leader?: HostProcessIdentity): HostProcessObservation => {
   if (!validScope(scope)) return { complete: false, processes: [] };
   try {
-    if (process.platform==="linux" && scope.linuxBoot) {
+    if (scope.linuxBoot) {
+      if (process.platform!=="linux") return {complete:false,processes:[]};
       const clock=linuxBootClock();
-      if (!Number.isSafeInteger(scope.linuxBoot.uptimeMs) || scope.linuxBoot.uptimeMs<=0 || scope.linuxBoot.id!==clock.id || scope.linuxBoot.uptimeMs>clock.uptimeMs) {
+      if (!Number.isSafeInteger(scope.linuxBoot.uptimeMs) || scope.linuxBoot.uptimeMs<=0 || scope.linuxBoot.id!==clock.id || scope.linuxBoot.namespaces!==clock.namespaces || scope.linuxBoot.uptimeMs>clock.uptimeMs) {
         return {complete:false,processes:[]};
       }
       return nativeBinding().hostProcessesSinceBoot(scope.marker,scope.linuxBoot.uptimeMs);
