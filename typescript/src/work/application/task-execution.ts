@@ -239,20 +239,17 @@ export class TaskExecution {
     return this.deps.units.run("write",async r=>{
       const run=await r.taskRuns.get(input.runId,{lock:true});
       if (!run || run.cancelIntent || isTerminal(run) || run.workerMode==="managed") return false;
-      if (run.workerMode==="external" && (run.worker?.kind!=="external" || run.worker.registration.sessionId!==input.sessionId ||
-          run.worker.registration.stop && run.pendingManifest?.operationId!==input.requestId)) return false;
+      if (run.workerMode==="external" && (run.worker?.kind!=="external" || run.worker.registration.sessionId!==input.sessionId)) return false;
       if (run.pendingManifest && run.pendingManifest.operationId!==input.requestId) return false;
       const prior=await r.intents.findByRequest(input.requestId);
       if (prior && prior.requestHash!==hash.value) return false;
-      const [owner]=await r.intents.listForSubject("archive-candidate","task_run",run.id);
+      const owner=(await r.intents.listForSubject("submit","task_run",run.id)).find(intent=>intent.state==="registered");
       if (owner) return owner.requestHash===hash.value;
-      const key=digestOf(input.requestId,this.deps.hash);
-      if (!key.ok) return false;
-      const reservationId="candidate-publication-"+key.value;
-      if (await r.intents.findByRequest(reservationId)) return false;
+      if (prior) return false;
       const id=this.context.newId(),at=this.context.now();
-      await r.intents.register({id,requestId:reservationId,requestHash:hash.value,kind:"archive-candidate",subject:{type:"task_run",id:run.id},
-        payload:input as unknown as JsonValue,state:"registered",version:1,createdAt:at,updatedAt:at});
+      await r.intents.register({id,requestId:input.requestId,requestHash:hash.value,kind:"submit",subject:{type:"task_run",id:run.id},
+        payload:input as unknown as JsonValue,state:"registered",version:1,createdAt:at,updatedAt:at,
+        result:{runId:run.id,status:run.status,outcome:"awaiting-publication",blocked:null}});
       return true;
     });
   }
@@ -269,12 +266,12 @@ export class TaskExecution {
       const taskRevision = await r.definitions.getRevision(run.taskRevision.definitionId,run.taskRevision.revisionId);
       const task = parseTaskContent(taskRevision?.content);
       if (!task.ok) return fromRejection(task.error);
-      const [publication]=await r.intents.listForSubject("archive-candidate","task_run",run.id);
+      const publication=(await r.intents.listForSubject("submit","task_run",run.id)).find(intent=>intent.state==="registered");
       if (publication) {
         const hash=digestOf({kind:"submit",input:input as unknown as JsonValue},this.deps.hash);
         if (!hash.ok || hash.value!==publication.requestHash) return fail("conflict","another submission owns the reserved publication");
       }
-      if (check==="pending" && (task.value.outputs || task.value.kind === "working" || input.items.some(item=>item.type === "artifact")) && !run.cancelIntent) {
+      if (check==="pending" && !publication && (task.value.outputs || task.value.kind === "working" || input.items.some(item=>item.type === "artifact")) && !run.cancelIntent) {
         if (task.value.kind === "coding" && !input.items.some(item=>item.type === "candidate")) return fail("invalid","coding tasks require a candidate");
         const slots = new Set<string>();
         for (const item of input.items) {
@@ -304,7 +301,6 @@ export class TaskExecution {
       if (!submitted.ok) return fromRejection(submitted.error);
       steps.push(submitted.value.state);
       await this.saveChain(r, run, steps);
-      if (publication?.state==="registered") await r.intents.save({...publication,state:"completed",updatedAt:at,version:publication.version+1},publication.version);
       const final = submitted.value.state;
       return succeed({ runId: run.id, status: final.status, outcome: check==="pending" && final.pendingManifest ? "pending-receipt" : String(submitted.value.outcome), blocked: final.blocked?.reason ?? null });
     };
@@ -312,6 +308,18 @@ export class TaskExecution {
       const run=await r.taskRuns.get(input.runId,{lock:true});
       return run ? apply(r,run,"pending") : fail("not-found","task run does not exist");
     });
+    if (changed.ok && changed.value.outcome==="awaiting-publication") {
+      changed=await this.deps.units.run("write",async r=>{
+        const run=await r.taskRuns.get(input.runId,{lock:true});
+        const intent=await r.intents.findByRequest(input.requestId);
+        if (!run || !intent) return fail("conflict","publication reservation is missing");
+        if (intent.state!=="registered") return succeed(intent.result as Submitted);
+        const next=await apply(r,run,"pending");
+        if (!next.ok) return next;
+        await r.intents.save({...intent,state:"completed",result:next.value,updatedAt:this.deps.clock.now(),version:intent.version+1},intent.version);
+        return next;
+      });
+    }
     const awaitingReceipt=(result:Submitted)=>result.outcome==="pending-receipt" || result.blocked==="receipt-unavailable";
     if (changed.ok && awaitingReceipt(changed.value)) {
       const run=await this.deps.units.run("read",r=>r.taskRuns.get(input.runId));
@@ -337,9 +345,10 @@ export class TaskExecution {
       const run=await r.taskRuns.get(runId);
       if (!run) return fail("not-found","task run does not exist");
       if (!run.pendingManifest) {
-        const [publication]=await r.intents.listForSubject("archive-candidate","task_run",runId);
+        const submissions=await r.intents.listForSubject("submit","task_run",runId);
+        const publication=submissions.find(intent=>intent.state==="registered");
         if (!isTerminal(run) && publication?.state==="registered") return succeed({publication:publication.payload as unknown as SubmissionInput});
-        if (isTerminal(run) && (run.sandboxId || publication || run.manifest)) return succeed({settle:true});
+        if (isTerminal(run) && (run.sandboxId || submissions.length || run.manifest)) return succeed({settle:true});
         return succeed(null);
       }
       const intent=await r.intents.findByRequest(run.pendingManifest.operationId);
@@ -353,7 +362,7 @@ export class TaskExecution {
     }
     if (found.value && "publication" in found.value) {
       const input=found.value.publication;
-      if (await this.deps.receipts.check(input.items)!=="accepted") return fail("unavailable","publication is unconfirmed; retry delivery with its original operation ID");
+      if (await this.deps.receipts.check(input.items.filter(item=>item.type==="candidate"))!=="accepted") return fail("unavailable","publication is unconfirmed; retry delivery with its original operation ID");
       return this.submit(input);
     }
     return found.value && "submission" in found.value ? this.submit(found.value.submission) : succeed(null);

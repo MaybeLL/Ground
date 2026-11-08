@@ -440,10 +440,47 @@ test("an interrupted candidate publication owns its operation across runs and re
     assert.equal((await deliver(first)).ok,false);
     const tags=git(h.remote,"show-ref","--tags");
     assert.ok(tags.includes(first));
+    const collision=await h.cli("task","create","--title","Competing command","--criterion","exclusive","--operation-id",requestId);
+    assert.equal(collision.error.code,"IDEMPOTENCY_CONFLICT");
     assert.equal((await deliver(second)).ok,false);
     assert.equal(git(h.remote,"show-ref","--tags"),tags);
     assert.equal(ok(await h.cli("work","reconcile","--run",first)).submission.status,"delivered");
     assert.equal(git(h.remote,"show-ref","--tags"),tags);
+  });
+});
+
+test("after a confirmed push a lost attachment rejects the frozen submission and settlement can retry",async t=>{
+  await withHarness(async h=>{
+    const {TaskExecution}=await import("../src/work/application/task-execution.js");
+    const {SandboxLifecycle}=await import("../src/work/application/sandbox-lifecycle.js");
+    const task=ok(await h.cli("task","create","--title","Frozen attachment","--criterion","report","--required-output","report","--repo-remote",h.remote,"--baseline",h.baseline));
+    const {runId}=ok(await h.cli("work","start","--mode","external","--task",task.taskId));
+    const {sessionId}=ok(await h.cli("work","register","--run",runId,"--agent","writer"));
+    const {artifact}=ok(await h.cli("work","save-artifact","--run",runId,"--session",sessionId,"--slot","report","--file","report=app.txt"));
+    t.mock.method(TaskExecution.prototype,"submit",async()=>{throw new Error("interruption after push");},{times:1});
+    assert.equal((await h.cli("work","deliver","--run",runId,"--session",sessionId,"--artifact",artifact.id)).ok,false);
+    const db=new DatabaseSync(join(h.directory,"ledger.db"));
+    try {assert.equal(db.prepare("DELETE FROM work_intents WHERE request_id=?").run(artifact.id).changes,1);} finally {db.close();}
+    const original=SandboxLifecycle.prototype.settleRun;
+    const settle=t.mock.method(SandboxLifecycle.prototype,"settleRun",original);
+    settle.mock.mockImplementationOnce(async()=>{throw new Error("interrupted settlement");});
+    assert.equal((await h.cli("work","reconcile","--run",runId)).ok,false);
+    const final=ok(await h.cli("work","run","--run",runId)).run;
+    assert.equal(final.status,"failed");
+    assert.equal(final.failure.class,"agent-output");
+    assert.equal(final.worker.registration.stop.reason,"submitted");
+    ok(await h.cli("work","reconcile","--run",runId));
+    assert.equal(settle.mock.callCount(),2);
+  });
+});
+
+test("a human stop allows the registered external session to publish its finished commit",async()=>{
+  await withHarness(async h=>{
+    const task=ok(await h.cli("task","create","--title","Stopped writer","--criterion","archive commit","--repo-remote",h.remote,"--baseline",h.baseline));
+    const {runId}=ok(await h.cli("work","start","--mode","external","--task",task.taskId));
+    const {sessionId}=ok(await h.cli("work","register","--run",runId,"--agent","writer"));
+    ok(await h.cli("work","stop","--run",runId,"--reason","human"));
+    assert.equal(ok(await h.cli("work","deliver","--run",runId,"--session",sessionId)).submitted.status,"delivered");
   });
 });
 

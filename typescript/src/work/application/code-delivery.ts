@@ -56,7 +56,7 @@ export class CodeDelivery {
       if (previous.kind !== "submit" || previous.subject.id !== input.runId || item?.id !== deliveryId || typeof item.receipt !== "string") {
         return fail("request-conflict", `operation ${input.requestId} belongs to a different submission`);
       }
-      previousReceipt = item.receipt;
+      if (previous.state==="completed") previousReceipt = item.receipt;
     }
     const proposal=(receipt:string)=>({requestId:input.requestId,runId:input.runId,...(input.sessionId ? {sessionId:input.sessionId} : {}),
       items:[{type:"candidate" as const,id:deliveryId,receipt},...attachments.value],...(input.declaresStop ? {declaresStop:true} : {})});
