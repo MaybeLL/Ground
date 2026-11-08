@@ -74,8 +74,8 @@ export class TaskExecution {
     });
   }
 
-  private async admitAgent(r:WorkRepositories,run:TaskRun,selection?:AgentSelection) {
-    if (this.deps.agents) return this.deps.agents.admit(r,run,selection);
+  private async admitAgent(r:WorkRepositories,run:TaskRun,selection?:AgentSelection, sandbox?:SandboxChoice) {
+    if (this.deps.agents) return this.deps.agents.admit(r,run,selection,sandbox);
     return run.workerMode === "managed" || selection ? fail("unsupported","managed execution service is unavailable") : succeed({});
   }
 
@@ -118,7 +118,7 @@ export class TaskExecution {
     if (!created.ok) return fromRejection(created.error);
     const moved = moveWork(work, runId, at);
     if (!moved.ok) return fromRejection(moved.error);
-    const agent = await this.admitAgent(r,created.value.state,input.agent);
+    const agent = await this.admitAgent(r,created.value.state,input.agent,input.sandbox);
     if (!agent.ok) return agent;
     await r.works.save(moved.value.state, work.version);
     await r.taskRuns.create(created.value.state);

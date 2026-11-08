@@ -1,5 +1,6 @@
 import { attachSandbox, digestOf, isId, isTerminal, requestSandbox } from "../domain/index.js";
 import type { RuntimeLocation, RuntimeOwner } from "../ports/index.js";
+import type { ManagedTask } from "../domain/managed.js";
 import type { EnvironmentContent } from "./environment-definitions.js";
 import { fail, fromRejection, succeed, type Outcome } from "./outcome.js";
 import { once } from "./requests.js";
@@ -26,7 +27,8 @@ export class SandboxProvisioning {
     if (isTerminal(facts.run) || facts.run.cancelIntent || facts.sandbox?.owner.id !== runId) return fail("conflict", "run no longer controls the transferred workspace");
     if (facts.sandbox.reservation?.kind === "transfer") {
       const settled = await this.deps.lifecycle.completeTransfer(runId, allowResume);
-      return settled.ok ? this.transferred(runId, false) : settled;
+      if (!settled.ok) return settled;
+      return settled.value === "preparing" ? fail("unavailable", "setup helper is still active") : this.transferred(runId, false);
     }
     const sb = facts.sandbox;
     if (sb.phase !== "ready" || !sb.runtime || !facts.job) return fail("unavailable", "transferred sandbox is not ready");
@@ -44,11 +46,11 @@ export class SandboxProvisioning {
       const run = await r.taskRuns.get(runId);
       if (run?.workerMode !== "managed") return {allowed: true};
       const [intent] = await r.intents.listForSubject("managed-worker", "task_run", runId);
-      const job = intent?.payload as {repositoryPath: string; baseline: string} | undefined;
+      const job = intent?.payload as ManagedTask | undefined;
       const parent = run.refines ? await r.taskRuns.get(run.refines) : undefined;
-      const useTaskBaseline = !run.refines || (parent?.workerMode === "external" &&
+      const useTaskBaseline = !run.refines || job?.freshAfterFailure || (parent?.workerMode === "external" &&
         (parent.status === "failed" || parent.status === "cancelled") && !parent.manifest);
-      return {allowed: job?.repositoryPath === repository, baseline: job?.baseline, useTaskBaseline};
+      return {allowed: job?.repositoryPath === repository, baseline: job?.baseline, parentCandidate:job?.parentCandidate, useTaskBaseline};
     });
     if (!authorized.allowed) return fail("forbidden", "this repository was not selected for the managed worker");
     const inherited = await this.transferred(runId, true);
@@ -70,7 +72,7 @@ export class SandboxProvisioning {
         if (!replay.ok) return replay;
       }
     } else {
-      const base = authorized.baseline && authorized.useTaskBaseline ? succeed({commit: authorized.baseline}) : await this.deps.delivery.workspaceBase({ runId, repositoryPath: repository });
+      const base = authorized.baseline && authorized.useTaskBaseline ? await this.deps.delivery.freshManagedBase(repository, authorized.baseline, authorized.parentCandidate) : await this.deps.delivery.workspaceBase({ runId, repositoryPath: repository });
       if (!base.ok) return base;
       if (authorized.baseline && base.value.commit !== authorized.baseline) return fail("conflict", "the recovered delivery differs from the admitted baseline");
       const reservation = await once<Reserved>(this.deps, { kind, input, requestId, subject: {type:"task_run", id:runId} }, async r => {

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, lstat, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -26,7 +26,7 @@ export class ManagedWorkspaces implements ManagedWorkspacePort {
     return privateDirectory(join(this.root(owner), "setup-attempts", owner.setupAttempt));
   }
 
-  async prepare(owner: RuntimeOwner, repository: string, commit: string, content: { config: string; lockfile: string | null; imageDigest: string }) {
+  async prepare(owner: RuntimeOwner, repository: string, commit: string, content: { config: string; lockfile: string | null; imageDigest: string }, requireExisting = false) {
     const configSource = pinnedConfig(content.config, content.imageDigest);
     const root = this.root(owner);
     if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(commit)) throw new Error("managed workspace needs a full commit");
@@ -37,7 +37,11 @@ export class ManagedWorkspaces implements ManagedWorkspacePort {
       try { if (await readFile(join(dest, "source.json"), "utf8") !== descriptor) throw new Error("workspace preparation identity conflict"); return true; }
       catch (error) { if (absent(error)) return false; throw error; }
     };
-    if (!await verified()) {
+    if (requireExisting) {
+      if (!await verified() || !(await lstat(workspace)).isDirectory() || !(await lstat(join(workspace, ".git"))).isDirectory()) {
+        throw new Error("the retained checkout is unavailable");
+      }
+    } else if (!await verified()) {
       const stage = await mkdtemp(join(root, "prepare-"));
       try {
         const clone = join(stage, "workspace"), config = join(stage, ".devcontainer");

@@ -92,4 +92,4 @@ When resuming partially created MySQL evidence tables, the upgrade account must 
 任务要求 Agent 在容器工作区提交修改，最终输出形如 `{"candidate":{"commit":"完整 Git OID"}}` 的 JSON。宿主核实起始提交、候选提交和远端归档回执后记录交付。宿主报告等待恢复时，可执行 `work resume-managed --run RUN` 续接。已开始的模型调用只做状态核对。
 
 
-托管精化默认在 `work continue` 接手工作头保留的沙箱。使用 `--sandbox fresh` 可从父交付创建新的工作区。`work branch` 默认新建工作区，可用 `--sandbox inherit` 请求接手。接手保留未提交的文件并继承父运行的环境修订。请求的环境与保留沙箱冲突时，可改选新沙箱。父运行的正式交付提交会作为精化输入提供给工作者。
+托管精化默认在 `work continue` 接手工作头保留的沙箱。使用 `--sandbox fresh` 可从父交付创建新的工作区。`work branch` 默认新建工作区，可用 `--sandbox inherit` 请求接手。接手保留未提交的文件并继承父运行的环境修订。请求的环境与保留沙箱冲突时，可改选新沙箱。父运行的正式交付提交会作为精化输入提供给工作者。失败或已取消的托管父运行没有交付时，显式选择 fresh 会从该父运行原先固定的基线开始。

@@ -70,6 +70,15 @@ export class CodeDelivery {
     } catch (error) { const failure = failureOf(error); if (failure) return { ok: false, error: failure }; throw error; }
   }
 
+  async freshManagedBase(repository: string, commit: string, parent?: {runId:string; id:string; receipt:string}): Promise<Outcome<{commit:string}>> {
+    if (await this.deps.archive.resolveCommit(repository, commit) === commit) return succeed({commit});
+    if (!parent) return fail("unavailable", "the pinned task baseline is unavailable");
+    const active = await this.deps.repairs.current(parent.runId, parent, repository);
+    const fetched = await this.deps.archive.fetch({repositoryPath:repository, receipt:active.receipt});
+    if (fetched.status !== "fetched" || fetched.commit !== commit) return fail("unavailable", "the parent archive could not supply the frozen baseline");
+    return succeed({commit});
+  }
+
   async workspaceBase(input: { runId: Id; repositoryPath: string }): Promise<Outcome<Workspace["base"]>> {
     if (!isId(input.runId)) return fail("invalid", "runId is required");
     try {

@@ -358,7 +358,7 @@ for (const backend of backends) test(backend + ": managed admission, archive out
 });
 
 for (const backend of backends) test(backend + ": one refinement inherits the retained sandbox and conflicts roll back", {skip: backendSkip(backend)}, async () => {
-  await scenario(async ({app, store, repo, remote, baseline}) => {
+  await scenario(async ({app, store, repo, remote, baseline, root}) => {
     const env = value(await app.environments.publish({requestId:"env", name:"inherited", expectedSeq:0,
       config:'{"image":"fixture","workspaceFolder":"/work"}', imageDigest:"sha256:" + "1".repeat(64)}));
     const task = value(await app.tasks.createTask({requestId:"task", summary:"handoff", criteria:[{statement:"isolated"}],
@@ -372,7 +372,7 @@ for (const backend of backends) test(backend + ": one refinement inherits the re
     await units.run("write", async r => {
       const run = await r.taskRuns.get(parent.runId);
       assert.ok(run);
-      const allocated = requestSandbox({id:sandboxId,owner:{type:"task_run",id:run.id},retention:"keep",at});
+      const allocated = requestSandbox({id:sandboxId,owner:{type:"task_run",id:run.id},location:{hostId:"test",daemonId:"test"},retention:"keep",at});
       assert.ok(allocated.ok);
       const blocked = markBlocked(allocated.value.state,{reason:"setup failed",at});
       const attached = attachSandbox(run,{sandboxId});
@@ -399,5 +399,48 @@ for (const backend of backends) test(backend + ": one refinement inherits the re
     assert.equal(facts.runs.find(run => run.id === winner.value.runId)?.environment?.source, "inherited");
     const fresh = value(await app.exec.addBranch({...branch, requestId:"fresh", sandbox:"fresh"}));
     assert.equal(value(await app.exec.getRun(fresh.runId)).run.sandboxId, undefined);
+    // The previous runner disappeared with a detached setup helper in
+    // flight, before Docker returned an instance. A cancelling receiver
+    // keeps the transfer reservation until that helper is stopped.
+    const {requestCancel} = await import("../src/work/domain/index.js");
+    await units.run("write", async r => {
+      const run = await r.taskRuns.get(winner.value.runId);
+      assert.ok(run);
+      const cancelled = requestCancel(run, {at});
+      assert.ok(cancelled.ok);
+      await r.taskRuns.save(cancelled.value.state, run.version);
+    });
+    const {DevcontainerRuntime} = await import("../src/work/adapters/devcontainer/runtime.js");
+    const {ManagedWorkspaces} = await import("../src/work/adapters/devcontainer/workspace.js");
+    const {RetainedSetup} = await import("../src/work/application/retained-setup.js");
+    const {SandboxLifecycle} = await import("../src/work/application/sandbox-lifecycle.js");
+    const runtime = new class extends DevcontainerRuntime {
+      override async location() {return {hostId:"test",daemonId:"test"};}
+      override async observe() {return null;}
+      override async exclusive<T>(_owner: unknown, fn: () => Promise<T>) {return fn();}
+    }();
+    let active = true;
+    const launcher = {status:async () => active ? "active" as const : "failed" as const,
+      start:async () => assert.fail("cancel must not dispatch"), cancelPending:async () => false};
+    const setup = new RetainedSetup({units,runtime,launcher,workspaces:new ManagedWorkspaces(root)});
+    const lifecycle = new SandboxLifecycle({units,runtime,setup,ledgerId:async () => "test", now:() => at,newId:newUUIDv7,
+      hash:(s:string) => createHash("sha256").update(s).digest("hex")});
+    assert.equal(value(await lifecycle.completeTransfer(winner.value.runId,false)), "preparing");
+    assert.equal((await units.run("read", r => r.sandboxes.get(sandboxId)))?.reservation?.kind, "transfer");
+    active = false;
+    value(await lifecycle.settleRun(winner.value.runId));
+    assert.equal((await units.run("read", r => r.sandboxes.get(sandboxId)))?.reservation, undefined);
   }, backend);
+});
+
+test("a missing retained checkout cannot be initialized from the original allocation", async () => {
+  await scenario(async ({repo, baseline, root}) => {
+    const {ManagedWorkspaces} = await import("../src/work/adapters/devcontainer/workspace.js");
+    const workspaces = new ManagedWorkspaces(root);
+    const owner = {ledgerId:newUUIDv7(), sandboxId:newUUIDv7()};
+    const config = {config:'{"image":"fixture"}',lockfile:null,imageDigest:"sha256:"+"1".repeat(64)};
+    const prepared = await workspaces.prepare(owner,repo,baseline,config);
+    rmSync(prepared.path,{recursive:true,force:true});
+    await assert.rejects(workspaces.prepare(owner,repo,baseline,config,true));
+  });
 });

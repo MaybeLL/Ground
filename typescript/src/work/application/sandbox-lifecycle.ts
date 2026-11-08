@@ -10,7 +10,7 @@ type Result = { sandboxId: string; runId: string; phase: "blocked" | "paused" | 
 export class SandboxLifecycle {
   constructor(private readonly deps: RequestContext & { setup?: RetainedSetup; runtime: SandboxRuntimePort; ledgerId(): Promise<string> }) {}
 
-  async completeTransfer(runId: string, allowResume: boolean): Promise<Outcome<null>> {
+  async completeTransfer(runId: string, allowResume: boolean): Promise<Outcome<null | "preparing">> {
     const sandbox = await this.deps.units.run("read", async r => {
       const run = await r.taskRuns.get(runId);
       return run?.sandboxId ? r.sandboxes.get(run.sandboxId) : undefined;
@@ -32,10 +32,13 @@ export class SandboxLifecycle {
         if (facts.current.reservation.operationId !== reservation.operationId) return fail("conflict", "sandbox reservation changed before transfer");
         const location = await this.deps.runtime.location();
         if (sandbox.location?.hostId !== location.hostId || sandbox.location.daemonId !== location.daemonId) return fail("conflict", "the retained sandbox is on another host");
+        if (facts.ended && this.deps.setup && !await this.deps.setup.fenceCancellation(owner, reservation.operationId)) {
+          return succeed("preparing" as const);
+        }
         let observed = await this.deps.runtime.observe(owner);
         let expected = sandbox.runtime;
         const originalSetup = facts.launch?.state === "completed" && (facts.launch.result as {instanceId?: string}).instanceId === observed?.id;
-        const trusted = observed && expected?.instanceId === observed.id && !expected.setupFailed && (expected.setupAttempt || originalSetup);
+        const trusted = observed && expected?.instanceId === observed.id && observed.setupAttempt === expected.setupAttempt && !expected.setupFailed && (expected.setupAttempt || originalSetup);
         let preparedRuntime: Sandbox["runtime"];
         if (!trusted && (!facts.ended || observed && observed.id !== expected?.instanceId)) {
           if (!this.deps.setup) return fail("unavailable", "the retained sandbox needs verified devcontainer setup");
@@ -43,6 +46,7 @@ export class SandboxLifecycle {
           if (!prepared.ok) {
             if (!await this.deps.setup.failed(owner, reservation.operationId)) return prepared;
             const partial = await this.deps.runtime.observe(owner);
+            if (partial && partial.setupAttempt !== reservation.operationId) return fail("conflict", "failed helper does not own the observed container");
             return this.deps.units.run("write", async r => {
               const run = await r.taskRuns.get(runId, {lock:true});
               const sb = await r.sandboxes.get(sandbox.id, {lock:true});
@@ -187,7 +191,7 @@ export class SandboxLifecycle {
     const {run,sandbox} = facts;
     if (sandbox.reservation?.kind === "transfer") {
       const observed = await this.completeTransfer(runId, false);
-      return observed.ok ? this.settleRun(runId) : observed;
+      return observed.ok ? observed.value === "preparing" ? succeed(null) : this.settleRun(runId) : observed;
     }
     if (sandbox.phase === "preparing") return succeed(null); // preparation reconciles a racing termination
     const prior = facts.pending?.payload as { action?: Action } | undefined;

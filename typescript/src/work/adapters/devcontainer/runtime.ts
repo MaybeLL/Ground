@@ -10,6 +10,7 @@ import type { RuntimeOwner, RuntimeState, RuntimeWorkspace, SandboxRuntimePort }
 
 const exec = promisify(execFile);
 const ledgerLabel = "dev.grounds.ledger";
+const setupLabel = "dev.grounds.setup-attempt";
 const sandboxLabel = "dev.grounds.sandbox";
 const opts = { timeout: 120_000, maxBuffer: 8 * 1024 * 1024, encoding: "utf8" as const };
 const containerId = /^[a-f0-9]{64}$/;
@@ -67,7 +68,7 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
     const labels = JSON.parse(labelsLine!), state = JSON.parse(stateLine!);
     if (labels[ledgerLabel] !== owner.ledgerId || labels[sandboxLabel] !== owner.sandboxId) throw new Error("container ownership changed");
     if (state.Restarting || state.Status === "removing" || state.Status === "dead") throw new Error("container state is unresolved");
-    return { id: ids[0]!, state: state.Paused ? "paused" : state.Running ? "running" : "stopped" };
+    return { id: ids[0]!, ...(labels[setupLabel] ? {setupAttempt: labels[setupLabel]} : {}), state: state.Paused ? "paused" : state.Running ? "running" : "stopped" };
   }
 
   async up(owner: RuntimeOwner, workspace: RuntimeWorkspace): Promise<RuntimeState> {
@@ -79,7 +80,7 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
     const configPath = workspace.imageDigest ? await this.effectiveConfig(workspace) : workspace.configPath;
     const result = await this.startTool(["up", "--update-remote-user-uid-default", "never", "--docker-path", this.docker,
       "--workspace-folder", workspace.path, "--config", configPath, "--mount-workspace-git-root=false", ...(workspace.frozenLockfile ? ["--frozen-lockfile"] : []),
-      "--id-label", ledgerLabel + "=" + owner.ledgerId, "--id-label", sandboxLabel + "=" + owner.sandboxId]);
+      "--id-label", ledgerLabel + "=" + owner.ledgerId, "--id-label", sandboxLabel + "=" + owner.sandboxId, ...(owner.setupAttempt ? ["--id-label", setupLabel + "=" + owner.setupAttempt] : [])]);
     const report = JSON.parse(result.stdout.trim());
     const after = await this.observe(owner);
     if (!after || after.state !== "running" || report.outcome !== "success" || report.containerId !== after.id) throw new Error("devcontainer did not confirm the owned running container");

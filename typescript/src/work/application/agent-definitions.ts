@@ -1,6 +1,7 @@
 import { acceptExecution, createDefinition, digestOf, isId, isText, publishRevision, refOf, type TaskRun } from "../domain/index.js";
 import type { AgentProvider, ProviderName, WorkRepositories } from "../ports/index.js";
 import { fail, fromRejection, succeed } from "./outcome.js";
+import type { SandboxChoice } from "./sandbox-transfer.js";
 import { once, type RequestContext } from "./requests.js";
 
 export type AgentSelection = {definitionId:string; revisionId?:string; repositoryPath:string};
@@ -31,7 +32,7 @@ export class AgentDefinitions {
     });
   }
 
-  async admit(r:WorkRepositories,run:TaskRun,selection?:AgentSelection) {
+  async admit(r:WorkRepositories,run:TaskRun,selection?:AgentSelection,sandbox?:SandboxChoice) {
     if (run.workerMode!=="managed") return selection ? fail("invalid","agent selection requires managed mode") : succeed({});
     if (!selection || !isId(selection.definitionId) || !run.environment) return fail("invalid","a managed run requires an agent and a resolved task environment");
     const revision=selection.revisionId ? await r.definitions.getRevision(selection.definitionId,selection.revisionId) : await r.definitions.latestRevision(selection.definitionId);
@@ -48,8 +49,14 @@ export class AgentDefinitions {
     const parent = run.refines ? await r.taskRuns.get(run.refines) : undefined;
     const candidate = parent?.manifest?.items.find(item => item.type === "candidate");
     const inherited = run.environment.source === "inherited";
-    const previous = inherited && parent ? (await r.intents.listForSubject("managed-worker", "task_run", parent.id))[0]?.payload as ManagedTask | undefined : undefined;
-    if (inherited && !previous) return fail("conflict", "the previous worker's repository binding is missing");
+    const failedManaged = parent?.workerMode === "managed" && !candidate && (parent.status === "failed" || parent.status === "cancelled");
+    const freshAfterFailure = failedManaged && sandbox === "fresh";
+    if (parent && !candidate && !inherited && !freshAfterFailure &&
+        !(parent.workerMode === "external" && !parent.manifest && (parent.status === "failed" || parent.status === "cancelled"))) {
+      return fail("conflict", "the parent delivered no candidate; select a retained workspace or explicitly start fresh from a failed managed run's baseline");
+    }
+    const previous = (inherited || freshAfterFailure) && parent ? (await r.intents.listForSubject("managed-worker", "task_run", parent.id))[0]?.payload as ManagedTask | undefined : undefined;
+    if ((inherited || freshAfterFailure) && !previous) return fail("conflict", "the previous worker's repository binding is missing");
     const parentCandidate = candidate && parent ? {runId: parent.id, id: candidate.id, receipt: candidate.receipt} : previous?.parentCandidate;
     const parentReceipt = parentCandidate?.receipt ?? previous?.parentReceipt;
     let source;
@@ -58,7 +65,7 @@ export class AgentDefinitions {
     if (previous && (previous.repositoryPath !== source.repositoryPath || previous.remote !== source.remote)) {
       return fail("conflict", "the selected repository differs from the retained workspace; select a fresh sandbox");
     }
-    const payload: ManagedTask = {runId: run.id, executionId, ...source, ...(parentReceipt ? {parentReceipt} : {}), ...(parentCandidate ? {parentCandidate} : {})};
+    const payload: ManagedTask = {runId: run.id, executionId, ...source, ...(freshAfterFailure ? {freshAfterFailure:true} : {}), ...(parentReceipt ? {parentReceipt} : {}), ...(parentCandidate ? {parentCandidate} : {})};
     const hash=digestOf(payload,this.ctx.hash);
     if (!hash.ok) return fromRejection(hash.error);
     await r.executions.create(accepted.value.state);
