@@ -37,6 +37,8 @@ export class SandboxProvisioning {
     if (location.hostId !== sb.location?.hostId || location.daemonId !== sb.location.daemonId) return fail("conflict", "transferred sandbox belongs to another host");
     const observed = await this.deps.runtime.observe(owner);
     if (observed?.id !== sb.runtime.instanceId || observed.state !== "running") return fail("unavailable", "cannot verify the retained instance");
+    try {await this.deps.runtime.verifyReady?.(owner,observed.id);}
+    catch {return fail("unavailable","the transferred sandbox services are not ready");}
     return succeed({runId, sandboxId: sb.id, environmentRevisionId: sb.runtime.environmentRevisionId, commit: facts.job.baseline, phase: "ready", instanceId: observed.id});
   }
 

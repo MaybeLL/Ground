@@ -102,6 +102,8 @@ export class TestGradingDriver {
         const fault = await tests.fault(id,"evaluator setup ended without a verified running instance");
         return fault.ok ? this.drive(id,false) : fault;
       }
+      try {await runtime.verifyReady?.(owner,receipt);}
+      catch {return succeed({state:"blocked",detail:"evaluator sandbox services could not be confirmed"});}
       const ready = await tests.ready(id,receipt);
       return ready.ok ? this.drive(id,live) : ready;
     }

@@ -2101,8 +2101,10 @@ test("external sandbox runs a frozen Compose project and releases its own depend
       assert.equal(docker("volume","ls","-q","--filter","label=dev.grounds.compose-owner="+first.project),"");
       assert.equal(docker("exec",second.dep,"cat","/data/sentinel"),second.runId);
       docker("stop",second.dep);
+      assert.equal((await h.cli("work","reconcile-sandbox","--run",second.runId)).ok,false);
       assert.equal((await h.cli("work","sandbox-context","--run",second.runId,"--session",second.sessionId)).ok,false);
       docker("start",second.dep);
+      assert.equal(ok(await h.cli("work","reconcile-sandbox","--run",second.runId)).phase,"ready");
       await end(second);
       const {DevcontainerRuntime}=await import("../src/work/adapters/devcontainer/runtime.js");
       const remove=DevcontainerRuntime.prototype.remove;

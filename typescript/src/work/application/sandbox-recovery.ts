@@ -77,6 +77,11 @@ export class SandboxRecovery {
         return this.failedPreparation(payload, "the completed sandbox was stopped or removed before registration", id);
       }
       if (!id || observed?.id !== id || observed.state !== "running") return fail("unavailable", "cannot confirm the recorded running sandbox and completed devcontainer setup");
+      try { await this.deps.runtime.verifyReady?.(owner,id); }
+      catch {
+        if (claim.state==="registered") return this.failedPreparation(payload,"completed sandbox services could not be confirmed before registration",id);
+        return fail("unavailable","the recorded sandbox services are not ready");
+      }
       const result = await this.deps.units.run("write", async r => {
         const intent = await r.intents.get(claim.id, {lock:true});
         if (intent?.state === "completed") return succeed(intent.result as Prepared);
