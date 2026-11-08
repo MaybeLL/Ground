@@ -53,6 +53,7 @@ export class SandboxLifecycle {
     if (intent.state === "completed") return succeed(intent.result as Result);
     const { sandboxId, instanceId } = intent.payload as { sandboxId: string; instanceId: string };
     const owner = { ledgerId: await this.deps.ledgerId(), sandboxId };
+    let pauseObservation: "paused" | "stopped" | "absent" | undefined;
     try {
       const expected = await this.deps.units.run("read", async r => (await r.sandboxes.get(sandboxId))?.location);
       const location = await this.deps.runtime.location();
@@ -67,11 +68,18 @@ export class SandboxLifecycle {
         if (action === "release") {
           if (observed) await this.deps.runtime.remove(owner, observed.id);
         } else {
-          if (!observed) throw new Error("recorded container is absent");
-          if (observed.state !== "paused") await this.deps.runtime[action](owner, observed.id);
+          if (observed?.state === "running") await this.deps.runtime.pause(owner, observed.id);
         }
         const after = await this.deps.runtime.observe(owner);
-        if (action === "release" ? after !== null : after?.id !== instanceId || after.state !== "paused") throw new Error("the requested state was not observed");
+        if (action === "release") {
+          if (after) throw new Error("release could not be confirmed");
+        } else {
+          if (!after) pauseObservation = "absent";
+          else {
+            if (after.id !== instanceId || after.state === "running") throw new Error("cannot confirm that the owned runtime is quiescent");
+            pauseObservation = after.state;
+          }
+        }
       });
     } catch { return fail("unavailable", "cannot confirm the reserved container operation"); }
     return this.deps.units.run("write", async r => {
@@ -80,7 +88,7 @@ export class SandboxLifecycle {
       const sandbox = await r.sandboxes.get(sandboxId, { lock: true });
       if (!saved || !sandbox) return fail("conflict", "runtime reservation is missing");
       const at = this.deps.now();
-      const completed = action === "release" ? completeRelease(sandbox, { operationId: saved.id, at, workspace: "retained" }) : completeReservation(sandbox, { operationId: saved.id, at });
+      const completed = action === "release" ? completeRelease(sandbox, { operationId: saved.id, at, workspace: "retained" }) : completeReservation(sandbox, { operationId: saved.id, at, pauseObservation });
       if (!completed.ok) return fromRejection(completed.error);
       const result: Result = { sandboxId, runId, phase: action === "release" ? "released" : completed.value.state.phase === "blocked" ? "blocked" : "paused" };
       await r.sandboxes.save(completed.value.state, sandbox.version);
@@ -107,7 +115,7 @@ export class SandboxLifecycle {
       return resumed.ok ? succeed(null) : resumed;
     }
     const action = run.retention === "release" ? "release" : "pause";
-    if (action === "pause" && (sandbox.phase === "paused" || (sandbox.phase === "blocked" && (!sandbox.runtime || sandbox.blockedRuntimePaused)))) return succeed(null);
+    if (action === "pause" && (sandbox.phase === "paused" || (sandbox.phase === "blocked" && (!sandbox.runtime || sandbox.blockedRuntimeQuiescent)))) return succeed(null);
     const result = await this.lifecycle("terminal-" + action + "-" + sandbox.id,runId,action);
     return result.ok ? succeed(null) : result;
   }

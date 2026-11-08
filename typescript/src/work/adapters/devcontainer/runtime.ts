@@ -68,7 +68,7 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
       return prior;
     }
     const configPath = workspace.imageDigest ? await this.effectiveConfig(workspace) : workspace.configPath;
-    const result = await this.startTool(["up", "--docker-path", this.docker,
+    const result = await this.startTool(["up", "--update-remote-user-uid-default", "never", "--docker-path", this.docker,
       "--workspace-folder", workspace.path, "--config", configPath, "--mount-workspace-git-root=false", ...(workspace.frozenLockfile ? ["--frozen-lockfile"] : []),
       "--id-label", ledgerLabel + "=" + owner.ledgerId, "--id-label", sandboxLabel + "=" + owner.sandboxId]);
     const report = JSON.parse(result.stdout.trim());

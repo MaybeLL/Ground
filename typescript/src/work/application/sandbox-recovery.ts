@@ -59,8 +59,8 @@ export class SandboxRecovery {
       const expected = await this.deps.units.run("read", async r => (await r.sandboxes.get(owner.sandboxId))?.location);
       const location = await this.deps.runtime.location();
       if (!expected || location.daemonId !== expected.daemonId || location.hostId !== expected.hostId) return fail("conflict", "sandbox belongs to a different runtime host");
-      const id = await this.deps.workspaces.receipt(owner);
-      const observed = await this.deps.runtime.observe(owner);
+      let id = await this.deps.workspaces.receipt(owner);
+      let observed = await this.deps.runtime.observe(owner);
       if (!id && claim.state === "registered") {
         const status = await this.deps.launcher.status(owner);
         if (status === "not-started") {
@@ -68,8 +68,9 @@ export class SandboxRecovery {
           if (run && isTerminal(run) && !observed && await this.deps.launcher.cancelPending(owner)) return this.failedPreparation(payload, "owner ended before devcontainer setup began");
         }
         if (status === "failed" || status === "interrupted") {
-          const final = await this.deps.runtime.observe(owner);
-          return this.failedPreparation(payload, "devcontainer setup ended without a successful completion receipt", final?.id);
+          id = await this.deps.workspaces.receipt(owner);
+          observed = await this.deps.runtime.observe(owner);
+          if (!id) return this.failedPreparation(payload, "devcontainer setup ended without a successful completion receipt", observed?.id);
         }
       }
       if (!id || observed?.id !== id || observed.state !== "running") return fail("unavailable", "cannot confirm the recorded running sandbox and completed devcontainer setup");

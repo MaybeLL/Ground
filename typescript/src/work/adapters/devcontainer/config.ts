@@ -23,5 +23,5 @@ export function pinnedConfig(source: string, digest: string) {
   const mount = "source=${localWorkspaceFolder},target=" + folder + ",type=bind";
   checkIsolation(config);
   if (config.workspaceMount && config.workspaceMount !== mount) throw new Error("the environment overrides the isolated workspace mount");
-  return { ...config, image: repository + "@" + digest, workspaceFolder: folder, workspaceMount: mount };
+  return { ...config, updateRemoteUserUID: false, image: repository + "@" + digest, workspaceFolder: folder, workspaceMount: mount };
 }

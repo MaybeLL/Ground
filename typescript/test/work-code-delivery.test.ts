@@ -232,7 +232,7 @@ test("failed setup can close and cancellation racing setup pauses the actual own
     const env = value(await app.environments.publish({requestId:"e",name:"test",config:'{"image":"alpine"}',imageDigest,expectedSeq:0}));
     const task = value(await app.tasks.createTask({requestId:"t",summary:"fixture",criteria:[{statement:"works"}],repository:{remote,baseline},environmentDefinitionId:env.environmentId}));
     const id = "a".repeat(64), workspaces = new ManagedWorkspaces(root);
-    let phase: "running" | "paused" | null = null;
+    let phase: "running" | "paused" | "stopped" | null = null;
     let daemonDown = true, failPause = true;
     class Runtime extends DevcontainerRuntime {
       override async location() { if (daemonDown) throw Error("offline"); return {hostId:"local",daemonId:"same"}; }
@@ -245,12 +245,12 @@ test("failed setup can close and cancellation racing setup pauses the actual own
     const ctx = { units, runtime, hash:(s:string)=>createHash("sha256").update(s).digest("hex"), newId:newUUIDv7, now:()=>new Date().toISOString(), ledgerId:async ()=>(await store.inspect()).database_id };
     const lifecycle = new SandboxLifecycle(ctx);
     const taskExec = new TaskExecution({units,hash:ctx.hash,clock:{now:ctx.now},ids:{next:newUUIDv7},receipts:new GitTagArchive(),lifecycle});
-    let failed = true;
+    let failed = true, stopOnFailure = false;
     let entered!: () => void, finish!: () => void;
     const started = new Promise<void>(r=>{entered=r;}), gate = new Promise<void>(r=>{finish=r;});
     const launcher = { cancelPending:async()=>false, status:async()=>failed ? "failed" as const : "completed" as const,
       start:async(owner: Parameters<ManagedWorkspaces["record"]>[0]) => {
-        if (failed) throw Error("build failed");
+        if (failed) { if (stopOnFailure) phase = "stopped"; throw Error("build failed"); }
         phase = "running"; entered(); await gate; await workspaces.record(owner,id);
       } };
     const provision = new SandboxProvisioning({...ctx,workspaces,launcher,lifecycle,delivery:app.delivery});
@@ -272,6 +272,13 @@ test("failed setup can close and cancellation racing setup pauses the actual own
     value(await taskExec.cancel({requestId:"cancel-two",runId:second.runId}));
     assert.equal(phase,"paused");
     assert.equal(value(await taskExec.closeWork({requestId:"close-two",workId:second.workId})).status,"closed");
+    assert.equal(phase,null);
+    failed = true; stopOnFailure = true;
+    const third = value(await taskExec.startWork({requestId:"three",workerMode:"external",taskDefinitionId:task.taskId}));
+    refused(await provision.prepare("prepare-three",third.runId,repo),"conflict");
+    const blocked = await units.run("read",async r => r.sandboxes.get((await r.taskRuns.get(third.runId))!.sandboxId!));
+    assert.equal(blocked!.phase,"blocked"); assert.equal(blocked!.blockedRuntimeQuiescent,true);
+    assert.equal(value(await taskExec.closeWork({requestId:"close-three",workId:third.workId})).status,"closed");
     assert.equal(phase,null);
   });
 });

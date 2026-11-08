@@ -471,7 +471,7 @@ test("three ledger-backed task sandboxes survive a receipt interruption and isol
     const docker = (...args: string[]) => execFileSync("docker",args,{encoding:"utf8"}).trim();
     const image = docker("image","inspect","--format","{{index .RepoDigests 0}}",process.env.GROUNDS_TEST_CONTAINER_IMAGE ?? "alpine:latest");
     const config = join(h.directory,"devcontainer.json");
-    writeFileSync(config, JSON.stringify({image, workspaceFolder:"/work", workspaceMount:"source=${localWorkspaceFolder},target=/work,type=bind"}));
+    writeFileSync(config, JSON.stringify({image, remoteUser:"nobody", workspaceFolder:"/work", workspaceMount:"source=${localWorkspaceFolder},target=/work,type=bind"}));
     const env = ok(await h.cli("work","define-environment","--name","isolated","--image-digest",image.split("@")[1]!,"--devcontainer",config));
     const task = ok(await h.cli("task","create","--title","runtime test","--criterion","isolated","--environment",env.environmentId,"--baseline",h.baseline,"--repo-remote",h.remote));
     const runs = await Promise.all(Array.from({length:3}, async () => ok(await h.cli("work","start","--task",task.taskId,"--mode","external")).runId as string));
