@@ -1,4 +1,4 @@
-import {checkCommit,verifyTree} from "./material-integrity.js";
+import {checkCommit,verifyTree,UnsupportedGitTree} from "./material-integrity.js";
 import {execFile,spawn} from "node:child_process";
 import {chmod,lstat,mkdir,mkdtemp,open,symlink,readFile,readdir,realpath,rename,rm,writeFile} from "node:fs/promises";
 import {isAbsolute,join,relative} from "node:path";
@@ -13,11 +13,13 @@ const exec = promisify(execFile);
  * repository-configured smudge commands. The staging directory is private. */
 async function exportTree(repository:string,tree:string,dir:string,mode=0o700) {
   const {stdout}=await exec("git",["-C",repository,"ls-tree","-z",tree],{env:inspectionEnvironment(),maxBuffer:64*1024*1024,encoding:"buffer"});
-  const records=new TextDecoder("utf-8",{fatal:true}).decode(stdout).split("\0");
+  let records:string[];
+  try {records=new TextDecoder("utf-8",{fatal:true}).decode(stdout).split("\0");}
+  catch {throw new UnsupportedGitTree("Git tree contains a non-UTF-8 filename");}
   await mkdir(dir,{mode});
   for (const record of records.slice(0,-1)) {
     const match=/^(100644|100755|120000|040000) (blob|tree) ([a-f0-9]+)\t([\s\S]+)$/.exec(record);
-    if (!match || [".","..",".git"].includes(match[4]!.toLowerCase()) || match[4]!.includes("/")) throw new Error("unsupported material tree entry");
+    if (!match || [".","..",".git"].includes(match[4]!.toLowerCase()) || match[4]!.includes("/")) throw new UnsupportedGitTree("unsupported Git tree entry, such as a submodule");
     const [,entryMode,,oid,name]=match, path=join(dir,name!);
     if (entryMode==="040000") {await exportTree(repository,oid!,path,mode);continue;}
     if (entryMode==="120000") {
@@ -40,7 +42,11 @@ async function exportTree(repository:string,tree:string,dir:string,mode=0o700) {
 export async function exportVerificationTree(repository:string,commit:string,directory:string) {
   const proof=await commitObject(repository,commit);
   const expected=checkCommit(commit,Buffer.from(proof,"base64"));
-  await exportTree(repository,expected,directory,0o755);
+  try {await exportTree(repository,expected,directory,0o755);}
+  catch(error) {
+    if (["EEXIST","EISDIR","ENOTDIR","ENAMETOOLONG","EILSEQ"].includes((error as NodeJS.ErrnoException).code ?? "")) throw new UnsupportedGitTree("Git tree paths cannot be represented by this evaluator filesystem");
+    throw error;
+  }
   if ((await verifyTree(directory,commit,directory,false)).toString("hex")!==expected) throw Error("verification checkout differs from its frozen commit");
 }
 

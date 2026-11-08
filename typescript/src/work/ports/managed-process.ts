@@ -10,7 +10,7 @@ export type ProcessRead = {state:"complete";exitCode:number} | {state:"running"|
 export type WorkerOutput = {trace:CapturedTrace;output:EvidenceSource;stderr:EvidenceSource;message:string;providerFailed:boolean};
 export type CapturedArtifacts = {entries:{slot:string;files:{path:string;source:EvidenceSource}[]}[];dispose():Promise<void>};
 export type GateAuthorMaterials = {
-  manifest:{digest:string;origin:string;items:{id:string;type:string;path:string}[];trajectoryReceipt?:string};
+  manifest:{digest:string;origin:string;items:{id:string;type:string;path:string;slot?:string}[];trajectoryReceipt?:string};
   materials:readonly {id:string;digest:string;file?:string;source?:EvidenceSource}[];
 };
 export interface ManagedProcessPort {

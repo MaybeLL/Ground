@@ -3,6 +3,8 @@ import {constants} from "node:fs";
 import {lstat,open,readdir,readlink,realpath} from "node:fs/promises";
 import {isAbsolute,join,relative} from "node:path";
 
+export class UnsupportedGitTree extends Error {}
+
 const algorithm = (oid:string)=>oid.length === 64 ? "sha256" : "sha1";
 function objectHash(oid:string,type:string,size:number|bigint) {
   return createHash(algorithm(oid)).update(type+" "+size+"\0");
@@ -36,8 +38,15 @@ export async function verifyTree(root:string,oid:string,dir=root,requireReadonly
         hash=blob.digest();
       } finally {await file.close();}
     } else if (stat.isSymbolicLink()) {
-      const target=await readlink(path,{encoding:"buffer"}), resolved=relative(root,await realpath(path));
-      if ((!requireReadonly && isAbsolute(target.toString())) || resolved===".." || resolved.startsWith("../") || isAbsolute(resolved)) throw new Error("material symlink points outside its repository");
+      const target=await readlink(path,{encoding:"buffer"});
+      let physical:string;
+      try {physical=await realpath(path);}
+      catch(error) {
+        if (["ENOENT","ELOOP","ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) throw new UnsupportedGitTree("delivery contains a dangling or cyclic symlink");
+        throw error;
+      }
+      const resolved=relative(root,physical);
+      if ((!requireReadonly && isAbsolute(target.toString())) || resolved===".." || resolved.startsWith("../") || isAbsolute(resolved)) throw new UnsupportedGitTree("material symlink points outside its repository");
       mode="120000"; hash=objectHash(oid,"blob",target.length).update(target).digest();
     } else throw new Error("unexpected material file type");
     entries.push({sort:Buffer.from(name+(stat.isDirectory()?"/":"")),data:Buffer.concat([Buffer.from(mode+" "+name+"\0"),hash])});

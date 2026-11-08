@@ -13,15 +13,18 @@ if (task.role==="independent-verifier") {
   } else {
     assert.equal(readFileSync("/grounds-materials/input/app.txt","utf8"),"v0\n");
     assert.equal(dirs.length,2);
-    for (const d of dirs) assert.equal(readFileSync(dir+"/"+d+"/report","utf8"),"public result");
+    assert.deepEqual(task.task.delivery.map(d=>d.slot).sort(),["a","b"]);
+    for (const {path,slot} of task.task.delivery) assert.equal(readFileSync(path+"/report","utf8"),"public result "+slot);
   }
   const findings=task.task.criteria.map(c=>({criterionId:c.id,independent:"satisfied",rationale:"inspected frozen files",evidence:["report"]}));
   let result;
   if (task.phase==="blind") {
+    writeFileSync(".blind-invoked","once",{flag:"wx"});
     assert.equal(fs.existsSync(material),false);
     assert.equal(JSON.stringify(task).includes("private-author-marker"),false);
     result={findings};
   } else {
+    writeFileSync(".reconcile-invoked","once",{flag:"wx"});
     assert.deepEqual(task.findings,findings);
     const author=JSON.parse(readFileSync(material+"/index.json","utf8"));
     assert.deepEqual(author.manifest.items.map(i=>i.path).sort(),dirs);

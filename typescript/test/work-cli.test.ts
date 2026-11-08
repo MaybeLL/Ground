@@ -2154,35 +2154,60 @@ test("managed evaluator runs the built-in gate blind before reading the author's
     const transcript=join(h.directory,"author.log"),bytes="private-author-marker";
     writeFileSync(transcript,bytes);
     writeFileSync(join(h.directory,"report"),"public result");
-    for (const title of ["independent review","alter findings","pinned code"]) {
-      const coding=title==="pinned code";
+    for (const title of ["independent review","alter findings","pinned code","dangling link"]) {
+      const coding=title==="pinned code" || title==="dangling link";
       const agent=judges[coding ? 1 : 0];
       const working=ok(await h.cli("task","create","--title",title,"--criterion","complete","--criterion","correct",
         ...(coding ? ["--repo-remote",h.remote,"--baseline",h.baseline] : ["--kind","working","--materials",materials,"--required-output","a","--required-output","b"])));
       const {runId}=ok(await h.cli("work","start","--mode","external","--task",working.taskId));
       const {sessionId}=ok(await h.cli("work","register","--run",runId,"--agent","author"));
       const ids=[];
-      for (const slot of coding ? [] : ["a","b"]) ids.push(ok(await h.cli("work","save-artifact","--run",runId,"--session",sessionId,"--slot",slot,"--file","report="+join(h.directory,"report"))).artifact.id);
+      for (const slot of coding ? [] : ["b","a"]) {
+        writeFileSync(join(h.directory,"report"),"public result "+slot);
+        ids.push(ok(await h.cli("work","save-artifact","--run",runId,"--session",sessionId,"--slot",slot,"--file","report="+join(h.directory,"report"))).artifact.id);
+      }
       ok(await h.cli("work","transcript","--run",runId,"--session",sessionId,"--digest","sha256:"+createHash("sha256").update(bytes).digest("hex"),"--coverage","partial","--file",transcript));
       if (coding) {
         writeFileSync(join(h.repo,"report"),"pinned code");
+        if (title==="dangling link") {symlinkSync("missing",join(h.repo,"link"));git(h.repo,"add","link");}
         git(h.repo,"add","report");git(h.repo,"commit","-qm","private author claim");
         ok(await h.cli("work","deliver","--run",runId,"--session",sessionId,"--repo",h.repo,"--declare-stop"));
         writeFileSync(join(h.repo,"report"),"later change");
       } else ok(await h.cli("work","submit-artifacts","--run",runId,"--session",sessionId,...ids.flatMap(id=>["--artifact",id])));
       const {gradingId}=ok(await h.cli("grade","request","--run",runId));
       const args=["grade","start-managed","--grading",gradingId,"--agent",agent.agentId,"--agent-revision",agent.revisionId,"--environment",env.environmentId,"--environment-revision",env.revisionId,"--operation-id",newUUIDv7()];
+      const lockFreeze=title==="independent review";
+      const sql=(statement:string)=>{
+        const db=new DatabaseSync(join(h.directory,"ledger.db"));try {db.exec(statement);} finally {db.close();}
+      };
+      if (lockFreeze) sql("CREATE TRIGGER lose_gate_freeze BEFORE INSERT ON work_intents WHEN NEW.kind='gate-blind' BEGIN SELECT RAISE(ABORT,'lost blind receipt'); END");
       const started=ok(await h.cli(...args));
       assert.deepEqual(ok(await h.cli(...args)),started);
       assert.equal((await h.cli("grade","register","--grading",gradingId,"--agent","another")).ok,false);
-      let status;
+      let status,interrupted=false;
       const deadline=Date.now()+65000;
       do {
         status=ok(await h.cli("grade","evaluator-status","--grading",gradingId));
-        if (status.sandboxPhase==="released" || status.host?.state==="blocked") break;
+        if (status.host?.state==="blocked" && lockFreeze && !interrupted) {
+          assert.deepEqual(status.protocol.map((p:{stage:string})=>p.stage),["blind"]);
+          assert.equal((await h.cli("grade","evaluator-evidence","--grading",gradingId,"--stream","blind-output","--chunk","0")).ok,false);
+          sql("DROP TRIGGER lose_gate_freeze");
+          interrupted=true;
+          ok(await h.cli("grade","resume-evaluator","--grading",gradingId,"--operation-id",newUUIDv7()));
+          status=undefined;
+          await new Promise(resolve=>setTimeout(resolve,600));
+          continue;
+        }
+        if (status.sandboxPhase==="released") break;
         await new Promise(resolve=>setTimeout(resolve,250));
       } while (Date.now()<deadline);
-      assert.equal(status.sandboxPhase,"released",JSON.stringify(status));
+      if (lockFreeze) assert.equal(interrupted,true);
+      assert.equal(status?.sandboxPhase,"released",JSON.stringify(status));
+      if (title==="dangling link") {
+        const fault=ok(await h.cli("grade","show","--grading",gradingId));
+        assert.equal(fault.status,"grader_fault");assert.match(fault.fault,/dangling/);
+        continue;
+      }
       assert.equal(status.agentRevision.revisionId,agent.revisionId);
       assert.equal(status.environmentRevision.revisionId,env.revisionId);
       assert.deepEqual(status.protocol.map((p:{stage:string})=>p.stage),title==="alter findings" ? ["blind","freeze","reconcile"] : ["blind","freeze","reconcile","handoff","submit"]);

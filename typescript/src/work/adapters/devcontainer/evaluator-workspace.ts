@@ -1,3 +1,4 @@
+import {UnsupportedGitTree} from "../git/material-integrity.js";
 import {exportVerificationTree,MaterialWorkspaces} from "../git/material-workspaces.js";
 import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, open, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -59,9 +60,14 @@ export class EvaluatorWorkspaces {
             await this.writeArtifact(path,runId,item.id,item.receipt);
           } else {
             const tree=await this.archive.withTree(repository,{id:item.archiveId,receipt:item.receipt},async(scratch,commit)=>{
-              await exportVerificationTree(scratch,commit,path);
+              try {await exportVerificationTree(scratch,commit,path);}
+              catch (error) {
+                if (error instanceof UnsupportedGitTree) return {status:"unsupported" as const,reason:error.message};
+                throw error;
+              }
               return {status:"exported" as const};
             });
+            if (tree.status==="unsupported") throw new TestTargetFault(tree.reason);
             if (tree.status!=="exported") throw Error("cannot verify the gate candidate archive");
           }
         }

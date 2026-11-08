@@ -6,7 +6,7 @@ import type {AgentProvider,EvidenceSource,WorkerOutput} from "../ports/index.js"
 import {fail,fromRejection,succeed} from "./outcome.js";
 import type {RequestContext} from "./requests.js";
 import {gateEvidence} from "./grading.js";
-import {blindFindings,configuredJudge,gateVerdict,type BlindFinding} from "./managed-gates.js";
+import {blindFindings,configuredJudge,gateVerdict,type ManagedGatePlan,type BlindFinding} from "./managed-gates.js";
 
 type FrozenBlind={executionId:string;spoolId:string;findings:BlindFinding[];blindDigest:string;handle?:string};
 
@@ -111,8 +111,10 @@ export class ManagedEvaluators {
         if (/^(transcript|events):/.test(material.id) && ref?.digest!==material.digest) throw Error("bound author evidence is unavailable");
         return {...material,ref};
       });
+      const [job]=await r.intents.listForSubject("run-agent-grader","grading_record",id);
+      const plan=job?.payload as unknown as ManagedGatePlan;
       const manifest={digest:run.manifest.digest,origin:run.manifest.origin,
-        items:run.manifest.items.map((item,n)=>({id:item.id,type:item.type,path:item.type+"-"+(n+1)})),
+        items:plan.items.map((item,n)=>({id:item.id,type:item.type,path:item.type+"-"+(n+1),...(item.slot ? {slot:item.slot} : {})})),
         ...(run.manifest.trajectoryReceipt ? {trajectoryReceipt:run.manifest.trajectoryReceipt} : {})};
       return {manifest,materials};
     });

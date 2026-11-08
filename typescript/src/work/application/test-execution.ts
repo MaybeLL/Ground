@@ -35,7 +35,7 @@ export class TestExecution {
         const content=parseTaskContent(task.content);
         if (!content.ok) return fromRejection(content.error);
         const {kind,summary,criteria,outputs,materialRepositories}=content.value;
-        const promptTask={kind,summary,criteria,outputs,context:(task.content as {context?:string}).context,
+        const promptTask={kind,summary,criteria,outputs,delivery:plan.items.map((item,n)=>({type:item.type,path:"/grounds-delivery/"+item.type+"-"+(n+1),...(item.slot ? {slot:item.slot} : {})})),context:(task.content as {context?:string}).context,
           materials:materialRepositories?.map(({name,commit})=>({name,commit,path:"/grounds-materials/"+name}))};
         const exec=grading.evaluator?.kind==="agent" ? await r.executions.get(grading.evaluator.executionId) : undefined;
         return succeed({grading,plan,grader,protocol:exec?.protocol ?? [],environment:env.content as EnvironmentContent,materials:[],task:promptTask,taskMaterials:materialRepositories,sandbox,observation});

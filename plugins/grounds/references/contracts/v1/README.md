@@ -154,7 +154,7 @@ Coding 任务有必需附件时，用 `grounds work deliver --run RUN --session 
 
 `grounds grade define-agent` 固定评价者 Agent 修订、独立环境修订、评分说明与标尺。数值标尺由 `min`、`max` 定义，分类标尺使用 `categories`。用 `suite publish` 将评分器关联到评测项后，可通过 `suite measure` 独立评分，也可由实验批次驱动。每次评分在 GradingRecord 自己的沙箱中启动新的 AgentExecution。评价者从独立临时目录启动，在只读挂载 `/grounds-delivery` 中查看交付，在 `/grounds-grader` 中读取私有依据。Claude 评价者使用支持 `--safe-mode` 和 `--strict-mcp-config` 的 CLI。评分系统保存原始轨迹和输出。评价者按标尺返回 JSON，例如 `{"grade":{"form":"numeric","value":0}}`。越界值、无效输出及评价者失败记为评分器故障。
 
-内置独立验收支持托管评价者。先运行 `grade request --run RUN`，再用 `grade start-managed --grading ID --agent ID --agent-revision REV --environment ID --environment-revision REV [--repo PATH]` 选择评价者和环境的固定修订。一个 gate 只接受一个评价者。评价者在独立容器中检查冻结交付及任务材料，首次调用结束并固定逐项发现和轨迹后，第二次调用才取得作者清单及本次 gate 绑定的已归档轨迹。两次调用属于同一 AgentExecution。最终报告必须覆盖全部标准且保留每条已冻结的独立判定。
+内置独立验收支持托管评价者。先运行 `grade request --run RUN`，再用 `grade start-managed --grading ID --agent ID --agent-revision REV --environment ID --environment-revision REV [--repo PATH]` 选择评价者和环境的固定修订。一个 gate 只接受一个评价者。评价者在独立容器中检查冻结交付及任务材料，首次调用结束并固定逐项发现和轨迹后，第二次调用才取得作者清单及本次 gate 绑定的已归档轨迹。盲验输入标明各产物的输出槽与容器路径。Git 提交以文件树形式供核验，未展开的子模块、悬空链接及越界链接会产生 `grader_fault`。两次调用属于同一 AgentExecution。最终报告必须覆盖全部标准且保留每条已冻结的独立判定。
 
 `grade evaluator-status` 的 `protocol` 返回托管 gate 的阶段和盲验摘要。可用 `grade evaluator-evidence` 的 `blind-output`、`blind-raw`、`blind-events`、`blind-stderr` 读取盲验材料；对照阶段使用常规流名。引用型材料只展示身份与摘要。
 

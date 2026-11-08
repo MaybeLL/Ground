@@ -1,3 +1,4 @@
+import {verifiedArtifact} from "./artifacts.js";
 import {BUILTIN_VERIFICATION_GRADER} from "./builtin-grader.js";
 import {once,type RequestContext} from "./requests.js";
 import {fail,succeed} from "./outcome.js";
@@ -6,7 +7,7 @@ import type {WorkRepositories} from "../ports/index.js";
 import {agentGrader} from "./rule-definitions.js";
 
 export type GateJudge = {strategy:"agent";protocol:"independent";agent:RevisionRef;environment:RevisionRef;environmentRevisionId:string;scale:{form:"criteria"}};
-export type ManagedGatePlan = {runId:string;repository:string;items:DeliveryItem[];judge:GateJudge};
+export type ManagedGatePlan = {runId:string;repository:string;items:(DeliveryItem & {slot?:string})[];judge:GateJudge};
 type Selection={requestId:string;gradingId:string;agentId:string;agentRevisionId:string;environmentId:string;environmentRevisionId:string;repository:string};
 
 export async function selectManagedGate(ctx:RequestContext,input:Selection) {
@@ -22,7 +23,14 @@ export async function selectManagedGate(ctx:RequestContext,input:Selection) {
     const [prior]=await r.intents.listForSubject("run-agent-grader","grading_record",g.id);
     if (prior) return fail("conflict","a managed evaluator was already selected");
     const judge:GateJudge={protocol:"independent",strategy:"agent",agent:refOf(agent),environment:refOf(env),environmentRevisionId:env.id,scale:{form:"criteria"}};
-    const plan:ManagedGatePlan={runId:run.id,repository:input.repository,items:run.manifest.items.map(i=>({...i})),judge};
+    const items:ManagedGatePlan["items"]=[];
+    for (const item of run.manifest.items) {
+      if (item.type==="candidate") {items.push(item);continue;}
+      const artifact=await verifiedArtifact(r,run.id,item.id,item.receipt,ctx.hash);
+      if (!artifact) return fail("unavailable","gate artifact slot could not be verified");
+      items.push({...item,slot:artifact.slot});
+    }
+    const plan:ManagedGatePlan={runId:run.id,repository:input.repository,items,judge};
     const at=ctx.now();
     const hash=digestOf(plan as unknown as JsonValue,ctx.hash);
     if (!hash.ok) return fail("invalid",hash.error.message);
