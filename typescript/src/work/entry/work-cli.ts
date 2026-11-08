@@ -50,8 +50,9 @@ export function parseGrade(json: unknown): Grade {
   const items: CriterionVerdict[] = body.criteria.map((entry: Record<string, unknown>) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw validation("grade", "each criterion must be an object");
     const { criterion_id, independent, reconciliation, final, rationale, evidence } = entry as { criterion_id?: string; independent?: string; reconciliation?: string; final?: string; rationale?: string; evidence?: unknown };
-    if (typeof criterion_id !== "string" || !verdicts.includes(independent as never) || !verdicts.includes(final as never) || !relations.includes(reconciliation as never) || typeof rationale !== "string")
-      throw validation("grade", "each criterion needs criterion_id, independent, reconciliation, final and rationale");
+    if (typeof criterion_id !== "string" || typeof rationale !== "string") throw validation("grade", "each criterion needs a textual criterion_id and rationale");
+    if (!verdicts.includes(independent as never) || !verdicts.includes(final as never)) throw validation("grade", `each criterion needs independent and final verdicts from: ${verdicts.join(", ")}`);
+    if (!relations.includes(reconciliation as never)) throw validation("grade", `reconciliation must be one of: ${relations.join(", ")}`);
     if (evidence !== undefined && !(Array.isArray(evidence) && evidence.every(e => typeof e === "string"))) throw validation("grade", "evidence is a list of text");
     return { criterionId: criterion_id, independent: independent as CriterionVerdict["independent"], reconciliation: reconciliation as CriterionVerdict["reconciliation"], final: final as CriterionVerdict["final"], rationale, evidence: (evidence as string[] | undefined) ?? [] };
   });
@@ -130,6 +131,7 @@ export const workHelp = (): string => [
   "grounds grade request --run RUN [--material ID=DIGEST...] | grade register --grading ID --agent NAME | grade stage --grading ID --session S --stage blind|freeze|reconcile|handoff|submit [--blind-digest D]",
   "grounds grade command --grading ID --session S --stage STAGE --entry NAME --argv-digest D --state succeeded|failed|unknown [--exit-code N]",
   "grounds grade submit --grading ID --session S --grade-file FILE   ({\"criteria\":[{criterion_id,independent,reconciliation,final,rationale,evidence}]})",
+  `  independent and final: ${verdicts.join(" | ")}; reconciliation: ${relations.join(" | ")}; evidence: list of strings`,
   "grounds grade stop|cancel --grading ID | grade show --grading ID | grade list --run RUN",
   "Every write prints an operation_id; repeat the call with --operation-id to retry it safely.",
 ].join("\n");
