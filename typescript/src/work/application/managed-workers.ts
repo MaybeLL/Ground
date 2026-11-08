@@ -1,5 +1,5 @@
 import { acquireLease, authorizeBridge, beginExecution, claimRunner, concludeRound, confirmExecutionStopped, digestOf,
-  failExecutionInfrastructure, failInfrastructure, isExecutionTerminal, isTerminal, prepareExecution, providerEnded, recordReceipt, registerManagedWorker, requestExecutionCancel,
+  executionHostLost, interruptExecution, failExecutionInfrastructure, failInfrastructure, isExecutionTerminal, isTerminal, prepareExecution, providerEnded, recordReceipt, registerManagedWorker, requestExecutionCancel,
   returnLease, start, submitManifest, workerStopped, type AgentExecution, type Decision, type FrozenTrace, type Result, type Sandbox, type TaskRun } from "../domain/index.js";
 import type { CapturedTrace, EvidenceSource, WorkRepositories } from "../ports/index.js";
 import type { AgentSettings, ManagedTask } from "./agent-definitions.js";
@@ -154,7 +154,7 @@ export class ManagedWorkers {
     }
     return result;
   }
-  async infrastructure(runId:string,detail:string,verifiedStop:boolean) {
+  async infrastructure(runId:string,detail:string,verifiedStop:boolean,interrupted=false) {
     const result=await this.deps.units.run("write",async r=>{
       const intent=await this.job(r,runId),run=await r.taskRuns.get(runId,{lock:true});
       if(!intent || !run)return fail("not-found","managed work does not exist");
@@ -163,10 +163,16 @@ export class ManagedWorkers {
       if(!exec)return fail("conflict","execution is missing");
       let e=exec,current=run;
       const at=this.deps.now();
+      if (interrupted && !isExecutionTerminal(e) && e.runner) {
+        const lost = executionHostLost(e, {at});
+        if (!lost.ok) return fromRejection(lost.error);
+        await r.executions.save(lost.value.state, e.version);
+        e = lost.value.state;
+      }
       if(e.stop!=="idle" && e.stop!=="verified"){
-        if(!verifiedStop)return fail("unavailable","process stop is unknown");
+        if(!verifiedStop)throw new Error("process stop is unknown");
         const stopped=confirmExecutionStopped(e,{at});
-        if(!stopped.ok)return fromRejection(stopped.error);
+        if(!stopped.ok)throw new Error(stopped.error.message);
         await r.executions.save(stopped.value.state,e.version);e=stopped.value.state;
       }
       if(current.worker?.kind==="managed" && current.worker.stop!=="verified" && !isTerminal(current)){
@@ -183,7 +189,7 @@ export class ManagedWorkers {
         }
       }
       if(!isExecutionTerminal(e)){
-        const ended=run.cancelIntent || run.status==="cancelled" ? requestExecutionCancel(e,{at}) : failExecutionInfrastructure(e,{detail,at});
+        const ended=run.cancelIntent || run.status==="cancelled" ? requestExecutionCancel(e,{at}) : interrupted ? interruptExecution(e,{at}) : failExecutionInfrastructure(e,{detail,at});
         if(!ended.ok)throw new Error(ended.error.message);
         await r.executions.save(ended.value.state,e.version);e=ended.value.state;
       }

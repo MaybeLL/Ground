@@ -78,7 +78,7 @@ export class ManagedTaskDriver {
     if(observed.state==="running" || observed.state==="awaiting-resume")return succeed({state:observed.state,detail:observed.detail});
     if(observed.state==="interrupted"){
       await this.deps.process.stop(plan,true);
-      const done=await this.deps.workers.infrastructure(runId,observed.detail,true);
+      const done=await this.deps.workers.infrastructure(runId,observed.detail,true,true);
       return done.ok ? succeed({state:"terminal"}) : done;
     }
     if(observed.state!=="complete")return fail("unavailable","provider execution has no observable result");

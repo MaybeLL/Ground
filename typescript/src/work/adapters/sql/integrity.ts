@@ -1,12 +1,18 @@
 import type { SQLClient } from "../../../sql-client.js";
 import type { IntegrityReport } from "../../../store-types.js";
-import { GRADING_REQUEST_COUNTER, StorageFailure } from "../../ports/index.js";
+import { GRADING_REQUEST_COUNTER, StorageFailure, type EvidenceRef } from "../../ports/index.js";
 import { decodeCompletionEvent, repositoriesOver } from "./repositories.js";
 
 /** Walk the same snapshot through the same decoders used by business reads. */
 export async function inspectWorkIntegrity(client: SQLClient): Promise<IntegrityReport> {
   const r = repositoriesOver(client, false);
   const report: IntegrityReport = { valid: true, issues: [] };
+  async function verifyRef(ref: EvidenceRef | undefined) {
+    const stored = ref && await r.evidence.describe(ref.digest);
+    if (!stored || stored.byteLength !== ref?.byteLength || stored.chunkCount !== ref.chunkCount) {
+      throw new StorageFailure("integrity", "archived transcript refers to missing or conflicting evidence");
+    }
+  }
   const scans: [string, (row: Record<string, unknown>) => Promise<unknown> | unknown][] = [
     ["work_evidence",row => r.evidence.verify(String(row.digest))],
     ["work_definitions", row => r.definitions.get(String(row.id))],
@@ -17,18 +23,26 @@ export async function inspectWorkIntegrity(client: SQLClient): Promise<Integrity
       if (run?.worker?.kind !== "external") return;
       for (const {trace} of run.worker.registration.transcripts) {
         if (!trace) continue;
-        for (const ref of [trace.raw,trace.events]) {
-          const stored = await r.evidence.describe(ref.digest);
-          if (!stored || stored.byteLength !== ref.byteLength || stored.chunkCount !== ref.chunkCount)
-            throw new StorageFailure("integrity","archived transcript refers to missing or conflicting evidence");
-        }
+        for (const ref of [trace.raw, trace.events]) await verifyRef(ref);
       }
     }],
     ["work_sandboxes", row => r.sandboxes.get(String(row.id))],
     ["work_executions", row => r.executions.get(String(row.id))],
     ["work_gradings", row => r.gradings.get(String(row.id))],
     ["work_experiment_runs", row => r.experiments.get(String(row.id))],
-    ["work_intents", row => r.intents.get(String(row.id))],
+    ["work_intents", async row => {
+      const intent = await r.intents.get(String(row.id));
+      if (intent?.kind !== "managed-worker") return;
+      const job = intent.payload as {executionId: string; trace?: {raw: EvidenceRef; events: EvidenceRef}; output?: EvidenceRef; stderr?: EvidenceRef};
+      const execution = await r.executions.get(job.executionId);
+      if (!execution || execution.owner.id !== intent.subject.id) throw new StorageFailure("integrity", "managed intent refers to an unrelated execution");
+      if (!job.trace && !job.output && !job.stderr && !execution.receipts.trajectory && !execution.receipts.output) return;
+      for (const ref of [job.trace?.raw, job.trace?.events, job.output, job.stderr]) await verifyRef(ref);
+      if (execution.receipts.output !== "sql-evidence:" + job.output?.digest ||
+          execution.receipts.trajectory !== "sql-evidence:" + job.trace?.raw.digest) {
+        throw new StorageFailure("integrity", "managed execution receipts disagree with its archived evidence");
+      }
+    }],
     ["work_completion_events", async key => {
       const row = await client.get<Record<string, unknown>>("SELECT * FROM work_completion_events WHERE id = ?", [key.id]);
       if (row) decodeCompletionEvent(row);
