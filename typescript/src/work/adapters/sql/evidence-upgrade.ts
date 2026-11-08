@@ -3,6 +3,28 @@ import type { SQLClient } from "../../../sql-client.js";
 
 const reject = (table: string) => new DomainError("SCHEMA_INCOMPATIBLE","evidence storage name is already occupied or has an incompatible definition",false,schemaDetails(2,table));
 
+/** An empty TRIGGERS view is meaningful only when the account can inspect
+ * triggers on this table. SHOW GRANTS ... USING includes active role grants.
+ * Accept a positive global, database or table grant; a partially revoked
+ * global privilege alone cannot prove access. */
+async function canInspectTriggers(client: SQLClient, table: string) {
+  const quote = (id: string) => "\`" + id.replaceAll("\`","\`\`") + "\`";
+  const db = String((await client.get("SELECT DATABASE() AS db"))?.db);
+  const roles = await client.all("SELECT role_name AS role_id,role_host AS host_id FROM information_schema.enabled_roles");
+  const using = roles.map(role=>quote(String(role.role_id))+"@"+quote(String(role.host_id))).join(",");
+  const rows = await client.all("SHOW GRANTS FOR CURRENT_USER()" + (using ? " USING " + using : ""));
+  const grants = rows.map(row=>String(Object.values(row)[0]));
+  const globalRestricted = grants.some(line=>/^REVOKE (?:.*\bTRIGGER\b|ALL PRIVILEGES)/i.test(line));
+  const scopes = new Set([quote(db)+".*",quote(db)+"."+quote(table)]);
+  for (const line of grants) {
+    const match = /^GRANT (.+?) ON (.+?) TO /i.exec(line);
+    if (!match || !match[1]!.split(", ").some(p=>p==="TRIGGER" || p==="ALL PRIVILEGES")) continue;
+    const scope = match[2]!;
+    if (scopes.has(scope) || (scope === "*.*" && !globalRestricted)) return true;
+  }
+  return false;
+}
+
 /** Only MySQL can leave committed DDL behind an in-progress schema-1
  * marker. Accept precisely the empty tables created by the upgrade. */
 async function verifyPartialMySQL(client: SQLClient, table: string) {
@@ -14,6 +36,7 @@ async function verifyPartialMySQL(client: SQLClient, table: string) {
   if (columns.some(c=>c.nullable !== "NO" || c.extra_flags || c.default_value !== null || (c.typ === "varchar(71)" && c.coll !== "utf8mb4_bin")) || columns.map(c=>c.name+":"+c.typ).join("|") !== expected.join("|")) throw reject(table);
   const indexes = await client.all("SELECT index_name AS name,non_unique AS non_unique_flag,sub_part AS prefix_length,index_type AS typ,is_visible AS visible_flag FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name=?",[table]);
   if (indexes.some(i=>i.name !== "PRIMARY" || Number(i.non_unique_flag) !== 0 || i.prefix_length !== null || i.typ !== "BTREE" || i.visible_flag !== "YES")) throw reject(table);
+  if (!await canInspectTriggers(client,table)) throw new DomainError("SCHEMA_INCOMPATIBLE","cannot verify triggers on partially created evidence storage",false,schemaDetails(2,table));
   const trigger = await client.get("SELECT 1 AS present FROM information_schema.triggers WHERE trigger_schema=DATABASE() AND event_object_table=? LIMIT 1",[table]);
   if (trigger) throw reject(table);
   const partition = await client.get("SELECT 1 AS present FROM information_schema.partitions WHERE table_schema=DATABASE() AND table_name=? AND partition_name IS NOT NULL LIMIT 1",[table]);

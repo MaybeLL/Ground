@@ -417,6 +417,19 @@ for (const backend of backends) test(`${backend}: upgrade a populated work ledge
         await client.exec("ALTER TABLE work_evidence_chunks DROP KEY stray_ordinal");
         await client.exec("CREATE TRIGGER reject_evidence BEFORE INSERT ON work_evidence_chunks FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='fixture'");
         await assert.rejects(store.upgrade(identity),{code:"SCHEMA_INCOMPATIBLE"});
+        // The restricted recovery account can inspect and update ledger data
+        // but its TRIGGERS view hides the administrator's existing trigger.
+        if (process.env.GROUNDS_TEST_MYSQL_DISPOSABLE_SERVER === "1") {
+          const {randomBytes} = await import("node:crypto");
+          const username = "trace_test_" + randomBytes(5).toString("hex"), password = randomBytes(16).toString("hex");
+          const database = String((await client.get("SELECT DATABASE() AS db"))!.db);
+          await client.exec(`CREATE USER '${username}'@'%' IDENTIFIED BY '${password}'`);
+          try {
+            await client.exec(`GRANT SELECT, UPDATE, CREATE ON \`${database}\`.* TO '${username}'@'%'`);
+            const limited = SQLStore.mysql({host:process.env.GROUNDS_TEST_MYSQL_HOST!,port:Number(process.env.GROUNDS_TEST_MYSQL_PORT),database,username,password,caFile:process.env.GROUNDS_TEST_MYSQL_CA_FILE});
+            try { await assert.rejects(limited.upgrade(identity),/cannot verify triggers/); } finally { await limited.close(); }
+          } finally { await client.exec(`DROP USER '${username}'@'%'`); }
+        }
         await client.exec("DROP TRIGGER reject_evidence");
       }
     } finally { if (backend !== "sqlite") await client.close(); }

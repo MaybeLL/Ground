@@ -81,3 +81,5 @@ Declare `--environment ID` when authoring a task. `work start`, `continue` and `
 `work trace --run RUN --digest RAW_DIGEST --stream raw|events --chunk N` returns one verified chunk as base64. Concatenate decoded chunks in ordinal order and compare the stream's SHA-256. Empty streams have zero chunks. Existing transcript references remain readable. [Trace result contracts](trace-results.schema.json)
 
 The trace descriptor counts invalid UTF-8, malformed JSON, oversized records, unmapped records or parts, and parts that cannot be serialized. Each gate freezes the raw and event digests available when it is requested. Later imports only contribute to subsequent requests.
+
+When resuming partially created MySQL evidence tables, the upgrade account must be able to inspect their triggers. Recovery refuses ambiguous objects and leaves the ledger marked in progress.

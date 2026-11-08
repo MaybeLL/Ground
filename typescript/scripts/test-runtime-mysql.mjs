@@ -85,6 +85,7 @@ try {
         stdio: "inherit",
         env: {
           ...process.env,
+          GROUNDS_TEST_MYSQL_DISPOSABLE_SERVER: "1",
           GROUNDS_TEST_MYSQL_HOST: "127.0.0.1",
           GROUNDS_TEST_MYSQL_PORT: String(port),
           GROUNDS_TEST_MYSQL_USERNAME: "root",
