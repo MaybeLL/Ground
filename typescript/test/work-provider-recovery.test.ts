@@ -177,9 +177,17 @@ test("provider recovery never creates a second exec or replays a confirmed exit"
   }
 });
 
-test("managed worker runs once when its collector dies after a real Docker exit and before the result receipt",{skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async()=>{
+test("managed worker runs once when its collector dies after a real Docker exit and before the result receipt",{skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async t=>{
   const {execFileSync,spawnSync}=await import("node:child_process");
   const {readFileSync}=await import("node:fs");
+  const directory=realpathSync(mkdtempSync(join(tmpdir(),"grounds-engine-exit-")));
+  const previousHome=process.env.GROUNDS_DATA_HOME;
+  process.env.GROUNDS_DATA_HOME=directory;
+  t.after(()=>{
+    if (previousHome===undefined) delete process.env.GROUNDS_DATA_HOME;
+    else process.env.GROUNDS_DATA_HOME=previousHome;
+    rmSync(directory,{recursive:true,force:true});
+  });
   const {dataLayout}=await import("../src/data-layout.js");
   const runtime=new DevcontainerRuntime(),engine=new EngineProcess(runtime);
   const owner={ledgerId:randomUUID(),sandboxId:randomUUID()},executionId=randomUUID();
@@ -209,6 +217,5 @@ test("managed worker runs once when its collector dies after a real Docker exit 
     assert.equal(docker("exec",id,"cat","/tmp/calls"),"started");
   } finally {
     docker("rm","--force",id);
-    rmSync(root,{recursive:true,force:true});
   }
 });
