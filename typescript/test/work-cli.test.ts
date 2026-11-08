@@ -1209,7 +1209,7 @@ test("managed worker runs in its owned devcontainer after admission and delivers
   });
 });
 
-test("managed worker runs a standalone refinement in its inherited sandbox and releases it", {skip:!process.env.GROUNDS_TEST_MANAGED_AGENT}, async()=>{
+test("managed worker runs a standalone refinement in its inherited sandbox and releases it", {skip:!process.env.GROUNDS_TEST_MANAGED_AGENT}, async t=>{
   await withHarness(async h=>{
     const docker=(...args:string[])=>execFileSync("docker",args,{encoding:"utf8"}).trim();
     const image=process.env.GROUNDS_TEST_MANAGED_AGENT!;
@@ -1217,7 +1217,7 @@ test("managed worker runs a standalone refinement in its inherited sandbox and r
     writeFileSync(config,JSON.stringify({image,overrideCommand:false,workspaceFolder:"/work"}));
     const environment=ok(await h.cli("work","define-environment","--name","standalone","--devcontainer",config,"--image-digest",docker("image","inspect","--format","{{.Id}}",image)));
     const agent=ok(await h.cli("work","define-agent","--name","standalone","--provider","codex"));
-    const task=ok(await h.cli("task","create","--title","handoff fixture","--criterion","use notes","--environment",environment.environmentId,"--repo-remote",h.remote,"--baseline",h.baseline));
+    const task=ok(await h.cli("task","create","--title","handoff fixture","--criterion","use notes","--environment",environment.environmentId,"--repo-remote",h.remote,"--baseline","main"));
     const start=["work","start-run","--task",task.taskId,"--mode","managed","--agent",agent.agentId,"--repo",h.repo];
     const finished=async(runId:string,expectedPhase:string)=>{
       const db=new DatabaseSync(join(h.directory,"ledger.db"),{readOnly:true});
@@ -1239,8 +1239,20 @@ test("managed worker runs a standalone refinement in its inherited sandbox and r
     };
     const ledger=ok(await h.cli("db","status")).database_id;
     try {
-      const first=ok(await h.cli(...start,"--retention","keep","--environment-revision",environment.revisionId));
+      const cancelled=ok(await h.cli("work","start-run","--task",task.taskId,"--mode","none"));
+      ok(await h.cli("work","cancel","--run",cancelled.runId));
+      const {TaskExecution}=await import("../src/work/application/task-execution.js");
+      const admit=TaskExecution.prototype.startRun;
+      t.mock.method(TaskExecution.prototype,"startRun",async function(this:InstanceType<typeof TaskExecution>,...args:Parameters<typeof admit>){
+        const result=await admit.apply(this,args);
+        writeFileSync(join(h.repo,"late.txt"),"after admission");
+        git(h.repo,"add","late.txt"); git(h.repo,"commit","-qm","advance mutable baseline");
+        return result;
+      },{times:1});
+      const first=ok(await h.cli(...start,"--refines",cancelled.runId,"--sandbox","fresh","--retention","keep","--environment-revision",environment.revisionId));
       const parent=await finished(first.runId,"paused");
+      const parentTag="refs/tags/grounds/deliveries/"+parent.manifest.items[0].id;
+      assert.equal(git(h.remote,"rev-parse",parentTag+"^"),h.baseline);
       assert.equal(parent.workId,undefined);
       assert.equal(parent.environment.source,"specified");
       const child=ok(await h.cli(...start,"--refines",first.runId,"--retention","release","--sandbox","inherit"));
