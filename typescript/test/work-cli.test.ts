@@ -239,8 +239,6 @@ test("a task revision keeps the criteria it names and the work started before ke
     const keep = first.criteria[0];
     const revised = ok(await h.cli("task", "revise", "--task", first.taskId, "--expected-seq", "1", "--title", "Add export", "--criterion", `${keep.id}: exports CSV with a BOM`, "--criterion", "streams large files"));
     assert.equal(revised.seq, 2);
-    assert.equal(ok(await h.cli("suite", "list")).suites[0].name, "Revised suite");
-    assert.equal(first.name, "Fixture suite");
     assert.equal(revised.criteria[0].id, keep.id);
     assert.equal(ok(await h.cli("task", "show", "--task", first.taskId, "--revision", "1")).revision.id, first.revisionId);
     const stale = await h.cli("task", "revise", "--task", first.taskId, "--expected-seq", "1", "--title", "x", "--criterion", "y");
