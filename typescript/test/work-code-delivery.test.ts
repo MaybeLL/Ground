@@ -739,3 +739,50 @@ test("blind checkout reports unrepresentable Git symlink bytes as a frozen targe
     }
   });
 });
+
+test("managed candidate publication reads back a lost Git push without issuing another push",async()=>{
+  const {archiveCandidateBundle}=await import("../src/work/adapters/git/managed-candidate.js");
+  const {readFileSync,existsSync,renameSync}=await import("node:fs");
+  await scenario(async({repo,remote,root,baseline})=>{
+    const id="fixture-managed-candidate",bundle=join(root,"candidate.bundle");
+    writeFileSync(join(repo,"a.txt"),"new managed output");
+    git(repo,"commit","-qam","managed candidate");
+    const commit=git(repo,"rev-parse","HEAD");
+    git(repo,"update-ref","refs/grounds/candidate",commit);
+    git(repo,"bundle","create",bundle,"refs/grounds/candidate");
+    const bin=join(root,"bin"),counter=join(root,"pushes"),lostRead=join(root,"interrupt-read");
+    mkdirSync(bin);
+    const actualGit=execFileSync("which",["git"],{encoding:"utf8"}).trim();
+    writeFileSync(join(bin,"git"),[
+      "#!/bin/sh",'if [ "$1" = push ]; then',
+      '  "$GROUNDS_FIXTURE_GIT" "$@" || exit $?',
+      '  echo push >> "$GROUNDS_FIXTURE_COUNTER"',
+      '  touch "$GROUNDS_FIXTURE_READ"; exit 73',
+      'fi','if [ "$1" = ls-remote ] && [ -f "$GROUNDS_FIXTURE_READ" ]; then',
+      '  exit 74','fi','exec "$GROUNDS_FIXTURE_GIT" "$@"',
+    ].join("\n")+"\n",{mode:0o755});
+    const env={PATH:bin+":"+process.env.PATH,GROUNDS_FIXTURE_GIT:actualGit,GROUNDS_FIXTURE_COUNTER:counter,GROUNDS_FIXTURE_READ:lostRead};
+    const prior=Object.fromEntries(Object.keys(env).map(key=>[key,process.env[key]]));
+    Object.assign(process.env,env);
+    const recover=(allowPublish:boolean)=>archiveCandidateBundle(new GitTagArchive(),{repository:repo,remote,baseline,commit,bundle,id,allowPublish,publicationPath:join(root,"publication.json")});
+    try {
+      assert.equal((await recover(false)).status,"unavailable");
+      assert.equal(existsSync(counter),false);
+      assert.equal((await recover(true)).status,"unavailable");
+      assert.equal(git(remote,"rev-parse","refs/tags/grounds/deliveries/"+id),commit);
+      rmSync(lostRead);
+      rmSync(bundle);
+      renameSync(repo,repo+"-offline");
+      const observed=await recover(false);
+      assert.equal(observed.status,"confirmed");
+      assert.deepEqual(await recover(true),observed);
+      git(remote,"update-ref","refs/tags/grounds/deliveries/"+id,baseline);
+      assert.equal((await recover(true)).status,"conflict");
+      git(remote,"update-ref","-d","refs/tags/grounds/deliveries/"+id);
+      assert.equal((await recover(false)).status,"unavailable");
+      assert.equal(readFileSync(counter,"utf8"),"push\n");
+    } finally {
+      for(const [key,val] of Object.entries(prior)) {if (val===undefined) delete process.env[key];else process.env[key]=val;}
+    }
+  });
+});

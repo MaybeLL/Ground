@@ -160,7 +160,7 @@ export class ContainerAgentProcess implements ManagedProcessPort {
     const bundle = join(root, "stdout.jsonl");
     if (safeRead(join(root, "commit"), 128).toString() !== commit) throw new Error("bundle claim changed");
     const id="d-"+plan.job.runId+"-"+commit.slice(0,12);
-    const archived=await archiveCandidateBundle(this.archive,{repository:plan.job.repositoryPath,remote,baseline,commit,bundle,id,allowPublish,parentReceipt:plan.job.parentReceipt});
+    const archived=await archiveCandidateBundle(this.archive,{repository:plan.job.repositoryPath,remote,baseline,commit,bundle,publicationPath:join(root,"publication.json"),id,allowPublish,parentReceipt:plan.job.parentReceipt});
     return archived.status==="confirmed" ? {status:"confirmed" as const,id,receipt:archived.receipt} :
       {status:archived.status==="unavailable"?"unavailable" as const:"invalid" as const,reason:archived.reason};
   }
