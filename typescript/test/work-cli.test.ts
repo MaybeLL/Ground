@@ -1578,52 +1578,56 @@ test("experiment runs rule and sandbox test graders against the selected working
     const agent=ok(await h.cli("work","define-agent","--name","report author","--provider","codex"));
     const plan=ok(await h.cli("experiment","define","--suite",suite.suiteId,"--revision","1","--agent",agent.agentId,"--agent-revision",agent.revisionId,"--name","working comparison"));
     const {batchId}=ok(await h.cli("experiment","launch","--experiment",plan.experimentId));
-    const end=Date.now()+75000;
-    let result;
-    do {
-      result=ok(await h.cli("experiment","results","--batch",batchId));
-      if (result.host?.state==="terminal" || result.host?.state==="blocked") break;
-      await new Promise(resolve=>setTimeout(resolve,300));
-    } while(Date.now()<end);
-    assert.equal(result.host?.state,"terminal",JSON.stringify(result));
-    assert.equal(result.counts.fullyGraded,1,JSON.stringify(result));
-    assert.equal(result.counts.delivered,2);
-    assert.equal(result.members.find((m:{caseKey:string})=>m.caseKey==="optional").requirements[0].notStarted,"target-missing");
-    const report=result.members.find((m:{caseKey:string})=>m.caseKey==="report");
-    const {member}=ok(await h.cli("experiment","member","--batch",batchId,"--member",report.key));
-    assert.equal(result.dimensions.find((d:{requirement:string})=>d.requirement==="numeric").numericMean,5);
-    assert.deepEqual(member.gradings.filter((g:{grade:{form:string}})=>g.grade.form==="category").map((g:{grade:{category:string}})=>g.grade.category).sort(),["identical","pass"]);
-    assert.ok(member.gradings.every((g:{targets:{type:string;id:string}[]})=>g.targets[0]?.type==="artifact" && g.targets[0].id!==artifact.id));
-    const id=member.gradings[0].targets[0].id, saved=ok(await h.cli("work","artifact","--run",member.runId,"--artifact",id)).artifact;
-    const appendix=saved.files.find((file:{path:string})=>file.path==="appendix.txt").content.digest;
-    const {store}=await openStore(join(h.directory,"config.yaml"));
+    const controllers=[batchId];
     try {
-      await store.transaction(true,c=>c.run("DELETE FROM work_evidence_chunks WHERE digest=?",[appendix]));
-      const regrade=["experiment","regrade","--batch",batchId,"--member",report.key,"--binding"];
-      assert.equal(ok(await h.cli(...regrade,"rule")).status,"grader_fault");
-      const accepted=ok(await h.cli(...regrade,"test"));
-      let status;
+      const end=Date.now()+75000;
+      let result;
       do {
-        status=ok(await h.cli("grade","test-status","--grading",accepted.gradingId));
-        if (status.status==="grader_fault") break;
-        await new Promise(resolve=>setTimeout(resolve,250));
+        result=ok(await h.cli("experiment","results","--batch",batchId));
+        if (result.host?.state==="terminal" || result.host?.state==="blocked") break;
+        await new Promise(resolve=>setTimeout(resolve,300));
       } while(Date.now()<end);
-      assert.equal(status.status,"grader_fault",JSON.stringify(status));
-      await store.transaction(true,c=>c.run("UPDATE work_intents SET record_digest=? WHERE request_id=? AND kind='save-artifact'",["sha256:"+"0".repeat(64),id]));
-      const damaged=ok(await h.cli("experiment","member","--batch",batchId,"--member",report.key)).member;
-      assert.equal(damaged.targetAvailability,"unavailable");assert.equal(damaged.complete,true);
-      await store.transaction(true,c=>c.run("DELETE FROM work_intents WHERE request_id=? AND kind='save-artifact'",[id]));
-      const after=ok(await h.cli("experiment","member","--batch",batchId,"--member",report.key)).member;
-      assert.equal(after.targetAvailability,"unavailable");
-      assert.deepEqual(after.requirements.map((v:{adopted:string})=>v.adopted),member.requirements.map((v:{adopted:string})=>v.adopted));
-      assert.equal(after.requirements.filter((v:{key:string})=>v.key!=="numeric").every((v:{latestFault?:unknown})=>!!v.latestFault),true);
-      assert.equal(ok(await h.cli("experiment","results","--batch",batchId)).counts.fullyGraded,1);
-      // The result is durable before the detached controllers finish housekeeping.
+      assert.equal(result.host?.state,"terminal",JSON.stringify(result));
+      assert.equal(result.counts.fullyGraded,1,JSON.stringify(result));
+      assert.equal(result.counts.delivered,2);
+      assert.equal(result.members.find((m:{caseKey:string})=>m.caseKey==="optional").requirements[0].notStarted,"target-missing");
+      const report=result.members.find((m:{caseKey:string})=>m.caseKey==="report");
+      const {member}=ok(await h.cli("experiment","member","--batch",batchId,"--member",report.key));
+      assert.equal(result.dimensions.find((d:{requirement:string})=>d.requirement==="numeric").numericMean,5);
+      assert.deepEqual(member.gradings.filter((g:{grade:{form:string}})=>g.grade.form==="category").map((g:{grade:{category:string}})=>g.grade.category).sort(),["identical","pass"]);
+      assert.ok(member.gradings.every((g:{targets:{type:string;id:string}[]})=>g.targets[0]?.type==="artifact" && g.targets[0].id!==artifact.id));
+      const id=member.gradings[0].targets[0].id, saved=ok(await h.cli("work","artifact","--run",member.runId,"--artifact",id)).artifact;
+      const appendix=saved.files.find((file:{path:string})=>file.path==="appendix.txt").content.digest;
+      const {store}=await openStore(join(h.directory,"config.yaml"));
+      try {
+        await store.transaction(true,c=>c.run("DELETE FROM work_evidence_chunks WHERE digest=?",[appendix]));
+        const regrade=["experiment","regrade","--batch",batchId,"--member",report.key,"--binding"];
+        assert.equal(ok(await h.cli(...regrade,"rule")).status,"grader_fault");
+        const accepted=ok(await h.cli(...regrade,"test"));
+        controllers.unshift(accepted.gradingId);
+        let status;
+        do {
+          status=ok(await h.cli("grade","test-status","--grading",accepted.gradingId));
+          if (status.status==="grader_fault") break;
+          await new Promise(resolve=>setTimeout(resolve,250));
+        } while(Date.now()<end);
+        assert.equal(status.status,"grader_fault",JSON.stringify(status));
+        await store.transaction(true,c=>c.run("UPDATE work_intents SET record_digest=? WHERE request_id=? AND kind='save-artifact'",["sha256:"+"0".repeat(64),id]));
+        const damaged=ok(await h.cli("experiment","member","--batch",batchId,"--member",report.key)).member;
+        assert.equal(damaged.targetAvailability,"unavailable");assert.equal(damaged.complete,true);
+        await store.transaction(true,c=>c.run("DELETE FROM work_intents WHERE request_id=? AND kind='save-artifact'",[id]));
+        const after=ok(await h.cli("experiment","member","--batch",batchId,"--member",report.key)).member;
+        assert.equal(after.targetAvailability,"unavailable");
+        assert.deepEqual(after.requirements.map((v:{adopted:string})=>v.adopted),member.requirements.map((v:{adopted:string})=>v.adopted));
+        assert.equal(after.requirements.filter((v:{key:string})=>v.key!=="numeric").every((v:{latestFault?:unknown})=>!!v.latestFault),true);
+        assert.equal(ok(await h.cli("experiment","results","--batch",batchId)).counts.fullyGraded,1);
+      } finally {await store.close();}
+    } finally {
+      // Results can become durable before their controllers finish housekeeping.
       const host=join(dataLayout().runtime,"managed-host");
-      for (const key of ["execution-"+accepted.gradingId,"execution-"+batchId,"host"]) {
-        await withRuntimeLock(host,key,async()=>{},30000);
-      }
-    } finally {await store.close();}
+      for (const id of controllers) await withRuntimeLock(host,"execution-"+id,async()=>{},30000);
+      await withRuntimeLock(host,"host",async()=>{},30000);
+    }
   });
 });
 
