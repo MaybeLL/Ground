@@ -110,7 +110,7 @@ export class TaskExecution {
     const at = this.deps.clock.now();
     const retained = await selectRetainedSandbox(r, parent, input.workerMode, input.sandbox, onHead);
     if (!retained.ok) return retained;
-    const environment = retained.value ? inheritedEnvironment(parent, revision.value, input.environmentRevisionId) :
+    const environment = retained.value ? await inheritedEnvironment(r,parent, revision.value, input.environmentRevisionId) :
       await runEnvironment(r, revision.value, input.environmentRevisionId);
     if (!environment.ok) return environment;
     const runId = this.deps.ids.next();

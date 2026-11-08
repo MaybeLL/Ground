@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <stdio.h>
 #include <sys/stat.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -85,13 +86,37 @@ static napi_value open_child(napi_env env, napi_callback_info info) {
     napi_throw_type_error(env, NULL, "expected a directory descriptor, child name and directory flag");
     return NULL;
   }
-  const int flags = O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK | O_NOCTTY | (directory ? O_DIRECTORY : 0);
-  int fd = openat(parent, name, flags);
+  int flags = O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK | O_NOCTTY;
+  if (directory) flags |= O_DIRECTORY;
   struct stat st;
-  int failure = 0;
+  int failure = 0, fd = -1;
+#if defined(__linux__)
+  // Pin and classify the inode without opening a device driver. Reopen a
+  // proven regular file through the pinned descriptor, never its input path.
+  fd = openat(parent, name, directory ? flags : O_PATH | O_NOFOLLOW | O_CLOEXEC);
   if (fd < 0) failure = errno;
   else if (fstat(fd, &st) != 0) failure = errno;
   else if (!directory && (!S_ISREG(st.st_mode) || st.st_nlink != 1)) failure = EINVAL;
+  else if (!directory) {
+    char path[64];
+    snprintf(path,sizeof(path),"/proc/self/fd/%d",fd);
+    int reader = open(path,O_RDONLY | O_NONBLOCK | O_CLOEXEC | O_NOCTTY);
+    if (reader < 0) failure = errno;
+    close(fd);
+    fd = reader;
+  }
+#else
+  if (fstatat(parent,name,&st,AT_SYMLINK_NOFOLLOW) != 0) failure = errno;
+  else if (directory ? !S_ISDIR(st.st_mode) : (!S_ISREG(st.st_mode) || st.st_nlink != 1)) failure = EINVAL;
+  else {
+    fd = openat(parent,name,flags);
+    struct stat opened;
+    if (fd < 0) failure = errno;
+    else if (fstat(fd,&opened) != 0) failure = errno;
+    else if (opened.st_dev != st.st_dev || opened.st_ino != st.st_ino ||
+             (!directory && (!S_ISREG(opened.st_mode) || opened.st_nlink != 1))) failure = EINVAL;
+  }
+#endif
   if (failure) {
     if (fd >= 0) close(fd);
     napi_throw_error(env, uv_err_name(uv_translate_sys_error(failure)), strerror(failure));

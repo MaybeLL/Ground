@@ -1,6 +1,6 @@
-import {archiveFiles} from "./artifacts.js";
+import {archiveFiles,readArtifact} from "./artifacts.js";
 import type {CapturedArtifacts} from "../ports/index.js";
-import { acquireLease, authorizeBridge, beginExecution, claimRunner, concludeRound, confirmExecutionStopped, digestOf,
+import { acquireLease, authorizeBridge, beginExecution, parseTaskContent, claimRunner, concludeRound, confirmExecutionStopped, digestOf,
   blockArchive, retryArchive, executionHostLost, interruptExecution, failExecutionInfrastructure, failInfrastructure, isExecutionTerminal, isTerminal, prepareExecution, providerEnded, recordReceipt, registerManagedWorker, requestExecutionCancel,
   returnLease, start, submitManifest, workerStopped, type AgentExecution, type Decision, type FrozenTrace, type Result, type Sandbox, type TaskRun } from "../domain/index.js";
 import type { CapturedTrace, EvidenceRef, EvidenceSource, WorkRepositories } from "../ports/index.js";
@@ -10,7 +10,7 @@ import { once, type RequestContext } from "./requests.js";
 import type { SandboxLifecycle } from "./sandbox-lifecycle.js";
 
 type Dispatch = ManagedTask & { trace?:FrozenTrace; output?:EvidenceRef; stderr?:EvidenceRef; claim?:string; artifactItems?:{type:"artifact";id:string;receipt:string}[]; rejected?:boolean; observation?:{state:string;detail?:string}; dockerExecId?: string; runnerId?: string; token?: number };
-export type ManagedContext = { job:Dispatch; intentId:string; sandbox?:Sandbox; baseline?:string; exec:AgentExecution; run:TaskRun; agent:AgentSettings; task: {materialRepositories?:{name:string;commit:string}[];kind:"coding"|"working";outputs?:{key:string;required:boolean}[];summary:string;criteria:{id:string;statement:string}[];context?:string;repository:{baseline:string;remote:string}} };
+export type ManagedContext = { job:Dispatch; intentId:string; sandbox?:Sandbox; baseline?:string; exec:AgentExecution; run:TaskRun; agent:AgentSettings; task:import("../domain/index.js").TaskContent & {context?:string} };
 type ManagedDeps = RequestContext & { lifecycle:SandboxLifecycle };
 export type ManagedResult = { runId:string;executionId:string;stage:AgentExecution["stage"];status:TaskRun["status"] };
 
@@ -31,10 +31,12 @@ export class ManagedWorkers {
       const agent=await r.definitions.getRevision(exec.agentRevision.definitionId,exec.agentRevision.revisionId);
       const task=await r.definitions.getRevision(run.taskRevision.definitionId,run.taskRevision.revisionId);
       if (!agent || !task) return fail("conflict","managed definitions are missing");
+      const parsed=parseTaskContent(task.content);
+      if (!parsed.ok) return fromRejection(parsed.error);
       const sandbox = run.sandboxId ? await r.sandboxes.get(run.sandboxId) : undefined;
       const reservation = sandbox && (await r.intents.listForSubject("reserve-task-sandbox","task_run",runId))[0];
       const baseline = run.environment?.source === "inherited" ? job.baseline : (reservation?.result as {commit?:string}|undefined)?.commit;
-      return succeed({job,intentId:intent.id,run,exec,...(sandbox?{sandbox}:{}),...(baseline?{baseline}:{}),agent:agent.content as AgentSettings,task:task.content as ManagedContext["task"]});
+      return succeed({job,intentId:intent.id,run,exec,...(sandbox?{sandbox}:{}),...(baseline?{baseline}:{}),agent:agent.content as AgentSettings,task:{...parsed.value,...(typeof (task.content as {context?:unknown}).context==="string" ? {context:(task.content as {context:string}).context} : {})}});
     });
   }
 
@@ -188,6 +190,19 @@ export class ManagedWorkers {
       };
       if (state.stage === "archive_blocked") step(retryArchive(state, {at}));
       const items=[...(candidate ? [{type:"candidate" as const,...candidate}] : []),...(job.artifactItems ?? [])];
+      if (items.length && !rejected) {
+        const revision=await r.definitions.getRevision(run.taskRevision.definitionId,run.taskRevision.revisionId);
+        const contract=parseTaskContent(revision?.content);
+        if (!contract.ok) return fromRejection(contract.error);
+        const slots=new Set<string>();
+        for (const item of job.artifactItems ?? []) {
+          const saved=await readArtifact(r,item.id);
+          if (!saved || saved.receipt!==item.receipt || saved.executionId!==exec.id || saved.runId!==run.id || slots.has(saved.slot) ||
+              !contract.value.outputs?.some(s=>s.key===saved.slot)) return fail("conflict","frozen artifact does not match its execution");
+          slots.add(saved.slot);
+        }
+        rejected=(contract.value.kind==="coding")!==!!candidate || !!contract.value.outputs?.some(s=>s.required && !slots.has(s.key));
+      }
       const digest=digestOf([...items].sort((a,b)=>(a.type+":"+a.id).localeCompare(b.type+":"+b.id)),this.deps.hash);
       if (!digest.ok) return fromRejection(digest.error);
       const deliveryClaim=items.length>1 ? "manifest:"+digest.value : items[0]?.receipt;

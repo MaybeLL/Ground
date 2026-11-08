@@ -795,6 +795,13 @@ test("managed worker runs working tasks with a read-only material mount and an a
         assert.equal(ok(await h.cli("work","artifact","--artifact",id,"--run",started.runId)).artifact.executionId,started.executionId);
         const chunk=ok(await h.cli("work","artifact-file","--artifact",id,"--run",started.runId,"--path","report.txt","--chunk","0"));
         assert.equal(Buffer.from(chunk.base64,"base64").toString(),"v0\n");
+        assert.equal(result.stage,"failed","a valid frozen delivery retains the provider failure");
+        writeFileSync(materials,"[]");
+        ok(await h.cli("task","revise","--task",task.taskId,"--expected-seq","1","--title",title,"--criterion","revised","--materials",materials,"--environment",environment.environmentId));
+        const inherited=await h.cli("work","continue","--mode","managed","--work",started.workId,"--expected-head",started.runId,"--agent",agent.agentId,"--sandbox","inherit");
+        assert.equal(inherited.ok,false);
+        assert.match(inherited.error.message,/material binding/);
+        writeFileSync(materials,JSON.stringify([{name:"input",repository:h.repo,commit:h.baseline}]));
       } finally {
         const run=ok(await h.cli("work","run","--run",started.runId)).run;
         if (run.sandboxId) for (const id of docker("ps","-aq","--filter","label=dev.grounds.sandbox="+run.sandboxId).split("\n").filter(Boolean)) docker("rm","-f",id);

@@ -68,3 +68,5 @@ if (process.argv[1].endsWith("claude")) {
   emit({type:"item.completed",item:{id:"message-1",type:"agent_message",text:message}});
   emit({type:"turn.completed"});
 }
+
+if (task.task==="read pinned input") process.exitCode=12;

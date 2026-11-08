@@ -117,11 +117,11 @@ export class ManagedTaskDriver {
       await this.deps.process.stop(plan, false);
       let artifacts:CapturedArtifacts|undefined;
       try {
-        if (!rejected && outcome==="succeeded" && declaration?.artifacts.length) {
+        if (!rejected && declaration?.artifacts.length) {
           try {artifacts=await this.deps.process.artifacts(plan,declaration.artifacts);}
           catch (error) {
             const code=(error as NodeJS.ErrnoException).code;
-            if (!["ENOENT","ENOTDIR","ELOOP","EINVAL","VALIDATION_ERROR","EACCES"].includes(code ?? "")) throw error;
+            if (!["ENOENT","ENOTDIR","ELOOP","EINVAL","ENXIO","ENAMETOOLONG","VALIDATION_ERROR","EACCES"].includes(code ?? "")) throw error;
             rejected=true;
           }
         }

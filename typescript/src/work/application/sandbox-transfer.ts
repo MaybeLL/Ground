@@ -17,9 +17,15 @@ export async function selectRetainedSandbox(r: WorkRepositories, parent: TaskRun
   return succeed(sandbox);
 }
 
-export function inheritedEnvironment(parent: TaskRun, revision: Revision, override?: string) {
+export async function inheritedEnvironment(r:WorkRepositories,parent: TaskRun, revision: Revision, override?: string) {
   const content = parseTaskContent(revision.content);
   if (!content.ok) return fromRejection(content.error);
+  const prior=await r.definitions.getRevision(parent.taskRevision.definitionId,parent.taskRevision.revisionId);
+  const original=parseTaskContent(prior?.content);
+  const materials=(c:typeof content.value)=>JSON.stringify([...(c.materialRepositories ?? [])].sort((a,b)=>a.name.localeCompare(b.name)));
+  if (!original.ok || original.value.kind!==content.value.kind || materials(original.value)!==materials(content.value)) {
+    return fail("conflict","the retained workspace has a different task kind or material binding; select a fresh sandbox");
+  }
   const environment = parent.environment?.revision;
   if (!environment || override && override !== environment.revisionId || content.value.environmentDefinitionId !== environment.definitionId) {
     return fail("conflict", "the selected environment differs from the retained sandbox; select a fresh sandbox");

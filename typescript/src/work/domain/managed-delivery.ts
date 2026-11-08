@@ -6,7 +6,7 @@ export type ManagedDeclaration = {commit?:string;artifacts:ArtifactDeclaration[]
 const object = (value:unknown):value is Record<string,unknown>=>!!value && typeof value==="object" && !Array.isArray(value);
 export function outputPath(value:unknown):value is string {
   return typeof value==="string" && !value.includes("\\") && !/[\u0000-\u001f]/u.test(value) &&
-    value.split("/").every(part=>part!=="" && part!=="." && part!=="..");
+    value.split("/").every(part=>part!=="" && part!=="." && part!==".." && new TextEncoder().encode(part).length<=255);
 }
 
 /** The provider explicitly selects every file in each output slot. Paths
