@@ -51,23 +51,44 @@ async function checkout(source:string,target:string,linkFiles:boolean) {
   await chmod(target,0o755);
 }
 
-async function validateLocalFeatures(repo:string,base:string,names:string[],locked:Record<string,unknown>,seen=new Set<string>()) {
-  for (const name of names) {
+/** The CLI resolves even soft ordering hints against registries. Keep only edges to the frozen graph. */
+async function featureOrder(repo:string,base:string,view:string,features:string[],locked:Record<string,unknown>,override:unknown) {
+  const known=new Set(Object.keys(locked));
+  const manifests=new Map<string,Record<string,unknown>>();
+  async function visit(name:string):Promise<void> {
+    known.add(name);
     if (!name.startsWith("./") && !name.startsWith("../")) {
       if (!Object.hasOwn(locked,name)) throw Error("remote Feature dependencies require a frozen lock entry");
-      continue;
+      return;
     }
     const feature=await sourcePath(repo,base,name,true);
-    if (seen.has(feature)) continue;
-    seen.add(feature);
     const file=await sourcePath(repo,feature,"devcontainer-feature.json",false);
+    if (manifests.has(file)) return;
     const errors:ParseError[]=[];
     const metadata=parse(await readText(file),errors,{allowTrailingComma:true});
     if (!metadata || typeof metadata!=="object" || Array.isArray(metadata) || errors.length) throw Error("invalid local Feature metadata");
     checkIsolation(metadata);
+    manifests.set(file,metadata);
     if (metadata.dependsOn!==undefined && (!metadata.dependsOn || typeof metadata.dependsOn!=="object" || Array.isArray(metadata.dependsOn))) throw Error("invalid Feature dependencies");
-    await validateLocalFeatures(repo,base,Object.keys(metadata.dependsOn ?? {}),locked,seen);
+    for (const dependency of Object.keys(metadata.dependsOn ?? {})) await visit(dependency);
   }
+  for (const name of features) await visit(name);
+  const selected=(order:unknown)=>{
+    if (!Array.isArray(order) || !order.every(key=>typeof key==="string" && key.length && !key.includes("${"))) throw Error("invalid Feature order");
+    return order.flatMap((key:string)=>{
+      if (known.has(key)) return [key];
+      // An unversioned OCI ordering hint can refer to an installed version.
+      return [...known].filter(name=>name.startsWith(key+":") || name.startsWith(key+"@"));
+    });
+  };
+  const overlays:{path:string;body:string}[]=[];
+  for (const [file,metadata] of manifests) {
+    if (metadata.installsAfter!==undefined) {
+      const installsAfter=selected(metadata.installsAfter);
+      overlays.push({path:join(view,relative(repo,file)),body:JSON.stringify({...metadata,installsAfter})});
+    }
+  }
+  return {overlays,order:override===undefined ? undefined : selected(override)};
 }
 
 async function runBuild(args:string[],lock:number) {
@@ -110,6 +131,7 @@ export class DevcontainerBuilds {
         if (!existing) {
           await checkout(repo,sourceRoot,false);
           await checkout(sourceRoot,view,true);
+          for (const overlay of planned.overlays) atomicPrivateWrite(overlay.path,overlay.body);
           atomicPrivateWrite(planned.configPath,JSON.stringify(planned.build));
           if (planned.effectiveLock!==undefined) atomicPrivateWrite(planned.lockPath,planned.effectiveLock);
           await runBuild(["build","--workspace-folder",view,"--config",planned.configPath,"--image-name",image,
@@ -169,15 +191,14 @@ export class DevcontainerBuilds {
         selected[name]=options;
       }
     }
-    if (overrideFeatureInstallOrder!==undefined && (!Array.isArray(overrideFeatureInstallOrder) || !overrideFeatureInstallOrder.every(id=>typeof id==="string" && id.length && !id.includes("${")))) throw Error("invalid Feature install order");
     const hasFeatures=Object.keys(selected).length>0;
-    await validateLocalFeatures(repo,base,Object.keys(selected),locked.features ?? {});
+    const {overlays,order}=await featureOrder(repo,base,root,Object.keys(selected),locked.features ?? {},overrideFeatureInstallOrder);
     // Frozen-empty proves that a local Feature graph resolves no remote dependencies,
     // including dependencies discovered only while parsing a nested Feature.
     const effectiveLock=lockfile ?? (hasFeatures ? JSON.stringify({features:{}}) : undefined);
-    return {source,config:configText,lockfile,effectiveLock,configPath,lockPath:join(generatedBase,lockname),
+    return {source,config:configText,lockfile,effectiveLock,overlays,configPath,lockPath:join(generatedBase,lockname),
       build:{build:{dockerfile:relative(generatedBase,dockerfile),context:relative(generatedBase,context),
         ...(spec?.args ? {args:spec.args} : {}),...(spec?.target ? {target:spec.target} : {}),options:["--label",label+"="+owner]},
-        ...(hasFeatures ? {features:selected} : {}),...(overrideFeatureInstallOrder ? {overrideFeatureInstallOrder} : {})}};
+        ...(hasFeatures ? {features:selected} : {}),...(order?.length ? {overrideFeatureInstallOrder:order} : {})}};
   }
 }

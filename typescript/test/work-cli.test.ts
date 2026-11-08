@@ -1236,7 +1236,7 @@ test("managed worker runs with an environment built from an immutable repository
     const folder=join(h.repo,".devcontainer");
     mkdirSync(folder);
     mkdirSync(join(folder,"marker-feature"));
-    writeFileSync(join(folder,"marker-feature","devcontainer-feature.json"),JSON.stringify({id:"marker-feature",version:"1.0.0",name:"Frozen marker"}));
+    writeFileSync(join(folder,"marker-feature","devcontainer-feature.json"),JSON.stringify({id:"marker-feature",version:"1.0.0",name:"Frozen marker",installsAfter:["registry.invalid/unselected/missing:1"]}));
     writeFileSync(join(folder,"marker-feature","install.sh"),"#!/bin/sh\nprintf 'frozen feature' > /feature-marker\n",{mode:0o755});
     mkdirSync(join(folder,"after-feature"));
     writeFileSync(join(folder,"after-feature","devcontainer-feature.json"),JSON.stringify({id:"after-feature",version:"1.0.0",name:"Ordered marker"}));
