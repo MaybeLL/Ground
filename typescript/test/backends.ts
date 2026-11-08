@@ -24,7 +24,7 @@ function isolatedSQLite() {
   return { store: SQLStore.sqlite(join(directory, "ledger.db")), cleanup: async () => rmSync(directory, { recursive: true, force: true }) };
 }
 
-export async function openLedger(backend: Backend) {
+export async function openLedger(backend: Backend, initialize = true) {
   const database = backend === "sqlite"
     ? isolatedSQLite()
     : backend === "postgres" ? await isolatedPostgres() : await isolatedMySQL();
@@ -33,7 +33,7 @@ export async function openLedger(backend: Backend) {
     finally { await database.cleanup(); }
   };
   try {
-    await database.store.initialize("warn");
+    if (initialize) await database.store.initialize("warn");
     return { store: database.store, close };
   } catch (error) {
     await close();

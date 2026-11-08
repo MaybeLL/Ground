@@ -78,8 +78,8 @@ try {
         "tsx",
         "--test",
         "--test-concurrency=1",
-        "test/runtime-store.test.ts",
-        "test/mysql-conformance.test.ts",
+        "test/work-storage.test.ts",
+        "test/work-grading-usecases.test.ts",
       ],
       {
         stdio: "inherit",

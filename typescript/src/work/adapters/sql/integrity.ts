@@ -1,6 +1,6 @@
 import type { SQLClient } from "../../../sql-client.js";
 import type { IntegrityReport } from "../../../store-types.js";
-import { StorageFailure } from "../../ports/index.js";
+import { GRADING_REQUEST_COUNTER, StorageFailure } from "../../ports/index.js";
 import { decodeCompletionEvent, repositoriesOver } from "./repositories.js";
 
 /** Walk the same snapshot through the same decoders used by business reads. */
@@ -17,11 +17,15 @@ export async function inspectWorkIntegrity(client: SQLClient): Promise<Integrity
     ["work_gradings", row => r.gradings.get(String(row.id))],
     ["work_experiment_runs", row => r.experiments.get(String(row.id))],
     ["work_intents", row => r.intents.get(String(row.id))],
-    ["work_completion_events", decodeCompletionEvent],
+    ["work_completion_events", async key => {
+      const row = await client.get<Record<string, unknown>>("SELECT * FROM work_completion_events WHERE id = ?", [key.id]);
+      if (row) decodeCompletionEvent(row);
+    }],
   ];
   for (const [table, decode] of scans) {
+    const keys = table === "work_revisions" ? "id, definition_id" : "id";
     for (let offset = 0; ; offset += 256) {
-      const rows = await client.all<Record<string, unknown>>(`SELECT * FROM ${table} ORDER BY id LIMIT 256 OFFSET ?`, [offset]);
+      const rows = await client.all<Record<string, unknown>>(`SELECT ${keys} FROM ${table} ORDER BY id LIMIT 256 OFFSET ?`, [offset]);
       for (const row of rows) {
         try { await decode(row); }
         catch (error) {
@@ -34,5 +38,18 @@ export async function inspectWorkIntegrity(client: SQLClient): Promise<Integrity
       if (rows.length < 256) break;
     }
   }
+  const orphan = await client.get("SELECT m.experiment_run_id FROM work_experiment_members m LEFT JOIN work_experiment_runs e ON e.id = m.experiment_run_id WHERE e.id IS NULL LIMIT 1");
+  if (orphan) report.issues.push({ check: "experiment_members", reason: "A member refers to a missing experiment run" });
+  const invalidCounter = await client.get("SELECT name FROM work_counters WHERE value < 0 LIMIT 1");
+  if (invalidCounter) report.issues.push({ check: "work_counters", reason: "A stored sequence is negative" });
+  const highWater = await client.get("SELECT MAX(request_seq) AS latest FROM work_gradings");
+  if (highWater?.latest != null) {
+    const counter = await client.get("SELECT value FROM work_counters WHERE name = ?", [GRADING_REQUEST_COUNTER]);
+    if (!counter || BigInt(String(counter.value)) < BigInt(String(highWater.latest))) {
+      report.issues.push({ check: "grading_sequence", reason: "The grading request counter is behind an existing grading" });
+    }
+  }
+  report.issues = report.issues.slice(0, 1000);
+  report.valid = report.issues.length === 0;
   return report;
 }

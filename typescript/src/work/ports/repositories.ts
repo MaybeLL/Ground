@@ -115,6 +115,8 @@ export interface CompletionEventRepository {
   markDelivered(id: Id, at: Timestamp): Promise<void>;
 }
 
+export const GRADING_REQUEST_COUNTER = "grading-request";
+
 /** A counter that only grows, used for the order in which gradings were requested. */
 export interface SequenceRepository { next(name: string): Promise<number> }
 

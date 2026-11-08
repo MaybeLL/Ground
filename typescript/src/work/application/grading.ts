@@ -6,7 +6,8 @@ import {
   requestGradingCancel, submitGrade, type CommandObservation, type Digest, type GradingRecord, type Grade, type Hasher, type Id, type JsonValue, type ProtocolStage, type TargetRef,
 } from "../domain/index.js";
 import type { Clock, IdSource, WorkRepositories, WorkUnitOfWork } from "../ports/index.js";
-import { ensureVerificationGrader, GRADING_REQUEST_COUNTER } from "./builtin-grader.js";
+import { GRADING_REQUEST_COUNTER } from "../ports/index.js";
+import { ensureVerificationGrader } from "./builtin-grader.js";
 import { fail, failureOf, fromRejection, succeed, type Outcome } from "./outcome.js";
 import { once, type RequestContext } from "./requests.js";
 

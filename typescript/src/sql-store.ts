@@ -7,7 +7,7 @@ import type { SqlDialect } from "./sql-dialect.js";
 import { mysqlDialect, postgresDialect, sqliteDialect } from "./sql-dialects.js";
 import { mysql, mysqlClient, postgresClient, sqliteClient, DatabaseSync, type SQLClient } from "./sql-client.js";
 import { Pool as PgPool } from "pg";
-import { applySchema, SCHEMA_VERSION, PROTOCOL_VERSION, REMOTE_NORMALIZATION_VERSION, MINIMUM_CLI_VERSION } from "./sql-schema.js";
+import { schemaStatements, SCHEMA_VERSION, PROTOCOL_VERSION, REMOTE_NORMALIZATION_VERSION, MINIMUM_CLI_VERSION } from "./sql-schema.js";
 export type DatabaseTarget = { state: "empty" } | { state: "unrecognized" } | { state: "initialized"; metadata: Metadata };
 import type { IntegrityReport, Metadata } from "./store-types.js";
 
@@ -32,7 +32,7 @@ const lockWaitExpired = new WeakSet<object>();
 
 export class SQLStore {
   private queue: Promise<void> = Promise.resolve();
-  private constructor(readonly dialect: SqlDialect, private readonly connectionFactory: () => Promise<SQLClient>, private readonly closeFactory: () => Promise<void>, private readonly migrationLockKey = "", private readonly retryAttempts = 7) {}
+  private constructor(readonly dialect: SqlDialect, private readonly connectionFactory: () => Promise<SQLClient>, private readonly closeFactory: () => Promise<void>, private readonly migrationLockKey = "", private readonly retryAttempts = 7, private readonly afterInitialize?: (client: SQLClient) => Promise<void>) {}
 
   /**
    * Engines with row locks serialize lifecycle work on the metadata row, which
@@ -89,11 +89,7 @@ export class SQLStore {
       mkdirSync(dirname(absolute), { recursive: true, mode: 0o700 });
       const database = new DatabaseSync(absolute);
       try {
-        // busy_timeout must be active before journal_mode: setting WAL can
-        // itself need a lock while another CLI process has the database open.
         database.exec(`PRAGMA busy_timeout = ${busyTimeoutMs}; PRAGMA foreign_keys = ON;`);
-        const journalMode = String((database.prepare("PRAGMA journal_mode").get() as { journal_mode?: unknown } | undefined)?.journal_mode ?? "").toLowerCase();
-        if (journalMode !== "wal") database.exec("PRAGMA journal_mode = WAL;");
         client = sqliteClient(sqliteDialect, database);
         return client;
       } catch (error) {
@@ -106,7 +102,7 @@ export class SQLStore {
       const current = client;
       client = undefined;
       await current.close();
-    }, "", retryAttempts);
+    }, "", retryAttempts, client => client.exec("PRAGMA journal_mode = WAL"));
   }
 
   static mysql(config: { host: string; port: number; database: string; username: string; password: string; caFile?: string }): SQLStore {
@@ -251,40 +247,44 @@ export class SQLStore {
     let transaction = false;
     try {
       lock = await this.acquireMigrationLock(client);
-      if (this.dialect.requiresExplicitLifecycleTransaction) {
+      if (this.dialect.ddlIsTransactional) {
         await client.begin(true);
         transaction = true;
       }
-      if (await this.hasMetadataTable(client)) {
-        if (!transaction) { await client.begin(true); transaction = true; }
-        const metadata = await this.metadataFrom(client, this.lifecycleLock);
-        this.assertCompatible(metadata);
-        if (transaction) { await client.commit(); transaction = false; }
-        return { metadata, action: "attached" };
-      }
-      if (await this.userTableCount(client) !== 0) {
-        throw new DomainError("SCHEMA_INCOMPATIBLE", "database is neither empty nor an initialized Grounds database", false, schemaDetails(SCHEMA_VERSION, "unrecognized tables"));
+      const existing = await this.hasMetadataTable(client) ? await this.metadataFrom(client, this.lifecycleLock) : undefined;
+      const resuming = !this.dialect.ddlIsTransactional && existing?.migration_state === "in_progress";
+      if (existing) {
+        // An in-progress bootstrap marker authorizes finishing only this ledger family.
+        this.assertCompatible(resuming ? { ...existing, migration_state: "clean" } : existing);
+        if (!resuming) {
+          if (transaction) { await client.commit(); transaction = false; }
+          await this.afterInitialize?.(client);
+          return { metadata: existing, action: "attached" };
+        }
+      } else if (await this.userTableCount(client) !== 0) {
+        throw new DomainError("SCHEMA_INCOMPATIBLE", "database is neither empty nor an initialized Grounds database", false, schemaDetails(SCHEMA_VERSION, "unrecognized database objects"));
       }
 
-      // MySQL DDL auto-commits, so no transaction may span schema creation.
-      // The advisory lock is the initialization serialization boundary.
-      if (!this.dialect.ddlIsTransactional && transaction) { await client.commit(); transaction = false; }
-      await applySchema(client, this.dialect);
-      if (!transaction) { await client.begin(true); transaction = true; }
-      // Recheck after DDL: a concurrent initializer that does not honor our
-      // lock must not be allowed to silently replace the database identity.
-      const existing = await client.get<Record<string, unknown>>(this.metadataSelect(this.lifecycleLock));
-      if (existing) {
-        const metadata = this.metadataRow(existing);
-        this.assertCompatible(metadata);
-        await client.commit(); transaction = false;
-        return { metadata, action: "attached" };
+      const [metadataDDL, ...tables] = schemaStatements(this.dialect);
+      const identity = [existing?.database_id ?? newUUIDv7(), SCHEMA_VERSION, PROTOCOL_VERSION, MINIMUM_CLI_VERSION, REMOTE_NORMALIZATION_VERSION, existing?.baseline_reachability_policy ?? policy];
+      const columns = "singleton, database_id, schema_version, protocol_version, minimum_cli_version, remote_normalization_version, baseline_reachability_policy, migration_state";
+      if (!existing) {
+        if (transaction) {
+          await client.exec(metadataDDL + this.dialect.tableSuffix);
+          await client.run(`INSERT INTO schema_metadata (${columns}) VALUES (1, ?, ?, ?, ?, ?, ?, 'in_progress')`, identity);
+        } else {
+          // MySQL commits DDL independently. Create its durable identity and
+          // bootstrap marker in the same atomic CREATE TABLE ... SELECT.
+          await client.run(metadataDDL + this.dialect.tableSuffix + " AS SELECT 1 AS singleton, ? AS database_id, ? AS schema_version, ? AS protocol_version, ? AS minimum_cli_version, ? AS remote_normalization_version, ? AS baseline_reachability_policy, 'in_progress' AS migration_state", identity);
+        }
       }
-      const id = newUUIDv7();
-      await client.run("INSERT INTO schema_metadata (singleton, database_id, schema_version, protocol_version, minimum_cli_version, remote_normalization_version, baseline_reachability_policy, migration_state) VALUES (1, ?, ?, ?, ?, ?, ?, 'clean')", [id, SCHEMA_VERSION, PROTOCOL_VERSION, MINIMUM_CLI_VERSION, REMOTE_NORMALIZATION_VERSION, policy]);
+      for (const ddl of tables) await client.exec(ddl + this.dialect.tableSuffix);
+      if (!transaction) { await client.begin(true); transaction = true; }
+      await client.run("UPDATE schema_metadata SET migration_state = 'clean' WHERE singleton = 1 AND database_id = ? AND migration_state = 'in_progress'", [identity[0]]);
       const metadata = await this.metadataFrom(client, this.lifecycleLock);
-      await client.commit();
-      transaction = false;
+      this.assertCompatible(metadata);
+      await client.commit(); transaction = false;
+      await this.afterInitialize?.(client);
       return { metadata, action: "initialized" };
     } catch (error) {
       if (transaction) await client.rollback();

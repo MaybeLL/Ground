@@ -8,6 +8,7 @@ import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { DomainError } from "../src/errors.js";
 import { newUUIDv7 } from "../src/identity.js";
+import { DatabaseSync } from "node:sqlite";
 import { SQLStore } from "../src/sql-store.js";
 
 const tsxLoader = import.meta.resolve("tsx");
@@ -152,5 +153,27 @@ test("SQLite lifecycle entrypoints retry lazy connection failures and never leak
       (error: unknown) => error instanceof DomainError && error.code === "STORAGE_TRANSIENT" && error.retryable,
     );
     assert.equal(attempts, 3, entrypoint);
+  }
+});
+
+test("rejecting a foreign SQLite target preserves its journal mode and contents", async () => {
+  for (const ddl of ["CREATE TABLE sqliteXorders(id INTEGER)", "CREATE VIEW foreign_view AS SELECT 1"]) {
+    const directory = mkdtempSync(join(tmpdir(), "grounds-foreign-db-"));
+    const path = join(directory, "foreign.sqlite");
+    const foreign = new DatabaseSync(path);
+    foreign.exec("PRAGMA journal_mode = DELETE");
+    foreign.exec(ddl);
+    foreign.close();
+    const store = SQLStore.sqlite(path);
+    try {
+      assert.equal((await store.classifyTarget()).state, "unrecognized");
+      await assert.rejects(store.initialize("warn"), { code: "SCHEMA_INCOMPATIBLE" });
+      await assert.rejects(store.open(), { code: "SCHEMA_INCOMPATIBLE" });
+      const check = new DatabaseSync(path, { readOnly: true });
+      try {
+        assert.equal(check.prepare("PRAGMA journal_mode").get()!.journal_mode, "delete");
+        assert.deepEqual(check.prepare("SELECT sql FROM sqlite_master").all().map(row => row.sql), [ddl]);
+      } finally { check.close(); }
+    } finally { await store.close(); rmSync(directory, { recursive: true, force: true }); }
   }
 });

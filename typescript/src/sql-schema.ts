@@ -1,4 +1,3 @@
-import type { SQLClient } from "./sql-client.js";
 import type { SqlDialect } from "./sql-dialect.js";
 import { workSchemaStatements } from "./work/adapters/sql/schema.js";
 
@@ -16,7 +15,3 @@ export const schemaStatements = (dialect: SqlDialect): string[] => {
     ...workSchemaStatements(dialect),
   ];
 };
-
-export async function applySchema(client: SQLClient, dialect: SqlDialect): Promise<void> {
-  for (const statement of schemaStatements(dialect)) await client.exec(statement + dialect.tableSuffix);
-}

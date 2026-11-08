@@ -3,7 +3,6 @@ import type { WorkRepositories } from "../ports/index.js";
 import { fail, fromRejection, succeed, type Outcome } from "./outcome.js";
 
 /** Named so the ledger's request-order counter for gradings has one name everywhere. */
-export const GRADING_REQUEST_COUNTER = "grading-request";
 
 /**
  * The one grader behind independent acceptance: an evaluator that judges every

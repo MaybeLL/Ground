@@ -38,6 +38,39 @@ async function failure(promise: Promise<unknown>): Promise<StorageFailure> {
 }
 
 for (const backend of backends) {
+  test(`${backend}: retrying interrupted initialization produces one complete ledger`, { skip: backendSkip(backend) }, async () => {
+    const fixture = await openLedger(backend, false);
+    const store = fixture.store as unknown as { acquireClient(): Promise<import("../src/sql-client.js").SQLClient> };
+    const acquire = store.acquireClient.bind(store);
+    let interrupted = false;
+    store.acquireClient = async () => {
+      const client = await acquire();
+      return new Proxy(client, { get(target, key) {
+        if (key === "exec") return async (sql: string) => {
+          if (!interrupted && sql.includes("CREATE TABLE IF NOT EXISTS work_works")) {
+            interrupted = true;
+            throw new Error("injected initialization failure");
+          }
+          return target.exec(sql);
+        };
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      } });
+    };
+    try {
+      await assert.rejects(fixture.store.initialize("warn"));
+      assert.equal(interrupted, true);
+      const target = await fixture.store.classifyTarget();
+      if (backend === "mysql") {
+        assert.equal(target.state, "initialized");
+        if (target.state === "initialized") assert.equal(target.metadata.migration_state, "in_progress");
+        await assert.rejects(fixture.store.open(), { code: "MIGRATION_DIRTY" });
+      } else assert.equal(target.state, "empty");
+      const { metadata } = await fixture.store.initialize("warn");
+      if (target.state === "initialized") assert.equal(metadata.database_id, target.metadata.database_id);
+      assert.equal((await fixture.store.inspectIntegrity()).report.valid, true);
+    } finally { await fixture.close(); }
+  });
   const check = (name: string, run: (store: SQLStore, uow: SqlWorkUnitOfWork) => Promise<void>) => test(`${backend}: work storage ${name}`, { skip: backendSkip(backend) }, async () => {
     const fixture = await openLedger(backend);
     try { await run(fixture.store, new SqlWorkUnitOfWork(fixture.store)); } finally { await fixture.close(); }
@@ -70,6 +103,23 @@ for (const backend of backends) {
     const { report } = await store.inspectIntegrity();
     assert.equal(report.valid, false);
     assert.match(report.issues[0].reason, /status column differs/);
+  });
+
+  check("status diagnoses orphan members, damaged events and invalid sequence state", async (store, uow) => {
+    await write(uow, async r => {
+      await r.gradings.create(aGate("gate-1", await r.sequences.next("grading-request")));
+      await r.events.append({ id: "event-1", parentIntentId: "intent-1", type: "finished", subject: { type: "work", id: "work-1" }, payload: {}, createdAt: at() });
+    });
+    assert.equal((await store.inspectIntegrity()).report.valid, true);
+    await store.transaction(true, async client => {
+      await client.run("DELETE FROM work_counters WHERE name = ?", ["grading-request"]);
+      await client.run("INSERT INTO work_counters (name, value) VALUES (?, ?)", ["negative", -1]);
+      await client.run("UPDATE work_completion_events SET parent_intent_id = ?", ["incorrect"]);
+      await client.run("INSERT INTO work_experiment_members (experiment_run_id, member_key, ordinal, case_key, repeat_index, task_run_request_id) VALUES (?, ?, 0, ?, 0, ?)", ["missing", "m", "case", "missing-request"]);
+    });
+    const { report } = await store.inspectIntegrity();
+    assert.equal(report.valid, false);
+    assert.deepEqual(report.issues.map(issue => issue.check).sort(), ["experiment_members", "grading_sequence", "work_counters", "work_record"]);
   });
 
   check("definitions keep their head and immutable, numbered revisions", async (_store, uow) => {
