@@ -420,7 +420,7 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
       if (hasOption(args,"slots")) {
         const requested=args.values.slots;
         if (typeof requested!=="string" || !/^[1-9][0-9]*$/.test(requested) || !Number.isSafeInteger(Number(requested))) throw validation("slots","expected a positive integer");
-        setManagedAgentCapacity(Number(requested));
+        await setManagedAgentCapacity(Number(requested));
       }
       return {command:"work.host-capacity",result_type:"grounds.result.work.host-capacity/v1",agentSlots:managedAgentCapacity()};
     }

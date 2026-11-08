@@ -9,8 +9,8 @@ import {setTimeout as delay} from "node:timers/promises";
 import {execute} from "../src/cli.js";
 import {hostProcessIdentity} from "../src/env-process.js";
 import {newUUIDv7} from "../src/identity.js";
-import {hostDirectory} from "../src/managed-host-client.js";
-import {atomicPrivateWrite} from "../src/runtime-files.js";
+import {hostDirectory,queueRoot} from "../src/managed-host-client.js";
+import {atomicPrivateWrite,withRuntimeLock} from "../src/runtime-files.js";
 import {assertContract} from "./schema-fixture.js";
 
 test("the scheduler shares configurable Agent slots and admits legacy and new command graders independently",async t=>{
@@ -59,5 +59,19 @@ test("the scheduler shares configurable Agent slots and admits legacy and new co
     assert.equal(existsSync(join(slots,other)),false);
     for (const path of [join(waiting,evaluator),join(slots,evaluator)]) rmSync(path,{force:true});
     await awaitSlot(other);
+    // Pause an agent admission at its ticket until a lower setting has committed.
+    await configure("--slots","2");
+    const paused=queue("worker");
+    await withRuntimeLock(queueRoot(),"ticket-"+paused,async()=>{
+      await delay(350);
+      await configure("--slots","1");
+    });
+    await awaitSlot(queue("test-grading"));
+    assert.equal(existsSync(join(slots,paused)),false);
+    const legacy=queue("worker",true);
+    const legacyTicket=JSON.parse((await import("node:fs")).readFileSync(join(waiting,legacy),"utf8"));
+    atomicPrivateWrite(join(requests,legacyTicket.name),"null");
+    await awaitSlot(queue("test-grading"));
+    assert.equal(existsSync(join(slots,legacy)),false);
   } finally {host.kill();await stopped;}
 });

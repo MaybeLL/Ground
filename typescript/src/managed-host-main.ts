@@ -47,9 +47,14 @@ async function schedule() {
       } else if (!occupied.has(name) && (!usesAgentSlot(ticket) || agentCount < capacity)) {
         await withRuntimeLock(queueRoot(), "ticket-" + name, async () => {
           if (!existsSync(path) || JSON.parse(safeRead(path, 4096).toString()).birth !== ticket.birth) return;
-          atomicPrivateWrite(join(slots, name), JSON.stringify(ticket));
-          occupied.add(name);
-          if (usesAgentSlot(ticket)) agentCount++;
+          const grant=()=>{
+            atomicPrivateWrite(join(slots,name),JSON.stringify(ticket));
+            occupied.add(name);
+          };
+          if (!usesAgentSlot(ticket)) grant();
+          else await withRuntimeLock(queueRoot(),"agent-admission",async()=>{
+            if (agentCount<managedAgentCapacity()) {grant();agentCount++;}
+          },10000);
         }, 10_000);
       }
     }

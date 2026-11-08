@@ -25,9 +25,9 @@ export function managedAgentCapacity():number {
   return capacity;
 }
 
-export function setManagedAgentCapacity(capacity:number) {
+export async function setManagedAgentCapacity(capacity:number) {
   if (!Number.isSafeInteger(capacity) || capacity<1) throw new Error("expected a positive integer for Agent capacity");
-  atomicPrivateWrite(join(queueRoot(),"agent-capacity"),String(capacity));
+  await withRuntimeLock(queueRoot(),"agent-admission",async()=>atomicPrivateWrite(join(queueRoot(),"agent-capacity"),String(capacity)),10000);
 }
 
 /** Older runners did not record the kind in their ticket. Their immutable request still identifies command-only grading. */
@@ -38,8 +38,11 @@ export function usesAgentSlot(ticket:{name?:string;kind?:HostJob["kind"]|"worker
   if (!id || !operation || !managedId.test(id) || !managedId.test(operation) || name!==id+"."+operation) return true;
   const path=join(dataLayout().runtime,"managed-host","requests",name);
   if (!existsSync(path)) return true;
-  const request=JSON.parse(safeRead(path,32768).toString()) as HostJob;
-  return request.executionId!==id || request.kind!=="test-grading";
+  try {
+    const request=JSON.parse(safeRead(path,32768).toString()) as HostJob|null;
+    return request?.executionId!==id || request?.kind!=="test-grading";
+  } catch { return true; }
+
 }
 
 export async function launchManaged(entry: "host" | "job", args: string[] = []) {
