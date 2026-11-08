@@ -1,5 +1,5 @@
 import {acceptExecution,acquireLease,authorizeBridge,beginExecution,claimRunner,confirmExecutionStopped,digestOf,evaluatorStopped,
-  failExecutionInfrastructure,faultGrader,isGradingTerminal,prepareExecution,providerEnded,recordReceipt,registerAgentEvaluator,
+  failExecutionInfrastructure,faultGrader,isExecutionTerminal,isGradingTerminal,prepareExecution,providerEnded,recordReceipt,registerAgentEvaluator,
   requestExecutionCancel,returnLease,sameRef,refOf,submitGrade,validateGrade,type AgentExecution,type Decision,type Grade,type Result} from "../domain/index.js";
 import type {AgentSettings} from "../domain/managed.js";
 import type {AgentProvider,WorkerOutput} from "../ports/index.js";
@@ -118,8 +118,8 @@ export class ManagedEvaluators {
         } catch { /* Invalid provider output is a grader fault. */ }
       }
       if (g.cancelIntent) advance(requestExecutionCancel(state,{at}));
-      else if (infrastructure) advance(failExecutionInfrastructure(state,{detail:infrastructure,at}));
-      advance(confirmExecutionStopped(state,{at}));
+      if (state.stop!=="idle" && !isExecutionTerminal(state)) advance(confirmExecutionStopped(state,{at}));
+      if (!g.cancelIntent && infrastructure) advance(failExecutionInfrastructure(state,{detail:infrastructure,at}));
       const stopped=evaluatorStopped(g,{at});
       if (!stopped.ok) return fromRejection(stopped.error);
       const next=stopped.value.state;

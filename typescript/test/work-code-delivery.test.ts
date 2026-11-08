@@ -606,5 +606,17 @@ for (const backend of backends) test(backend + ": working runs freeze selected a
     assert.ok(cancelled.lateRecords.some(event=>event.kind==="grade"));
     assert.equal((await app.evaluators.evidence(late.gradingId,"output",0)).ok,true);
     refused(await app.evaluators.evidence(late.gradingId,"stderr",0),"not-found");
+    const broken=value(await app.suites.measure({...request,requestId:"interrupted-judge"},"."));
+    value(await app.tests.allocate(broken.gradingId,{hostId:"host",daemonId:"daemon"}));
+    value(await app.tests.ready(broken.gradingId,"broken-container"));
+    const interrupted=value(await app.evaluators.reserve(broken.gradingId,true));
+    assert.ok(interrupted);
+    value(await app.evaluators.begin(broken.gradingId,interrupted.exec.id,"interrupted-handle"));
+    value(await app.evaluators.finish(broken.gradingId,interrupted.exec.id,{stderr:file("diagnostic","interrupted").source},undefined,"bridge interrupted after creating stderr"));
+    const fault=value(await app.tests.context(broken.gradingId));
+    assert.equal(fault.grading.status,"grader_fault");
+    assert.equal(fault.grading.evaluatorStopped,true);
+    assert.equal(fault.sandbox?.lease,undefined);
+    assert.equal((await app.evaluators.evidence(broken.gradingId,"stderr",0)).ok,true);
   },backend);
 });
