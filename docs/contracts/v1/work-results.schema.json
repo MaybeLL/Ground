@@ -13,15 +13,7 @@
         "taskId": {"$ref": "#/$defs/Id"},
         "revisionId": {"$ref": "#/$defs/Id"},
         "seq": {"type": "integer", "minimum": 0},
-        "criteria": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {"id": {"$ref": "#/$defs/Id"}, "statement": {"type": "string"}},
-            "required": ["id", "statement"],
-            "additionalProperties": false
-          }
-        }
+        "criteria": {"type": "array", "items": {"$ref": "#/$defs/Criterion"}}
       }
     },
     {
@@ -34,45 +26,15 @@
         "taskId": {"$ref": "#/$defs/Id"},
         "revisionId": {"$ref": "#/$defs/Id"},
         "seq": {"type": "integer", "minimum": 0},
-        "criteria": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {"id": {"$ref": "#/$defs/Id"}, "statement": {"type": "string"}},
-            "required": ["id", "statement"],
-            "additionalProperties": false
-          }
-        }
+        "criteria": {"type": "array", "items": {"$ref": "#/$defs/Criterion"}}
       }
     },
     {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["command", "result_type", "taskId", "name", "seq", "revision"],
-      "properties": {
-        "command": {"const": "task.show"},
-        "result_type": {"const": "grounds.result.task.show/v1"},
-        "taskId": {"$ref": "#/$defs/Id"},
-        "name": {"type": "string"},
-        "seq": {"type": "integer", "minimum": 0},
-        "revision": {
-          "anyOf": [
-            {
-              "type": "object",
-              "properties": {
-                "id": {"$ref": "#/$defs/Id"},
-                "seq": {"type": "integer", "minimum": 0},
-                "digest": {"type": "string"},
-                "content": {"$ref": "#/$defs/TaskContent"},
-                "publishedAt": {"type": "string"}
-              },
-              "required": ["id", "seq", "digest", "content", "publishedAt"],
-              "additionalProperties": false
-            },
-            {"const": null}
-          ]
-        }
-      }
+      "properties": {"command": {"const": "task.show"}, "result_type": {"const": "grounds.result.task.show/v1"}},
+      "required": ["command", "result_type"],
+      "allOf": [{"$ref": "#/$defs/TaskViewFields"}],
+      "unevaluatedProperties": false
     },
     {
       "type": "object",
@@ -235,7 +197,7 @@
         "result_type": {"const": "grounds.result.work.stop/v1"},
         "runId": {"$ref": "#/$defs/Id"},
         "status": {"$ref": "#/$defs/TaskRunStatus"},
-        "outcome": {"type": "string"}
+        "outcome": {"$ref": "#/$defs/TaskRunOutcome"}
       }
     },
     {
@@ -247,7 +209,7 @@
         "result_type": {"const": "grounds.result.work.cancel/v1"},
         "runId": {"$ref": "#/$defs/Id"},
         "status": {"$ref": "#/$defs/TaskRunStatus"},
-        "outcome": {"type": "string"}
+        "outcome": {"$ref": "#/$defs/TaskRunOutcome"}
       }
     },
     {
@@ -260,15 +222,7 @@
         "gradingId": {"$ref": "#/$defs/Id"},
         "requestSeq": {"type": "integer", "minimum": 0},
         "taskRunId": {"$ref": "#/$defs/Id"},
-        "criteria": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {"id": {"$ref": "#/$defs/Id"}, "statement": {"type": "string"}},
-            "required": ["id", "statement"],
-            "additionalProperties": false
-          }
-        }
+        "criteria": {"type": "array", "items": {"$ref": "#/$defs/Criterion"}}
       }
     },
     {
@@ -291,7 +245,7 @@
         "result_type": {"const": "grounds.result.grade.stage/v1"},
         "gradingId": {"$ref": "#/$defs/Id"},
         "status": {"$ref": "#/$defs/GradingStatus"},
-        "outcome": {"type": "string"}
+        "outcome": {"$ref": "#/$defs/GradingOutcome"}
       }
     },
     {
@@ -303,7 +257,7 @@
         "result_type": {"const": "grounds.result.grade.command/v1"},
         "gradingId": {"$ref": "#/$defs/Id"},
         "status": {"$ref": "#/$defs/GradingStatus"},
-        "outcome": {"type": "string"}
+        "outcome": {"$ref": "#/$defs/GradingOutcome"}
       }
     },
     {
@@ -315,7 +269,7 @@
         "result_type": {"const": "grounds.result.grade.submit/v1"},
         "gradingId": {"$ref": "#/$defs/Id"},
         "status": {"$ref": "#/$defs/GradingStatus"},
-        "outcome": {"type": "string"}
+        "outcome": {"$ref": "#/$defs/GradingOutcome"}
       }
     },
     {
@@ -327,7 +281,7 @@
         "result_type": {"const": "grounds.result.grade.stop/v1"},
         "gradingId": {"$ref": "#/$defs/Id"},
         "status": {"$ref": "#/$defs/GradingStatus"},
-        "outcome": {"type": "string"}
+        "outcome": {"$ref": "#/$defs/GradingOutcome"}
       }
     },
     {
@@ -339,70 +293,15 @@
         "result_type": {"const": "grounds.result.grade.cancel/v1"},
         "gradingId": {"$ref": "#/$defs/Id"},
         "status": {"$ref": "#/$defs/GradingStatus"},
-        "outcome": {"type": "string"}
+        "outcome": {"$ref": "#/$defs/GradingOutcome"}
       }
     },
     {
       "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "command",
-        "result_type",
-        "version",
-        "id",
-        "purpose",
-        "origin",
-        "requestSeq",
-        "targets",
-        "graderRevision",
-        "strategy",
-        "scale",
-        "materials",
-        "commandSteps",
-        "status",
-        "lateRecords",
-        "createdAt"
-      ],
-      "properties": {
-        "command": {"const": "grade.show"},
-        "result_type": {"const": "grounds.result.grade.show/v1"},
-        "version": {"type": "integer", "minimum": 0},
-        "id": {"$ref": "#/$defs/Id"},
-        "purpose": {"$ref": "#/$defs/Purpose"},
-        "origin": {"$ref": "#/$defs/GradingOrigin"},
-        "requestSeq": {"type": "integer", "minimum": 0},
-        "targets": {"type": "array", "items": {"$ref": "#/$defs/TargetRef"}},
-        "graderRevision": {"$ref": "#/$defs/RevisionRef"},
-        "strategy": {"$ref": "#/$defs/GraderStrategy"},
-        "scale": {"$ref": "#/$defs/Scale"},
-        "environmentRevisionId": {"$ref": "#/$defs/Id"},
-        "materials": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {"id": {"$ref": "#/$defs/Id"}, "digest": {"$ref": "#/$defs/Digest"}},
-            "required": ["id", "digest"],
-            "additionalProperties": false
-          }
-        },
-        "binding": {"$ref": "#/$defs/GateBinding"},
-        "evaluator": {"$ref": "#/$defs/Evaluator"},
-        "commandSteps": {"type": "array", "items": {"$ref": "#/$defs/CommandStep"}},
-        "sandboxId": {"$ref": "#/$defs/Id"},
-        "evaluatorStopped": {"type": "boolean"},
-        "status": {"$ref": "#/$defs/GradingStatus"},
-        "cancelIntent": {
-          "type": "object",
-          "properties": {"at": {"$ref": "#/$defs/Timestamp"}},
-          "required": ["at"],
-          "additionalProperties": false
-        },
-        "grade": {"$ref": "#/$defs/Grade"},
-        "fault": {"type": "string"},
-        "lateRecords": {"type": "array", "items": {"$ref": "#/$defs/GradingLate"}},
-        "createdAt": {"$ref": "#/$defs/Timestamp"},
-        "terminalAt": {"$ref": "#/$defs/Timestamp"}
-      }
+      "properties": {"command": {"const": "grade.show"}, "result_type": {"const": "grounds.result.grade.show/v1"}},
+      "required": ["command", "result_type"],
+      "allOf": [{"$ref": "#/$defs/GradingRecordFields"}],
+      "unevaluatedProperties": false
     },
     {
       "type": "object",
@@ -441,35 +340,10 @@
     "Criterion": {
       "type": "object",
       "required": ["id", "statement"],
-      "properties": {"id": {"$ref": "#/$defs/Id"}, "statement": {"type": "string", "minLength": 1, "maxLength": 4096}}
-    },
-    "TaskView": {
-      "type": "object",
-      "properties": {
-        "taskId": {"$ref": "#/$defs/Id"},
-        "name": {"type": "string"},
-        "seq": {"type": "integer", "minimum": 0},
-        "revision": {
-          "anyOf": [
-            {
-              "type": "object",
-              "properties": {
-                "id": {"$ref": "#/$defs/Id"},
-                "seq": {"type": "integer", "minimum": 0},
-                "digest": {"type": "string"},
-                "content": {"$ref": "#/$defs/TaskContent"},
-                "publishedAt": {"type": "string"}
-              },
-              "required": ["id", "seq", "digest", "content", "publishedAt"],
-              "additionalProperties": false
-            },
-            {"const": null}
-          ]
-        }
-      },
-      "required": ["taskId", "name", "seq", "revision"],
+      "properties": {"id": {"$ref": "#/$defs/Id"}, "statement": {"type": "string", "minLength": 1, "maxLength": 4096}},
       "additionalProperties": false
     },
+    "TaskView": {"type": "object", "allOf": [{"$ref": "#/$defs/TaskViewFields"}], "unevaluatedProperties": false},
     "WorkConclusion": {
       "anyOf": [
         {"const": "in-progress"},
@@ -680,70 +554,13 @@
       "properties": {
         "runId": {"$ref": "#/$defs/Id"},
         "status": {"$ref": "#/$defs/TaskRunStatus"},
-        "outcome": {"type": "string"},
-        "blocked": {"anyOf": [{"type": "string"}, {"const": null}]}
+        "outcome": {"$ref": "#/$defs/TaskRunOutcome"},
+        "blocked": {"anyOf": [{"$ref": "#/$defs/BlockReason"}, {"type": "null"}]}
       },
       "required": ["runId", "status", "outcome", "blocked"],
       "additionalProperties": false
     },
-    "GradingRecord": {
-      "type": "object",
-      "properties": {
-        "version": {"type": "integer", "minimum": 0},
-        "id": {"$ref": "#/$defs/Id"},
-        "purpose": {"$ref": "#/$defs/Purpose"},
-        "origin": {"$ref": "#/$defs/GradingOrigin"},
-        "requestSeq": {"type": "integer", "minimum": 0},
-        "targets": {"type": "array", "items": {"$ref": "#/$defs/TargetRef"}},
-        "graderRevision": {"$ref": "#/$defs/RevisionRef"},
-        "strategy": {"$ref": "#/$defs/GraderStrategy"},
-        "scale": {"$ref": "#/$defs/Scale"},
-        "environmentRevisionId": {"$ref": "#/$defs/Id"},
-        "materials": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {"id": {"$ref": "#/$defs/Id"}, "digest": {"$ref": "#/$defs/Digest"}},
-            "required": ["id", "digest"],
-            "additionalProperties": false
-          }
-        },
-        "binding": {"$ref": "#/$defs/GateBinding"},
-        "evaluator": {"$ref": "#/$defs/Evaluator"},
-        "commandSteps": {"type": "array", "items": {"$ref": "#/$defs/CommandStep"}},
-        "sandboxId": {"$ref": "#/$defs/Id"},
-        "evaluatorStopped": {"type": "boolean"},
-        "status": {"$ref": "#/$defs/GradingStatus"},
-        "cancelIntent": {
-          "type": "object",
-          "properties": {"at": {"$ref": "#/$defs/Timestamp"}},
-          "required": ["at"],
-          "additionalProperties": false
-        },
-        "grade": {"$ref": "#/$defs/Grade"},
-        "fault": {"type": "string"},
-        "lateRecords": {"type": "array", "items": {"$ref": "#/$defs/GradingLate"}},
-        "createdAt": {"$ref": "#/$defs/Timestamp"},
-        "terminalAt": {"$ref": "#/$defs/Timestamp"}
-      },
-      "required": [
-        "version",
-        "id",
-        "purpose",
-        "origin",
-        "requestSeq",
-        "targets",
-        "graderRevision",
-        "strategy",
-        "scale",
-        "materials",
-        "commandSteps",
-        "status",
-        "lateRecords",
-        "createdAt"
-      ],
-      "additionalProperties": false
-    },
+    "GradingRecord": {"type": "object", "allOf": [{"$ref": "#/$defs/GradingRecordFields"}], "unevaluatedProperties": false},
     "Purpose": {"enum": ["gate", "measure"]},
     "GradingOrigin": {
       "anyOf": [
@@ -947,6 +764,91 @@
       },
       "required": ["kind", "at", "detail"],
       "additionalProperties": false
+    },
+    "TaskRunOutcome": {"enum": ["applied", "late", "cancel-wins", "already-terminal", "already-requested"]},
+    "GradingOutcome": {"enum": ["applied", "late", "cancel-wins", "already-terminal"]},
+    "TaskViewFields": {
+      "type": "object",
+      "properties": {
+        "taskId": {"$ref": "#/$defs/Id"},
+        "name": {"type": "string"},
+        "seq": {"type": "integer", "minimum": 0},
+        "revision": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "id": {"$ref": "#/$defs/Id"},
+                "seq": {"type": "integer", "minimum": 0},
+                "digest": {"type": "string"},
+                "content": {"$ref": "#/$defs/TaskContent"},
+                "publishedAt": {"type": "string"}
+              },
+              "required": ["id", "seq", "digest", "content", "publishedAt"],
+              "additionalProperties": false
+            },
+            {"const": null}
+          ]
+        }
+      },
+      "required": ["taskId", "name", "seq", "revision"]
+    },
+    "GradingRecordFields": {
+      "type": "object",
+      "properties": {
+        "version": {"type": "integer", "minimum": 0},
+        "id": {"$ref": "#/$defs/Id"},
+        "purpose": {"$ref": "#/$defs/Purpose"},
+        "origin": {"$ref": "#/$defs/GradingOrigin"},
+        "requestSeq": {"type": "integer", "minimum": 0},
+        "targets": {"type": "array", "items": {"$ref": "#/$defs/TargetRef"}},
+        "graderRevision": {"$ref": "#/$defs/RevisionRef"},
+        "strategy": {"$ref": "#/$defs/GraderStrategy"},
+        "scale": {"$ref": "#/$defs/Scale"},
+        "environmentRevisionId": {"$ref": "#/$defs/Id"},
+        "materials": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {"id": {"$ref": "#/$defs/Id"}, "digest": {"$ref": "#/$defs/Digest"}},
+            "required": ["id", "digest"],
+            "additionalProperties": false
+          }
+        },
+        "binding": {"$ref": "#/$defs/GateBinding"},
+        "evaluator": {"$ref": "#/$defs/Evaluator"},
+        "commandSteps": {"type": "array", "items": {"$ref": "#/$defs/CommandStep"}},
+        "sandboxId": {"$ref": "#/$defs/Id"},
+        "evaluatorStopped": {"type": "boolean"},
+        "status": {"$ref": "#/$defs/GradingStatus"},
+        "cancelIntent": {
+          "type": "object",
+          "properties": {"at": {"$ref": "#/$defs/Timestamp"}},
+          "required": ["at"],
+          "additionalProperties": false
+        },
+        "grade": {"$ref": "#/$defs/Grade"},
+        "fault": {"type": "string"},
+        "lateRecords": {"type": "array", "items": {"$ref": "#/$defs/GradingLate"}},
+        "createdAt": {"$ref": "#/$defs/Timestamp"},
+        "terminalAt": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": [
+        "version",
+        "id",
+        "purpose",
+        "origin",
+        "requestSeq",
+        "targets",
+        "graderRevision",
+        "strategy",
+        "scale",
+        "materials",
+        "commandSteps",
+        "status",
+        "lateRecords",
+        "createdAt"
+      ]
     }
   }
 }

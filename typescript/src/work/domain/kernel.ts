@@ -45,8 +45,12 @@ export function advance<S extends Versioned, E, O>(state: S, changes: Partial<S>
 }
 
 const controlCharacters = /[\u0000-\u001f\u007f]/;
-export const isId = (value: unknown): value is Id => typeof value === "string" && value.length >= 1 && value.length <= 128 && !controlCharacters.test(value);
-export const isText = (value: unknown, maximum = 4096): value is string => typeof value === "string" && value.length >= 1 && value.length <= maximum && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value);
+// JSON Schema bounds count Unicode code points. UTF-16 length handles the
+// common case and bounds the scan when supplementary characters are present.
+const withinLength = (text: string, maximum: number): boolean =>
+  text.length <= maximum || (text.length <= maximum * 2 && [...text].length <= maximum);
+export const isId = (value: unknown): value is Id => typeof value === "string" && value.length >= 1 && withinLength(value, 128) && !controlCharacters.test(value);
+export const isText = (value: unknown, maximum = 4096): value is string => typeof value === "string" && value.length >= 1 && withinLength(value, maximum) && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value);
 export const isTimestamp = (value: unknown): value is Timestamp => typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(value) && Number.isFinite(Date.parse(value));
 export const isDigest = (value: unknown): value is Digest => typeof value === "string" && /^sha256:[0-9a-f]{64}$/.test(value);
 export const isNonNegativeInteger = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;

@@ -9,6 +9,7 @@ import { execute, runCLI } from "../src/cli.js";
 import { withRuntimeDirectories } from "../src/runtime-files.js";
 import { newUUIDv7 } from "../src/identity.js";
 import { assertContract } from "./schema-fixture.js";
+import { validateGrade } from "../src/work/domain/index.js";
 import { parseGrade } from "../src/work/entry/index.js";
 
 const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "T", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "T", GIT_COMMITTER_EMAIL: "t@t" } }).trim();
@@ -50,6 +51,9 @@ const ok = (r: { ok: boolean; data: any; error: any }) => { assert.ok(r.ok, JSON
 test("the caller's own agent works a task end to end through the command line: deliver, be rejected, refine from the delivery, be accepted", async () => {
   await withHarness(async h => {
     const created = ok(await h.cli("task", "create", "--title", "Add export", "--criterion", "exports CSV", "--criterion", "keeps headers", "--repo-remote", h.remote, "--baseline", h.baseline));
+    for (const [command, payload] of [["task.create", created], ["task.revise", created], ["grade.request", { gradingId: "g", requestSeq: 1, taskRunId: "r" }]] as const) {
+      assert.throws(() => assertContract("work-results.schema.json", { ...payload, command, result_type: `grounds.result.${command}/v1`, criteria: [{ id: "c", statement: "" }] }));
+    }
     const criteria = created.criteria as { id: string }[];
     const started = ok(await h.cli("work", "start", "--task", created.taskId, "--mode", "external"));
 
@@ -62,6 +66,9 @@ test("the caller's own agent works a task end to end through the command line: d
     writeFileSync(join(space.path, "app.txt"), "v1\n"); git(space.path, "commit", "-qam", "export csv");
     const first = ok(await h.cli("work", "deliver", "--run", started.runId, "--session", worker.sessionId, "--repo", space.path, "--declare-stop"));
     assert.equal(first.submitted.status, "delivered");
+    for (const invalid of [{ outcome: "unknown" }, { blocked: "unknown" }]) {
+      assert.throws(() => assertContract("work-results.schema.json", { ...first, submitted: { ...first.submitted, ...invalid } }));
+    }
     assert.throws(() => assertContract("work-results.schema.json", { ...first, command: "work.start" }));
     assert.throws(() => assertContract("work-results.schema.json", { ...first, submitted: { ...first.submitted, status: "unknown" } }));
     assert.equal(git(h.remote.replace(/\/$/, ""), "rev-parse", `refs/tags/grounds/deliveries/${first.delivery.id}`), git(space.path, "rev-parse", "HEAD"), "the commit is archived on the remote");
@@ -238,4 +245,13 @@ test("a grade file is checked before anything is sent", () => {
   assert.match(reason({ criteria: [{ criterion_id: "c", independent: "satisfied", reconciliation: "corroborated", final: "satisfied", rationale: "r", evidence: [1] }] }), /evidence/);
   const grade = parseGrade({ criteria: [{ criterion_id: "c", independent: "satisfied", reconciliation: "corroborated", final: "satisfied", rationale: "r" }] });
   assert.deepEqual(grade.form === "criteria" && grade.items[0]!.evidence, []);
+});
+
+test("grade input and domain share Unicode length limits for criterion IDs and rationales", () => {
+  for (const [idLength, reasonLength, valid] of [[128, 4096, true], [129, 4096, false], [128, 4097, false]] as const) {
+    const input = { criteria: [{ criterion_id: "🙂".repeat(idLength), rationale: "🙂".repeat(reasonLength), independent: "satisfied", reconciliation: "corroborated", final: "satisfied" }] };
+    if (valid) assertContract("grade-input.schema.json", input);
+    else assert.throws(() => assertContract("grade-input.schema.json", input));
+    assert.equal(validateGrade(parseGrade(input), { form: "criteria" }).ok, valid);
+  }
 });
