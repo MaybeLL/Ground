@@ -34,6 +34,12 @@ const many = (args: ParsedArgs, name: string): string[] => { const v = raw(args,
 const flag = (args: ParsedArgs, name: string): boolean => raw(args, name) === true || raw(args, name) === "true";
 const integer = (args: ParsedArgs, name: string): number => { const n = Number(need(args, name)); if (!Number.isSafeInteger(n) || n < 0) throw validation(name, "must be a non-negative integer"); return n; };
 const requestId = (args: ParsedArgs): string => need(args, "operation-id");
+const taskKind = (args: ParsedArgs): {kind?: "coding" | "working"} => {
+  if (raw(args,"kind") === undefined) return {};
+  const kind = need(args,"kind");
+  if (kind !== "coding" && kind !== "working") throw validation("kind","must be coding or working");
+  return {kind};
+};
 const mode = (args: ParsedArgs): "external" | "none" | "managed" => { const m = need(args, "mode"); if (m !== "external" && m !== "none" && m !== "managed") throw validation("mode", "must be external, none or managed"); return m; };
 const archiveProtection = (args: ParsedArgs) => {
   const level = text(args, "protection"), evidence = text(args, "protection-evidence");
@@ -132,8 +138,8 @@ async function suite(args: ParsedArgs, action: string, app: WorkApplication, dep
 
 async function task(args: ParsedArgs, action: string, app: WorkApplication): Promise<object> {
   switch (action) {
-    case "create": return unwrap(await app.tasks.createTask({ requestId: requestId(args), summary: need(args, "title"), ...(raw(args,"environment") !== undefined ? { environmentDefinitionId: need(args,"environment") } : {}), criteria: criteria(args), ...(text(args, "name") ? { name: text(args, "name")! } : {}), ...(text(args, "context") ? { context: text(args, "context")! } : {}), ...(repository(args) ? { repository: repository(args)! } : {}) }));
-    case "revise": return unwrap(await app.tasks.reviseTask({ requestId: requestId(args), taskId: need(args, "task"), expectedSeq: integer(args, "expected-seq"), summary: need(args, "title"), ...(raw(args,"environment") !== undefined ? { environmentDefinitionId: need(args,"environment") } : {}), criteria: criteria(args), ...(text(args, "context") ? { context: text(args, "context")! } : {}), ...(repository(args) ? { repository: repository(args)! } : {}) }));
+    case "create": return unwrap(await app.tasks.createTask({ ...taskKind(args), requestId: requestId(args), summary: need(args, "title"), ...(raw(args,"environment") !== undefined ? { environmentDefinitionId: need(args,"environment") } : {}), criteria: criteria(args), ...(text(args, "name") ? { name: text(args, "name")! } : {}), ...(text(args, "context") ? { context: text(args, "context")! } : {}), ...(repository(args) ? { repository: repository(args)! } : {}) }));
+    case "revise": return unwrap(await app.tasks.reviseTask({ ...taskKind(args), requestId: requestId(args), taskId: need(args, "task"), expectedSeq: integer(args, "expected-seq"), summary: need(args, "title"), ...(raw(args,"environment") !== undefined ? { environmentDefinitionId: need(args,"environment") } : {}), criteria: criteria(args), ...(text(args, "context") ? { context: text(args, "context")! } : {}), ...(repository(args) ? { repository: repository(args)! } : {}) }));
     case "show": return unwrap(await app.tasks.getTask(need(args, "task"), text(args, "revision") !== undefined ? integer(args, "revision") : undefined));
     case "list": return { tasks: unwrap(await app.tasks.listTasks()) };
     default: throw validation("action", `unknown task action: ${action}`);
@@ -294,7 +300,7 @@ export const workHelp = (): string => [
   "grounds grade define-rule --name NAME --rule equal-file-bytes|file-exists --pass LABEL --fail LABEL [--grader ID --expected-seq N]",
   "grounds suite publish --name NAME --cases-file FILE [--suite ID --expected-seq N] [--repo PATH]",
   "grounds suite show --suite ID --revision N | suite list | suite measure --suite ID --revision N --case KEY [--binding KEY] --run RUN --delivery ID [--repo PATH]",
-  "grounds task create --title TEXT --criterion TEXT... [--context TEXT] [--environment ID] [--repo-remote URL --baseline REF]",
+  "grounds task create [--kind coding|working] --title TEXT --criterion TEXT... [--context TEXT] [--environment ID] [--repo-remote URL --baseline REF]",
   "grounds task revise --task ID --expected-seq N --title TEXT --criterion [ID: ]TEXT... | task show --task ID [--revision N] | task list",
   "grounds work define-agent --name NAME --provider codex|claude-code [--model MODEL] [--agent ID --expected-seq N]",
   "grounds work start --task ID --mode managed --agent ID [--agent-revision REV --repo PATH] | work managed-status|resume-managed --run RUN",

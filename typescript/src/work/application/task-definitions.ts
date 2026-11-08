@@ -1,7 +1,7 @@
 // The tasks work is done against: a stable identity with immutable, numbered
 // revisions. Changing what a task asks for is a new revision, never an edit, so
 // every run and every gate stays tied to the wording it was done against.
-import { createDefinition, isId, publishRevision, type Hasher, type Id, type JsonValue, type Revision } from "../domain/index.js";
+import { createDefinition, isId, publishRevision, type Hasher, type Id, type JsonValue, type Revision, type TaskKind } from "../domain/index.js";
 import type { Clock, IdSource, WorkUnitOfWork } from "../ports/index.js";
 import { fail, failureOf, fromRejection, succeed, type Outcome } from "./outcome.js";
 import { once, type RequestContext } from "./requests.js";
@@ -10,6 +10,7 @@ export interface TaskDefinitionsDependencies { readonly units: WorkUnitOfWork; r
 
 export type TaskCriterion = { id?: Id; statement: string };
 export type TaskSpec = {
+  kind?: TaskKind;
   summary: string;
   environmentDefinitionId?: string;
   criteria: TaskCriterion[];
@@ -94,7 +95,7 @@ export class TaskDefinitions {
     return { taskId: definition.id, name: definition.name, seq: definition.head.seq, revision: revision ? { id: revision.id, seq: revision.seq, digest: revision.digest, content: revision.content, publishedAt: revision.publishedAt } : null };
   }
 
-  /** The content of a coding task. Identities already used by the previous revision are kept; new ones are issued. */
+  /** The content of a task revision. Identities already used by the previous revision are kept; new ones are issued. */
   private content(spec: TaskSpec, previous: Revision | undefined): Outcome<{ json: JsonValue; criteria: { id: Id; statement: string }[] }> {
     if (!Array.isArray(spec.criteria) || spec.criteria.length === 0) return fail("invalid", "a task needs at least one criterion");
     const known = new Set(((previous?.content as { criteria?: { id: Id }[] } | undefined)?.criteria ?? []).map(c => c.id));
@@ -103,7 +104,8 @@ export class TaskDefinitions {
       if (c.id !== undefined && !known.has(c.id)) return fail("invalid", `criterion ${c.id} was not in the previous revision; leave its identity out to add a new one`);
       criteria.push({ id: c.id ?? this.deps.ids.next(), statement: c.statement });
     }
-    const json: Record<string, JsonValue> = { kind: "coding", schemaVersion: 1, summary: spec.summary, criteria,
+    const kind = spec.kind ?? (previous?.content as {kind?:TaskKind} | undefined)?.kind ?? "coding";
+    const json: Record<string, JsonValue> = { kind, schemaVersion: 1, summary: spec.summary, criteria,
       ...(spec.environmentDefinitionId ? { environmentDefinitionId: spec.environmentDefinitionId } : {}), ...(spec.context ? { context: spec.context } : {}), ...(spec.repository ? { repository: { remote: spec.repository.remote, baseline: spec.repository.baseline } } : {}) };
     return succeed({ json, criteria });
   }

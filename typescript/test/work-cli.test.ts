@@ -236,6 +236,18 @@ test("refusals are structured, and nothing is written for them", async () => {
   });
 });
 
+test("task revisions preserve the chosen workspace kind", async () => {
+  await withHarness(async h => {
+    const task = ok(await h.cli("task","create","--kind","working","--title","Summarize changes","--criterion","include evidence"));
+    ok(await h.cli("task","revise","--task",task.taskId,"--expected-seq","1","--title","Summarize changes","--criterion","cite revisions"));
+    for (const revision of ["1","2"]) {
+      const view = ok(await h.cli("task","show","--task",task.taskId,"--revision",revision));
+      assert.equal(view.revision.content.kind,"working");
+    }
+    assert.equal((await h.cli("task","create","--kind","unknown","--title","x","--criterion","x")).ok,false);
+  });
+});
+
 test("a task revision keeps the criteria it names and the work started before keeps its wording", async () => {
   await withHarness(async h => {
     const first = ok(await h.cli("task", "create", "--title", "Add export", "--criterion", "exports CSV", "--criterion", "keeps headers"));
