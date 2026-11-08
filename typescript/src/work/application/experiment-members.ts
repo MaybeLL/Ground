@@ -1,4 +1,5 @@
-import { createTaskRun, digestOf, isTerminal, mayStartMember, requestExperimentCancel } from "../domain/index.js";
+import { createTaskRun, digestOf, mayStartMember, requestExperimentCancel } from "../domain/index.js";
+import type { EvaluationSuites } from "./evaluation-suites.js";
 import type { AgentDefinitions } from "./agent-definitions.js";
 import { readExperiment } from "./experiment-plans.js";
 import { once, type RequestContext } from "./requests.js";
@@ -7,7 +8,7 @@ import { fail, fromRejection, succeed } from "./outcome.js";
 /** Batch row ownership serializes new admissions with cancellation and
  * bounds the number of simultaneously nonterminal task runs. */
 export class ExperimentMembers {
-  constructor(private readonly ctx:RequestContext, private readonly agents:AgentDefinitions) {}
+  constructor(private readonly ctx:RequestContext, private readonly agents:AgentDefinitions,private readonly suites:EvaluationSuites) {}
 
   async next(batchId:string) {
     return this.ctx.units.run("write",async r => {
@@ -43,6 +44,24 @@ export class ExperimentMembers {
         subject:{type:"task_run",id:runId},state:"completed",payload,result,createdAt:at,updatedAt:at,version:1});
       return succeed({state:"started" as const,...result});
     });
+  }
+
+  async measure(batchId:string, key:string, requirement:string, requestId:string) {
+    const selected = await this.ctx.units.run("read",async r=>{
+      const batch = await r.experiments.get(batchId);
+      const member = batch?.members.find(candidate=>candidate.key === key);
+      if (!batch || !member) return fail("not-found","batch member does not exist");
+      const plan = await readExperiment(r,batch.experimentId);
+      const item = plan?.cases.find(c=>c.key === member.caseKey);
+      if (!item?.requirements.some(g=>g.key === requirement)) return fail("not-found","member has no such grading requirement");
+      const admission = await r.intents.findByRequest(member.taskRunRequestId);
+      const run = admission?.kind === "start-experiment-member" && await r.taskRuns.get(admission.subject.id);
+      const target = run && run.status === "delivered" && run.manifest?.items.find(i=>i.type === "candidate");
+      if (!run || !target) return fail("conflict","the member has no frozen delivery");
+      return succeed({repository:item.repository.repositoryPath,input:{requestId,suiteId:batch.suite.definitionId,seq:batch.suite.seq,
+        caseKey:member.caseKey,bindingKey:requirement,runId:run.id,deliveryId:target.id,member:{batchId,repeatIndex:member.repeatIndex}}});
+    });
+    return selected.ok ? this.suites.measure(selected.value.input,selected.value.repository) : selected;
   }
 
   cancel(batchId:string,requestId:string) {

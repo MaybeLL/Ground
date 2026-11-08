@@ -535,5 +535,12 @@ for (const backend of backends) test(backend + ": immutable experiment plans bin
     assert.deepEqual(value(await app.experiments.launch(launch)),batch);
     refused(await app.experiments.launch({...launch,requestId:"new-batch"}),"unavailable");
     assert.equal(value(await app.experiments.show(experiment.experimentId)).batches.length,1);
+    const view = value(await app.experimentResults.inspect(batch.batchId));
+    assert.ok("dimensions" in view && view.dimensions);
+    assert.equal(view.counts!.planned,3);
+    assert.equal(view.counts!.cancelled,1);
+    assert.equal(view.counts!.active,1);
+    assert.equal(view.counts!.pending,1);
+    assert.deepEqual(view.dimensions.map(d=>[d.planned,d.missing,d.valid]),[[3,3,0]]);
   },backend);
 });
