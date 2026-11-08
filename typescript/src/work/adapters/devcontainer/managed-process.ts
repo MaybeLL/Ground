@@ -4,7 +4,7 @@ import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { dataLayout } from "../../../data-layout.js";
 import { atomicPrivateWrite, privateDirectory, safeRead, withRuntimeLock } from "../../../runtime-files.js";
-import type { ManagedProcessPort, ProcessPlan, ProcessRead, WorkerOutput } from "../../ports/index.js";
+import type { AgentProcessPlan,ManagedProcessPort, ProcessPlan, ProcessRead, WorkerOutput } from "../../ports/index.js";
 import { GitTagArchive } from "../git/tag-archive.js";
 import { archiveCandidateBundle } from "../git/managed-candidate.js";
 import { commandLineProviders } from "../providers/command-line.js";
@@ -27,17 +27,17 @@ export class ContainerAgentProcess implements ManagedProcessPort {
     this.engine=new EngineProcess(runtime);
   }
 
-  private root(plan:ProcessPlan) {
+  private root(plan:AgentProcessPlan) {
     if(![plan.job.executionId,plan.target.owner.ledgerId].every(id=>/^[a-f0-9-]{36}$/.test(id))) throw new Error("invalid managed identity");
     return privateDirectory(join(dataLayout().runtime,"executions",plan.target.owner.ledgerId,plan.job.executionId));
   }
 
-  private config(plan:ProcessPlan){
+  private config(plan:AgentProcessPlan){
     const path=join(this.workspaces.root(plan.target.owner),"prepared",".devcontainer","effective","devcontainer.json");
     return JSON.parse(safeRead(path,1024*1024).toString()) as {workspaceFolder:string;remoteUser?:string};
   }
 
-  async handle(plan:ProcessPlan,allowCreate:boolean) {
+  async handle(plan:AgentProcessPlan,allowCreate:boolean) {
     const root=this.root(plan),path=join(root,"handle");
     if(existsSync(path)) return safeRead(path,128).toString();
     if(!allowCreate)return undefined;
@@ -52,7 +52,7 @@ export class ContainerAgentProcess implements ManagedProcessPort {
     return id;
   }
 
-  private async confirmExit(plan: ProcessPlan, handle: string, result: BridgeResult): Promise<ProcessRead> {
+  private async confirmExit(plan: AgentProcessPlan, handle: string, result: BridgeResult): Promise<ProcessRead> {
     if (result.handle !== handle) throw new Error("result belongs to a different worker process");
     const receiptPath = join(this.root(plan), "confirmed-exit");
     const receipt = JSON.stringify({target: plan.target, handle, exitCode: result.exitCode});
@@ -68,7 +68,7 @@ export class ContainerAgentProcess implements ManagedProcessPort {
     return {state: "complete", exitCode: result.exitCode};
   }
 
-  async drive(plan:ProcessPlan,id:string,allowStart:boolean):Promise<ProcessRead> {
+  async drive(plan:AgentProcessPlan,id:string,allowStart:boolean):Promise<ProcessRead> {
     const root=this.root(plan),result=bridgeResult(root);
     if(result) return this.confirmExit(plan, id, result);
     if(!existsSync(join(root,"start-attempt"))){
@@ -89,7 +89,7 @@ export class ContainerAgentProcess implements ManagedProcessPort {
     }
   }
 
-  async output(plan:ProcessPlan):Promise<WorkerOutput> {
+  async output(plan:AgentProcessPlan):Promise<WorkerOutput> {
     const trace=await new ProviderTraceCapture().capture(plan.agent.provider,join(this.root(plan),"stdout.jsonl"));
     try {
       let message="",providerFailed=false;
@@ -163,7 +163,7 @@ export class ContainerAgentProcess implements ManagedProcessPort {
     } catch (error) {await dispose();throw error;}
   }
 
-  async quiescent(plan: ProcessPlan) {
+  async quiescent(plan: AgentProcessPlan) {
     const {owner, containerId, location} = plan.target;
     const bound = await this.runtime.location();
     if (bound.hostId !== location.hostId || bound.daemonId !== location.daemonId) throw new Error("runtime location changed");
@@ -177,7 +177,7 @@ export class ContainerAgentProcess implements ManagedProcessPort {
     return (await this.runtime.processes(owner, containerId)).every(line => before.has(line));
   }
 
-  async stop(plan:ProcessPlan,force:boolean) {
+  async stop(plan:AgentProcessPlan,force:boolean) {
     const {owner,containerId,location}=plan.target;
     const bound=await this.runtime.location();
     if(bound.hostId!==location.hostId||bound.daemonId!==location.daemonId)throw new Error("cannot verify stop on a different Docker daemon");

@@ -12,7 +12,7 @@ import type { Outcome, WorkApplication } from "../application/index.js";
 export const WORK_GROUPS = ["task", "work", "grade", "suite", "experiment"] as const;
 export const WORK_WRITE_ACTIONS = new Set([
   "experiment:define", "experiment:launch", "experiment:resume", "experiment:cancel", "experiment:regrade",
-  "grade:measure", "grade:resume-test", "grade:define-test", "grade:define-rule", "suite:publish", "suite:measure",
+  "grade:define-agent","grade:measure", "grade:resume-test", "grade:define-test", "grade:define-rule", "suite:publish", "suite:measure",
   "work:resume-managed", "work:define-agent", "work:import-trace", "work:prepare-sandbox", "work:pause-sandbox", "work:release-sandbox", "work:define-environment", "task:create", "task:revise",
   "work:save-artifact", "work:submit-artifacts", "work:start", "work:continue", "work:branch", "work:select", "work:close", "work:register", "work:transcript", "work:deliver", "work:repair", "work:stop", "work:cancel",
   "grade:request", "grade:register", "grade:stage", "grade:command", "grade:submit", "grade:stop", "grade:cancel",
@@ -289,6 +289,14 @@ async function grade(args: ParsedArgs, action: string, app: WorkApplication, dep
       const ctx = unwrap(await app.tests.context(grading()));
       return {gradingId:ctx.grading.id, status:ctx.grading.status, ...(ctx.sandbox ? {sandboxPhase:ctx.sandbox.phase} : {}),
         ...(ctx.observation ? {host:ctx.observation} : {})};
+    }
+    case "define-agent": {
+      let scale:import("../domain/index.js").JsonValue;
+      try {scale=JSON.parse(deps.readFile(need(args,"scale")));} catch {throw validation("scale","expected a JSON scale file");}
+      const graderId=text(args,"grader");
+      return unwrap(await app.rules.publishAgent({requestId:requestId(args),name:need(args,"name"),rubric:need(args,"rubric"),scale,
+        agentId:need(args,"agent"),agentRevisionId:need(args,"agent-revision"),environmentId:need(args,"environment"),environmentRevisionId:need(args,"environment-revision"),
+        ...(graderId ? {graderId} : {}),expectedSeq:graderId || raw(args,"expected-seq")!==undefined ? integer(args,"expected-seq") : 0}));
     }
     case "define-test": {
       let commands: unknown;

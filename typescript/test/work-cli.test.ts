@@ -275,6 +275,25 @@ test("external agents save and read explicit working artifacts before declaring 
   });
 });
 
+test("agent grader definitions bind a rubric, scale, evaluator and environment revision",async()=>{
+  await withHarness(async h=>{
+    const cfg=join(h.directory,"devcontainer.json"), scale=join(h.directory,"scale.json");
+    writeFileSync(cfg,JSON.stringify({image:"debian:bookworm"}));
+    writeFileSync(scale,JSON.stringify({form:"numeric",min:0,max:5}));
+    const env=ok(await h.cli("work","define-environment","--name","evaluation","--devcontainer",cfg,"--image-digest","sha256:"+"a".repeat(64)));
+    const agent=ok(await h.cli("work","define-agent","--provider","codex","--name","reviewer"));
+    const args=["grade","define-agent","--name","quality","--agent",agent.agentId,"--agent-revision",agent.revisionId,"--environment",env.environmentId,
+      "--environment-revision",env.revisionId,"--rubric","Rate factual accuracy from 0 to 5.","--scale",scale];
+    const one=ok(await h.cli(...args));
+    assert.equal(one.seq,1);
+    writeFileSync(scale,JSON.stringify({form:"numeric",min:5,max:0}));
+    assert.equal((await h.cli(...args,"--grader",one.graderId,"--expected-seq","1")).ok,false);
+    writeFileSync(scale,JSON.stringify({form:"category",categories:["accurate","incomplete"]}));
+    const two=ok(await h.cli(...args,"--grader",one.graderId,"--expected-seq","1"));
+    assert.equal(two.seq,2);assert.notEqual(two.revisionId,one.revisionId);
+  });
+});
+
 test("working materials reject an annotated tag object in place of its commit",async()=>{
   await withHarness(async h=>{
     git(h.repo,"tag","-a","annotated","-m","annotated");

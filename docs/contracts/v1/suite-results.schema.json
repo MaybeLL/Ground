@@ -314,6 +314,39 @@
       ],
       "properties": {
         "command": {
+          "const": "grade.define-agent"
+        },
+        "result_type": {
+          "const": "grounds.result.grade.define-agent/v1"
+        },
+        "graderId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "revisionId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "digest": {
+          "$ref": "work-results.schema.json#/$defs/Digest"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "result_type",
+        "graderId",
+        "revisionId",
+        "seq",
+        "digest"
+      ],
+      "properties": {
+        "command": {
           "const": "grade.define-test"
         },
         "result_type": {

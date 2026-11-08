@@ -1,6 +1,6 @@
 // Versioned, declarative file rules. Operators are implemented by Grounds;
 // publishing a rule never runs user-provided code.
-import { createDefinition, isId, isText, publishRevision, refOf, type JsonValue } from "../domain/index.js";
+import { createDefinition, isId, isText, publishRevision, parseScale, refOf, type JsonValue } from "../domain/index.js";
 import type { WorkRepositories } from "../ports/index.js";
 import { ensureFileMatchGrader } from "./builtin-grader.js";
 import { fail, fromRejection, succeed } from "./outcome.js";
@@ -31,8 +31,22 @@ export async function resolveRule(r: WorkRepositories, ctx: RequestContext, sele
   return succeed({ ref: builtin.value, rule: fileRule(revision!.content)! });
 }
 
-type GraderInput = {requestId: string; name: string; pass: string; fail: string; graderId?: string; expectedSeq: number};
+type DefinitionInput = {requestId:string;name:string;graderId?:string;expectedSeq:number};
+type GraderInput = DefinitionInput & {pass:string;fail:string};
 export type TestGrader = {strategy:"test"; environmentRevisionId:string; environment: {[K in keyof ReturnType<typeof refOf>]: ReturnType<typeof refOf>[K]}; commands:string[][]; scale: Rule["scale"]};
+
+export type AgentGrader = {
+  strategy:"agent"; environmentRevisionId:string; environment:TestGrader["environment"]; agent:TestGrader["environment"];
+  rubric:string; scale:Rule["scale"]|{form:"numeric";min:number;max:number};
+};
+
+export function agentGrader(content:JsonValue):AgentGrader|undefined {
+  const grader=content as Partial<AgentGrader>|null;
+  if (grader?.strategy!=="agent" || grader.agent?.kind!=="agent" || grader.environment?.kind!=="environment" ||
+      grader.environment.revisionId!==grader.environmentRevisionId || !isText(grader.rubric,16384)) return;
+  const scale=parseScale(grader.scale);
+  if (scale.ok && scale.value.form!=="criteria") return grader as AgentGrader;
+}
 
 export function commandList(value: unknown): value is string[][] {
   return Array.isArray(value) && value.length > 0 && value.every(argv =>
@@ -76,10 +90,21 @@ export class RuleDefinitions {
     });
   }
 
-  private async store(r:WorkRepositories, input:GraderInput, content:Rule | TestGrader) {
-    if (!isText(input.name,256) || !isText(input.pass,128) || !isText(input.fail,128) || input.pass === input.fail) {
-      return fail("invalid", "provide a grader name and two distinct category labels");
-    }
+  publishAgent(input:DefinitionInput & {agentId:string;agentRevisionId:string;environmentId:string;environmentRevisionId:string;rubric:string;scale:JsonValue}) {
+    return once(this.ctx,{requestId:input.requestId,kind:"publish-agent-grader",subject:{type:"grader",id:input.graderId ?? input.requestId},input},async r=>{
+      const scale=parseScale(input.scale);
+      if (!scale.ok || scale.value.form==="criteria") return fail("invalid","select a numeric range or a category scale");
+      if (!isText(input.rubric,16384)) return fail("invalid","an evaluator rubric is required");
+      const agent=await r.definitions.getRevision(input.agentId,input.agentRevisionId);
+      const environment=await r.definitions.getRevision(input.environmentId,input.environmentRevisionId);
+      if (agent?.kind!=="agent" || environment?.kind!=="environment") return fail("not-found","select exact agent and evaluator environment revisions");
+      return this.store(r,input,{strategy:"agent",agent:refOf(agent),environment:refOf(environment),environmentRevisionId:environment.id,rubric:input.rubric,
+        scale:scale.value.form==="category" ? {form:"category",categories:[...scale.value.categories]} : {...scale.value}});
+    });
+  }
+
+  private async store(r:WorkRepositories, input:DefinitionInput, content:Rule | TestGrader | AgentGrader) {
+    if (!isText(input.name,256) || !parseScale(content.scale).ok) return fail("invalid","provide a name and a valid scale");
     if (input.graderId !== undefined && (!isId(input.graderId) || input.graderId.startsWith("builtin."))) return fail("invalid", "select a user-defined grader to revise");
     const at = this.ctx.now(), id = input.graderId ?? this.ctx.newId();
     let definition = await r.definitions.get(id, {lock:true});
