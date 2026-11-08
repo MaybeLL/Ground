@@ -198,13 +198,14 @@ for (const backend of backends) test(`${backend}: reconcile a sandbox launch wit
     const task = value(await app.tasks.createTask({ requestId:"task", summary:"isolation", criteria:[{statement:"isolated"}], environmentDefinitionId:env.environmentId, repository:{ remote, baseline } }));
     const run = value(await app.exec.startWork({ requestId:"run", taskDefinitionId:task.taskId, workerMode:"external" }));
     const id = "a".repeat(64);
-    let launches = 0, removals = 0, daemonId = "test";
-    let current: { id: string; state: "running" } | null = null;
+    let launches = 0, pauses = 0, removals = 0, daemonId = "test";
+    let current: { id: string; state: "running" | "paused" } | null = null;
     class Runtime extends DevcontainerRuntime {
       override async location() { return {hostId:"test",daemonId}; }
       override async exclusive<T>(_owner: unknown, fn: () => Promise<T>) { return fn(); }
       override async up() { launches++; return current = { id, state:"running" as const }; }
       override async observe() { return current; }
+      override async pause() { current = {id,state:"paused"}; pauses++; throw new Error("lost pause reply"); }
       override async remove() { current = null; removals++; throw new Error("lost release reply"); }
     }
     const runtime = new Runtime();
@@ -228,6 +229,9 @@ for (const backend of backends) test(`${backend}: reconcile a sandbox launch wit
     const { TaskExecution } = await import("../src/work/application/task-execution.js");
     const taskExec = new TaskExecution({units:ctx.units, hash:ctx.hash, clock:{now:ctx.now}, ids:{next:newUUIDv7}, receipts:new GitTagArchive()});
     value(await taskExec.cancel({requestId:"end",runId:run.runId}));
+    refused(await lifecycle.lifecycle("pause",run.runId,"pause"),"unavailable");
+    assert.equal(value(await new SandboxLifecycle(ctx).lifecycle("pause",run.runId,"pause")).phase,"paused");
+    assert.equal(pauses,1);
     daemonId = "other"; refused(await lifecycle.lifecycle("foreign",run.runId,"release"),"conflict");
     assert.equal(removals,0); daemonId = "test";
     refused(await lifecycle.lifecycle("release",run.runId,"release"),"unavailable");

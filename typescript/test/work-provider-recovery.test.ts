@@ -129,3 +129,47 @@ test("a released legacy command sandbox blocks the pre-upgrade collector's direc
     rmSync(directory,{recursive:true,force:true});
   }
 });
+
+test("provider recovery never creates a second exec or replays a confirmed exit",async t=>{
+  const directory=realpathSync(mkdtempSync(join(tmpdir(),"grounds-exec-replay-")));
+  const previous=process.env.GROUNDS_DATA_HOME;
+  process.env.GROUNDS_DATA_HOME=directory;
+  try {
+    const owner={ledgerId:randomUUID(),sandboxId:randomUUID()},workspaces=new ManagedWorkspaces();
+    const configDir=join(workspaces.root(owner),"prepared",".devcontainer","effective");
+    mkdirSync(configDir,{recursive:true});
+    writeFileSync(join(configDir,"devcontainer.json"),JSON.stringify({workspaceFolder:"/workspace"}),{mode:0o600});
+    const runtime=new DevcontainerRuntime();
+    t.mock.method(runtime,"processes",async()=>[]);
+    const target={owner,location:{hostId:"host",daemonId:"daemon"},containerId:"owned"};
+    const adapter=()=>new ContainerAgentProcess(runtime,workspaces,new GitTagArchive());
+    const create=t.mock.method(EngineProcess.prototype,"create",async()=>{throw Error("lost create reply");});
+    const start=t.mock.method(EngineProcess.prototype,"start",async()=>{throw Error("unexpected replay");});
+    const inspect=t.mock.method(EngineProcess.prototype,"observe",async()=>({running:false,exitCode:17}));
+    const plan={target,role:"evaluator" as const,agent:{provider:"codex" as const},prompt:"fixture",job:{executionId:randomUUID()}};
+    assert.equal(await adapter().handle(plan,false),undefined);
+    assert.equal(create.mock.callCount(),0);
+    await assert.rejects(adapter().handle(plan,true),/lost create reply/);
+    assert.equal(await adapter().handle(plan,false),undefined);
+    await assert.rejects(adapter().handle(plan,true),/creation was interrupted/);
+    assert.equal(create.mock.callCount(),1);
+
+    const next={...plan,job:{executionId:randomUUID()}};
+    create.mock.mockImplementation(async()=>"handle");
+    assert.equal(await adapter().handle(next,true),"handle");
+    assert.equal(await adapter().handle(next,false),"handle");
+    assert.equal(await adapter().handle(next,true),"handle");
+    assert.equal(create.mock.callCount(),2);
+    assert.equal((await adapter().drive(next,"handle",false)).state,"awaiting-resume");
+    const root=join(directory,"runtime","executions",owner.ledgerId,next.job.executionId);
+    writeFileSync(join(root,"result.json"),JSON.stringify({handle:"handle",exitCode:17}),{mode:0o600});
+    const ended={state:"complete",exitCode:17};
+    assert.deepEqual(await adapter().drive(next,"handle",false),ended);
+    assert.deepEqual(await adapter().drive(next,"handle",true),ended);
+    assert.equal(inspect.mock.callCount(),1);
+    assert.equal(start.mock.callCount(),0);
+  } finally {
+    if (previous===undefined) delete process.env.GROUNDS_DATA_HOME;else process.env.GROUNDS_DATA_HOME=previous;
+    rmSync(directory,{recursive:true,force:true});
+  }
+});
