@@ -4,6 +4,7 @@ import { parse, type ParseError } from "jsonc-parser";
  * image and an explicit private mount so mutable tags and repository config
  * cannot change the effective workspace during devcontainer startup. */
 export function checkIsolation(config: Record<string, unknown>) {
+  if (/\$\{(?:localEnv|env):/i.test(JSON.stringify(config))) throw new Error("devcontainer settings cannot interpolate host environment variables");
   if ((Array.isArray(config.mounts) && config.mounts.length) || config.privileged || config.initializeCommand) throw new Error("this profile requires an isolated workspace and container-only initialization");
   if (config.runArgs !== undefined && (!Array.isArray(config.runArgs) || !config.runArgs.every(arg => arg === "--init"))) throw new Error("unsupported Docker run arguments for an isolated workspace");
 }

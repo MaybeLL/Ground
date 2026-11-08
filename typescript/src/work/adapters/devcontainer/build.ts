@@ -2,7 +2,7 @@ import {execFile,spawn} from "node:child_process";
 import {createRequire} from "node:module";
 import {dirname,isAbsolute,join,relative,resolve} from "node:path";
 import {existsSync} from "node:fs";
-import {readFile,realpath,stat} from "node:fs/promises";
+import {chmod,copyFile,link,lstat,mkdir,mkdtemp,readFile,readdir,readlink,realpath,rm,stat,symlink} from "node:fs/promises";
 import {promisify} from "node:util";
 import {parse,type ParseError} from "jsonc-parser";
 import {dataLayout} from "../../../data-layout.js";
@@ -32,8 +32,50 @@ async function readText(path:string) {
   return new TextDecoder("utf-8",{fatal:true,ignoreBOM:true}).decode(await readFile(path));
 }
 
+/** Restore Git's executable bit and ordinary checkout permissions for Docker COPY.
+ * The CLI configuration view links the pristine blobs. Replacing its config never changes the build context. */
+async function checkout(source:string,target:string,linkFiles:boolean) {
+  await mkdir(target,{mode:0o755});
+  for (const entry of await readdir(source,{withFileTypes:true})) {
+    const from=join(source,entry.name),to=join(target,entry.name);
+    if (entry.isDirectory()) await checkout(from,to,linkFiles);
+    else if (entry.isSymbolicLink()) {
+      const dest=await readlink(from);
+      if (isAbsolute(dest)) throw Error("absolute symlinks are not portable build inputs");
+      await symlink(dest,to);
+    } else if (entry.isFile()) {
+      if (linkFiles) await link(from,to);
+      else {await copyFile(from,to);await chmod(to,(await lstat(from)).mode&0o111 ? 0o755 : 0o644);}
+    } else throw Error("unsupported Git build entry");
+  }
+  await chmod(target,0o755);
+}
+
+async function validateLocalFeatures(repo:string,base:string,names:string[],locked:Record<string,unknown>,seen=new Set<string>()) {
+  for (const name of names) {
+    if (!name.startsWith("./") && !name.startsWith("../")) {
+      if (!Object.hasOwn(locked,name)) throw Error("remote Feature dependencies require a frozen lock entry");
+      continue;
+    }
+    const feature=await sourcePath(repo,base,name,true);
+    if (seen.has(feature)) continue;
+    seen.add(feature);
+    const file=await sourcePath(repo,feature,"devcontainer-feature.json",false);
+    const errors:ParseError[]=[];
+    const metadata=parse(await readText(file),errors,{allowTrailingComma:true});
+    if (!metadata || typeof metadata!=="object" || Array.isArray(metadata) || errors.length) throw Error("invalid local Feature metadata");
+    checkIsolation(metadata);
+    if (metadata.dependsOn!==undefined && (!metadata.dependsOn || typeof metadata.dependsOn!=="object" || Array.isArray(metadata.dependsOn))) throw Error("invalid Feature dependencies");
+    await validateLocalFeatures(repo,base,Object.keys(metadata.dependsOn ?? {}),locked,seen);
+  }
+}
+
 async function runBuild(args:string[],lock:number) {
-  const child=spawn(cli,args,{stdio:["ignore","ignore","ignore",lock]});
+  const env:NodeJS.ProcessEnv={};
+  for (const key of ["PATH","HOME","TMPDIR","LANG","DOCKER_HOST","DOCKER_CONTEXT","DOCKER_CONFIG","DOCKER_CERT_PATH","DOCKER_TLS_VERIFY","XDG_RUNTIME_DIR"]) {
+    if (process.env[key]!==undefined) env[key]=process.env[key];
+  }
+  const child=spawn(cli,args,{env,stdio:["ignore","ignore","ignore",lock]});
   await new Promise<void>((ok,no)=>{
     child.once("error",no);
     child.once("close",code=>code===0 ? ok() : no(Error("devcontainer build failed")));
@@ -48,22 +90,30 @@ export class DevcontainerBuilds {
     const owner=ledger+"-"+id, image="grounds-environment:"+owner;
     const root=privateDirectory(join(dataLayout().runtime,"environment-builds",ledger,id));
     return withRuntimeLock(root,"build",async lock=>{
-      let planned;
+      let repo:string;
       try {
         const workspace=await new MaterialWorkspaces().prepare(ledger,id,[{name:"source",repository:input.repository,commit:input.commit}]);
-        planned=await this.plan(workspace.materials[0]!.path,input.path,root,image,owner);
+        repo=workspace.materials[0]!.path;
       } catch (error) {return {status:"invalid",reason:error instanceof Error ? error.message : "could not read frozen environment sources"};}
+      const stage=await mkdtemp(join(root,"attempt-"));
       try {
+        const sourceRoot=join(stage,"source"),view=join(stage,"view");
+        let planned;
+        try {
+          planned=await this.plan(repo,input.path,sourceRoot,view,image,owner);
+        } catch(error) {return {status:"invalid",reason:error instanceof Error ? error.message : "invalid devcontainer build configuration"};}
         const args=["image","ls","--no-trunc","--filter","reference="+image,"--format","{{.ID}}"];
         const receipt=join(root,"image-id");
         const recorded=existsSync(receipt) ? safeRead(receipt,128).toString() : undefined;
         if (recorded!==undefined && !/^sha256:[a-f0-9]{64}$/.test(recorded)) return {status:"conflict",reason:"invalid frozen build receipt"};
         const existing=recorded ?? (await exec("docker",args)).stdout.trim();
         if (!existing) {
-          atomicPrivateWrite(join(root,"devcontainer.json"),JSON.stringify(planned.build));
-          if (planned.lockfile!==undefined) atomicPrivateWrite(join(root,"devcontainer-lock.json"),planned.lockfile);
-          await runBuild(["build","--workspace-folder",planned.context,"--config",join(root,"devcontainer.json"),"--image-name",image,
-            "--oci-auth-hardening",planned.lockfile===undefined ? "--no-lockfile" : "--frozen-lockfile"],lock);
+          await checkout(repo,sourceRoot,false);
+          await checkout(sourceRoot,view,true);
+          atomicPrivateWrite(planned.configPath,JSON.stringify(planned.build));
+          if (planned.effectiveLock!==undefined) atomicPrivateWrite(planned.lockPath,planned.effectiveLock);
+          await runBuild(["build","--workspace-folder",view,"--config",planned.configPath,"--image-name",image,
+            "--oci-auth-hardening",planned.effectiveLock===undefined ? "--no-lockfile" : "--frozen-lockfile"],lock);
         }
         const {stdout}=await exec("docker",["image","inspect","--format",'{{.Id}} {{index .Config.Labels "'+label+'"}}',recorded ?? image]);
         const [imageDigest,actualOwner]=stdout.trim().split(" ");
@@ -72,10 +122,11 @@ export class DevcontainerBuilds {
         if (recorded===undefined) atomicPrivateWrite(receipt,imageDigest);
         return {status:"built",image:{config:planned.config,source:planned.source,imageDigest,...(planned.lockfile!==undefined ? {lockfile:planned.lockfile} : {})}};
       } catch {return {status:"unavailable",reason:"could not build or verify the owned devcontainer image; retry the original operation"};}
+      finally {await rm(stage,{recursive:true,force:true});}
     },120000);
   }
 
-  private async plan(repo:string,path:string,root:string,image:string,owner:string) {
+  private async plan(repo:string,path:string,sourceRoot:string,root:string,image:string,owner:string) {
     const original=await sourcePath(repo,repo,path,false);
     const source=await readText(original),errors:ParseError[]=[];
     const config=parse(source.replace(/^\uFEFF/,""),errors,{allowTrailingComma:true});
@@ -85,39 +136,48 @@ export class DevcontainerBuilds {
     const spec=config.build ?? (config.dockerFile ? {dockerfile:config.dockerFile,context:config.context} : undefined);
     if (spec && (typeof spec!=="object" || Object.keys(spec).some(key=>!["dockerfile","context","args","target"].includes(key)))) throw Error("unsupported devcontainer build setting");
     const base=dirname(original);
-    const context=await sourcePath(repo,base,spec?.context ?? ".",true);
+    const configPath=join(root,relative(repo,original)),generatedBase=dirname(configPath);
+    const context=join(sourceRoot,relative(repo,await sourcePath(repo,base,spec?.context ?? ".",true)));
     let dockerfile;
     if (spec) {
       if (config.image) throw Error("select a Dockerfile or an image");
-      dockerfile=await sourcePath(repo,base,spec.dockerfile,false);
+      dockerfile=join(sourceRoot,relative(repo,await sourcePath(repo,base,spec.dockerfile,false)));
     } else {
       if (typeof config.image!=="string" || !/^[a-z0-9][a-z0-9./_:@-]*$/i.test(config.image)) throw Error("missing or invalid base image");
-      dockerfile=join(root,"Dockerfile");
+      dockerfile=join(dirname(root),"Dockerfile");
       atomicPrivateWrite(dockerfile,"FROM "+config.image+"\n");
     }
     if (spec?.args && (Array.isArray(spec.args) || typeof spec.args!=="object" || Object.entries(spec.args).some(([key,v])=>!/^\w+$/.test(key) || typeof v!=="string" || v.includes("${")))) throw Error("expected literal Docker build arguments");
     if (spec?.target && (typeof spec.target!=="string" || !/^[a-z0-9_.-]+$/i.test(spec.target))) throw Error("invalid Dockerfile stage");
-    const {build:ignored,dockerFile,context:oldContext,features,...launch}=config;
+    const {build:ignored,dockerFile,context:oldContext,features,overrideFeatureInstallOrder,...launch}=config;
     const configText=JSON.stringify({...launch,image});
     pinnedConfig(configText,"sha256:"+"0".repeat(64));
     let lockfile:string|undefined;
     const lockname=path.endsWith("/.devcontainer.json") || path===".devcontainer.json" ? ".devcontainer-lock.json" : "devcontainer-lock.json";
     try {lockfile=await readText(await sourcePath(repo,base,lockname,false));} catch(error) {if ((error as NodeJS.ErrnoException).code!=="ENOENT") throw error;}
-    if (lockfile!==undefined) JSON.parse(lockfile);
+    const locked=lockfile===undefined ? {} : JSON.parse(lockfile.replace(/^\uFEFF/,""));
+    if (!locked || typeof locked!=="object" || Array.isArray(locked)) throw Error("invalid devcontainer lockfile");
     const selected:Record<string,unknown>={};
     if (features!==undefined && (!features || typeof features!=="object" || Array.isArray(features))) throw Error("invalid feature list");
     for (const [name,options] of Object.entries(features ?? {})) {
       if (JSON.stringify(options).includes("${")) throw Error("feature settings require literal build inputs");
       if (name.startsWith("./") || name.startsWith("../")) {
-        const feature=await sourcePath(repo,base,name,true);
-        selected[relative(root,feature)]=options;
+        await sourcePath(repo,base,name,true);
+        selected[name]=options;
       } else {
         if (!/^[a-z0-9.-]+\/[a-z0-9._/:-]+$/.test(name) || lockfile===undefined) throw Error("remote features require a frozen lockfile");
         selected[name]=options;
       }
     }
-    return {source,config:configText,lockfile,context,build:{build:{dockerfile:relative(root,dockerfile),context:relative(root,context),
-      ...(spec?.args ? {args:spec.args} : {}),...(spec?.target ? {target:spec.target} : {}),options:["--label",label+"="+owner]},
-      ...(Object.keys(selected).length ? {features:selected} : {})}};
+    if (overrideFeatureInstallOrder!==undefined && (!Array.isArray(overrideFeatureInstallOrder) || !overrideFeatureInstallOrder.every(id=>typeof id==="string" && id.length && !id.includes("${")))) throw Error("invalid Feature install order");
+    const hasFeatures=Object.keys(selected).length>0;
+    await validateLocalFeatures(repo,base,Object.keys(selected),locked.features ?? {});
+    // Frozen-empty proves that a local Feature graph resolves no remote dependencies,
+    // including dependencies discovered only while parsing a nested Feature.
+    const effectiveLock=lockfile ?? (hasFeatures ? JSON.stringify({features:{}}) : undefined);
+    return {source,config:configText,lockfile,effectiveLock,configPath,lockPath:join(generatedBase,lockname),
+      build:{build:{dockerfile:relative(generatedBase,dockerfile),context:relative(generatedBase,context),
+        ...(spec?.args ? {args:spec.args} : {}),...(spec?.target ? {target:spec.target} : {}),options:["--label",label+"="+owner]},
+        ...(hasFeatures ? {features:selected} : {}),...(overrideFeatureInstallOrder ? {overrideFeatureInstallOrder} : {})}};
   }
 }

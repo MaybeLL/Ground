@@ -1209,6 +1209,26 @@ test("managed worker runs in its owned devcontainer after admission and delivers
   });
 });
 
+test("repository environment builds reject escaping paths, unpinned nested Features and host environment interpolation",async()=>{
+  await withHarness(async h=>{
+    const folder=join(h.repo,".devcontainer");
+    mkdirSync(join(folder,"local"),{recursive:true});
+    writeFileSync(join(folder,"Dockerfile"),"FROM scratch");
+    writeFileSync(join(folder,"local","devcontainer-feature.json"),JSON.stringify({id:"local",version:"1.0.0",name:"local",dependsOn:{"ghcr.io/example/features/unpinned:1":{}}}));
+    for (const [config,why] of [
+      [{build:{dockerfile:"../../../etc/passwd"}},/escapes/],
+      [{build:{dockerfile:"Dockerfile"},features:{"./local":{}}},/frozen lock entry/],
+      [{build:{dockerfile:"Dockerfile"},containerEnv:{CANARY:"${localEnv:GROUNDS_CANARY}"}},/host environment/],
+    ] as const) {
+      writeFileSync(join(folder,"devcontainer.json"),JSON.stringify(config));
+      git(h.repo,"add",".");git(h.repo,"commit","-qm","unsafe configuration");
+      const result=await h.cli("work","build-environment","--name","invalid","--repo",h.repo,"--commit",git(h.repo,"rev-parse","HEAD"));
+      assert.equal(result.error.code,"VALIDATION_ERROR");
+      assert.match(result.error.message,why);
+    }
+  });
+});
+
 test("managed worker runs with an environment built from an immutable repository snapshot", {skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async()=>{
   await withHarness(async h=>{
     const image=process.env.GROUNDS_TEST_MANAGED_AGENT!;
@@ -1218,13 +1238,16 @@ test("managed worker runs with an environment built from an immutable repository
     mkdirSync(join(folder,"marker-feature"));
     writeFileSync(join(folder,"marker-feature","devcontainer-feature.json"),JSON.stringify({id:"marker-feature",version:"1.0.0",name:"Frozen marker"}));
     writeFileSync(join(folder,"marker-feature","install.sh"),"#!/bin/sh\nprintf 'frozen feature' > /feature-marker\n",{mode:0o755});
-    const source=JSON.stringify({build:{dockerfile:"Dockerfile",context:".."},features:{"./marker-feature":{}},workspaceFolder:"/task",overrideCommand:false});
+    mkdirSync(join(folder,"after-feature"));
+    writeFileSync(join(folder,"after-feature","devcontainer-feature.json"),JSON.stringify({id:"after-feature",version:"1.0.0",name:"Ordered marker"}));
+    writeFileSync(join(folder,"after-feature","install.sh"),"#!/bin/sh\ntest -f /feature-marker || exit 1\nprintf 'features ordered' > /ordered-marker\n",{mode:0o755});
+    const source=JSON.stringify({build:{dockerfile:"Dockerfile"},features:{"./after-feature":{},"./marker-feature":{}},overrideFeatureInstallOrder:["./marker-feature","./after-feature"],workspaceFolder:"/task",overrideCommand:false});
     writeFileSync(join(folder,"devcontainer.json"),source);
-    writeFileSync(join(folder,"Dockerfile"),"FROM "+image+"\nCOPY marker.txt /environment-marker\n");
-    writeFileSync(join(h.repo,"marker.txt"),"frozen bytes");
+    writeFileSync(join(folder,"Dockerfile"),"FROM "+image+"\nCOPY --chown=1000:1000 marker.txt /environment-marker\nUSER 1000\nRUN test -w /environment-marker\nUSER root\n");
+    writeFileSync(join(folder,"marker.txt"),"frozen bytes");
     git(h.repo,"add",".");git(h.repo,"commit","-qm","define environment");
     const commit=git(h.repo,"rev-parse","HEAD"), requestId=newUUIDv7();
-    writeFileSync(join(h.repo,"marker.txt"),"dirty working tree");
+    writeFileSync(join(folder,"marker.txt"),"dirty working tree");
     writeFileSync(join(folder,"devcontainer.json"),"invalid working tree configuration");
     const args=["work","build-environment","--repo",h.repo,"--commit",commit,"--name","frozen build","--operation-id",requestId];
     const db=new DatabaseSync(join(h.directory,"ledger.db"));
@@ -1260,6 +1283,7 @@ test("managed worker runs with an environment built from an immutable repository
       const sb=ok(await h.cli("work","prepare-sandbox","--run",runId,"--repo",h.repo));
       assert.equal(docker("exec",sb.instanceId,"cat","/environment-marker"),"frozen bytes");
       assert.equal(docker("exec",sb.instanceId,"cat","/feature-marker"),"frozen feature");
+      assert.equal(docker("exec",sb.instanceId,"cat","/ordered-marker"),"features ordered");
       ok(await h.cli("work","cancel","--run",runId));
       ok(await h.cli("work","release-sandbox","--run",runId));
     } finally {
