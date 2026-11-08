@@ -142,6 +142,11 @@ for (const backend of backends) test(`${backend}: evaluation snapshots recover b
     const run = value(await app.exec.startWork({ requestId: "start", taskDefinitionId: created.taskId, workerMode: "none" }));
     const { delivery } = value(await app.delivery.deliver({ requestId: "deliver", runId: run.runId, repositoryPath: repo, commit: baseline }));
     const entry = { key: "fixture", runId: run.runId, deliveryId: delivery.id, bindings: [{ key: "compare", referencePath: "a.txt", answerPath: "absent.txt" }] };
+    const rule = value(await app.rules.publish({ requestId: "rule", name: "Required answer", operation: "file-exists", pass: "yes", fail: "no", expectedSeq: 0 }));
+    const directInput = { requestId: "direct", runId: run.runId, deliveryId: delivery.id, answerPath: "absent.txt", grader: { definitionId: rule.graderId, revisionId: rule.revisionId } };
+    const direct = value(await app.suites.measureDirect(directInput, repo));
+    assert.equal(direct.result, "no");
+    assert.deepEqual(value(await app.grading.listGates(run.runId)), []);
     const input = { requestId: "snapshot", name: "suite", expectedSeq: 0, cases: [entry] };
     const failed = await app.suites.publish({ ...input, cases: [entry, { ...entry, key: "bad", bindings: [{ key: "compare", answerPath: "a.txt", referencePath: "not-present.txt" }] }] }, repo);
     refused(failed, "not-found");
@@ -157,6 +162,7 @@ for (const backend of backends) test(`${backend}: evaluation snapshots recover b
     const grading = value(await app.grading.getGrading(measured.gradingId));
     assert.equal(grading.origin.type, "standalone");
     rmSync(remote, { recursive: true, force: true });
+    assert.deepEqual(value(await app.suites.measureDirect(directInput, root)), direct);
     assert.deepEqual(value(await app.suites.publish(input, root)), snapshot);
     assert.deepEqual(value(await app.suites.measure(measure, root)), measured);
     refused(await app.suites.publish({ ...input, requestId: "repeat" }, root), "unavailable");
