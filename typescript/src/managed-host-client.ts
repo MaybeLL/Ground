@@ -66,9 +66,9 @@ export async function launchManaged(entry: "host" | "job", args: string[] = []) 
   }
 }
 
-function localRecord(path:string): Record<string,unknown> | undefined {
+function localRecord(path:string,maximum=4096): Record<string,unknown> | undefined {
   if (!existsSync(path)) return;
-  try { return JSON.parse(safeRead(path,4096).toString()); }
+  try { return JSON.parse(safeRead(path,maximum).toString()); }
   catch (error) { if (existsSync(path)) throw error; }
 }
 
@@ -80,17 +80,35 @@ export function managedActivityLive(id:string) {
   });
 }
 
+/** A published start can precede both the child PID receipt and admission.
+ * Absence of a live owner alone does not revoke that request. */
+function pendingController(id:string,ledgerId:string) {
+  const root=join(dataLayout().runtime,"managed-host"),requests=join(root,"requests");
+  if (!existsSync(requests)) return;
+  for (const name of publishedHostEntries(requests)) {
+    if (!name.startsWith(id+".")) continue;
+    const operationId=name.slice(id.length+1);
+    if (!managedId.test(operationId) || existsSync(join(root,"issued",name))) continue;
+    const request=localRecord(join(requests,name),32768);
+    if (request?.executionId!==id || request.ledgerId!==ledgerId || request.allowStart!==true) continue;
+    if (managedRequestRunning(id,operationId)) return {state:"starting",detail:"a dispatched controller is starting"};
+    return {state:"unknown",detail:"a start request is outstanding and its controller has not been confirmed"};
+  }
+}
+
 /** Batch result queries report locally observed recovery state without
  * starting a scheduler, issuing commands or modifying the ledger. */
 export function batchHostObservation(id:string,ledgerId:string,saved?:{state?:string}) {
   if (!managedId.test(id) || saved?.state === "terminal") return;
   const root = join(dataLayout().runtime,"managed-host");
+  const pending=pendingController(id,ledgerId);
+  if (pending) return pending;
   const fallback = localRecord(join(root,"recovery-status",id));
   if (fallback?.ledgerId === ledgerId) return {state:"awaiting-resume",detail:String(fallback.detail)};
   if (saved?.state && !["running","accepted"].includes(saved.state)) return;
   const owner = localRecord(join(root,"batches",id));
   if (typeof owner?.pid !== "number" || typeof owner.birth !== "string" || hostProcessIdentity(owner.pid) !== owner.birth) {
-    if (managedRequestRunning(id,batchNotificationId("launch",id))) return {state:"starting",detail:"batch controller is starting"};
+    if (!existsSync(join(root,"issued",id+"."+batchNotificationId("launch",id)))) return {state:"unknown",detail:"batch launch has not been confirmed"};
     return {state:"awaiting-resume",detail:"no live local batch controller was observed; resume to continue"};
   }
 }
@@ -129,13 +147,15 @@ export async function notifyManaged(job: HostJob, operationId: string) {
 
 /** A status query can wake a scheduler lost across a host restart. All
  * orphan reconciliation uses observation authority. */
-export async function observeManagedHost(executionId: string, ledgerId: string) {
+export async function observeManagedHost(executionId: string, ledgerId: string,saved?:{state?:string}) {
   const root = join(dataLayout().runtime, "managed-host");
-  if (!managedId.test(executionId)) return;
+  if (!managedId.test(executionId) || saved?.state==="terminal") return;
+  const pending=managedActivityLive(executionId) ? undefined : pendingController(executionId,ledgerId);
   const fallback = join(root, "recovery-status", executionId);
-  if (![join(root, "slots", executionId), join(root, "waiting", executionId), join(root,"batches",executionId), fallback].some(path => existsSync(path))) return;
+  if (![join(root, "slots", executionId), join(root, "waiting", executionId), join(root,"batches",executionId), fallback].some(path => existsSync(path))) return pending;
   try { await withRuntimeLock(root, "host", async () => launchManaged("host")); }
   catch (error) { if (!String(error).includes("another local controller")) throw error; }
+  if (pending) return pending;
   if (existsSync(fallback)) {
     try {
       const record = JSON.parse(safeRead(fallback, 4096).toString());

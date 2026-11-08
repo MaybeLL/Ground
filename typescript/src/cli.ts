@@ -462,11 +462,11 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
           runId:id,executionId:id,allowStart:false},batchNotificationId(action,value(args,"operation-id")));
       }
       if (group === "grade" && (action === "test-status" || action==="evaluator-status") && typeof data.gradingId === "string") {
-        const observation = await observeManagedHost(data.gradingId, opened.config.database.expected_database_id);
+        const observation = await observeManagedHost(data.gradingId, opened.config.database.expected_database_id,data.host as {state?:string}|undefined);
         if (observation) data.host = observation;
       }
       if (group === "work" && action === "managed-status" && typeof data.executionId === "string") {
-        const observation = await observeManagedHost(data.executionId, opened.config.database.expected_database_id);
+        const observation = await observeManagedHost(data.executionId, opened.config.database.expected_database_id,data.host as {state?:string}|undefined);
         if (observation) data.host = observation;
       }
       return data;

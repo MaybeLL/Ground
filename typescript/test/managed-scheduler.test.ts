@@ -48,3 +48,29 @@ test("the scheduler counts unfinished allocations even when no controller is pol
     rmSync(home, {recursive: true, force: true});
   }
 });
+
+test("batch observations distinguish outstanding dispatch from fenced recovery, including explicit resumes",async()=>{
+  const {batchHostObservation,batchNotificationId}=await import("../src/managed-host-client.js");
+  const home=realpathSync(mkdtempSync(join(tmpdir(),"grounds-batch-observe-"))),original=process.env.GROUNDS_DATA_HOME;
+  process.env.GROUNDS_DATA_HOME=home;
+  try {
+    const id=randomUUID(),ledger=randomUUID(),root=join(dataLayout(home).runtime,"managed-host");
+    const record=JSON.stringify({kind:"experiment",allowStart:true,ledgerId:ledger,executionId:id});
+    const requests=privateDirectory(join(root,"requests")),issued=privateDirectory(join(root,"issued"));
+    const initial=id+"."+batchNotificationId("launch",id),resume=id+"."+randomUUID();
+    assert.equal(batchHostObservation(id,ledger,{state:"accepted"})?.state,"unknown");
+    atomicPrivateWrite(join(requests,initial),record);
+    assert.equal(batchHostObservation(id,ledger,{state:"running"})?.state,"unknown");
+    atomicPrivateWrite(join(issued,initial),id);
+    assert.equal(batchHostObservation(id,ledger,{state:"running"})?.state,"awaiting-resume");
+    atomicPrivateWrite(join(requests,resume),record);
+    assert.equal(batchHostObservation(id,ledger,{state:"awaiting-resume"})?.state,"unknown");
+    atomicPrivateWrite(join(requests,resume+".owner"),JSON.stringify({pid:process.pid,birth:hostProcessIdentity(process.pid)}));
+    assert.equal(batchHostObservation(id,ledger,{state:"awaiting-resume"})?.state,"starting");
+    atomicPrivateWrite(join(issued,resume),id);
+    assert.equal(batchHostObservation(id,ledger,{state:"awaiting-resume"}),undefined);
+  } finally {
+    if(original===undefined) delete process.env.GROUNDS_DATA_HOME;else process.env.GROUNDS_DATA_HOME=original;
+    rmSync(home,{recursive:true,force:true});
+  }
+});
