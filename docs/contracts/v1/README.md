@@ -83,3 +83,10 @@ Declare `--environment ID` when authoring a task. `work start`, `continue` and `
 The trace descriptor counts invalid UTF-8, malformed JSON, oversized records, unmapped records or parts, and parts that cannot be serialized. Each gate freezes the raw and event digests available when it is requested. Later imports only contribute to subsequent requests.
 
 When resuming partially created MySQL evidence tables, the upgrade account must be able to inspect their triggers. Recovery refuses ambiguous objects and leaves the ledger marked in progress.
+
+
+### 托管编码任务
+
+先通过 `work define-environment` 登记 devcontainer 环境，在任务定义中引用该环境。镜像须包含 Git 及选定的 Agent 命令。使用 `work define-agent --name NAME --provider codex|claude-code` 登记 Agent，可通过 `--model` 固定模型。随后执行 `work start --mode managed --task TASK --agent AGENT --repo PATH`。返回的 runId 可用于 `work managed-status --run RUN` 查询任务状态、Agent 执行阶段、停止证明和已封存的轨迹。
+
+任务要求 Agent 在容器工作区提交修改，最终输出形如 `{"candidate":{"commit":"完整 Git OID"}}` 的 JSON。宿主核实起始提交、候选提交和远端归档回执后记录交付。宿主报告等待恢复时，可执行 `work resume-managed --run RUN` 续接。已开始的模型调用只做状态核对。

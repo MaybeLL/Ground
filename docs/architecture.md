@@ -34,7 +34,12 @@ Initialization creates schema metadata and twelve work-model tables. Protocol 2 
 
 ## Use cases (`work/application/`)
 
-`TaskExecution` is the module for work done by the caller's own agent, or by nobody (a person supplies the manifest). Managed workers arrive with phase P4.
+`TaskExecution` admits external, human-supplied and managed work. For managed work it freezes the agent revision and records the worker intent in the same transaction as the run and its execution.
+
+For a managed coding task, the local host prepares the selected devcontainer and reserves its sandbox for the execution. It persists the Docker exec identity before dispatching the provider. A detached collector records the attempt before sending the prompt, drains stdout and stderr separately, and observes the exit code. The host checks the container and daemon identity when reconciling. When the collector disappears after dispatch without a complete result, the host stops the sandbox before recording an interruption.
+
+The worker returns the full candidate commit ID in its final message. The host imports a bundle into a temporary bare repository, checks the declared commit and its ancestry against the run baseline, then pushes and reads back the delivery tag. The temporary repository is retained until archiving finishes. Output, provider trajectory and stderr are recorded with the execution evidence.
+
 
 - Writes: `startWork`, `continueWork`, `addBranch`, `selectHead`, `closeWork`, `registerExternalWorker`, `importTranscript`, `submit`, `declareStop`, `cancel`. Queries: `getRun`, `getWork`. Each write takes a caller-chosen request identity.
 - **Requests** (`requests.ts`): a request is applied once. The same identity with the same input returns the first answer, with other input it is `request-conflict`. The intent is written in the same transaction as the effect, so a request is applied and remembered together or not at all. A refusal writes nothing and does not use the identity up.
