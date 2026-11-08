@@ -38,16 +38,26 @@ export async function inspectWorkIntegrity(client: SQLClient): Promise<Integrity
       if (rows.length < 256) break;
     }
   }
+  const orphanRevision = await client.get("SELECT r.id FROM work_revisions r LEFT JOIN work_definitions d ON d.id = r.definition_id WHERE d.id IS NULL LIMIT 1");
+  if (orphanRevision) report.issues.push({ check: "revision_definition", reason: "A revision refers to a missing definition" });
   const orphan = await client.get("SELECT m.experiment_run_id FROM work_experiment_members m LEFT JOIN work_experiment_runs e ON e.id = m.experiment_run_id WHERE e.id IS NULL LIMIT 1");
   if (orphan) report.issues.push({ check: "experiment_members", reason: "A member refers to a missing experiment run" });
-  const invalidCounter = await client.get("SELECT name FROM work_counters WHERE value < 0 LIMIT 1");
-  if (invalidCounter) report.issues.push({ check: "work_counters", reason: "A stored sequence is negative" });
-  const highWater = await client.get("SELECT MAX(request_seq) AS latest FROM work_gradings");
-  if (highWater?.latest != null) {
-    const counter = await client.get("SELECT value FROM work_counters WHERE name = ?", [GRADING_REQUEST_COUNTER]);
-    if (!counter || BigInt(String(counter.value)) < BigInt(String(highWater.latest))) {
-      report.issues.push({ check: "grading_sequence", reason: "The grading request counter is behind an existing grading" });
+  let gradingCounter = 0n;
+  for (let offset = 0; ; offset += 256) {
+    const counters = await client.all(`SELECT name, ${client.dialect.integerText("value")} AS counter_value FROM work_counters ORDER BY name LIMIT 256 OFFSET ?`, [offset]);
+    for (const counter of counters) {
+      const value = String(counter.counter_value);
+      if (!/^(?:0|[1-9][0-9]{0,15})$/.test(value) || BigInt(value) > BigInt(Number.MAX_SAFE_INTEGER)) {
+        report.issues.push({ check: "work_counters", reason: "A stored sequence is not a nonnegative safe integer" });
+        if (report.issues.length >= 1000) return { valid: false, issues: report.issues.slice(0, 1000) };
+      } else if (counter.name === GRADING_REQUEST_COUNTER) gradingCounter = BigInt(value);
     }
+    if (counters.length < 256) break;
+  }
+  const row = await client.get(`SELECT ${client.dialect.integerText("MAX(request_seq)")} AS latest FROM work_gradings`);
+  const latest = String(row?.latest ?? "0");
+  if (!/^(?:0|[1-9][0-9]{0,15})$/.test(latest) || BigInt(latest) > gradingCounter) {
+    report.issues.push({ check: "grading_sequence", reason: "The grading request counter is behind an existing grading or its high-water value is invalid" });
   }
   report.issues = report.issues.slice(0, 1000);
   report.valid = report.issues.length === 0;

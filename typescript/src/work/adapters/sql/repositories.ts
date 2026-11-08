@@ -79,7 +79,7 @@ class SqlDefinitions extends SqlRepository<Definition> implements DefinitionRepo
     const body = textOf(row.body_json);
     let revision: Revision;
     try { revision = JSON.parse(body) as Revision; } catch { throw new StorageFailure("integrity", `stored revision ${subject} is damaged: its body is not valid JSON`, subject); }
-    if (canonicalBody(revision) !== body || digestText(body) !== textOf(row.record_digest) || revision.id !== subject || revision.definitionId !== textOf(row.definition_id)
+    if (!revision || typeof revision !== "object" || revision.kind !== textOf(row.kind) || canonicalBody(revision) !== body || digestText(body) !== textOf(row.record_digest) || revision.id !== subject || revision.definitionId !== textOf(row.definition_id)
       || revision.seq !== Number(row.seq) || revision.digest !== textOf(row.content_digest) || revisionViolations(revision).length > 0)
       throw new StorageFailure("integrity", `stored revision ${subject} is damaged`, subject);
     return revision;
@@ -186,7 +186,7 @@ export function decodeCompletionEvent(row: Record<string, unknown>): CompletionE
   const body = textOf(row.body_json);
   let event: CompletionEvent;
   try { event = JSON.parse(body) as CompletionEvent; } catch { throw new StorageFailure("integrity", `stored completion event ${subject} is damaged: its body is not valid JSON`, subject); }
-  if (event.parentIntentId !== textOf(row.parent_intent_id) || event.type !== textOf(row.event_type) || event.createdAt !== textOf(row.created_at)
+  if (!event || typeof event !== "object" || event.parentIntentId !== textOf(row.parent_intent_id) || event.type !== textOf(row.event_type) || event.createdAt !== textOf(row.created_at)
     || canonicalBody(event) !== body || digestText(body) !== textOf(row.record_digest) || event.id !== subject) throw new StorageFailure("integrity", `stored completion event ${subject} is damaged`, subject);
   return row.delivered_at === null || row.delivered_at === undefined ? event : { ...event, deliveredAt: textOf(row.delivered_at) };
 }

@@ -213,8 +213,8 @@ export class SQLStore {
     return Number(row?.present ?? 0) === 1;
   }
 
-  private async userTableCount(client: SQLClient): Promise<number> {
-    const row = await client.get<{ total: unknown }>(this.dialect.userTableCountSql);
+  private async userObjectCount(client: SQLClient): Promise<number> {
+    const row = await client.get<{ total: unknown }>(this.dialect.userObjectCountSql);
     return Number(row?.total ?? 0);
   }
 
@@ -228,7 +228,7 @@ export class SQLStore {
       const client = await this.acquireClient();
       try {
         if (await this.hasMetadataTable(client)) return { state: "initialized", metadata: await this.metadataFrom(client) };
-        return await this.userTableCount(client) === 0 ? { state: "empty" } : { state: "unrecognized" };
+        return await this.userObjectCount(client) === 0 ? { state: "empty" } : { state: "unrecognized" };
       } catch (error) {
         throw mapStorageError(error, this.dialect);
       } finally {
@@ -261,7 +261,7 @@ export class SQLStore {
           await this.afterInitialize?.(client);
           return { metadata: existing, action: "attached" };
         }
-      } else if (await this.userTableCount(client) !== 0) {
+      } else if (await this.userObjectCount(client) !== 0) {
         throw new DomainError("SCHEMA_INCOMPATIBLE", "database is neither empty nor an initialized Grounds database", false, schemaDetails(SCHEMA_VERSION, "unrecognized database objects"));
       }
 

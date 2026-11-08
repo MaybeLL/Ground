@@ -61,7 +61,7 @@ export const sqliteDialect: SqlDialect = {
   // information_schema queries the other dialects use and no caller branch is
   // needed to read the result.
   columnExistsSql: (table, column) => `SELECT COUNT(*) AS present FROM pragma_table_info('${table}') WHERE name = '${column}'`,
-  userTableCountSql: "SELECT COUNT(*) AS total FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT GLOB 'sqlite_*'",
+  userObjectCountSql: "SELECT COUNT(*) AS total FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT GLOB 'sqlite_*'",
   constraintExistsSql: () => "SELECT 0 AS present",
   requiresExplicitLifecycleTransaction: true,
   foreignKeyCheckSql: "PRAGMA foreign_key_check",
@@ -122,7 +122,9 @@ export const mysqlDialect: SqlDialect = {
   inlineForwardForeignKey: false,
   tableExistsSql: (table) => `SELECT COUNT(*) AS present FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = '${table}'`,
   columnExistsSql: (table, column) => `SELECT COUNT(*) AS present FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = '${table}' AND column_name = '${column}'`,
-  userTableCountSql: "SELECT COUNT(*) AS total FROM information_schema.tables WHERE table_schema = DATABASE()",
+  userObjectCountSql: `SELECT (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE())
+    + (SELECT COUNT(*) FROM information_schema.routines WHERE routine_schema = DATABASE())
+    + (SELECT COUNT(*) FROM information_schema.events WHERE event_schema = DATABASE()) AS total`,
   constraintExistsSql: (table, constraint) => `SELECT COUNT(*) AS present FROM information_schema.table_constraints WHERE constraint_schema = DATABASE() AND table_name = '${table}' AND constraint_name = '${constraint}'`,
   requiresExplicitLifecycleTransaction: false,
   constraintEditing: {
@@ -197,7 +199,8 @@ export const postgresDialect: SqlDialect = {
   inlineForwardForeignKey: false,
   tableExistsSql: (table) => `SELECT COUNT(*) AS present FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = '${table}'`,
   columnExistsSql: (table, column) => `SELECT COUNT(*) AS present FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = '${table}' AND column_name = '${column}'`,
-  userTableCountSql: "SELECT COUNT(*) AS total FROM information_schema.tables WHERE table_schema = current_schema()",
+  userObjectCountSql: `SELECT COUNT(*) AS total FROM pg_catalog.pg_depend
+    WHERE refclassid = 'pg_catalog.pg_namespace'::regclass AND refobjid = current_schema()::regnamespace`,
   constraintExistsSql: (table, constraint) => `SELECT COUNT(*) AS present FROM information_schema.table_constraints WHERE constraint_schema = current_schema() AND table_name = '${table}' AND constraint_name = '${constraint}'`,
   requiresExplicitLifecycleTransaction: false,
   constraintEditing: {

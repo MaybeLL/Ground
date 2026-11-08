@@ -71,6 +71,16 @@ for (const backend of backends) {
       assert.equal((await fixture.store.inspectIntegrity()).report.valid, true);
     } finally { await fixture.close(); }
   });
+  if (backend !== "sqlite") test(`${backend}: initialization refuses an unrelated object in a table-free target`, { skip: backendSkip(backend) }, async () => {
+    const fixture = await openLedger(backend, false);
+    const store = fixture.store as unknown as { acquireClient(): Promise<import("../src/sql-client.js").SQLClient> };
+    const client = await store.acquireClient();
+    try {
+      await client.exec(backend === "postgres" ? "CREATE SEQUENCE accounting_ids" : "CREATE PROCEDURE accounting_ping() SELECT 1");
+      assert.equal((await fixture.store.classifyTarget()).state, "unrecognized");
+      await assert.rejects(fixture.store.initialize("warn"), { code: "SCHEMA_INCOMPATIBLE" });
+    } finally { await client.close(); await fixture.close(); }
+  });
   const check = (name: string, run: (store: SQLStore, uow: SqlWorkUnitOfWork) => Promise<void>) => test(`${backend}: work storage ${name}`, { skip: backendSkip(backend) }, async () => {
     const fixture = await openLedger(backend);
     try { await run(fixture.store, new SqlWorkUnitOfWork(fixture.store)); } finally { await fixture.close(); }
@@ -87,7 +97,7 @@ for (const backend of backends) {
         const row = await client.get<{ n: unknown }>(`SELECT COUNT(*) AS n FROM ${table}`);
         assert.equal(Number(row!.n), 0, table);
       }
-      const count = await client.get<{ total: unknown }>(client.dialect.userTableCountSql);
+      const count = await client.get<{ total: unknown }>(backend === "sqlite" ? "SELECT COUNT(*) AS total FROM sqlite_master WHERE type = 'table' AND name NOT GLOB 'sqlite_*'" : `SELECT COUNT(*) AS total FROM information_schema.tables WHERE table_schema = ${backend === "mysql" ? "DATABASE()" : "current_schema()"}`);
       assert.equal(Number(count!.total), workTables.length + 1);
     });
     await store.transaction(true, client => client.run("UPDATE schema_metadata SET protocol_version = 1"));
@@ -120,6 +130,33 @@ for (const backend of backends) {
     const { report } = await store.inspectIntegrity();
     assert.equal(report.valid, false);
     assert.deepEqual(report.issues.map(issue => issue.check).sort(), ["experiment_members", "grading_sequence", "work_counters", "work_record"]);
+  });
+
+  check("status reports malformed persisted event JSON and SQLite counter values", async (store, uow) => {
+    await write(uow, r => r.events.append({ id: "bad-event", parentIntentId: "intent", type: "done", subject: { type: "work", id: "work" }, payload: {}, createdAt: at() }));
+    await store.transaction(true, async client => {
+      await client.run("UPDATE work_completion_events SET body_json = 'null'");
+      if (backend === "sqlite") await client.run("INSERT INTO work_counters (name, value) VALUES ('grading-request', 'broken')");
+    });
+    const { report } = await store.inspectIntegrity();
+    assert.equal(report.valid, false);
+    assert.ok(report.issues.some(issue => issue.check === "work_record"));
+    if (backend === "sqlite") assert.ok(report.issues.some(issue => issue.check === "work_counters"));
+  });
+
+  if (backend === "sqlite") check("status catches a revision left orphaned outside FK enforcement", async (store, uow) => {
+    const definition = ok(createDefinition({ id: "def", kind: "task", name: "Task", at: at() }));
+    const content = { kind: "coding", schemaVersion: 1, summary: "Task", criteria: [{ id: "c", statement: "works" }] };
+    const published = publishRevision(definition, { revisionId: "rev", expectedSeq: 0, content, at: at() }, hash);
+    assert.ok(published.ok);
+    await write(uow, async r => { await r.definitions.create(definition); await r.definitions.save(published.value.state, definition.version); await r.definitions.addRevision(published.value.outcome); });
+    const client = await (store as unknown as { acquireClient(): Promise<import("../src/sql-client.js").SQLClient> }).acquireClient();
+    await client.exec("PRAGMA foreign_keys = OFF");
+    try { await client.run("DELETE FROM work_definitions WHERE id = 'def'"); }
+    finally { await client.exec("PRAGMA foreign_keys = ON"); }
+    const { report } = await store.inspectIntegrity();
+    assert.equal(report.valid, false);
+    assert.ok(report.issues.some(issue => issue.check === "revision_definition"));
   });
 
   check("definitions keep their head and immutable, numbered revisions", async (_store, uow) => {
