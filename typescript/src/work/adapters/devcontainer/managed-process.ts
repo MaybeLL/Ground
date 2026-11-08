@@ -52,10 +52,17 @@ export class ContainerAgentProcess implements ManagedProcessPort {
 
   private async confirmExit(plan: ProcessPlan, handle: string, result: BridgeResult): Promise<ProcessRead> {
     if (result.handle !== handle) throw new Error("result belongs to a different worker process");
+    const receiptPath = join(this.root(plan), "confirmed-exit");
+    const receipt = JSON.stringify({target: plan.target, handle, exitCode: result.exitCode});
+    if (existsSync(receiptPath)) {
+      if (safeRead(receiptPath, 4096).toString() !== receipt) throw new Error("recorded exit identity changed");
+      return {state: "complete", exitCode: result.exitCode};
+    }
     const actual = await this.engine.observe(plan.target, handle);
     if (actual.running || actual.exitCode !== result.exitCode || !Number.isInteger(result.exitCode)) {
       throw new Error("provider exit is not confirmed");
     }
+    atomicPrivateWrite(receiptPath, receipt);
     return {state: "complete", exitCode: result.exitCode};
   }
 
@@ -97,22 +104,40 @@ export class ContainerAgentProcess implements ManagedProcessPort {
     } catch(error){await trace.dispose();throw error;}
   }
 
-  async candidate(plan:ProcessPlan,commit:string,baseline:string,remote:string) {
-    const root=this.root(plan),bundle=join(root,"candidate.bundle");
-    const config=this.config(plan);
-    if(!existsSync(join(root,"bundle-complete"))) {
-      const handle=await this.engine.create(plan.target,{cwd:config.workspaceFolder,user:config.remoteUser,environment:gitEnvironment(config.workspaceFolder),argv:["sh","-c",
-        'git -c core.hooksPath=/dev/null update-ref refs/grounds/candidate "$1" && git -c core.hooksPath=/dev/null bundle create - refs/grounds/candidate',"grounds",commit]});
-      const file=join(root,"bundle-"+handle);
-      const result=await this.engine.start(plan.target,handle,"",file,file+".stderr");
-      if(result.running || result.exitCode===null)return {status:"unavailable" as const,reason:"bundle export exit is not confirmed"};
-      if(result.exitCode!==0)return {status:"invalid" as const,reason:"claimed commit cannot be exported by the worker checkout"};
-      const {rename}=await import("node:fs/promises");await rename(file,bundle);
-      atomicPrivateWrite(join(root,"bundle-complete"),commit);
+  async exportCandidate(plan: ProcessPlan, commit: string, allowStart: boolean) {
+    const root = privateDirectory(join(this.root(plan), "export"));
+    const handlePath = join(root, "handle"), claimPath = join(root, "commit");
+    if (existsSync(claimPath) && safeRead(claimPath, 128).toString() !== commit) return "invalid" as const;
+    if (!existsSync(handlePath)) {
+      if (!allowStart) return "awaiting-resume" as const;
+      if (existsSync(claimPath)) return "interrupted" as const;
+      atomicPrivateWrite(claimPath, commit);
+      const config = this.config(plan);
+      const handle = await this.engine.create(plan.target, {
+        cwd: config.workspaceFolder, user: config.remoteUser, environment: gitEnvironment(config.workspaceFolder),
+        argv: ["sh", "-c", 'git -c core.hooksPath=/dev/null update-ref refs/grounds/candidate "$1" && git -c core.hooksPath=/dev/null bundle create - refs/grounds/candidate', "grounds", commit],
+      });
+      atomicPrivateWrite(handlePath, handle);
     }
-    if(safeRead(join(root,"bundle-complete"),128).toString()!==commit) return {status:"invalid" as const,reason:"exported bundle belongs to a different claim"};
+    const handle = safeRead(handlePath, 128).toString();
+    const result = bridgeResult(root);
+    if (result) {
+      if (result.handle !== handle) throw new Error("bundle result belongs to a different exec");
+      return result.exitCode === 0 ? "ready" as const : "invalid" as const;
+    }
+    if (bridgeStarting(root)) return "running" as const;
+    if (existsSync(join(root, "start-attempt"))) return "interrupted" as const;
+    if (!allowStart) return "awaiting-resume" as const;
+    await spawnProviderBridge(root, {target: plan.target, handle, prompt: ""});
+    return "running" as const;
+  }
+
+  async candidate(plan:ProcessPlan,commit:string,baseline:string,remote:string,allowPublish:boolean) {
+    const root = join(this.root(plan), "export");
+    const bundle = join(root, "stdout.jsonl");
+    if (safeRead(join(root, "commit"), 128).toString() !== commit) throw new Error("bundle claim changed");
     const id="d-"+plan.job.runId+"-"+commit.slice(0,12);
-    const archived=await archiveCandidateBundle(this.archive,{repository:plan.job.repositoryPath,remote,baseline,commit,bundle,id});
+    const archived=await archiveCandidateBundle(this.archive,{repository:plan.job.repositoryPath,remote,baseline,commit,bundle,id,allowPublish});
     return archived.status==="confirmed" ? {status:"confirmed" as const,id,receipt:archived.receipt} :
       {status:archived.status==="unavailable"?"unavailable" as const:"invalid" as const,reason:archived.reason};
   }

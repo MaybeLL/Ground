@@ -288,8 +288,8 @@ test("failed setup can close and cancellation racing setup pauses the actual own
   });
 });
 
-test("managed admission binds the repository and reserves publication to its worker", async () => {
-  await scenario(async ({ app, repo, remote, baseline, root }) => {
+for (const backend of backends) test(backend + ": managed admission, archive outage and evidence recovery", {skip: backendSkip(backend)}, async () => {
+  await scenario(async ({ app, store, repo, remote, baseline, root }) => {
     const environment = value(await app.environments.publish({ requestId: "env", name: "fixture", expectedSeq: 0,
       config: '{"image":"fixture","workspaceFolder":"/work"}', imageDigest: "sha256:" + "1".repeat(64) }));
     const agent = value(await app.agents.publish({ requestId: "agent", name: "worker", provider: "codex", expectedSeq: 0 }));
@@ -300,5 +300,40 @@ test("managed admission binds the repository and reserves publication to its wor
     refused(await app.sandboxes.prepare("override", run.runId, root), "forbidden");
     refused(await app.delivery.deliver({requestId: "publish", runId: run.runId, repositoryPath: repo, commit: baseline}), "unsupported");
     assert.equal(git(repo, "ls-remote", "--tags", remote), "");
-  });
+    const {requestSandbox, attachSandbox, markReady} = await import("../src/work/domain/index.js");
+    const {ProviderTraceCapture} = await import("../src/work/adapters/providers/trace-capture.js");
+    const startedAt = new Date().toISOString(), sandboxId = newUUIDv7();
+    const ledger = (await store.inspect()).database_id;
+    const units = new SqlWorkUnitOfWork(store);
+    await units.run("write", async r => {
+      const owner = await r.taskRuns.get(run.runId);
+      assert.ok(owner?.environment);
+      const allocated = requestSandbox({id: sandboxId, owner: {type: "task_run", id: owner.id}, retention: "keep",
+        location: {hostId: "fixture", daemonId: "fixture"}, at: startedAt});
+      assert.ok(allocated.ok);
+      const ready = markReady(allocated.value.state, {workspace: {ref: "workspace", origin: "own"},
+        runtime: {instanceId: "fixture", environmentRevisionId: owner.environment.revision.revisionId}, at: startedAt});
+      const attached = attachSandbox(owner, {sandboxId});
+      assert.ok(ready.ok && attached.ok);
+      await r.sandboxes.create(allocated.value.state);
+      await r.sandboxes.save(ready.value.state, allocated.value.state.version);
+      await r.taskRuns.save(attached.value.state, owner.version);
+    });
+    const runner = "test-runner", handle = "1".repeat(64);
+    value(await app.workers.reserve(run.runId, runner, ledger));
+    value(await app.workers.begin(run.runId, runner, handle));
+    const evidence = join(root, "output.jsonl");
+    writeFileSync(evidence, '{"type":"turn.completed"}\n');
+    const trace = await new ProviderTraceCapture().capture("codex", evidence);
+    try {
+      value(await app.workers.freezeOutput(run.runId, handle, trace, trace.raw, trace.events, "succeeded"));
+      value(await app.workers.archiveUnavailable(run.runId, "remote unavailable"));
+      const blocked = value(await app.workers.context(run.runId));
+      assert.equal(blocked.exec.stage, "archive_blocked");
+      assert.equal(blocked.exec.stop, "verified");
+      assert.equal(blocked.job.trace?.raw.digest, trace.raw.digest);
+      const checked = await store.inspectIntegrity();
+      assert.equal(checked.report.valid, true);
+    } finally { await trace.dispose(); }
+  }, backend);
 });

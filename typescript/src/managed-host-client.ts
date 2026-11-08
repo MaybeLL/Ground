@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dataLayout } from "./data-layout.js";
-import { atomicPrivateWrite, privateDirectory, safeRead, withRuntimeLock } from "./runtime-files.js";
+import { atomicPrivateWrite, privateDirectory, removePrivateFile, safeRead, withRuntimeLock } from "./runtime-files.js";
 
 export type HostJob = {config: string; ledgerId: string; runId: string; executionId: string; allowStart: boolean};
 export const managedId = /^[a-f0-9-]{36}$/;
@@ -37,9 +37,11 @@ export async function notifyManaged(job: HostJob, operationId: string) {
   await withRuntimeLock(queueRoot(), "request-" + name, async () => {
     if (existsSync(path)) {
       if (safeRead(path, 32768).toString() !== record) throw new Error("managed request input changed");
+      await launchManaged("job", [name, "observe"]);
       return;
     }
     atomicPrivateWrite(path, record);
-    await launchManaged("job", [name]);
+    try { await launchManaged("job", [name]); }
+    catch (error) { removePrivateFile(path); throw error; }
   }, 10_000);
 }

@@ -11,6 +11,7 @@ export interface ManagedProcessPort {
   handle(plan:ProcessPlan,allowCreate:boolean):Promise<string|undefined>;
   drive(plan:ProcessPlan,handle:string,allowStart:boolean):Promise<ProcessRead>;
   output(plan:ProcessPlan):Promise<WorkerOutput>;
-  candidate(plan:ProcessPlan,commit:string,baseline:string,remote:string):Promise<{status:"confirmed";id:string;receipt:string}|{status:"invalid"|"unavailable";reason:string}>;
+  exportCandidate(plan: ProcessPlan, commit: string, allowStart: boolean): Promise<"ready" | "invalid" | "running" | "awaiting-resume" | "interrupted">;
+  candidate(plan:ProcessPlan,commit:string,baseline:string,remote:string,allowPublish:boolean):Promise<{status:"confirmed";id:string;receipt:string}|{status:"invalid"|"unavailable";reason:string}>;
   stop(plan:ProcessPlan,force:boolean):Promise<void>;
 }

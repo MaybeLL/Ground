@@ -7,7 +7,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { execute, runCLI } from "../src/cli.js";
-import { withRuntimeDirectories } from "../src/runtime-files.js";
+import { signalHostProcessLeader } from "../src/env-process.js";
+import { dataLayout } from "../src/data-layout.js";
+import { hostDirectory } from "../src/managed-host-client.js";
+import { withRuntimeDirectories, withRuntimeLock } from "../src/runtime-files.js";
 import { newUUIDv7 } from "../src/identity.js";
 import { assertContract } from "./schema-fixture.js";
 import { validateGrade } from "../src/work/domain/index.js";
@@ -674,7 +677,7 @@ test("managed worker runs in its owned devcontainer after admission and delivers
         const args = ["work", "start", "--mode", "managed", "--task", task.taskId, "--agent", agent.agentId, "--repo", h.repo, "--operation-id", newUUIDv7()];
         const started = ok(await h.cli(...args));
         assert.deepEqual(ok(await h.cli(...args)), started);
-        jobs.push({ title, started });
+        jobs.push({ title, started, args });
       }
       const deadline = Date.now() + 90_000;
       const ready = new Map<string,string>();
@@ -687,7 +690,51 @@ test("managed worker runs in its owned devcontainer after admission and delivers
         await new Promise(resolve => setTimeout(resolve, 250));
       }
       assert.deepEqual([...ready.values()].sort(), jobs.map(job => job.title));
+      const hook = join(h.remote, "hooks", "pre-receive");
+      writeFileSync(hook, "#!/bin/sh\nexit 1\n", {mode: 0o755});
+      const recovering = jobs[2]!;
+      const ticket = JSON.parse(readFileSync(join(hostDirectory("waiting"), recovering.started.executionId), "utf8"));
+      assert.equal(signalHostProcessLeader(ticket.pid, ticket.birth, "SIGKILL"), true);
       for (const id of ready.keys()) docker("exec", id, "touch", "/tmp/grounds-fixture-release");
+      assert.deepEqual(ok(await h.cli(...recovering.args)), recovering.started);
+      let recovery;
+      do {
+        recovery = ok(await h.cli("work", "managed-status", "--run", recovering.started.runId));
+        if (recovery.host?.state === "awaiting-resume") break;
+        await new Promise(resolve => setTimeout(resolve, 250));
+      } while (Date.now() < deadline);
+      assert.equal(recovery.host?.state, "awaiting-resume", JSON.stringify(recovery));
+      const recoveryId = newUUIDv7();
+      const resume = ["work", "resume-managed", "--operation-id", recoveryId, "--run"];
+      ok(await h.cli(...resume, recovering.started.runId));
+      assert.equal((await h.cli(...resume, jobs[0]!.started.runId)).ok, false);
+      let archivedDigest = "";
+      for (const {started} of jobs) {
+        let blocked;
+        do {
+          blocked = ok(await h.cli("work", "managed-status", "--run", started.runId));
+          if (blocked.host?.state === "blocked") break;
+          await new Promise(resolve => setTimeout(resolve, 250));
+        } while (Date.now() < deadline);
+        assert.equal(blocked.stage, "archive_blocked", JSON.stringify(blocked));
+        assert.equal(blocked.stop, "verified");
+        archivedDigest = blocked.trace.raw.digest;
+        const bytes = ok(await h.cli("work", "trace", "--run", started.runId, "--digest", archivedDigest, "--stream", "raw", "--chunk", "0"));
+        assert.ok(Buffer.from(bytes.base64, "base64").length);
+      }
+      assert.equal(git(h.repo, "ls-remote", "--tags", h.remote), "");
+      const lingering = [...ready].find(([, title]) => title === "concurrent fixture 0")![0];
+      assert.equal(docker("inspect", "-f", "{{.State.Running}}", lingering), "false");
+      rmSync(hook);
+      assert.deepEqual(ok(await h.cli(...recovering.args)), recovering.started);
+      do {
+        recovery = ok(await h.cli("work", "managed-status", "--run", recovering.started.runId));
+        if (recovery.host?.detail?.includes("no remote receipt")) break;
+        await new Promise(resolve => setTimeout(resolve, 250));
+      } while (Date.now() < deadline);
+      assert.match(recovery.host?.detail ?? "", /no remote receipt/);
+      assert.equal(git(h.repo, "ls-remote", "--tags", h.remote), "");
+      for (const {started} of jobs) ok(await h.cli("work", "resume-managed", "--run", started.runId));
       for (const {title, started} of jobs) {
         let view;
         do {
@@ -706,6 +753,38 @@ test("managed worker runs in its owned devcontainer after admission and delivers
         ok(await h.cli("work", "close", "--work", started.workId));
       }
       assert.equal(git(h.repo, "status", "--porcelain"), "");
+      assert.equal(ok(await h.cli("db", "status")).integrity.valid, true);
+      const interruptedTask = ok(await h.cli("task", "create", "--title", "interrupt fixture", "--criterion", "never deliver",
+        "--environment", env.environmentId, "--repo-remote", h.remote, "--baseline", h.baseline));
+      const interruptAgent = ok(await h.cli("work", "define-agent", "--name", "interrupt fixture", "--provider", "codex"));
+      const interrupted = ok(await h.cli("work", "start", "--mode", "managed", "--task", interruptedTask.taskId, "--agent", interruptAgent.agentId, "--repo", h.repo));
+      const spool = join(dataLayout().runtime, "executions", ledger, interrupted.executionId);
+      const crashDeadline = Date.now() + 30_000;
+      while (!existsSync(join(spool, "stdout.jsonl")) && Date.now() < crashDeadline) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      const bridge = JSON.parse(readFileSync(join(spool, "bridge-owner"), "utf8"));
+      assert.equal(signalHostProcessLeader(bridge.pid, bridge.birth, "SIGKILL"), true);
+      let lost;
+      do {
+        lost = ok(await h.cli("work", "managed-status", "--run", interrupted.runId));
+        if (lost.status === "failed") break;
+        await new Promise(resolve => setTimeout(resolve, 200));
+      } while (Date.now() < crashDeadline);
+      assert.equal(lost.stage, "interrupted", JSON.stringify(lost));
+      assert.equal(lost.stop, "verified");
+      assert.equal(lost.trace, undefined);
+      const hostRoot = join(dataLayout().runtime, "managed-host");
+      for (const run of [interrupted, ...jobs.map(job => job.started)]) {
+        await withRuntimeLock(hostRoot, "execution-" + run.executionId, async () => {}, 10_000);
+      }
+      await withRuntimeLock(hostRoot, "host", async () => {}, 10_000);
+      const damaged = new DatabaseSync(join(h.directory, "ledger.db"));
+      try {
+        damaged.prepare("DELETE FROM work_evidence_chunks WHERE digest=?").run(archivedDigest);
+        damaged.prepare("DELETE FROM work_evidence WHERE digest=?").run(archivedDigest);
+      } finally { damaged.close(); }
+      assert.equal(ok(await h.cli("db", "status")).integrity.valid, false);
     } finally {
       for (const [key, value] of Object.entries(original)) {
         if (value === undefined) delete process.env[key]; else process.env[key] = value;

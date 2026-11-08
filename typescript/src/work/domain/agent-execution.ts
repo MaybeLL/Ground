@@ -164,7 +164,7 @@ export function confirmExecutionStopped(e: AgentExecution, command: { at: Timest
   if (!isTimestamp(command.at)) return invalid("at is required");
   if (isExecutionTerminal(e)) return late(e, "stop", command.at, `stop confirmed after ${e.stage}`);
   if (!e.capabilities.verifiableStop) return reject("unsupported", "this provider cannot verify that a process stopped");
-  if (e.stop === "verified") return advance(e, {}, [], "applied");
+  if (e.stop === "verified") return settle(e, {}, [], command.at);
   if (e.stop === "idle") return conflict("the execution never started");
   return settle(e, { stop: "verified" }, [{ type: "stop", executionId: e.id, state: "verified", at: command.at }], command.at);
 }

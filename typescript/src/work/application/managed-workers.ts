@@ -1,10 +1,10 @@
 import { acquireLease, authorizeBridge, beginExecution, claimRunner, concludeRound, confirmExecutionStopped, digestOf,
-  executionHostLost, interruptExecution, failExecutionInfrastructure, failInfrastructure, isExecutionTerminal, isTerminal, prepareExecution, providerEnded, recordReceipt, registerManagedWorker, requestExecutionCancel,
+  blockArchive, retryArchive, executionHostLost, interruptExecution, failExecutionInfrastructure, failInfrastructure, isExecutionTerminal, isTerminal, prepareExecution, providerEnded, recordReceipt, registerManagedWorker, requestExecutionCancel,
   returnLease, start, submitManifest, workerStopped, type AgentExecution, type Decision, type FrozenTrace, type Result, type Sandbox, type TaskRun } from "../domain/index.js";
 import type { CapturedTrace, EvidenceSource, WorkRepositories } from "../ports/index.js";
 import type { AgentSettings, ManagedTask } from "./agent-definitions.js";
 import { fail, fromRejection, succeed, type Outcome } from "./outcome.js";
-import type { RequestContext } from "./requests.js";
+import { once, type RequestContext } from "./requests.js";
 import type { SandboxLifecycle } from "./sandbox-lifecycle.js";
 
 type Dispatch = ManagedTask & { trace?:FrozenTrace; observation?:{state:string;detail?:string}; dockerExecId?: string; runnerId?: string; token?: number };
@@ -33,6 +33,14 @@ export class ManagedWorkers {
       const reservation = sandbox && (await r.intents.listForSubject("reserve-task-sandbox","task_run",runId))[0];
       const baseline = (reservation?.result as {commit?:string}|undefined)?.commit;
       return succeed({job,intentId:intent.id,run,exec,...(sandbox?{sandbox}:{}),...(baseline?{baseline}:{}),agent:agent.content as AgentSettings,task:task.content as ManagedContext["task"]});
+    });
+  }
+
+  resume(runId: string, requestId: string) {
+    return once(this.deps, {requestId, kind: "resume-managed", input: {runId}, subject: {type: "task_run", id: runId}}, async r => {
+      const intent = await this.job(r, runId);
+      if (!intent) return fail("not-found", "managed work does not exist");
+      return succeed({runId, executionId: (intent.payload as Dispatch).executionId});
     });
   }
 
@@ -96,6 +104,55 @@ export class ManagedWorkers {
     });
   }
 
+  /** Commit the original provider result before any remote publication. */
+  async freezeOutput(runId: string, handle: string, trace: CapturedTrace, output: EvidenceSource, stderr: EvidenceSource, outcome: "succeeded" | "failed") {
+    return this.deps.units.run("write", async r => {
+      const intent = await this.job(r, runId);
+      if (!intent) return fail("not-found", "managed intent is missing");
+      const job = intent.payload as Dispatch;
+      const exec = await r.executions.get(job.executionId, {lock: true});
+      if (!exec || job.dockerExecId !== handle || exec.cancelIntent) return fail("conflict", "worker identity or cancellation changed");
+      if (job.trace) {
+        return exec.providerOutcome === outcome && job.trace.raw.digest === trace.raw.digest &&
+          exec.receipts.output === "sql-evidence:" + output.digest ? succeed({}) : fail("conflict", "captured worker result changed");
+      }
+      const at = this.deps.now();
+      const ended = providerEnded(exec, {outcome, at});
+      if (!ended.ok) return fromRejection(ended.error);
+      const message = recordReceipt(ended.value.state, {kind: "output", ref: "sql-evidence:" + output.digest, at});
+      if (!message.ok) return fromRejection(message.error);
+      const trajectory = recordReceipt(message.value.state, {kind: "trajectory", ref: "sql-evidence:" + trace.raw.digest, at});
+      if (!trajectory.ok) return fromRejection(trajectory.error);
+      const text = await r.evidence.put(output), errors = await r.evidence.put(stderr);
+      await r.evidence.put(trace.raw);
+      await r.evidence.put(trace.events);
+      await r.executions.save(ended.value.state, exec.version);
+      await r.executions.save(message.value.state, ended.value.state.version);
+      await r.executions.save(trajectory.value.state, message.value.state.version);
+      await r.intents.save({...intent, payload: {...job, trace: trace.descriptor, output: text, stderr: errors},
+        updatedAt: at, version: intent.version + 1}, intent.version);
+      return succeed({});
+    });
+  }
+
+  async archiveUnavailable(runId: string, reason: string) {
+    return this.deps.units.run("write", async r => {
+      const intent = await this.job(r, runId);
+      if (!intent) return fail("not-found", "managed intent is missing");
+      const exec = await r.executions.get((intent.payload as Dispatch).executionId, {lock: true});
+      if (!exec) return fail("not-found", "execution is missing");
+      if (exec.stage === "archive_blocked") return succeed({});
+      const at = this.deps.now();
+      const blocked = blockArchive(exec, {reason: reason.slice(0, 1024), at});
+      if (!blocked.ok) return fromRejection(blocked.error);
+      const stopped = confirmExecutionStopped(blocked.value.state, {at});
+      if (!stopped.ok) return fromRejection(stopped.error);
+      await r.executions.save(blocked.value.state, exec.version);
+      await r.executions.save(stopped.value.state, blocked.value.state.version);
+      return succeed({});
+    });
+  }
+
   async finish(runId:string,dockerExecId:string,trace:CapturedTrace,output:EvidenceSource,stderr:EvidenceSource,outcome:"succeeded"|"failed",candidate?:{id:string;receipt:string},rejected=false):Promise<Outcome<ManagedResult>> {
     const result=await this.deps.units.run("write",async r=>{
       const intent=await this.job(r,runId),run=await r.taskRuns.get(runId,{lock:true});
@@ -116,11 +173,12 @@ export class ManagedWorkers {
         if(!decision.ok) throw new Error(decision.error.message);
         if(decision.value.state!==state){state=decision.value.state;steps.push(state);}
       };
+      if (state.stage === "archive_blocked") step(retryArchive(state, {at}));
       step(providerEnded(state,{outcome,at}));
       step(recordReceipt(state,{kind:"output",ref:"sql-evidence:"+archive.digest,at}));
       step(recordReceipt(state,{kind:"trajectory",ref:"sql-evidence:"+trace.descriptor.raw.digest,at}));
       if(candidate) step(recordReceipt(state,{kind:"delivery-claim",ref:candidate.receipt,at}));
-      step(confirmExecutionStopped(state,{at}));
+      if (!isExecutionTerminal(state)) step(confirmExecutionStopped(state,{at}));
       const lease=returnLease(sb,{holder,token:job.token,stop:"verified",at}); if(!lease.ok)return fromRejection(lease.error);
       const stopped=workerStopped(run,{outcome,at});if(!stopped.ok)return fromRejection(stopped.error);
       let final=stopped.value.state;
@@ -199,6 +257,8 @@ export class ManagedWorkers {
       }
       const done={runId,executionId:e.id,status:current.status,stage:e.stage};
       await r.intents.save({...intent,state:"completed",payload:{...job,observation:{state:"terminal",detail}},result:done,updatedAt:at,version:intent.version+1},intent.version);
+      await r.events.append({id: "managed-done-" + e.id, parentIntentId: intent.id, type: "worker-ended",
+        subject: {type: "execution", id: e.id}, payload: done, createdAt: at, deliveredAt: at});
       return succeed(done);
     });
     if(result.ok){const settled=await this.deps.lifecycle.settleRun(runId);if(!settled.ok)return settled;}

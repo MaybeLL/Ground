@@ -138,12 +138,7 @@
         "command",
         "result_type",
         "runId",
-        "executionId",
-        "stage",
-        "stop",
-        "status",
-        "agent",
-        "receipts"
+        "executionId"
       ],
       "properties": {
         "command": {
@@ -157,72 +152,6 @@
         },
         "executionId": {
           "$ref": "work-results.schema.json#/$defs/Id"
-        },
-        "stage": {
-          "enum": [
-            "accepted",
-            "preparing",
-            "running",
-            "archiving",
-            "archive_blocked",
-            "succeeded",
-            "failed",
-            "interrupted",
-            "cancelled"
-          ]
-        },
-        "stop": {
-          "enum": [
-            "idle",
-            "active",
-            "requested",
-            "verified",
-            "unknown"
-          ]
-        },
-        "status": {
-          "$ref": "work-results.schema.json#/$defs/TaskRunStatus"
-        },
-        "agent": {
-          "$ref": "work-results.schema.json#/$defs/RevisionRef"
-        },
-        "receipts": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "output": {
-              "type": "string"
-            },
-            "trajectory": {
-              "type": "string"
-            },
-            "deliveryClaim": {
-              "type": "string"
-            }
-          }
-        },
-        "host": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "state"
-          ],
-          "properties": {
-            "state": {
-              "enum": [
-                "running",
-                "blocked",
-                "terminal",
-                "awaiting-resume"
-              ]
-            },
-            "detail": {
-              "type": "string"
-            }
-          }
-        },
-        "trace": {
-          "$ref": "trace-results.schema.json#/$defs/Trace"
         }
       }
     }

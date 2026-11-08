@@ -4,6 +4,11 @@ const { execFileSync } = require("node:child_process");
 const task = JSON.parse(readFileSync(0,"utf8"));
 if (!task.criteria?.length) process.exit(2);
 const { existsSync } = require("node:fs");
+if (task.task === "interrupt fixture") {
+  writeFileSync("/tmp/grounds-fixture-ready", task.task, {flag: "wx"});
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 90_000);
+  process.exit(5);
+}
 if (task.task.startsWith("concurrent fixture ")) {
   const expected = {
     "concurrent fixture 0": ["synthetic-first", undefined],
@@ -13,7 +18,11 @@ if (task.task.startsWith("concurrent fixture ")) {
   if (!expected || process.env.OPENAI_API_KEY !== expected[0] ||
       process.env.ANTHROPIC_API_KEY !== expected[1]) process.exit(4);
   // The test releases these processes only after seeing all three alive.
-  writeFileSync("/tmp/grounds-fixture-ready", task.task);
+  writeFileSync("/tmp/grounds-fixture-ready", task.task, {flag: "wx"});
+  if (task.task === "concurrent fixture 0") {
+    const child = require("node:child_process").spawn("sleep", ["180"], {detached: true, stdio: "ignore"});
+    child.unref();
+  }
   const deadline = Date.now() + 90000;
   while (!existsSync("/tmp/grounds-fixture-release")) {
     if (Date.now() > deadline) process.exit(3);

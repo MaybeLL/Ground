@@ -86,14 +86,31 @@ export class ManagedTaskDriver {
     try {
       const commit=declaredCommit(captured.message);
       let candidate:{id:string;receipt:string}|undefined,rejected=false;
-      if(commit){
-        if(!ctx.baseline)return fail("conflict","managed workspace baseline is missing");
-        const published=await this.deps.process.candidate(plan,commit,ctx.baseline,ctx.task.repository.remote);
-        if(published.status==="unavailable")return succeed({state:"blocked",detail:published.reason});
-        if(published.status==="confirmed")candidate={id:published.id,receipt:published.receipt};else rejected=true;
+      const outcome = observed.exitCode === 0 && !captured.providerFailed ? "succeeded" : "failed";
+      if (commit) {
+        if (!ctx.baseline) return fail("conflict", "managed workspace baseline is missing");
+        const exported = await this.deps.process.exportCandidate(plan, commit, allowStart);
+        if (exported === "running" || exported === "awaiting-resume") return succeed({state: exported});
+        if (exported === "interrupted") {
+          await this.deps.process.stop(plan, true);
+          const ended = await this.deps.workers.infrastructure(runId, "bundle export was interrupted without a verified result", true);
+          return ended.ok ? succeed({state: "terminal"}) : ended;
+        }
+        rejected = exported === "invalid";
       }
-      await this.deps.process.stop(plan,false);
-      const ended=await this.deps.workers.finish(runId,handle,captured.trace,captured.output,captured.stderr,observed.exitCode===0 && !captured.providerFailed ? "succeeded" : "failed",candidate,rejected);
+      await this.deps.process.stop(plan, false);
+      if (commit && !rejected) {
+        const frozen = await this.deps.workers.freezeOutput(runId, handle, captured.trace, captured.output, captured.stderr, outcome);
+        if (!frozen.ok) return frozen;
+        const published = await this.deps.process.candidate(plan, commit, ctx.baseline!, ctx.task.repository.remote, allowStart);
+        if (published.status === "unavailable") {
+          const blocked = await this.deps.workers.archiveUnavailable(runId, published.reason);
+          return blocked.ok ? succeed({state: "blocked", detail: published.reason}) : blocked;
+        }
+        if (published.status === "confirmed") candidate = {id: published.id, receipt: published.receipt};
+        else rejected = true;
+      }
+      const ended = await this.deps.workers.finish(runId, handle, captured.trace, captured.output, captured.stderr, outcome, candidate, rejected);
       return ended.ok ? succeed({state:"terminal"}) : ended;
     } finally {await captured.trace.dispose();}
   }

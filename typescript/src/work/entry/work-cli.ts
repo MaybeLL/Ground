@@ -112,8 +112,8 @@ async function work(args: ParsedArgs, action: string, app: WorkApplication, deps
     ...(raw(args,"agent-revision")!==undefined ? {revisionId:need(args,"agent-revision")} : {}),
   }} : {};
   switch (action) {
-    case "managed-status":
-    case "resume-managed": {
+    case "resume-managed": return unwrap(await app.workers.resume(need(args, "run"), requestId(args)));
+    case "managed-status": {
       const context=unwrap(await app.workers.context(need(args,"run")));
       return {runId:context.run.id,executionId:context.exec.id,stage:context.exec.stage,stop:context.exec.stop,
         status:context.run.status,agent:context.exec.agentRevision,receipts:context.exec.receipts,...(context.job.observation?{host:context.job.observation}:{}),...(context.job.trace?{trace:context.job.trace}:{})};

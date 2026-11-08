@@ -7,7 +7,7 @@ import { hostDirectory, launchManaged, managedId, queueRoot, type HostJob } from
 import { atomicPrivateWrite, removePrivateFile, safeRead, withRuntimeLock } from "./runtime-files.js";
 import { composeWork } from "./work/composition.js";
 
-async function supervise(job: HostJob, name: string) {
+async function supervise(job: HostJob, name: string, observeOnly: boolean) {
   const opened = await openStore(job.config);
   try {
     if (opened.config.database.expected_database_id !== job.ledgerId) throw new Error("job ledger identity changed");
@@ -21,7 +21,7 @@ async function supervise(job: HostJob, name: string) {
     if (!birth) throw new Error("cannot establish runner identity");
     const ticketLock = (fn: () => Promise<void>) => withRuntimeLock(queueRoot(), "ticket-" + job.executionId, fn, 10_000);
     try {
-      let live = job.allowStart && !existsSync(issued);
+      let live = !observeOnly && job.allowStart && !existsSync(issued);
       if (live) {
         await ticketLock(async () => atomicPrivateWrite(ticket, JSON.stringify({pid: process.pid, birth})));
         await launchManaged("host");
@@ -39,14 +39,18 @@ async function supervise(job: HostJob, name: string) {
         const result = await app.driver.drive(job.runId, live);
         const state = result.ok ? result.value.state : "blocked";
         await app.workers.note(job.runId, state, result.ok ? result.value.detail : result.error.message);
-        if (state === "terminal") {
+        if (state === "running") {
+          await delay(250);
+          continue;
+        }
+        const current = await app.workers.context(job.runId);
+        if (current.ok && ["verified", "idle"].includes(current.value.exec.stop)) {
           await ticketLock(async () => {
             if (existsSync(ticket)) removePrivateFile(ticket);
             if (existsSync(slot)) removePrivateFile(slot);
           });
         }
-        if (state !== "running") break;
-        await delay(250);
+        break;
       }
     } catch {
       await app.workers.note(job.runId, "blocked", "host observation failed; inspect the run and resume explicitly");
@@ -64,4 +68,9 @@ if (!executionId || !operationId || name !== executionId + "." + operationId || 
 const job = JSON.parse(safeRead(join(hostDirectory("requests"), name), 32768).toString()) as HostJob;
 if (executionId !== job.executionId) throw new Error("execution identity mismatch");
 // A repeated notification for the same run must never start a second driver.
-await withRuntimeLock(queueRoot(), "execution-" + executionId, () => supervise(job, name), 600_000);
+const observeOnly = process.argv[3] === "observe";
+try {
+  await withRuntimeLock(queueRoot(), "execution-" + executionId, () => supervise(job, name, observeOnly), observeOnly ? 0 : 600_000);
+} catch (error) {
+  if (!observeOnly || !String(error).includes("another local controller")) throw error;
+}

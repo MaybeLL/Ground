@@ -14,6 +14,9 @@ node scripts/check-docs.mjs
 
 Database, container, and process tests have additional prerequisites and must be explicitly configured. A skipped integration test is not evidence that its behavior passed. The GitHub workflows define the checks run on each pull request and release. The validation matrix targets Linux/macOS on Node.js 22/24, with an additional Linux integration job covering SQLite plus MySQL/PostgreSQL over TLS, storage conformance. Consult the actual run for the commit instead of treating workflow configuration as a passing result. Windows is not validated.
 
+From `typescript/`, run `node scripts/test-managed-worker.mjs` to exercise managed worker admission, concurrent containers, credential isolation, collector and runner interruption, and recovery from a rejected Git push. The fixture uses the local Docker daemon and a Node 22 image with Git. When the OS temporary directory is outside Docker's shared paths, set `GROUNDS_TEST_SHARED_ROOT` to a bind-mountable directory.
+
+
 Use focused regression tests for behavior changes. Keep TypeScript indentation at two spaces and preserve ESM imports. Do not edit generated `dist/` contents. Update command help, contracts, and guides when changing user-visible behavior.
 
 Follow the [software design principles](docs/software-design.md) for substantive design changes and the [documentation maintenance rules](docs/documentation.md) when assessing documentation impact.
