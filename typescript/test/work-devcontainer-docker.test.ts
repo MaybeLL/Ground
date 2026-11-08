@@ -91,3 +91,23 @@ test("evaluator runs frozen hidden tests against its own target checkout with a 
     await rm(shared,{recursive:true,force:true});
   }
 });
+
+test("a delayed setup helper cannot recreate a released evaluator directory", async () => {
+  const {ManagedWorkspaces} = await import("../src/work/adapters/devcontainer/workspace.js");
+  const {runLaunchHelper} = await import("../src/work/adapters/devcontainer/launch.js");
+  const {atomicPrivateWrite} = await import("../src/runtime-files.js");
+  const {existsSync} = await import("node:fs");
+  const files = new ManagedWorkspaces();
+  const owner = {ledgerId:randomUUID(),sandboxId:randomUUID(),setupAttempt:randomUUID()};
+  const path = join(files.setupRoot(owner),"launch.json");
+  atomicPrivateWrite(path,JSON.stringify({owner,location:{hostId:"test",daemonId:"test"},workspace:{path:"unused",configPath:"unused"}}));
+  let lost:Promise<void> | undefined;
+  try {
+    await files.withSetupLifetime(owner,async () => {
+      lost = runLaunchHelper(path);
+      await rm(files.root(owner),{force:true,recursive:true});
+    });
+    await assert.rejects(lost!);
+    assert.equal(existsSync(files.root(owner)),false);
+  } finally { await rm(files.root(owner),{force:true,recursive:true}); }
+});

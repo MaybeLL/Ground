@@ -57,24 +57,30 @@ export class DurableSandboxLauncher implements SandboxLauncher {
 }
 
 export async function runLaunchHelper(path: string) {
-  const plan = JSON.parse(safeRead(path,32768).toString()) as Plan;
+  const contents = safeRead(path,32768).toString();
+  const plan = JSON.parse(contents) as Plan;
   const workspaces = new ManagedWorkspaces();
-  const root = workspaces.setupRoot(plan.owner);
-  if (path !== join(root,"launch.json")) throw new Error("unexpected sandbox launch plan path");
-  await withRuntimeLock(root,"launch",async fd => {
-    if (existsSync(marker(root))) return;
-    const runtime = new DevcontainerRuntime(undefined,undefined,fd);
-    const location = await runtime.location();
-    if (location.daemonId !== plan.location.daemonId || location.hostId !== plan.location.hostId) throw new Error("runtime location changed");
-    if (await runtime.observe(plan.owner)) throw new Error("launch labels already occupied");
-    atomicPrivateWrite(marker(root),"active");
-    try {
-      const instance = await runtime.up(plan.owner,plan.workspace);
-      await workspaces.record(plan.owner,instance.id);
-      atomicPrivateWrite(marker(root),"completed");
-    } catch {
-      atomicPrivateWrite(marker(root),"failed");
-      throw new Error("devcontainer launch failed");
-    }
-  },120_000);
+  await workspaces.withSetupLifetime(plan.owner,async () => {
+    // Reading the plan cannot recreate the sandbox. A releaser may have
+    // removed it while this helper waited for the stable lifetime lock.
+    if (safeRead(path,32768).toString() !== contents) throw new Error("sandbox setup plan changed");
+    const root = workspaces.setupRoot(plan.owner);
+    if (path !== join(root,"launch.json")) throw new Error("unexpected sandbox launch plan path");
+    await withRuntimeLock(root,"launch",async fd => {
+      if (existsSync(marker(root))) return;
+      const runtime = new DevcontainerRuntime(undefined,undefined,fd);
+      const location = await runtime.location();
+      if (location.daemonId !== plan.location.daemonId || location.hostId !== plan.location.hostId) throw new Error("runtime location changed");
+      if (await runtime.observe(plan.owner)) throw new Error("launch labels already occupied");
+      atomicPrivateWrite(marker(root),"active");
+      try {
+        const instance = await runtime.up(plan.owner,plan.workspace);
+        await workspaces.record(plan.owner,instance.id);
+        atomicPrivateWrite(marker(root),"completed");
+      } catch {
+        atomicPrivateWrite(marker(root),"failed");
+        throw new Error("devcontainer launch failed");
+      }
+    },120_000);
+  });
 }

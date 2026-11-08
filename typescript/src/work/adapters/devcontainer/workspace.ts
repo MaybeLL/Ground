@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { inspectionEnvironment } from "../git/inspection-environment.js";
-import { atomicPrivateWrite, privateDirectory } from "../../../runtime-files.js";
+import { atomicPrivateWrite, privateDirectory, withRuntimeLock } from "../../../runtime-files.js";
 import { pinnedConfig } from "./config.js";
 import { dataLayout } from "../../../data-layout.js";
 import type { ManagedWorkspacePort, RuntimeOwner } from "../../ports/index.js";
@@ -18,6 +18,12 @@ export class ManagedWorkspaces implements ManagedWorkspacePort {
   root(owner: RuntimeOwner) {
     if (![owner.ledgerId, owner.sandboxId].every(id => /^[0-9a-f-]{36}$/.test(id))) throw new Error("invalid managed workspace identity");
     return join(this.directory, "sandboxes", owner.ledgerId, owner.sandboxId);
+  }
+
+  /** The launch helper can be delayed before acquiring its per-attempt
+   * lock. Keep this lifetime lock outside the disposable workspace. */
+  async withSetupLifetime<T>(owner:RuntimeOwner, action:()=>Promise<T>) {
+    return withRuntimeLock(dataLayout().runtime, "setup-lifetime-" + owner.ledgerId + "-" + owner.sandboxId, action, 120_000);
   }
 
   setupRoot(owner: RuntimeOwner) {

@@ -98,6 +98,6 @@ export class ContainerTestProcess implements TestProcessPort {
   }
 
   async dispose(owner:EvaluatorTarget["owner"]) {
-    await rm(this.workspaces.root(owner),{recursive:true,force:true});
+    await this.workspaces.withSetupLifetime(owner,() => rm(this.workspaces.root(owner),{recursive:true,force:true}));
   }
 }

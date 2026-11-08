@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { hostProcessIdentity } from "./env-process.js";
 import { dataLayout } from "./data-layout.js";
 import { atomicPrivateWrite, privateDirectory, removePrivateFile, safeRead, withRuntimeLock } from "./runtime-files.js";
 
@@ -25,6 +26,10 @@ export async function launchManaged(entry: "host" | "job", args: string[] = []) 
     child.once("spawn", resolve);
   });
   child.unref();
+  if (entry === "job" && child.pid) {
+    const birth = hostProcessIdentity(child.pid);
+    if (birth) return {pid:child.pid,birth};
+  }
 }
 
 export async function notifyManaged(job: HostJob, operationId: string) {
@@ -37,11 +42,19 @@ export async function notifyManaged(job: HostJob, operationId: string) {
   await withRuntimeLock(queueRoot(), "request-" + name, async () => {
     if (existsSync(path)) {
       if (safeRead(path, 32768).toString() !== record) throw new Error("managed request input changed");
+      const ownerFile = path + ".owner";
+      if (existsSync(ownerFile)) {
+        const owner = JSON.parse(safeRead(ownerFile,2048).toString());
+        if (hostProcessIdentity(owner.pid) === owner.birth) return;
+      }
       await launchManaged("job", [name, "observe"]);
       return;
     }
     atomicPrivateWrite(path, record);
-    try { await launchManaged("job", [name]); }
+    try {
+      const owner = await launchManaged("job", [name]);
+      if (owner) atomicPrivateWrite(path + ".owner",JSON.stringify(owner));
+    }
     catch (error) { removePrivateFile(path); throw error; }
   }, 10_000);
 }
