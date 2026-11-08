@@ -296,7 +296,12 @@ test("working workspace keeps pinned input separate from writable output on repl
       const manifest = join(dirname(workspace.path),"sources.json");
       chmodSync(manifest,0o600);
       writeFileSync(manifest,JSON.stringify(JSON.parse(readFileSync(manifest,"utf8")).repositories));
+      chmodSync(join(material,"app.txt"),0o600);
+      writeFileSync(join(material,"app.txt"),"v0\r\n");
+      chmodSync(join(material,"app.txt"),0o444);
       const again = ok(await h.cli("work","workspace","--run",runId));
+      const upgraded=again.materials[0].path;
+      assert.equal(readFileSync(join(upgraded,"app.txt"),"utf8"),"v0\n");
       assert.equal(again.created,false);
       assert.equal(readFileSync(join(again.path,"report"),"utf8"),"draft");
       assert.equal(readFileSync(join(h.repo,"app.txt"),"utf8"),"later");
@@ -305,12 +310,14 @@ test("working workspace keeps pinned input separate from writable output on repl
       symlinkSync(h.directory,workspace.path);
       assert.equal((await h.cli("work","workspace","--run",runId)).ok,false);
       rmSync(workspace.path); renameSync(moved,workspace.path);
-      chmodSync(join(material,"app.txt"),0o600);
-      writeFileSync(join(material,"app.txt"),"forged");
-      chmodSync(join(material,"app.txt"),0o444);
+      chmodSync(join(upgraded,"app.txt"),0o600);
+      writeFileSync(join(upgraded,"app.txt"),"forged");
+      chmodSync(join(upgraded,"app.txt"),0o444);
       assert.equal((await h.cli("work","workspace","--run",runId)).ok,false);
       assert.equal(readFileSync(join(workspace.path,"report"),"utf8"),"draft");
     } finally {
+      const raw=join(dirname(workspace.path),"raw-materials");
+      if (existsSync(raw)) {chmodSync(raw,0o700);chmodSync(join(raw,"source"),0o700);}
       chmodSync(dirname(material),0o700); chmodSync(material,0o700);
       rmSync(dirname(workspace.path),{recursive:true,force:true});
     }

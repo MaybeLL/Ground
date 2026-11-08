@@ -63,48 +63,75 @@ async function commitObject(repository:string,commit:string) {
   return object.stdout.toString("base64");
 }
 
+async function writeMaterials(directory:string,repositories:readonly MaterialRepository[]) {
+
+  const commits:string[]=[];
+  for (const repo of repositories) {
+    if (!isAbsolute(repo.repository)) throw new Error("material checkout requires an absolute repository path");
+    const destination = join(directory,repo.name);
+    const proof = await commitObject(repo.repository,repo.commit);
+    const expected = checkCommit(repo.commit,Buffer.from(proof,"base64"));
+    commits.push(proof);
+    await exportTree(repo.repository,expected,destination);
+    await protect(await realpath(destination));
+    if ((await verifyTree(destination,repo.commit)).toString("hex")!==expected) throw new Error("material checkout differs from its frozen tree");
+  }
+  await chmod(directory,0o555);
+  return commits;
+}
+
 export class MaterialWorkspaces {
   async prepare(ledgerId:string,runId:string,repositories:readonly MaterialRepository[]) {
     if (![ledgerId,runId].every(id=>/^[a-f0-9-]{36}$/.test(id))) throw new Error("invalid workspace owner");
     const parent = join(dataLayout().workspaces,"working",ledgerId);
     privateDirectory(parent);
     const root = join(parent,runId), descriptor = JSON.stringify(repositories);
-    const result = (created:boolean)=>({kind:"working" as const,runId,path:join(root,"output"),created,
-      materials:repositories.map(({name,commit})=>({name,commit,path:join(root,"materials",name)}))});
+    const result = (created:boolean,folder="materials")=>({kind:"working" as const,runId,path:join(root,"output"),created,
+      materials:repositories.map(({name,commit})=>({name,commit,path:join(root,folder,name)}))});
     return withRuntimeLock(parent,runId,async()=>{
       let published;
       try {published = await lstat(root);} catch (error) {if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;}
       if (published) {
         if (!published.isDirectory() || !(await lstat(join(root,"output"))).isDirectory()) throw new Error("working output directory is missing or replaced");
-        const materialRoot=join(root,"materials"), manifest=join(root,"sources.json");
-        if (!(await lstat(materialRoot)).isDirectory() || !(await lstat(manifest)).isFile()) throw new Error("invalid working material layout");
+        const manifest=join(root,"sources.json");
+        if (!(await lstat(manifest)).isFile()) throw new Error("invalid working material manifest");
         const record=JSON.parse(await readFile(manifest,"utf8"));
         const legacy=Array.isArray(record);
-        if (JSON.stringify(legacy ? record : record.repositories)!==descriptor || (await readdir(materialRoot)).length!==repositories.length) throw new Error("working material identity conflict");
-        const commits = legacy ? await Promise.all(repositories.map(repo=>commitObject(repo.repository,repo.commit))) : record.commits;
+        if (JSON.stringify(legacy ? record : record.repositories)!==descriptor) throw new Error("working material identity conflict");
+        // Old workspaces contain filtered Git checkouts. Export the trusted
+        // blobs separately, then publish their location atomically. Existing
+        // readers and the user's output remain available during the upgrade.
+        const folder=legacy || record.rawMaterials === true ? "raw-materials" : "materials";
+        const materialRoot=join(root,folder);
+        let commits=legacy ? undefined : record.commits;
+        if (legacy) {
+          let existing;
+          try {existing=await lstat(materialRoot);} catch (error) {if ((error as NodeJS.ErrnoException).code!=="ENOENT") throw error;}
+          if (!existing) {
+            const stage=await mkdtemp(join(root,"export-"));
+            try {commits=await writeMaterials(stage,repositories);await chmod(stage,0o700);await rename(stage,materialRoot);}
+            catch (error) {await discard(stage);throw error;}
+          } else {
+            if (!existing.isDirectory()) throw new Error("invalid raw material directory");
+            commits=await Promise.all(repositories.map(repo=>commitObject(repo.repository,repo.commit)));
+          }
+          await chmod(materialRoot,0o555);
+        }
+        const materialStat=await lstat(materialRoot);
+        if (!materialStat.isDirectory() || materialStat.mode & 0o222 || (await readdir(materialRoot)).length!==repositories.length) throw new Error("invalid working material layout");
         for (const [index,repo] of repositories.entries()) {
           const expected=checkCommit(repo.commit,Buffer.from(commits[index],"base64"));
           if ((await verifyTree(join(materialRoot,repo.name),repo.commit)).toString("hex")!==expected) throw new Error("material differs from its frozen commit");
         }
-        if (legacy) atomicPrivateWrite(manifest,JSON.stringify({repositories,commits}));
-        return result(false);
+        if (legacy) atomicPrivateWrite(manifest,JSON.stringify({repositories,commits,rawMaterials:true}));
+        return result(false,folder);
       }
       const stage = await mkdtemp(join(parent,"prepare-"));
       try {
         await mkdir(join(stage,"output"));
-        await mkdir(join(stage,"materials"));
-        const commits:string[]=[];
-        for (const repo of repositories) {
-          if (!isAbsolute(repo.repository)) throw new Error("material checkout requires an absolute repository path");
-          const destination = join(stage,"materials",repo.name);
-          const proof = await commitObject(repo.repository,repo.commit);
-          const expected = checkCommit(repo.commit,Buffer.from(proof,"base64"));
-          commits.push(proof);
-          await exportTree(repo.repository,expected,destination);
-          await protect(await realpath(destination));
-          if ((await verifyTree(destination,repo.commit)).toString("hex")!==expected) throw new Error("material checkout differs from its frozen tree");
-        }
-        await chmod(join(stage,"materials"),0o555);
+        const directory=join(stage,"materials");
+        await mkdir(directory);
+        const commits=await writeMaterials(directory,repositories);
         await writeFile(join(stage,"sources.json"),JSON.stringify({repositories,commits}),{mode:0o400});
         await rename(stage,root);
       } catch (error) {await discard(stage);throw error;}
