@@ -138,7 +138,7 @@ async function grade(args: ParsedArgs, action: string, app: WorkApplication, dep
   const grading = need.bind(null, args, "grading");
   switch (action) {
     case "measure": {
-      const reference = text(args, "reference-path") || text(args, "reference-run") || text(args, "reference-delivery") ? {
+      const reference = ["reference-path", "reference-run", "reference-delivery"].some(key => raw(args, key) !== undefined) ? {
         path: need(args, "reference-path"), runId: need(args, "reference-run"), deliveryId: need(args, "reference-delivery"),
       } : undefined;
       return unwrap(await app.suites.measureDirect({ requestId: requestId(args), runId: need(args, "run"), deliveryId: need(args, "delivery"),

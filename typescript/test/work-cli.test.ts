@@ -408,6 +408,11 @@ test("a standalone measure scores a historical candidate against an explicit ref
     const rule = ok(await h.cli("grade", "define-rule", "--name", "Output", "--rule", "equal-file-bytes", "--pass", "yes", "--fail", "no"));
     const args = ["grade", "measure", "--run", runId, "--delivery", delivery.id, "--grader", rule.graderId, "--grader-revision", rule.revisionId, "--answer-path", "app.txt"];
     assert.equal((await h.cli(...args)).ok, false);
+    const presence = ok(await h.cli("grade", "define-rule", "--name", "Presence", "--rule", "file-exists", "--pass", "yes", "--fail", "no"));
+    const presenceArgs = ["grade","measure","--run",runId,"--delivery",delivery.id,"--answer-path","app.txt","--grader",presence.graderId,"--grader-revision",presence.revisionId];
+    for (const option of ["--reference-path", "--reference-path=", "--reference-run", "--reference-delivery"]) {
+      assert.equal((await h.cli(...presenceArgs, option)).error.code, "VALIDATION_ERROR");
+    }
     args.push("--reference-run", runId, "--reference-delivery", delivery.id, "--reference-path", "app.txt");
     const op = newUUIDv7();
     const score = ok(await h.cli(...args, "--operation-id", op));
