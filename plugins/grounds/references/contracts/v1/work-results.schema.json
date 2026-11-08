@@ -689,6 +689,7 @@
       "type": "object",
       "properties": {
         "trace": {"$ref":"trace-results.schema.json#/$defs/Trace"},
+        "raw": {"$ref":"trace-results.schema.json#/$defs/Blob"},
         "ref": {"type": "string"},
         "digest": {"$ref": "#/$defs/Digest"},
         "coverage": {"enum": ["full", "partial", "unknown"]},

@@ -6,7 +6,7 @@ import {
   requestGradingCancel, submitGrade, type CommandObservation, type Digest, type GradingRecord, type Grade, type Hasher, type Id, type JsonValue, type ProtocolStage, type TargetRef,
 } from "../domain/index.js";
 import type { Clock, IdSource, WorkRepositories, WorkUnitOfWork } from "../ports/index.js";
-import { GRADING_REQUEST_COUNTER } from "../ports/index.js";
+import { GRADING_REQUEST_COUNTER, StorageFailure } from "../ports/index.js";
 import { ensureVerificationGrader } from "./builtin-grader.js";
 import { fail, failureOf, fromRejection, succeed, type Outcome } from "./outcome.js";
 import { once, type RequestContext } from "./requests.js";
@@ -46,20 +46,31 @@ export class Grading {
       if (task.value.criteria.length === 0) return fail("conflict", "the task has no criteria to judge");
       const materials = [...(input.materials ?? [])];
       if (new Set(materials.map(m=>m.id)).size !== materials.length) return fail("invalid","grading material identities must be unique");
-      const evidence = new Map<string,string>();
+      const evidence = new Map<string,import("../domain/index.js").TraceBlob>();
       if (run.worker?.kind === "external") for (const entry of run.worker.registration.transcripts) {
-        evidence.set("transcript:" + entry.digest,entry.digest);
-        if (entry.trace) evidence.set("events:" + entry.digest,entry.trace.events.digest);
+        const raw=entry.trace?.raw ?? entry.raw;
+        if (raw) evidence.set("transcript:" + entry.digest,raw);
+        if (entry.trace) evidence.set("events:" + entry.digest,entry.trace.events);
       }
       if(run.worker?.kind==="managed"){
         const job=(await r.intents.listForSubject("managed-worker","task_run",run.id))[0];
         const recorded=job?.payload as {executionId?:string;trace?:import("../domain/index.js").FrozenTrace}|undefined;
         if(recorded?.executionId===run.worker.executionId && recorded.trace){
-          evidence.set("transcript:"+recorded.trace.raw.digest,recorded.trace.raw.digest);
-          evidence.set("events:"+recorded.trace.raw.digest,recorded.trace.events.digest);
+          evidence.set("transcript:"+recorded.trace.raw.digest,recorded.trace.raw);
+          evidence.set("events:"+recorded.trace.raw.digest,recorded.trace.events);
         }
       }
-      for (const [id,digest] of evidence) {
+      if (materials.some(m=>/^(transcript|events):/.test(m.id) && !evidence.has(m.id))) return fail("invalid","transcript materials must refer to evidence archived for this run");
+      for (const [id,ref] of evidence) {
+        const digest=ref.digest;
+        try {
+          const stored=await r.evidence.describe(digest);
+          if (!stored || stored.byteLength!==ref.byteLength || stored.chunkCount!==ref.chunkCount) return fail("unavailable","archived transcript metadata is missing or inconsistent");
+          await r.evidence.verify(digest);
+        } catch (error) {
+          if (error instanceof StorageFailure && error.reason==="integrity") return fail("unavailable","archived transcript evidence is incomplete");
+          throw error;
+        }
         const supplied = materials.find(m=>m.id === id);
         if (supplied && supplied.digest !== digest) return fail("invalid","explicit material conflicts with frozen transcript evidence");
         if (!supplied) materials.push({id,digest});

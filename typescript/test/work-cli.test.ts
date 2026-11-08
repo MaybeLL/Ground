@@ -956,6 +956,49 @@ test("provider trace import preserves exact raw bytes, normalizes known records,
   });
 });
 
+test("a gate binds immutable transcript bytes from its own session and excludes reference-only declarations",async()=>{
+  await withHarness(async h=>{
+    const task=ok(await h.cli("task","create","--title","Trace","--criterion","auditable","--repo-remote",h.remote,"--baseline",h.baseline));
+    const session=async()=>{
+      const {runId}=ok(await h.cli("work","start-run","--task",task.taskId,"--mode","external"));
+      const {sessionId}=ok(await h.cli("work","register","--run",runId,"--agent","writer"));
+      ok(await h.cli("work","deliver","--run",runId,"--session",sessionId));
+      return {runId,sessionId};
+    };
+    const external=await session(), other=await session();
+    const bytes=Buffer.from("evidence\n".repeat(9100)), path=join(h.directory,"trace.log");
+    const digest="sha256:"+createHash("sha256").update(bytes).digest("hex");
+    const args=(target:typeof external)=>["work","transcript","--run",target.runId,"--session",target.sessionId,"--digest",digest,"--coverage","partial"];
+    const gate=async(runId:string)=>ok(await h.cli("grade","request","--run",runId)).gradingId;
+    const materials=async(id:string)=>ok(await h.cli("grade","show","--grading",id)).materials;
+    for (const target of [external,other]) ok(await h.cli(...args(target),"--ref","sql-evidence:"+digest));
+    const firstGate=await gate(external.runId);
+    assert.deepEqual(await materials(firstGate),[]);
+    writeFileSync(path,"wrong");
+    const upload=[...args(external),"--file",path,"--operation-id",newUUIDv7()];
+    assert.equal((await h.cli(...upload)).ok,false);
+    writeFileSync(path,bytes);
+    const result=ok(await h.cli(...upload));
+    rmSync(path);
+    assert.deepEqual(ok(await h.cli(...upload)),result);
+    const view=ok(await h.cli("work","run","--run",external.runId));
+    assertContract("work-results.schema.json",view);
+    const read=(run:string,n:number)=>h.cli("work","trace","--run",run,"--digest",digest,"--stream","raw","--chunk",String(n));
+    assert.deepEqual(Buffer.concat([Buffer.from(ok(await read(external.runId,0)).base64,"base64"),Buffer.from(ok(await read(external.runId,1)).base64,"base64")]),bytes);
+    assert.equal((await read(other.runId,0)).ok,false);
+    assert.deepEqual(await materials(await gate(other.runId)),[]);
+    assert.equal((await h.cli("grade","request","--run",other.runId,"--material","transcript:"+digest+"="+digest)).ok,false);
+    const frozen=await gate(external.runId);
+    assert.deepEqual(await materials(frozen),[{id:"transcript:"+digest,digest}]);
+    assert.deepEqual(await materials(firstGate),[]);
+    const db=new DatabaseSync(join(h.directory,"ledger.db"));
+    try {db.prepare("DELETE FROM work_evidence_chunks WHERE digest=?").run(digest);db.prepare("DELETE FROM work_evidence WHERE digest=?").run(digest);} finally {db.close();}
+    assert.equal((await h.cli("grade","request","--run",external.runId)).error.code,"STORAGE_TRANSIENT");
+    assert.deepEqual(await materials(frozen),[{id:"transcript:"+digest,digest}]);
+    assert.equal(ok(await h.cli("db","status")).integrity.valid,false);
+  });
+});
+
 test("managed worker runs working tasks with a read-only material mount and an artifact-only manifest", {skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async()=>{
   await withHarness(async h=>{
     const docker=(...args:string[])=>execFileSync("docker",args,{encoding:"utf8"}).trim();

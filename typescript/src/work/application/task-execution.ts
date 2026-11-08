@@ -263,7 +263,7 @@ export class TaskExecution {
       if (!run) return fail("not-found", `run ${input.runId} does not exist`);
       const next = importTranscript(run, { sessionId: input.sessionId, ref: input.ref, digest: input.digest, coverage: input.coverage, at: this.deps.clock.now() });
       if (!next.ok) return fromRejection(next.error);
-      await r.taskRuns.save(next.value.state, run.version);
+      if (next.value.state!==run) await r.taskRuns.save(next.value.state, run.version);
       return succeed({ runId: run.id });
     });
   }

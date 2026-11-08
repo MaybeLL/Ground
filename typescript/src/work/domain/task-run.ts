@@ -22,7 +22,7 @@ export interface Manifest {
 
 export type TraceBlob = {digest: Digest; byteLength: number; chunkCount: number};
 export type FrozenTrace = { format: "grounds.provider-trace/v1"; provider: "claude-code" | "codex"; raw: TraceBlob; events: TraceBlob; records: number; convertedRecords: number; eventCount: number; omissions: { invalidUtf8:number; invalidJson:number; oversized:number; unknownRecords:number; unknownParts:number; unserializableParts:number } };
-export interface TranscriptImport { readonly trace?: FrozenTrace; readonly ref: string; readonly digest: Digest; readonly coverage: "full" | "partial" | "unknown"; readonly importedAt: Timestamp }
+export interface TranscriptImport { readonly raw?: TraceBlob; readonly trace?: FrozenTrace; readonly ref: string; readonly digest: Digest; readonly coverage: "full" | "partial" | "unknown"; readonly importedAt: Timestamp }
 export interface ExternalRegistration {
   /** Issued by Grounds at registration; every submission must present it. */
   readonly sessionId: Id;
@@ -186,18 +186,20 @@ export function registerExternalWorker(run: TaskRun, command: { sessionId: Id; a
 }
 
 /** A transcript may be imported at any time, even after delivery; it never changes a finished round. */
-export function importTranscript(run: TaskRun, command: { sessionId: Id; ref: string; digest: Digest; coverage: TranscriptImport["coverage"]; trace?: FrozenTrace; at: Timestamp }): Step {
+export function importTranscript(run: TaskRun, command: { sessionId: Id; ref: string; digest: Digest; coverage: TranscriptImport["coverage"]; raw?:TraceBlob; trace?: FrozenTrace; at: Timestamp }): Step {
   const bad = firstInvalid([["ref", isText(command.ref, 1024)], ["digest", isDigest(command.digest)], ["coverage", ["full", "partial", "unknown"].includes(command.coverage)], ["at", isTimestamp(command.at)]]);
   if (bad) return bad;
   if (run.worker?.kind !== "external") return conflict("only an external worker has an imported transcript");
   if (run.worker.registration.sessionId !== command.sessionId) return reject("forbidden", "the session identity does not match this registration");
+  if (command.raw && (command.raw.digest!==command.digest || !Number.isSafeInteger(command.raw.byteLength) || command.raw.byteLength<0 ||
+      !Number.isSafeInteger(command.raw.chunkCount) || command.raw.chunkCount<0)) return invalid("raw transcript descriptor does not match its source");
   if (command.trace && (command.trace.raw.digest !== command.digest || command.trace.format !== "grounds.provider-trace/v1" ||
       !isDigest(command.trace.events.digest) || !["claude-code","codex"].includes(command.trace.provider))) return invalid("transcript descriptor does not match its raw source");
   const matches = run.worker.registration.transcripts.filter(t => t.digest === command.digest);
-  const existing = matches.find(t => t.trace) ?? matches[0];
+  const existing = matches.find(t => t.trace) ?? matches.find(t=>t.raw) ?? matches[0];
   if (existing?.trace && command.trace && (existing.trace.events.digest !== command.trace.events.digest || existing.trace.provider !== command.trace.provider)) return conflict("these bytes already have a different frozen interpretation");
-  if (existing && (!command.trace || existing.trace)) return advance(run, {}, [], "applied");
-  const record: TranscriptImport = { ref: command.ref, digest: command.digest, coverage: command.coverage, ...(command.trace ? {trace:command.trace} : {}), importedAt: command.at };
+  if (existing && (!command.trace || existing.trace) && (!command.raw || existing.trace || existing.raw)) return advance(run, {}, [], "applied");
+  const record: TranscriptImport = { ref: command.ref, digest: command.digest, coverage: command.coverage, ...(command.raw ? {raw:command.raw} : {}), ...(command.trace ? {trace:command.trace} : {}), importedAt: command.at };
   const registration = { ...run.worker.registration, transcripts: [...run.worker.registration.transcripts, record] };
   return advance(run, { worker: { kind: "external", registration } }, [{ type: "transcript-imported", runId: run.id, digest: command.digest, at: command.at }], "applied");
 }

@@ -240,7 +240,13 @@ async function work(args: ParsedArgs, action: string, app: WorkApplication, deps
       return { ...view, archiveIntegrity: await app.repairs.inspectRun(view.run, text(args, "repo") ?? deps.cwd) };
     }
     case "register": return unwrap(await app.exec.registerExternalWorker({ requestId: requestId(args), runId: need(args, "run"), agent: { id: need(args, "agent"), ...(text(args, "agent-name") ? { name: text(args, "agent-name")! } : {}), ...(text(args, "model") ? { model: text(args, "model")! } : {}) } }));
-    case "transcript": return unwrap(await app.exec.importTranscript({ requestId: requestId(args), runId: need(args, "run"), sessionId: need(args, "session"), ref: need(args, "ref"), digest: need(args, "digest"), coverage: need(args, "coverage") as "full" | "partial" | "unknown" }));
+    case "transcript": {
+      const input={requestId:requestId(args),runId:need(args,"run"),sessionId:need(args,"session"),digest:need(args,"digest"),coverage:need(args,"coverage") as "full"|"partial"|"unknown"};
+      if (raw(args,"file")===undefined) return unwrap(await app.exec.importTranscript({...input,ref:need(args,"ref")}));
+      if (raw(args,"ref")!==undefined) throw validation("ref","select a file or a reported reference");
+      const path=need(args,"file");
+      return unwrap(await app.traces.importRaw(input,()=>deps.artifactFile(path)));
+    }
     case "workspace": return unwrap<object>(await app.delivery.workspace({ runId: need(args, "run"), repositoryPath: text(args, "repo") ?? deps.cwd }));
     case "reconcile": {
       const runId=need(args,"run"), submission=unwrap(await app.exec.reconcileSubmission(runId));
@@ -393,7 +399,7 @@ export const workHelp = (): string => [
   "grounds work deliver --run RUN [--session S] [--repo PATH] [--commit REF] [--remote URL] [--declare-stop] [--protection protected|unprotected --protection-evidence REF]",
   "grounds work reconcile --run RUN  (recheck the pending submission and outstanding repair tags)",
   "grounds work repair --run RUN --delivery ID [--repo PATH]  (record another verified archive tag for the same frozen commit)",
-  "grounds work stop --run RUN --reason human|abandoned [--session S] | work cancel --run RUN [--reason TEXT] | work transcript --run RUN --session S --ref REF --digest D --coverage full|partial|unknown",
+  "grounds work stop --run RUN --reason human|abandoned [--session S] | work cancel --run RUN [--reason TEXT] | work transcript --run RUN --session S (--file FILE | --ref REF) --digest D --coverage full|partial|unknown",
   "grounds grade request --run RUN [--material ID=DIGEST...] | grade register --grading ID --agent NAME | grade stage --grading ID --session S --stage blind|freeze|reconcile|handoff|submit [--blind-digest D]",
   "grounds grade command --grading ID --session S --stage STAGE --entry NAME --argv-digest D --state succeeded|failed|unknown [--exit-code N]",
   "grounds grade submit --grading ID --session S --grade-file FILE   ({\"criteria\":[{criterion_id,independent,reconciliation,final,rationale,evidence}]})",

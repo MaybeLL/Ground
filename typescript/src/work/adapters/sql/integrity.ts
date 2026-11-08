@@ -21,7 +21,8 @@ export async function inspectWorkIntegrity(client: SQLClient): Promise<Integrity
     ["work_task_runs", async row => {
       const run = await r.taskRuns.get(String(row.id));
       if (run?.worker?.kind !== "external") return;
-      for (const {trace} of run.worker.registration.transcripts) {
+      for (const {trace,raw} of run.worker.registration.transcripts) {
+        if (raw) await verifyRef(raw);
         if (!trace) continue;
         for (const ref of [trace.raw, trace.events]) await verifyRef(ref);
       }

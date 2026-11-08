@@ -386,6 +386,39 @@ for (const backend of backends) {
   });
 }
 
+for (const backend of backends) test(`${backend}: raw transcript imports freeze chunks and bind only the registered session`,{skip:backendSkip(backend)},async()=>{
+  const fixture=await openLedger(backend);
+  try {
+    const {composeWork}=await import("../src/work/composition.js");
+    const {createHash}=await import("node:crypto");
+    const app=composeWork(fixture.store);
+    const task=await app.tasks.createTask({requestId:"task",summary:"Read evidence",criteria:[{statement:"auditable"}]});
+    assert.ok(task.ok);
+    const start=await app.exec.startRun({requestId:"run",taskDefinitionId:task.value.taskId,workerMode:"external"});
+    assert.ok(start.ok);
+    const runId=start.value.runId;
+    const registration=await app.exec.registerExternalWorker({requestId:"worker",runId,agent:{id:"writer"}});
+    assert.ok(registration.ok);
+    const bytes=Buffer.from("trace\n".repeat(15000));
+    const digest="sha256:"+createHash("sha256").update(bytes).digest("hex");
+    const input={requestId:"raw",runId,sessionId:registration.value.sessionId,digest,coverage:"full" as const};
+    let captures=0,disposals=0;
+    const capture=async()=>{
+      captures++;
+      return {source:{digest,byteLength:bytes.length,async *open(){yield bytes;}},async dispose(){disposals++;}};
+    };
+    assert.equal((await app.traces.importRaw({...input,sessionId:"wrong"},capture)).ok,false);
+    const first=await app.traces.importRaw(input,capture);
+    assert.ok(first.ok);
+    assert.deepEqual(await app.traces.importRaw(input,capture),first);
+    assert.deepEqual([captures,disposals],[1,1]);
+    const last=await app.traces.read(runId,digest,"raw",1);
+    assert.ok(last.ok);
+    assert.deepEqual(Buffer.from(last.value.data),bytes.subarray(65536));
+    assert.equal((await fixture.store.inspectIntegrity()).report.valid,true);
+  } finally {await fixture.close();}
+});
+
 for (const backend of backends) test(`${backend}: upgrade a populated work ledger and atomically store verifiable binary evidence`, {skip:backendSkip(backend)}, async () => {
   const fixture = await openLedger(backend);
   const {store} = fixture;
