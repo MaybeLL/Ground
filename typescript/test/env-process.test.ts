@@ -18,17 +18,17 @@ import { temporary } from "./env-test-helpers.js";
 const exited = (child: ChildProcess): Promise<void> => new Promise((resolve, reject) => {
   child.once("exit", () => resolve()); child.once("error", reject);
 });
-async function stopped(scope: HostProcessScope): Promise<void> {
+async function stopped(scope: HostProcessScope, leader?:HostProcessIdentity): Promise<void> {
   for (let i = 0; i < 100; i++) {
-    const observed = inspectHostProcessScope(scope);
+    const observed = inspectHostProcessScope(scope,leader);
     if (observed.complete && observed.processes.length === 0) return;
     await delay(20);
   }
   assert.fail("scope did not confirm stopped after its own processes exited");
 }
-async function completeObservation(scope: HostProcessScope): Promise<HostProcessObservation> {
+async function completeObservation(scope: HostProcessScope, leader?:HostProcessIdentity): Promise<HostProcessObservation> {
   for (let i = 0; i < 100; i++) {
-    const observed = inspectHostProcessScope(scope);
+    const observed = inspectHostProcessScope(scope,leader);
     if (observed.complete) return observed;
     await delay(20);
   }
@@ -58,19 +58,26 @@ test("host completion includes a detached reparented Python descendant, and pers
   const directory = mkdtempSync(join(tmpdir(), "grounds-host-descendant-"));
   const scope = createHostProcessScope(); let descendant: number | undefined;
   try {
-    const child = spawn("python3", ["-c", `import subprocess,sys\np=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'],start_new_session=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\nopen(sys.argv[1],'w').write(str(p.pid))`, join(directory, "pid")], { detached: true, stdio: "ignore", env: { ...process.env, ...hostProcessEnvironment(scope), GROUNDS_TEST_SECRET: "must-never-leave-native-memory" } });
-    await exited(child);
+    const child = spawn("python3", ["-c", `import subprocess,sys\nsys.stdin.readline()\np=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'],start_new_session=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\nopen(sys.argv[1],'w').write(str(p.pid))`, join(directory, "pid")], { detached: true, stdio: ["pipe","ignore","ignore"], env: { ...process.env, ...hostProcessEnvironment(scope), GROUNDS_TEST_SECRET: "must-never-leave-native-memory" } });
+    const done=exited(child);
+    let leader:HostProcessIdentity;
+    try {
+      const identity=hostProcessIdentity(child.pid!);
+      assert.ok(identity);
+      leader={pid:child.pid!,identity};
+    } finally {child.stdin!.end("\n");}
+    await done;
     descendant = Number(readFileSync(join(directory, "pid"), "utf8"));
     process.kill(descendant, 0);
     const persisted = JSON.parse(JSON.stringify(scope)) as HostProcessScope;
-    const observed = await completeObservation(persisted);
+    const observed = await completeObservation(persisted,leader);
     assert.equal(observed.complete, true);
     assert.deepEqual(observed.processes.map(p => p.pid), [descendant]);
     assert.deepEqual(Object.keys(observed).sort(), ["complete", "processes"]);
     assert.deepEqual(Object.keys(observed.processes[0]).sort(), ["identity", "pid"]);
     assert.equal(JSON.stringify(observed).includes("must-never-leave-native-memory"), false);
-    signalHostProcessScope(persisted, "SIGTERM");
-    await stopped(persisted);
+    signalHostProcessScope(persisted, "SIGTERM",leader);
+    await stopped(persisted,leader);
   } finally {
     for (const owned of inspectHostProcessScope(scope).processes) signalHostProcessIdentity(scope, owned, "SIGKILL");
     rmSync(directory, { recursive: true, force: true });
