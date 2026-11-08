@@ -1243,6 +1243,31 @@ test("repository environment builds reject escaping paths, unpinned nested Featu
   });
 });
 
+test("an existing external worktree with no SQL binding recovers its original base from Git",async()=>{
+  await withHarness(async h=>{
+    const task=ok(await h.cli("task","create","--title","Existing workspace","--criterion","preserve work","--repo-remote",h.remote,"--baseline","main"));
+    const {runId}=ok(await h.cli("work","start","--task",task.taskId,"--mode","external"));
+    const args=["work","workspace","--run",runId,"--repo",h.repo];
+    const opened=ok(await h.cli(...args));
+    writeFileSync(join(opened.path,"mine"),"keep this work");
+    git(opened.path,"add","mine");git(opened.path,"commit","-qm","local changes");
+    git(h.repo,"commit","--allow-empty","-qm","advance task baseline");
+    const db=new DatabaseSync(join(h.directory,"ledger.db"));
+    try {
+      const unbind=()=>db.prepare("DELETE FROM work_intents WHERE kind='external-workspace' AND subject_id=?").run(runId);
+      unbind();
+      const other=join(h.directory,"another-clone");
+      git(h.directory,"clone","-q",h.repo,other);
+      assert.equal((await h.cli("work","workspace","--run",runId,"--repo",other)).error.code,"STATE_CONFLICT");
+      assert.equal(ok(await h.cli(...args)).base.commit,h.baseline);
+      unbind();
+      rmSync(git(opened.path,"rev-parse","--path-format=absolute","--git-path","logs/HEAD"));
+      assert.equal((await h.cli(...args)).error.code,"STATE_CONFLICT");
+      assert.equal(readFileSync(join(opened.path,"mine"),"utf8"),"keep this work");
+    } finally {db.close();}
+  });
+});
+
 test("external sandbox runs a working task against read-only materials and returns its output to the host", {skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async()=>{
   await withHarness(async h=>{
     const image=process.env.GROUNDS_TEST_MANAGED_AGENT!,cfg=join(h.directory,"env.json"),sources=join(h.directory,"sources.json");

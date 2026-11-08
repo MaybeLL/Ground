@@ -49,6 +49,7 @@ export interface CodeArchivePort {
 /** A private working copy for one run: its own directory and branch, started at a given commit. */
 export interface WorktreePort {
   repositoryIdentity(repositoryPath:string):Promise<string>;
+  existingBase(input:{repositoryPath:string;runId:string}):Promise<string|undefined>;
   create(input: { repositoryPath: string; runId: string; commit: string }): Promise<{ path: string; branch: string; created: boolean }>;
 }
 

@@ -153,6 +153,12 @@ export class CodeDelivery {
         return succeed(binding.base);
       };
       if (found.binding) return bound(found.binding.payload);
+      if (repository) {
+        let existing;
+        try {existing=await this.deps.worktrees.existingBase(input);} catch {return fail("conflict","cannot prove the original base of the existing external worktree");}
+        if (existing && reservedCommit && existing!==reservedCommit) return fail("conflict","existing worktree and sandbox reservation have different bases");
+        reservedCommit ??= existing;
+      }
       let base: Workspace["base"];
       if (reservedCommit) {
         const parent=found.run.refines && !(found.parent && canRefineFromBaseline(found.parent)) ? found.run.refines : undefined;
