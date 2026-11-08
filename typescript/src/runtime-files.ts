@@ -163,7 +163,7 @@ export function withRuntimeLockSync<T>(root: string, key: string, fn: () => T): 
 export async function withRuntimeLock<T>(
   root: string,
   key: string,
-  fn: () => Promise<T>,
+  fn: (lockFd: number) => Promise<T>,
   waitMs = 0,
   mode: "exclusive" | "shared" = "exclusive",
 ): Promise<T> {
@@ -198,7 +198,7 @@ export async function withRuntimeLock<T>(
         );
       }
     }
-    return await fn();
+    return await fn(fd);
   } finally {
     closeSync(fd);
   }

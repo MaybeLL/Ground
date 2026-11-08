@@ -219,34 +219,6 @@
       ],
       "properties": {
         "command": {
-          "const": "work.resume-sandbox"
-        },
-        "result_type": {
-          "const": "grounds.result.work.resume-sandbox/v1"
-        },
-        "runId": {
-          "$ref": "work-results.schema.json#/$defs/Id"
-        },
-        "sandboxId": {
-          "$ref": "work-results.schema.json#/$defs/Id"
-        },
-        "phase": {
-          "const": "ready"
-        }
-      },
-      "additionalProperties": false
-    },
-    {
-      "type": "object",
-      "required": [
-        "command",
-        "result_type",
-        "runId",
-        "sandboxId",
-        "phase"
-      ],
-      "properties": {
-        "command": {
           "const": "work.release-sandbox"
         },
         "result_type": {

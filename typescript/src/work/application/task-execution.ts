@@ -15,6 +15,7 @@ import { runEnvironment } from "./environment-definitions.js";
 import { once, type RequestContext } from "./requests.js";
 
 export interface TaskExecutionDependencies {
+  readonly recovery?: import("./sandbox-recovery.js").SandboxRecovery;
   readonly lifecycle?: import("./sandbox-lifecycle.js").SandboxLifecycle;
   readonly units: WorkUnitOfWork;
   readonly clock: Clock;
@@ -130,6 +131,10 @@ export class TaskExecution {
   async closeWork(input: { requestId: string; workId: Id }): Promise<Outcome<Closed>> {
     const early = needId("requestId", input.requestId) ?? needId("workId", input.workId);
     if (early) return Promise.resolve(early);
+    if (this.deps.recovery) {
+      const prepared = await this.deps.recovery.beforeClose(input.workId);
+      if (!prepared.ok) return prepared;
+    }
     const outcome = await once<Closed>(this.context, { requestId: input.requestId, kind: "close-work", input: input as unknown as JsonValue, subject: { type: "work", id: input.workId } }, async r => {
       const work = await r.works.get(input.workId, { lock: true });
       if (!work) return fail("not-found", `work ${input.workId} does not exist`);
@@ -219,7 +224,7 @@ export class TaskExecution {
     if (!known) return fail("not-found", `run ${input.runId} does not exist`);
     if (known.workerMode === "managed") return fail("unsupported", "a managed round delivers through its own execution");
     const check = await this.deps.receipts.check(input.items);
-    return once<Submitted>(this.context, { requestId: input.requestId, kind: "submit", input: input as unknown as JsonValue, subject: { type: "task_run", id: input.runId } }, async r => {
+    const changed = await once<Submitted>(this.context, { requestId: input.requestId, kind: "submit", input: input as unknown as JsonValue, subject: { type: "task_run", id: input.runId } }, async r => {
       const run = await r.taskRuns.get(input.runId, { lock: true });
       if (!run) return fail("not-found", `run ${input.runId} does not exist`);
       const at = this.deps.clock.now();
@@ -242,13 +247,14 @@ export class TaskExecution {
       const final = submitted.value.state;
       return succeed({ runId: run.id, status: final.status, outcome: String(submitted.value.outcome), blocked: final.blocked?.reason ?? null });
     });
+    return this.afterTerminal(changed);
   }
 
   /** The external agent says it has stopped (or the human did); a cancellation waiting on it can now complete. */
-  declareStop(input: { requestId: string; runId: Id; reason: "human" | "abandoned"; sessionId?: Id }): Promise<Outcome<Cancelled>> {
+  async declareStop(input: { requestId: string; runId: Id; reason: "human" | "abandoned"; sessionId?: Id }): Promise<Outcome<Cancelled>> {
     const early = needId("requestId", input.requestId) ?? needId("runId", input.runId);
     if (early) return Promise.resolve(early);
-    return once<Cancelled>(this.context, { requestId: input.requestId, kind: "declare-stop", input: input as unknown as JsonValue, subject: { type: "task_run", id: input.runId } }, async r => {
+    const changed = await once<Cancelled>(this.context, { requestId: input.requestId, kind: "declare-stop", input: input as unknown as JsonValue, subject: { type: "task_run", id: input.runId } }, async r => {
       const run = await r.taskRuns.get(input.runId, { lock: true });
       if (!run) return fail("not-found", `run ${input.runId} does not exist`);
       const next = declareExternalStop(run, { at: this.deps.clock.now(), reason: input.reason, ...(input.sessionId ? { sessionId: input.sessionId } : {}) });
@@ -256,13 +262,14 @@ export class TaskExecution {
       if (next.value.state !== run) await r.taskRuns.save(next.value.state, run.version);
       return succeed({ runId: run.id, status: next.value.state.status, outcome: String(next.value.outcome) });
     });
+    return this.afterTerminal(changed);
   }
 
   /** Ask for the run to be cancelled. It ends cancelled once nothing of it can still be running. */
-  cancel(input: { requestId: string; runId: Id; reason?: string }): Promise<Outcome<Cancelled>> {
+  async cancel(input: { requestId: string; runId: Id; reason?: string }): Promise<Outcome<Cancelled>> {
     const early = needId("requestId", input.requestId) ?? needId("runId", input.runId);
     if (early) return Promise.resolve(early);
-    return once<Cancelled>(this.context, { requestId: input.requestId, kind: "cancel-run", input: input as unknown as JsonValue, subject: { type: "task_run", id: input.runId } }, async r => {
+    const changed = await once<Cancelled>(this.context, { requestId: input.requestId, kind: "cancel-run", input: input as unknown as JsonValue, subject: { type: "task_run", id: input.runId } }, async r => {
       const run = await r.taskRuns.get(input.runId, { lock: true });
       if (!run) return fail("not-found", `run ${input.runId} does not exist`);
       const next = requestCancel(run, { at: this.deps.clock.now(), ...(input.reason ? { reason: input.reason } : {}) });
@@ -270,6 +277,15 @@ export class TaskExecution {
       if (next.value.state !== run) await r.taskRuns.save(next.value.state, run.version);
       return succeed({ runId: run.id, status: next.value.state.status, outcome: String(next.value.outcome) });
     });
+    return this.afterTerminal(changed);
+  }
+
+  private async afterTerminal<T extends {runId:string; status:TaskRunStatus}>(result: Outcome<T>): Promise<Outcome<T>> {
+    if (result.ok && this.deps.lifecycle && ["cancelled","delivered","failed"].includes(result.value.status)) {
+      const settled = await this.deps.lifecycle.settleRun(result.value.runId);
+      if (!settled.ok) return settled;
+    }
+    return result;
   }
 
   // ---- queries -------------------------------------------------------------

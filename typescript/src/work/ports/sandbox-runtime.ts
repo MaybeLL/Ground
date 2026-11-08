@@ -1,9 +1,12 @@
 // Sandbox IDs are scoped to a ledger. Only immutable Docker IDs may be used
 // for lifecycle operations after verifying both labels.
+export type RuntimeLocation = { hostId: string; daemonId: string };
 export type RuntimeOwner = { ledgerId: string; sandboxId: string };
 export type RuntimeState = { id: string; state: "running" | "paused" | "stopped" };
-export type RuntimeWorkspace = { path: string; configPath: string; imageDigest?: string; frozenLockfile?: boolean };
+export type RuntimeWorkspace = { path: string; configPath: string; containerFolder?: string; imageDigest?: string; frozenLockfile?: boolean };
 export interface SandboxRuntimePort {
+  location(): Promise<RuntimeLocation>;
+  exclusive<T>(owner: RuntimeOwner, fn: () => Promise<T>): Promise<T>;
   observe(owner: RuntimeOwner): Promise<RuntimeState | null>;
   up(owner: RuntimeOwner, workspace: RuntimeWorkspace): Promise<RuntimeState>;
   pause(owner: RuntimeOwner, id: string): Promise<void>;
@@ -17,4 +20,12 @@ export interface ManagedWorkspacePort {
   prepare(owner: RuntimeOwner, repository: string, commit: string, content: { config: string; lockfile: string | null; imageDigest: string }): Promise<RuntimeWorkspace>;
   receipt(owner: RuntimeOwner): Promise<string | null>;
   record(owner: RuntimeOwner, containerId: string): Promise<void>;
+}
+
+export type LaunchObservation = "not-started" | "active" | "failed" | "completed" | "interrupted";
+/** The launch helper survives the client and owns the lock until its tool exits. */
+export interface SandboxLauncher {
+  start(owner: RuntimeOwner, workspace: RuntimeWorkspace, location: RuntimeLocation): Promise<void>;
+  status(owner: RuntimeOwner): Promise<LaunchObservation>;
+  cancelPending(owner: RuntimeOwner): Promise<boolean>;
 }

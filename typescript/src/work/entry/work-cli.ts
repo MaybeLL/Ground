@@ -3,7 +3,6 @@
 // a call is the request identity, so repeating a call with the same
 // `--operation-id` is safe.
 import { resolve } from "node:path";
-import { parse as parseJsonc, type ParseError } from "jsonc-parser";
 import { DomainError, validation } from "../../errors.js";
 import type { ParsedArgs } from "../../cli.js";
 import type { CriterionVerdict, Grade, ProtocolStage } from "../domain/index.js";
@@ -12,7 +11,7 @@ import type { Outcome, WorkApplication } from "../application/index.js";
 export const WORK_GROUPS = ["task", "work", "grade", "suite"] as const;
 export const WORK_WRITE_ACTIONS = new Set([
   "grade:measure", "grade:define-rule", "suite:publish", "suite:measure",
-  "work:prepare-sandbox", "work:pause-sandbox", "work:resume-sandbox", "work:release-sandbox", "work:define-environment", "task:create", "task:revise",
+  "work:prepare-sandbox", "work:pause-sandbox", "work:release-sandbox", "work:define-environment", "task:create", "task:revise",
   "work:start", "work:continue", "work:branch", "work:select", "work:close", "work:register", "work:transcript", "work:deliver", "work:repair", "work:stop", "work:cancel",
   "grade:request", "grade:register", "grade:stage", "grade:command", "grade:submit", "grade:stop", "grade:cancel",
 ]);
@@ -112,7 +111,6 @@ async function work(args: ParsedArgs, action: string, app: WorkApplication, deps
     case "prepare-sandbox": return unwrap(await app.sandboxes.prepare(requestId(args), need(args,"run"), resolve(deps.cwd, text(args,"repo") ?? ".")));
     case "reconcile-sandbox": return unwrap(await app.sandboxes.reconcile(need(args,"run")));
     case "pause-sandbox": return unwrap(await app.lifecycle.lifecycle(requestId(args), need(args,"run"), "pause"));
-    case "resume-sandbox": return unwrap(await app.lifecycle.lifecycle(requestId(args), need(args,"run"), "resume"));
     case "release-sandbox": return unwrap(await app.lifecycle.lifecycle(requestId(args), need(args,"run"), "release"));
     case "define-environment": {
       const id = text(args, "environment");
@@ -121,9 +119,6 @@ async function work(args: ParsedArgs, action: string, app: WorkApplication, deps
         try { return deps.readFile(path); } catch { throw validation(name, "must be a readable file"); }
       };
       const config = read("devcontainer");
-      const errors: ParseError[] = [];
-      const parsed = parseJsonc(config, errors, { allowTrailingComma: true });
-      if (errors.length || !parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw validation("devcontainer", "must contain a devcontainer JSONC object");
       return unwrap(await app.environments.publish({ requestId: requestId(args), name: need(args,"name"), config,
         imageDigest: need(args,"image-digest"), ...(raw(args,"lockfile") !== undefined ? { lockfile: read("lockfile") } : {}),
         ...(id ? { definitionId: id } : {}), expectedSeq: id || raw(args,"expected-seq") !== undefined ? integer(args,"expected-seq") : 0 }));
@@ -209,7 +204,7 @@ export const workHelp = (): string => [
   "grounds suite show --suite ID --revision N | suite list | suite measure --suite ID --revision N --case KEY [--binding KEY] --run RUN --delivery ID [--repo PATH]",
   "grounds task create --title TEXT --criterion TEXT... [--context TEXT] [--environment ID] [--repo-remote URL --baseline REF]",
   "grounds task revise --task ID --expected-seq N --title TEXT --criterion [ID: ]TEXT... | task show --task ID [--revision N] | task list",
-  "grounds work prepare-sandbox --run RUN [--repo PATH] | work reconcile-sandbox --run RUN | work pause-sandbox|resume-sandbox|release-sandbox --run RUN",
+  "grounds work prepare-sandbox --run RUN [--repo PATH] | work reconcile-sandbox --run RUN | work pause-sandbox|release-sandbox --run RUN",
   "grounds work define-environment --name NAME --devcontainer FILE --image-digest SHA256 [--lockfile FILE] [--environment ID --expected-seq N] | work environment --environment ID --revision N",
   "grounds work start --task ID --mode external|none [--environment-revision ID] | work continue --work ID --expected-head RUN --mode M | work branch --work ID --refines RUN --mode M",
   "grounds work select --work ID --run RUN [--expected-head RUN] | work close --work ID | work show --work ID [--repo PATH] | work run --run RUN [--repo PATH]",

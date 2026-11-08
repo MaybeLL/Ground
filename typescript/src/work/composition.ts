@@ -5,9 +5,12 @@ import { createHash } from "node:crypto";
 import { newUUIDv7 } from "../identity.js";
 import type { SQLStore } from "../sql-store.js";
 import { GitTagArchive, GitWorktrees, SqlWorkUnitOfWork } from "./adapters/index.js";
+import { DurableSandboxLauncher } from "./adapters/devcontainer/launch.js";
+import { pinnedConfig } from "./adapters/devcontainer/config.js";
 import { DevcontainerRuntime } from "./adapters/devcontainer/runtime.js";
 import { ManagedWorkspaces } from "./adapters/devcontainer/workspace.js";
 import { SandboxLifecycle } from "./application/sandbox-lifecycle.js";
+import { SandboxRecovery } from "./application/sandbox-recovery.js";
 import { SandboxProvisioning } from "./application/sandbox-provisioning.js";
 import { EnvironmentDefinitions } from "./application/environment-definitions.js";
 import { RuleDefinitions } from "./application/rule-definitions.js";
@@ -23,13 +26,16 @@ export function composeWork(store: SQLStore): WorkApplication {
   const context = { units, hash: shared.hash, now: shared.clock.now, newId: newUUIDv7 };
   const runtime = new DevcontainerRuntime(), ledgerId = async () => (await store.inspect()).database_id;
   const lifecycle = new SandboxLifecycle({ ...context, runtime, ledgerId });
-  const exec = new TaskExecution({ ...shared, receipts: archive, lifecycle });
+  const workspaces = new ManagedWorkspaces();
+  const managed = { ...context, lifecycle, runtime, ledgerId, workspaces, launcher:new DurableSandboxLauncher(workspaces) };
+  const recovery = new SandboxRecovery(managed);
+  const exec = new TaskExecution({ ...shared, receipts: archive, lifecycle, recovery });
   const repairs = new ArchiveRepairs({ ...shared, archive });
   const suites = new EvaluationSuites({ units, repairs, archive, hash: shared.hash, now: shared.clock.now, newId: newUUIDv7,
     capture: bytes => ({ digest: "sha256:" + createHash("sha256").update(bytes).digest("hex"), base64: Buffer.from(bytes).toString("base64") }) });
   const rules = new RuleDefinitions(context);
-  const environments = new EnvironmentDefinitions(context);
+  const environments = new EnvironmentDefinitions(context, pinnedConfig);
   const delivery = new CodeDelivery({ units, exec, archive, repairs, worktrees: new GitWorktrees() });
-  const sandboxes = new SandboxProvisioning({ ...context, delivery, workspaces: new ManagedWorkspaces(), runtime, ledgerId });
+  const sandboxes = new SandboxProvisioning({ ...managed, delivery }, recovery);
   return { lifecycle, sandboxes, environments, rules, suites, repairs, tasks: new TaskDefinitions(shared), exec, grading: new Grading(shared), delivery };
 }

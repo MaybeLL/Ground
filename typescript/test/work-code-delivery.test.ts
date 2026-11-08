@@ -182,29 +182,96 @@ for (const backend of backends) test(`${backend}: reconcile a sandbox launch wit
     const task = value(await app.tasks.createTask({ requestId:"task", summary:"isolation", criteria:[{statement:"isolated"}], environmentDefinitionId:env.environmentId, repository:{ remote, baseline } }));
     const run = value(await app.exec.startWork({ requestId:"run", taskDefinitionId:task.taskId, workerMode:"external" }));
     const id = "a".repeat(64);
-    let launches = 0, removals = 0;
+    let launches = 0, removals = 0, daemonId = "test";
     let current: { id: string; state: "running" } | null = null;
     class Runtime extends DevcontainerRuntime {
+      override async location() { return {hostId:"test",daemonId}; }
+      override async exclusive<T>(_owner: unknown, fn: () => Promise<T>) { return fn(); }
       override async up() { launches++; return current = { id, state:"running" as const }; }
       override async observe() { return current; }
       override async remove() { current = null; removals++; throw new Error("lost release reply"); }
     }
     const runtime = new Runtime();
     const ctx = { units:new SqlWorkUnitOfWork(store), hash:(s: string) => createHash("sha256").update(s).digest("hex"), newId:newUUIDv7, now:() => new Date().toISOString(), ledgerId:async () => (await store.inspect()).database_id, runtime };
-    class Interrupted extends ManagedWorkspaces {
-      override async record(owner: Parameters<ManagedWorkspaces["record"]>[0], id: string) {
-        await super.record(owner,id); throw new Error("lost completion before recording in SQL");
-      }
-    }
-    const provisioner = new SandboxProvisioning({ ...ctx, delivery:app.delivery, workspaces:new Interrupted(root) });
+    const workspaces = new ManagedWorkspaces(root);
+    let status: "not-started" | "active" | "failed" | "completed" = "not-started";
+    const launcher = { cancelPending:async () => false, status: async () => status, start: async (owner: Parameters<ManagedWorkspaces["record"]>[0]) => {
+      status = "active"; await runtime.up();
+      setComplete = async () => { await workspaces.record(owner,id); status = "completed"; };
+    } };
+    let setComplete: () => Promise<void>;
+    const lifecycle = new SandboxLifecycle(ctx);
+    const provisioner = new SandboxProvisioning({ ...ctx, lifecycle, delivery:app.delivery, workspaces, launcher });
     refused(await provisioner.prepare("prepare",run.runId,repo),"unavailable");
+    await setComplete!();
     const recovered = value(await provisioner.reconcile(run.runId));
     assert.equal(recovered.instanceId,id);
     assert.equal(value(await provisioner.prepare("prepare",run.runId,repo)).sandboxId,recovered.sandboxId);
     assert.equal(launches,1);
-    const lifecycle = new SandboxLifecycle(ctx);
+    // End the owner before releasing its sandbox. Use the fixture's runtime.
+    const { TaskExecution } = await import("../src/work/application/task-execution.js");
+    const taskExec = new TaskExecution({units:ctx.units, hash:ctx.hash, clock:{now:ctx.now}, ids:{next:newUUIDv7}, receipts:new GitTagArchive()});
+    value(await taskExec.cancel({requestId:"end",runId:run.runId}));
+    daemonId = "other"; refused(await lifecycle.lifecycle("foreign",run.runId,"release"),"conflict");
+    assert.equal(removals,0); daemonId = "test";
     refused(await lifecycle.lifecycle("release",run.runId,"release"),"unavailable");
     assert.equal(value(await lifecycle.lifecycle("release",run.runId,"release")).phase,"released");
     assert.equal(removals,1);
   },backend);
+});
+
+test("failed setup can close and cancellation racing setup pauses the actual owned instance", async () => {
+  await scenario(async ({app,store,repo,remote,baseline,root}) => {
+    const { SandboxProvisioning } = await import("../src/work/application/sandbox-provisioning.js");
+    const { SandboxLifecycle } = await import("../src/work/application/sandbox-lifecycle.js");
+    const { TaskExecution } = await import("../src/work/application/task-execution.js");
+    const { DevcontainerRuntime } = await import("../src/work/adapters/devcontainer/runtime.js");
+    const { ManagedWorkspaces } = await import("../src/work/adapters/devcontainer/workspace.js");
+    const units = new SqlWorkUnitOfWork(store);
+    const imageDigest = "sha256:"+"3".repeat(64);
+    const env = value(await app.environments.publish({requestId:"e",name:"test",config:'{"image":"alpine"}',imageDigest,expectedSeq:0}));
+    const task = value(await app.tasks.createTask({requestId:"t",summary:"fixture",criteria:[{statement:"works"}],repository:{remote,baseline},environmentDefinitionId:env.environmentId}));
+    const id = "a".repeat(64), workspaces = new ManagedWorkspaces(root);
+    let phase: "running" | "paused" | null = null;
+    let daemonDown = true, failPause = true;
+    class Runtime extends DevcontainerRuntime {
+      override async location() { if (daemonDown) throw Error("offline"); return {hostId:"local",daemonId:"same"}; }
+      override async exclusive<T>(_owner: unknown,fn: () => Promise<T>) { return fn(); }
+      override async observe() { return phase ? {id,state:phase} : null; }
+      override async pause() { if (failPause) { failPause = false; throw Error("before Docker command"); } phase = "paused"; }
+      override async remove() { phase = null; }
+    }
+    const runtime = new Runtime();
+    const ctx = { units, runtime, hash:(s:string)=>createHash("sha256").update(s).digest("hex"), newId:newUUIDv7, now:()=>new Date().toISOString(), ledgerId:async ()=>(await store.inspect()).database_id };
+    const lifecycle = new SandboxLifecycle(ctx);
+    const taskExec = new TaskExecution({units,hash:ctx.hash,clock:{now:ctx.now},ids:{next:newUUIDv7},receipts:new GitTagArchive(),lifecycle});
+    let failed = true;
+    let entered!: () => void, finish!: () => void;
+    const started = new Promise<void>(r=>{entered=r;}), gate = new Promise<void>(r=>{finish=r;});
+    const launcher = { cancelPending:async()=>false, status:async()=>failed ? "failed" as const : "completed" as const,
+      start:async(owner: Parameters<ManagedWorkspaces["record"]>[0]) => {
+        if (failed) throw Error("build failed");
+        phase = "running"; entered(); await gate; await workspaces.record(owner,id);
+      } };
+    const provision = new SandboxProvisioning({...ctx,workspaces,launcher,lifecycle,delivery:app.delivery});
+    const first = value(await taskExec.startWork({requestId:"one",workerMode:"external",taskDefinitionId:task.taskId}));
+    refused(await provision.prepare("prepare-one",first.runId,repo),"unavailable");
+    assert.equal(value(await taskExec.getRun(first.runId)).run.sandboxId,undefined);
+    daemonDown = false;
+    refused(await provision.prepare("prepare-one",first.runId,repo),"unavailable");
+    assert.equal(value(await taskExec.getRun(first.runId)).run.failure?.class,"infrastructure");
+    assert.equal(value(await taskExec.closeWork({requestId:"close-one",workId:first.workId})).status,"closed");
+    const second = value(await taskExec.startWork({requestId:"two",workerMode:"external",taskDefinitionId:task.taskId}));
+    failed = false;
+    const preparing = provision.prepare("prepare-two",second.runId,repo);
+    await started;
+    value(await taskExec.cancel({requestId:"cancel-two",runId:second.runId}));
+    finish();
+    refused(await preparing,"unavailable"); // first pause failed before Docker changed
+    assert.equal(phase,"running");
+    value(await taskExec.cancel({requestId:"cancel-two",runId:second.runId}));
+    assert.equal(phase,"paused");
+    assert.equal(value(await taskExec.closeWork({requestId:"close-two",workId:second.workId})).status,"closed");
+    assert.equal(phase,null);
+  });
 });

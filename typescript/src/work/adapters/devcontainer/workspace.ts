@@ -3,20 +3,25 @@ import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promise
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { inspectionEnvironment } from "../git/inspection-environment.js";
+import { atomicPrivateWrite } from "../../../runtime-files.js";
+import { pinnedConfig } from "./config.js";
 import { dataLayout } from "../../../data-layout.js";
 import type { ManagedWorkspacePort, RuntimeOwner } from "../../ports/index.js";
 
-const git = promisify(execFile);
+const exec = promisify(execFile);
+const git = (args: string[]) => exec("git", args, { env: inspectionEnvironment(), timeout: 60_000 });
 const absent = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";
 
 export class ManagedWorkspaces implements ManagedWorkspacePort {
   constructor(private readonly directory = dataLayout().workspaces) {}
-  private root(owner: RuntimeOwner) {
+  root(owner: RuntimeOwner) {
     if (![owner.ledgerId, owner.sandboxId].every(id => /^[0-9a-f-]{36}$/.test(id))) throw new Error("invalid managed workspace identity");
     return join(this.directory, "sandboxes", owner.ledgerId, owner.sandboxId);
   }
 
   async prepare(owner: RuntimeOwner, repository: string, commit: string, content: { config: string; lockfile: string | null; imageDigest: string }) {
+    const configSource = pinnedConfig(content.config, content.imageDigest);
     const root = this.root(owner);
     if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(commit)) throw new Error("managed workspace needs a full commit");
     await mkdir(root, { recursive: true, mode: 0o700 });
@@ -31,16 +36,16 @@ export class ManagedWorkspaces implements ManagedWorkspacePort {
       try {
         const clone = join(stage, "workspace"), config = join(stage, ".devcontainer");
         await mkdir(config);
-        await git("git", ["init", "--quiet", "--template=", "--object-format=" + (commit.length === 64 ? "sha256" : "sha1"), clone]);
-        await git("git", ["-C", clone, "-c", "core.hooksPath=/dev/null", "fetch", "--no-tags", "--depth=1", "--", pathToFileURL(repository).href, commit]);
-        await git("git", ["-C", clone, "-c", "core.hooksPath=/dev/null", "checkout", "--quiet", "--detach", commit]);
-        await writeFile(join(config, "devcontainer.json"), content.config);
-        if (content.lockfile !== null) await writeFile(join(config, ".devcontainer-lock.json"), content.lockfile);
+        await git(["init", "--quiet", "--template=", "--object-format=" + (commit.length === 64 ? "sha256" : "sha1"), clone]);
+        await git(["-C", clone, "-c", "core.hooksPath=/dev/null", "fetch", "--no-tags", "--depth=1", "--", pathToFileURL(repository).href, commit]);
+        await git(["-C", clone, "-c", "core.hooksPath=/dev/null", "checkout", "--quiet", "--detach", commit]);
+        await writeFile(join(config, "devcontainer.json"), JSON.stringify(configSource));
+        if (content.lockfile !== null) await writeFile(join(config, "devcontainer-lock.json"), content.lockfile);
         await writeFile(join(stage, "source.json"), descriptor, { mode: 0o600 });
         try { await rename(stage, dest); } catch (error) { if (!await verified()) throw error; }
       } finally { await rm(stage, { recursive: true, force: true }); }
     }
-    return { path: workspace, configPath: join(dest, ".devcontainer", "devcontainer.json"), imageDigest: content.imageDigest, frozenLockfile: content.lockfile !== null };
+    return { path: workspace, configPath: join(dest, ".devcontainer", "devcontainer.json"), imageDigest: content.imageDigest, containerFolder: configSource.workspaceFolder as string, frozenLockfile: content.lockfile !== null };
   }
 
   async receipt(owner: RuntimeOwner) {
@@ -49,6 +54,8 @@ export class ManagedWorkspaces implements ManagedWorkspacePort {
   }
   async record(owner: RuntimeOwner, id: string) {
     if (!/^[0-9a-f]{64}$/.test(id)) throw new Error("invalid container receipt");
-    await writeFile(join(this.root(owner), "container-id"), id, { flag: "wx", mode: 0o600 });
+    const existing = await this.receipt(owner);
+    if (existing !== null && existing !== id) throw new Error("sandbox completion receipt already identifies a different container");
+    if (existing === null) atomicPrivateWrite(join(this.root(owner), "container-id"),id);
   }
 }

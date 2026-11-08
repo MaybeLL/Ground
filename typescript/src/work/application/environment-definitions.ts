@@ -14,11 +14,18 @@ export type EnvironmentContent = {
 /** Preserve the exact devcontainer source (including JSONC comments) and the
  * lockfile alongside the immutable identity of the image chosen for this environment. */
 export class EnvironmentDefinitions {
-  constructor(private readonly ctx: RequestContext) {}
+  constructor(private readonly ctx: RequestContext, private readonly validate: (config: string, digest: string) => unknown) {}
 
   publish(input: { requestId: string; name: string; config: string; imageDigest: string; lockfile?: string; definitionId?: string; expectedSeq: number }) {
     if (!isId(input.requestId) || !isText(input.name, 256) || !isText(input.config, 1024 * 1024) || !isDigest(input.imageDigest) ||
         (input.lockfile !== undefined && !isText(input.lockfile, 1024 * 1024))) return Promise.resolve(fail("invalid", "provide a devcontainer configuration and sha256 image digest"));
+    try {
+      this.validate(input.config, input.imageDigest);
+      if (input.lockfile !== undefined) {
+        const lock = JSON.parse(input.lockfile);
+        if (!lock || typeof lock !== "object" || Array.isArray(lock)) return Promise.resolve(fail("invalid", "invalid devcontainer lockfile"));
+      }
+    } catch (error) { return Promise.resolve(fail("invalid", error instanceof Error ? error.message : "invalid environment configuration")); }
     return once(this.ctx, { requestId: input.requestId, kind: "publish-environment", subject: { type: "environment", id: input.definitionId ?? input.requestId }, input }, async r => {
       const at = this.ctx.now(), id = input.definitionId ?? this.ctx.newId();
       let definition = await r.definitions.get(id, { lock: true });

@@ -146,4 +146,4 @@ jobs:
           export GROUNDS_TEST_CONTAINER_IMAGE=alpine:3.22
           export GROUNDS_TEST_DEVCONTAINER="$PWD/node_modules/.bin/devcontainer"
           export GROUNDS_DATA_HOME="$RUNNER_TEMP/grounds-sandbox-data"
-          node --import tsx --test --test-concurrency=1 --test-name-pattern 'three devcontainers|three ledger-backed' test/work-devcontainer-docker.test.ts test/work-cli.test.ts
+          node --import tsx --test --test-concurrency=1 --test-name-pattern 'three devcontainers|three ledger-backed|killing the preparing CLI' test/work-devcontainer-docker.test.ts test/work-cli.test.ts

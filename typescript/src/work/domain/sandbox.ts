@@ -18,6 +18,7 @@ export interface Sandbox extends Versioned {
   readonly id: Id;
   readonly owner: OwnerRef;
   readonly retention: Retention;
+  readonly location?: { readonly hostId: string; readonly daemonId: string };
   readonly phase: SandboxPhase;
   readonly workspace?: { readonly ref: Id; readonly origin: "own" | "borrowed" };
   /** The running resource (formerly a separate environment instance); one sandbox owns at most one. */
@@ -63,10 +64,10 @@ const isOccupant = (value: unknown): value is OccupantRef => {
 };
 const gone = (s: Sandbox) => s.phase === "releasing" || s.phase === "released";
 
-export function requestSandbox(command: { id: Id; owner: OwnerRef; retention: Retention; at: Timestamp }): Result<Decision<Sandbox, SandboxEvent>> {
+export function requestSandbox(command: { location?: Sandbox["location"]; id: Id; owner: OwnerRef; retention: Retention; at: Timestamp }): Result<Decision<Sandbox, SandboxEvent>> {
   const bad = firstInvalid([["id", isId(command.id)], ["owner", isOwner(command.owner)], ["retention", command.retention === "release" || command.retention === "keep"], ["at", isTimestamp(command.at)]]);
   if (bad) return bad;
-  const state: Sandbox = { id: command.id, owner: command.owner, retention: command.retention, phase: "preparing", mounted: false, lastToken: 0, stopUnknown: false, externalWorkerUsed: false, transfers: [], createdAt: command.at, version: 1 };
+  const state: Sandbox = { ...(command.location ? {location:command.location} : {}), id: command.id, owner: command.owner, retention: command.retention, phase: "preparing", mounted: false, lastToken: 0, stopUnknown: false, externalWorkerUsed: false, transfers: [], createdAt: command.at, version: 1 };
   return ok({ state, events: [{ type: "requested", sandboxId: state.id, owner: state.owner, at: command.at }], outcome: undefined });
 }
 
@@ -80,11 +81,11 @@ export function markReady(sandbox: Sandbox, command: { workspace: { ref: Id; ori
 }
 
 /** Preparation failed; whatever already exists, in particular the workspace, is kept. */
-export function markBlocked(sandbox: Sandbox, command: { reason: string; workspace?: { ref: Id; origin: "own" | "borrowed" }; at: Timestamp }): Step {
+export function markBlocked(sandbox: Sandbox, command: { reason: string; runtime?: Sandbox["runtime"]; workspace?: { ref: Id; origin: "own" | "borrowed" }; at: Timestamp }): Step {
   const bad = firstInvalid([["reason", isText(command.reason, 1024)], ["workspace", command.workspace === undefined || (isId(command.workspace.ref) && ["own", "borrowed"].includes(command.workspace.origin))], ["at", isTimestamp(command.at)]]);
   if (bad) return bad;
   if (sandbox.phase !== "preparing") return conflict(`a ${sandbox.phase} sandbox cannot be blocked`);
-  return advance(sandbox, { phase: "blocked", blockedReason: command.reason, ...(command.workspace ? { workspace: command.workspace } : {}) },
+  return advance(sandbox, { phase: "blocked", blockedReason: command.reason, ...(command.runtime ? {runtime:command.runtime} : {}), ...(command.workspace ? { workspace: command.workspace } : {}) },
     [{ type: "blocked", sandboxId: sandbox.id, reason: command.reason, at: command.at }], undefined);
 }
 

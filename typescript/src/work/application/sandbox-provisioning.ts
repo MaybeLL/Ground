@@ -1,27 +1,36 @@
-import { attachSandbox, digestOf, isId, markReady, requestSandbox } from "../domain/index.js";
-import type { ManagedWorkspacePort, RuntimeOwner, SandboxRuntimePort } from "../ports/index.js";
+import { attachSandbox, digestOf, isId, isTerminal, requestSandbox } from "../domain/index.js";
+import type { RuntimeLocation, RuntimeOwner } from "../ports/index.js";
 import type { EnvironmentContent } from "./environment-definitions.js";
 import { fail, fromRejection, succeed, type Outcome } from "./outcome.js";
-import { once, type RequestContext } from "./requests.js";
+import { once } from "./requests.js";
 import type { CodeDelivery } from "./code-delivery.js";
 
-type Reserved = { runId: string; sandboxId: string; environmentRevisionId: string; commit: string };
-type Prepared = Reserved & { phase: "ready"; instanceId: string };
-type ProvisionDeps = RequestContext & { runtime: SandboxRuntimePort; workspaces: ManagedWorkspacePort; delivery: CodeDelivery; ledgerId(): Promise<string> };
+import { SandboxRecovery, type RecoveryDeps, type Reserved, type Prepared } from "./sandbox-recovery.js";
+type ProvisionDeps = RecoveryDeps & { delivery: CodeDelivery };
 
 export class SandboxProvisioning {
-  constructor(private readonly deps: ProvisionDeps) {}
+  private readonly recovery: SandboxRecovery;
+  constructor(private readonly deps: ProvisionDeps, recovery?: SandboxRecovery) { this.recovery = recovery ?? new SandboxRecovery(deps); }
+  reconcile(runId: string) { return this.recovery.reconcile(runId); }
 
   async prepare(requestId: string, runId: string, repository: string): Promise<Outcome<Prepared>> {
     if (!isId(requestId) || !isId(runId)) return fail("invalid", "provide a run and operation identity");
     const kind = "reserve-task-sandbox";
     const input = { runId, repository };
-    const saved = await this.deps.units.run("read", r => r.intents.findByRequest(requestId));
+    const saved = await this.deps.units.run("read", async r => await r.intents.findByRequest(requestId) ??
+      (await r.intents.listForSubject(kind, "task_run", runId))[0]);
+    let location: RuntimeLocation;
+    try { location = await this.deps.runtime.location(); }
+    catch { return fail("unavailable", "Docker is unavailable; retry when the configured daemon is reachable"); }
     let reserved: Reserved;
     if (saved) {
       const digest = digestOf({ kind, input }, this.deps.hash);
       if (!digest.ok || saved.requestHash !== digest.value || saved.state !== "completed") return fail("request-conflict", "sandbox operation identity is already used");
       reserved = saved.result as Reserved;
+      if (saved.requestId !== requestId) {
+        const replay = await once<Reserved>(this.deps, {kind,input,requestId,subject:{type:"task_run",id:runId}},async () => succeed(reserved));
+        if (!replay.ok) return replay;
+      }
     } else {
       const base = await this.deps.delivery.workspaceBase({ runId, repositoryPath: repository });
       if (!base.ok) return base;
@@ -32,7 +41,7 @@ export class SandboxProvisioning {
         const sandboxId = this.deps.newId(), at = this.deps.now();
         const attached = attachSandbox(run, { sandboxId });
         if (!attached.ok) return fromRejection(attached.error);
-        const sandbox = requestSandbox({ id: sandboxId, owner: { type: "task_run", id: runId }, retention: run.retention, at });
+        const sandbox = requestSandbox({ id: sandboxId, location, owner: { type: "task_run", id: runId }, retention: run.retention, at });
         if (!sandbox.ok) return fromRejection(sandbox.error);
         await r.sandboxes.create(sandbox.value.state);
         await r.taskRuns.save(attached.value.state, run.version);
@@ -42,17 +51,25 @@ export class SandboxProvisioning {
       reserved = reservation.value;
     }
     const owner = { ledgerId: await this.deps.ledgerId(), sandboxId: reserved.sandboxId };
+    const result = await this.deps.runtime.exclusive(owner, () => this.prepareOwned(runId, repository, owner, location, reserved));
+    return this.recovery.afterPreparation(runId,result);
+  }
+
+  private async prepareOwned(runId: string, repository: string, owner: RuntimeOwner, location: RuntimeLocation, reserved: Reserved): Promise<Outcome<Prepared>> {
     const known = await this.deps.units.run("read", async r => {
       const run = await r.taskRuns.get(runId);
       const revision = run?.environment?.revision;
       return { run, env: revision && await r.definitions.getRevision(revision.definitionId, revision.revisionId), sandbox: await r.sandboxes.get(reserved.sandboxId) };
     });
     if (!known.env || !known.sandbox || !known.run) return fail("conflict", "reserved sandbox or environment is missing");
-    if (known.sandbox.phase !== "preparing") return this.reconcile(runId);
+    if (known.sandbox.location?.daemonId !== location.daemonId || known.sandbox.location.hostId !== location.hostId) return fail("conflict", "sandbox belongs to a different host or Docker daemon");
+    if (known.sandbox.phase !== "preparing") return this.recovery.inspectPreparation(runId);
     if (known.run.cancelIntent || !["pending","running"].includes(known.run.status)) return fail("conflict", "run is no longer active");
     const content = known.env.content as EnvironmentContent;
     if (content.format !== "grounds.devcontainer/v1") return fail("unsupported", "unsupported environment revision");
-    const workspace = await this.deps.workspaces.prepare(owner, repository, reserved.commit, content);
+    let workspace;
+    try { workspace = await this.deps.workspaces.prepare(owner, repository, reserved.commit, content); }
+    catch { return this.recovery.failedPreparation(reserved, "the frozen sandbox workspace could not be prepared"); }
     const winner = await this.deps.units.run("write", async r => {
       const current = await r.taskRuns.get(runId, {lock:true});
       const sb = await r.sandboxes.get(reserved.sandboxId, {lock:true});
@@ -66,44 +83,19 @@ export class SandboxProvisioning {
         state:"registered", payload: { ...reserved, workspace: workspace.path }, updatedAt:at, createdAt:at, version:1 });
       return true;
     });
-    if (winner) {
-      try {
-        if (await this.deps.runtime.observe(owner)) return fail("conflict", "an existing container has no matching launch receipt");
-        const instance = await this.deps.runtime.up(owner, workspace);
-        await this.deps.workspaces.record(owner, instance.id);
-      } catch { return fail("unavailable", "devcontainer launch did not yield a verified completion receipt; reconcile the sandbox"); }
+    const status = await this.deps.launcher.status(owner);
+    if (winner || status === "not-started") {
+      // A second explicit prepare may restart only the helper. Its durable
+      // lock and journal authorize at most one devcontainer invocation.
+      const live = await this.deps.units.run("read", async r => {
+        const run = await r.taskRuns.get(runId);
+        return run && !run.cancelIntent && !isTerminal(run) && (await r.intents.listForSubject("launch-devcontainer","sandbox",owner.sandboxId)).length === 1;
+      });
+      if (!live) return fail("conflict","run may no longer launch a container");
+      try { await this.deps.launcher.start(owner, workspace, location); }
+      catch { /* Inspect the helper's durable outcome before deciding. */ }
     }
-    return this.reconcile(runId);
+    return this.recovery.inspectPreparation(runId);
   }
 
-  /** Never starts a second container. Completion requires both the trusted
-   * post-up receipt and the exact running Docker resource under this ledger. */
-  async reconcile(runId: string): Promise<Outcome<Prepared>> {
-    const claim = await this.deps.units.run("read", async r => {
-      const run = await r.taskRuns.get(runId);
-      if (!run?.sandboxId) return undefined;
-      return (await r.intents.listForSubject("launch-devcontainer", "sandbox", run.sandboxId))[0];
-    });
-    if (!claim) return fail("not-found", "run has no recorded devcontainer launch");
-    const payload = claim.payload as Reserved & {workspace: string};
-    const owner: RuntimeOwner = { ledgerId: await this.deps.ledgerId(), sandboxId: payload.sandboxId };
-    try {
-      const id = await this.deps.workspaces.receipt(owner);
-      const observed = await this.deps.runtime.observe(owner);
-      if (!id || observed?.id !== id || observed.state !== "running") return fail("unavailable", "cannot confirm the recorded running sandbox and completed devcontainer setup");
-      return await this.deps.units.run("write", async r => {
-        const intent = await r.intents.get(claim.id, {lock:true});
-        if (intent?.state === "completed") return succeed(intent.result as Prepared);
-        const sandbox = await r.sandboxes.get(owner.sandboxId, {lock:true});
-        if (!intent || !sandbox) return fail("conflict", "sandbox launch intent is missing");
-        const at = this.deps.now();
-        const ready = markReady(sandbox, { workspace: {ref: owner.sandboxId, origin:"own"}, runtime: {instanceId:id, environmentRevisionId:payload.environmentRevisionId}, at });
-        if (!ready.ok) return fromRejection(ready.error);
-        const result: Prepared = {runId, sandboxId: owner.sandboxId, environmentRevisionId: payload.environmentRevisionId, commit: payload.commit, phase:"ready", instanceId:id};
-        await r.sandboxes.save(ready.value.state, sandbox.version);
-        await r.intents.save({ ...intent, state:"completed", result, updatedAt:at, version:intent.version + 1 }, intent.version);
-        return succeed(result);
-      });
-    } catch { return fail("unavailable", "sandbox completion could not be verified or persisted"); }
-  }
 }

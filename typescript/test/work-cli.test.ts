@@ -492,17 +492,80 @@ test("three ledger-backed task sandboxes survive a receipt interruption and isol
       }
       for (const s of sandboxes) assert.equal(docker("exec",s.instanceId,"cat","/work/result"),s.runId);
       const first = sandboxes[0]!, second = sandboxes[1]!;
-      assert.equal(ok(await h.cli("work","pause-sandbox","--run",first.runId)).phase,"paused");
-      assert.equal(docker("inspect","--format","{{.State.Paused}}",second.instanceId),"false");
-      assert.equal(ok(await h.cli("work","resume-sandbox","--run",first.runId)).phase,"ready");
-      for (const s of sandboxes.slice(1)) assert.equal(ok(await h.cli("work","release-sandbox","--run",s.runId)).phase,"released");
+      assert.equal((await h.cli("work","release-sandbox","--run",first.runId)).ok,false);
       const firstRun = ok(await h.cli("work","run","--run",first.runId)).run;
       ok(await h.cli("work","cancel","--run",first.runId));
+      assert.equal(docker("inspect","--format","{{.State.Paused}}",first.instanceId),"true");
+      assert.equal(docker("inspect","--format","{{.State.Paused}}",second.instanceId),"false");
       assert.equal(ok(await h.cli("work","close","--work",firstRun.workId)).status,"closed");
+      for (const s of sandboxes.slice(1)) {
+        ok(await h.cli("work","cancel","--run",s.runId));
+        assert.equal(ok(await h.cli("work","release-sandbox","--run",s.runId)).phase,"released");
+      }
       assert.equal(docker("ps","-aq","--filter","label=dev.grounds.ledger="+ledgerId),"");
     } finally {
       ledger.close();
       for (const id of docker("ps","-aq","--no-trunc","--filter","label=dev.grounds.ledger="+ledgerId).split("\n").filter(Boolean)) docker("rm","-f",id);
+    }
+  });
+});
+
+test("invalid devcontainer inputs cannot replace the image or mount another task's workspace", async () => {
+  await withHarness(async h => {
+    const config = join(h.directory,"devcontainer.json");
+    const digest = "sha256:" + "1".repeat(64);
+    for (const input of [{image:"alpine@sha256:"+"2".repeat(64)}, {image:"alpine",workspaceMount:"source=shared,target=/work,type=volume"},
+      {image:"alpine",mounts:["source=/,target=/host,type=bind"]}]) {
+      writeFileSync(config,JSON.stringify(input));
+      const out = await h.cli("work","define-environment","--name","wrong","--devcontainer",config,"--image-digest",digest);
+      assert.equal(out.error.code,"VALIDATION_ERROR");
+    }
+  });
+});
+
+test("killing the preparing CLI leaves one verified container and the launch helper's durable receipt", { skip: !process.env.GROUNDS_TEST_DEVCONTAINER && "requires Docker" }, async () => {
+  await withHarness(async h => {
+    const { spawn } = await import("node:child_process");
+    const { setTimeout: wait } = await import("node:timers/promises");
+    const docker = (...args: string[]) => execFileSync("docker",args,{encoding:"utf8"}).trim();
+    const image = docker("image","inspect","--format","{{index .RepoDigests 0}}",process.env.GROUNDS_TEST_CONTAINER_IMAGE ?? "alpine:latest");
+    const config = join(h.directory,"devcontainer.json");
+    writeFileSync(config,JSON.stringify({image,workspaceFolder:"/work",
+      postCreateCommand:"printf x >> /work/launch-count; while [ ! -f /work/go ]; do sleep 0.1; done"}));
+    const env = ok(await h.cli("work","define-environment","--name","interrupted setup","--image-digest",image.split("@")[1]!,"--devcontainer",config));
+    const task = ok(await h.cli("task","create","--title","setup","--criterion","start once","--environment",env.environmentId,"--baseline",h.baseline,"--repo-remote",h.remote));
+    const {runId,workId} = ok(await h.cli("work","start","--task",task.taskId,"--mode","external"));
+    const db = new DatabaseSync(join(h.directory,"ledger.db"));
+    const ledgerId = db.prepare("SELECT database_id FROM schema_metadata").get()!.database_id as string;
+    db.close();
+    const filter = "label=dev.grounds.ledger="+ledgerId;
+    const child = spawn(process.execPath,["--import","tsx","src/main.ts","work","prepare-sandbox","--run",runId,"--repo",h.repo,"--config",join(h.directory,"config.yaml"),"--json"],{stdio:"ignore"});
+    const ended = new Promise<void>(resolve => child.once("close", () => resolve()));
+    const until = async <T>(get: () => Promise<T | undefined>) => {
+      const deadline = Date.now()+60_000;
+      while (Date.now()<deadline) { const result=await get(); if (result !== undefined) return result; await wait(100); }
+      throw new Error("timed out awaiting owned sandbox");
+    };
+    try {
+      const id = await until(async () => {
+        const id=docker("ps","--no-trunc","-q","--filter",filter);
+        if (!id) return;
+        try { if (docker("exec",id,"cat","/work/launch-count")==="x") return id; } catch { /* postCreate has not started */ }
+      });
+      child.kill("SIGKILL"); await ended;
+      assert.equal((await h.cli("work","reconcile-sandbox","--run",runId)).ok,false);
+      docker("exec",id,"touch","/work/go");
+      const prepared = await until(async () => {
+        const response = await h.cli("work","reconcile-sandbox","--run",runId);
+        return response.ok ? response.data : undefined;
+      });
+      assert.equal(prepared.instanceId,id);
+      assert.equal(docker("exec",id,"cat","/work/launch-count"),"x");
+      ok(await h.cli("work","cancel","--run",runId)); ok(await h.cli("work","close","--work",workId));
+      assert.equal(docker("ps","-aq","--filter",filter),"");
+    } finally {
+      child.kill("SIGKILL"); await ended;
+      for (const id of docker("ps","-aq","--no-trunc","--filter",filter).split("\n").filter(Boolean)) docker("rm","-f",id);
     }
   });
 });

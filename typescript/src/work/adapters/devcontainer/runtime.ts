@@ -1,5 +1,8 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createRequire } from "node:module";
+import { hostIdentity, withRuntimeLock } from "../../../runtime-files.js";
+import { dataLayout } from "../../../data-layout.js";
+import { realpath } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { RuntimeOwner, RuntimeState, RuntimeWorkspace, SandboxRuntimePort } from "../../ports/index.js";
 
@@ -12,7 +15,16 @@ const containerId = /^[a-f0-9]{64}$/;
 /** devcontainers CLI interprets the pinned environment configuration. Docker
  * observes exact ownership and performs lifecycle operations on one container. */
 export class DevcontainerRuntime implements SandboxRuntimePort {
-  constructor(private readonly devcontainer = createRequire(import.meta.url).resolve("@devcontainers/cli/devcontainer.js"), private readonly docker = "docker") {}
+  constructor(private readonly devcontainer = createRequire(import.meta.url).resolve("@devcontainers/cli/devcontainer.js"), private readonly docker = "docker", private readonly launchLockFd?: number) {}
+
+  async location() {
+    const daemonId = (await exec(this.docker, ["info", "--format", "{{.ID}}"], opts)).stdout.trim();
+    if (!daemonId) throw new Error("Docker did not identify its daemon");
+    return { daemonId, hostId: hostIdentity(dataLayout().runtime) };
+  }
+  exclusive<T>(owner: RuntimeOwner, action: () => Promise<T>) {
+    return withRuntimeLock(dataLayout().runtime, "devcontainer:" + owner.ledgerId + ":" + owner.sandboxId, action, opts.timeout);
+  }
 
   async observe(owner: RuntimeOwner): Promise<RuntimeState | null> {
     const { stdout } = await exec(this.docker, ["ps", "--all", "--no-trunc", "--format", "{{.ID}}",
@@ -31,17 +43,44 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
   async up(owner: RuntimeOwner, workspace: RuntimeWorkspace): Promise<RuntimeState> {
     const prior = await this.observe(owner);
     if (prior) {
-      if (workspace.imageDigest) await this.verifyImage(prior.id, workspace.imageDigest);
+      await this.verifyWorkspace(prior.id, workspace);
       return prior;
     }
-    const result = await exec(this.devcontainer, ["up", "--docker-path", this.docker,
-      "--workspace-folder", workspace.path, "--override-config", workspace.configPath, "--mount-workspace-git-root=false", ...(workspace.frozenLockfile ? ["--frozen-lockfile"] : []),
-      "--id-label", ledgerLabel + "=" + owner.ledgerId, "--id-label", sandboxLabel + "=" + owner.sandboxId], opts);
+    const result = await this.startTool(["up", "--docker-path", this.docker,
+      "--workspace-folder", workspace.path, "--config", workspace.configPath, "--mount-workspace-git-root=false", ...(workspace.frozenLockfile ? ["--frozen-lockfile"] : []),
+      "--id-label", ledgerLabel + "=" + owner.ledgerId, "--id-label", sandboxLabel + "=" + owner.sandboxId]);
     const report = JSON.parse(result.stdout.trim());
     const after = await this.observe(owner);
     if (!after || after.state !== "running" || report.outcome !== "success" || report.containerId !== after.id) throw new Error("devcontainer did not confirm the owned running container");
-    if (workspace.imageDigest) await this.verifyImage(after.id, workspace.imageDigest);
+    await this.verifyWorkspace(after.id, workspace);
     return after;
+  }
+
+  private async startTool(argv: string[]) {
+    if (this.launchLockFd === undefined) return exec(this.devcontainer, argv, opts);
+    // The CLI inherits the file description. Even if the helper is killed, a
+    // reconciler cannot declare the attempt interrupted while the CLI is alive.
+    const child = spawn(this.devcontainer, argv, { stdio: ["ignore","pipe","ignore",this.launchLockFd], timeout: opts.timeout });
+    let stdout = "";
+    child.stdout!.setEncoding("utf8");
+    child.stdout!.on("data", (chunk: string) => {
+      if (stdout.length + chunk.length > opts.maxBuffer) child.kill();
+      else stdout += chunk;
+    });
+    await new Promise<void>((ok, fail) => {
+      child.once("error", fail);
+      child.once("close", code => code === 0 ? ok() : fail(new Error("devcontainer setup did not complete")));
+    });
+    return { stdout };
+  }
+
+  private async verifyWorkspace(id: string, workspace: RuntimeWorkspace) {
+    if (workspace.imageDigest) await this.verifyImage(id, workspace.imageDigest);
+    if (!workspace.containerFolder) return;
+    const data = await exec(this.docker, ["inspect", "--type", "container", "--format", "{{json .Mounts}}", id], opts);
+    const mounts = JSON.parse(data.stdout) as {Type: string; Source: string; Destination: string; RW: boolean}[];
+    const mount = mounts.find(m => m.Destination === workspace.containerFolder);
+    if (!mount || mount.Type !== "bind" || !mount.RW || await realpath(mount.Source) !== await realpath(workspace.path)) throw new Error("Docker did not mount the reserved workspace");
   }
 
   private async verifyImage(id: string, expected: string) {
@@ -84,7 +123,7 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
     if (!argv.length) throw new Error("sandbox command needs an executable");
     try {
       const result = await exec(this.devcontainer, ["exec", "--docker-path", this.docker, "--workspace-folder", workspace.path,
-        "--override-config", workspace.configPath, "--container-id", id, "--", ...argv], opts);
+        "--config", workspace.configPath, "--container-id", id, "--", ...argv], opts);
       return { stdout: result.stdout, stderr: result.stderr, exitCode: 0 };
     } catch (error) {
       const failure = error as {code?: number | string; killed?: boolean; stdout?: string; stderr?: string};
