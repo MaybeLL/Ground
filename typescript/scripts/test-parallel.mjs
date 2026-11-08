@@ -62,7 +62,9 @@ const runFile = async (file, worker) => {
     exit = await new Promise((resolve) => {
       const child = spawn(
         process.execPath,
-        ["--import", "tsx", "--test", "--test-concurrency=1", ...reporter, file],
+        file==="test/env-process.test.ts" && process.env.GROUNDS_CI_ISOLATE_PROCESS_SCOPE==="true"
+          ? ["scripts/test-macos-process-scope.mjs",...reporter]
+          : ["--import", "tsx", "--test", "--test-concurrency=1", ...reporter, file],
         { cwd: repository, env: workerEnvironment(home, database?.environment ?? process.env), stdio: ["ignore", "pipe", "pipe"] },
       );
       child.stdout.on("data", chunk => { output += chunk; });

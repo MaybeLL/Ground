@@ -39,6 +39,8 @@ jobs:
       - run: npm run build
         working-directory: typescript
       - run: npm test
+        env:
+          GROUNDS_CI_ISOLATE_PROCESS_SCOPE: ${{ runner.os == 'macOS' }}
         working-directory: typescript
       - run: node --test scripts/*.test.mjs
       - run: node scripts/check-docs.mjs
