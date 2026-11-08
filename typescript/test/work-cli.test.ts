@@ -2328,3 +2328,43 @@ test("a delayed job cannot consume its original start authority after recovery r
     }
   });
 });
+
+test("ordinary delivery recovers when the CLI dies on either side of the real Git push",async()=>{
+  await withHarness(async h=>{
+    const {spawn}=await import("node:child_process");
+    const actualGit=execFileSync("which",["git"],{encoding:"utf8"}).trim();
+    const bin=join(h.directory,"bin"),log=join(h.directory,"effects"),pidFile=join(h.directory,"fixture-pid");
+    mkdirSync(bin);
+    writeFileSync(join(bin,"git"),[
+      "#!/bin/sh",'if [ "$1" != push ]; then exec "$FIXTURE_GIT" "$@"; fi',
+      'echo "$FIXTURE_PHASE" >> "$FIXTURE_LOG"',
+      'if [ "$FIXTURE_PHASE" = observe ] || [ "$(cat "$FIXTURE_PID")" != "$PPID" ]; then exit 79; fi',
+      'if [ "$FIXTURE_PHASE" = after ]; then "$FIXTURE_GIT" "$@" || exit $?; fi',
+      'kill -KILL "$PPID"',
+    ].join("\n")+"\n",{mode:0o755});
+    const task=ok(await h.cli("task","create","--title","publish once","--criterion","frozen","--repo-remote",h.remote,"--baseline",h.baseline));
+    const {runId}=ok(await h.cli("work","start","--mode","none","--task",task.taskId));
+    const config=join(h.directory,"config.yaml"),operationId=newUUIDv7();
+    const deliver=["work","deliver","--run",runId,"--repo",h.repo,"--operation-id",operationId];
+    const call=async(phase:string,args:string[])=>{
+      const child=spawn(process.execPath,["--import","tsx","src/main.ts",...args,"--config",config,"--json"],{stdio:["ignore","pipe","pipe"],
+        env:{...process.env,PATH:bin+":"+process.env.PATH,FIXTURE_PHASE:phase,FIXTURE_PID:pidFile,FIXTURE_LOG:log,FIXTURE_GIT:actualGit}});
+      writeFileSync(pidFile,String(child.pid));
+      let stdout="";
+      child.stdout.on("data",chunk=>stdout+=chunk);
+      child.stderr.resume();
+      const signal=await new Promise<NodeJS.Signals|null>((done,fail)=>{child.once("error",fail);child.once("close",(_code,value)=>done(value));});
+      return {signal,body:stdout.trim() ? JSON.parse(stdout) : undefined};
+    };
+    assert.equal((await call("before",deliver)).signal,"SIGKILL");
+    const before=await call("observe",["work","reconcile","--run",runId]);
+    assert.equal(before.body.error.code,"STORAGE_TRANSIENT");
+    assert.equal(git(h.remote,"ls-remote","--tags",h.remote),"");
+    assert.equal((await call("after",deliver)).signal,"SIGKILL");
+    assert.equal(git(h.remote,"rev-parse","refs/tags/grounds/deliveries/d-"+runId+"-"+h.baseline.slice(0,12)),h.baseline);
+    const confirmed=await call("observe",["work","reconcile","--run",runId]);
+    assert.equal(confirmed.body.data.submission.status,"delivered");
+    assert.equal((await call("observe",deliver)).body.data.submitted.status,"delivered");
+    assert.equal(readFileSync(log,"utf8"),"before\nafter\n");
+  });
+});
