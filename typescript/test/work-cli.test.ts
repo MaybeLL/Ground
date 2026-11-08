@@ -2368,3 +2368,73 @@ test("ordinary delivery recovers when the CLI dies on either side of the real Gi
     assert.equal(readFileSync(log,"utf8"),"before\nafter\n");
   });
 });
+
+test("work workspace recovers a reserved directory and branch and refuses an unrelated path",async()=>{
+  await withHarness(async h=>{
+    const {repositoryDataRoot}=await import("../src/data-layout.js");
+    const task=ok(await h.cli("task","create","--title","checkout","--criterion","registered","--baseline","main","--repo-remote",h.remote));
+    const {runId}=ok(await h.cli("work","start","--mode","external","--task",task.taskId));
+    const opened=await openStore(join(h.directory,"config.yaml"));
+    try {
+      const {composeWork}=await import("../src/work/composition.js");
+      const base=await composeWork(opened.store).delivery.workspaceBase({repositoryPath:h.repo,runId});
+      assert.ok(base.ok && base.value.commit===h.baseline);
+    } finally {await opened.store.close();}
+    const dest=join(repositoryDataRoot(h.repo),"work",runId,"worktree"),branch="grounds/work/"+runId;
+    mkdirSync(dest,{recursive:true});
+    writeFileSync(join(dest,"keep"),"unrelated bytes");
+    const workspace=()=>h.cli("work","workspace","--run",runId,"--repo",h.repo);
+    assert.equal((await workspace()).ok,false);
+    assert.equal(readFileSync(join(dest,"keep"),"utf8"),"unrelated bytes");
+    rmSync(join(dest,"keep"));
+    git(h.repo,"branch","--create-reflog",branch,h.baseline);
+    git(h.repo,"commit","--allow-empty","-qm","advance main");
+    const [one,two]=await Promise.all([workspace(),workspace()]);
+    assert.deepEqual([ok(one).created,ok(two).created].sort(),[false,true]);
+    assert.equal(git(dest,"rev-parse","HEAD"),h.baseline);
+    assert.equal(readFileSync(join(dest,"app.txt"),"utf8"),"v0\n");
+    writeFileSync(join(dest,"app.txt"),"local change");
+    assert.equal(ok(await workspace()).created,false);
+    assert.equal(readFileSync(join(dest,"app.txt"),"utf8"),"local change");
+  });
+});
+
+test("interrupted worktree publication adopts the completed checkout on both sides of its directory move",async()=>{
+  await withHarness(async h=>{
+    const {spawn}=await import("node:child_process");
+    const bin=join(h.directory,"bin"),counter=join(h.directory,"checkouts");
+    mkdirSync(bin);
+    const gitExe=execFileSync("which",["git"],{encoding:"utf8"}).trim();
+    writeFileSync(join(bin,"git"),[
+      "#!/bin/sh",'previous=""','for arg; do',
+      '  if [ "$previous" = worktree ] && [ "$arg" = add ]; then echo add >> "$FIXTURE_CHECKOUTS"; fi',
+      '  previous=$arg','done',
+      'if [ "$1" = worktree ] && [ "$2" = move ] && [ "$FIXTURE_PHASE" != replay ]; then',
+      '  test "$PPID" = "$(cat "$FIXTURE_PID")" || exit 79',
+      '  if [ "$FIXTURE_PHASE" = renamed ]; then mv "$3" "$4" || exit $?; fi',
+      '  kill -KILL "$PPID"; exit 0','fi','exec "$FIXTURE_GIT" "$@"',
+    ].join("\n")+"\n",{mode:0o755});
+    const task=ok(await h.cli("task","create","--title","durable checkout","--criterion","registered","--repo-remote",h.remote,"--baseline",h.baseline));
+    for (const phase of ["staged","renamed"]) {
+      const {runId}=ok(await h.cli("work","start","--mode","external","--task",task.taskId));
+      const call=async(mode:string)=>{
+        const pidFile=join(h.directory,"pid"),child=spawn(process.execPath,["--import","tsx","src/main.ts","work","workspace","--run",runId,"--repo",h.repo,"--config",join(h.directory,"config.yaml"),"--json"],{
+          stdio:["ignore","pipe","pipe"],env:{...process.env,PATH:bin+":"+process.env.PATH,FIXTURE_GIT:gitExe,FIXTURE_CHECKOUTS:counter,FIXTURE_PHASE:mode,FIXTURE_PID:pidFile},
+        });
+        writeFileSync(pidFile,String(child.pid));
+        let output="";child.stdout.on("data",data=>output+=data);child.stderr.resume();
+        const signal=await new Promise<NodeJS.Signals|null>((done,fail)=>{child.once("error",fail);child.once("close",(_code,s)=>done(s));});
+        return {signal,body:output.trim() ? JSON.parse(output) : undefined};
+      };
+      assert.equal((await call(phase)).signal,"SIGKILL");
+      const restored=await call("replay");
+      assert.ok(restored.body.ok,JSON.stringify(restored.body.error));
+      const {path,branch}=restored.body.data;
+      assert.equal(git(path,"symbolic-ref","--short","HEAD"),branch);
+      assert.equal(git(path,"rev-parse","HEAD"),h.baseline);
+      assert.equal(readFileSync(join(path,"app.txt"),"utf8"),"v0\n");
+      assert.equal((await call("replay")).body.data.created,false);
+    }
+    assert.equal(readFileSync(counter,"utf8"),"add\nadd\n");
+  });
+});

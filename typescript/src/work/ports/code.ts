@@ -47,6 +47,8 @@ export interface CodeArchivePort {
 }
 
 /** A private working copy for one run: its own directory and branch, started at a given commit. */
+export class WorktreeConflict extends Error {}
+
 export interface WorktreePort {
   repositoryIdentity(repositoryPath:string):Promise<string>;
   existingBase(input:{repositoryPath:string;runId:string}):Promise<string|undefined>;

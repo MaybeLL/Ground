@@ -5,6 +5,7 @@
 import { readArtifact } from "./artifacts.js";
 import type {RequestContext} from "./requests.js";
 import { digestOf,canRefineFromBaseline, isTerminal, isId, parseTaskContent, type Id } from "../domain/index.js";
+import {WorktreeConflict} from "../ports/index.js";
 import type { ArchiveProtection, RecordedProtection, CodeArchivePort, WorkUnitOfWork, WorktreePort } from "../ports/index.js";
 import { fail, failureOf, succeed, type Outcome } from "./outcome.js";
 import type { Submitted, TaskExecution } from "./task-execution.js";
@@ -115,12 +116,17 @@ export class CodeDelivery {
   }
 
   async prepareWorkspace(input: { runId: Id; repositoryPath: string },reservedCommit?:string): Promise<Outcome<Workspace>> {
-    const base = await this.workspaceBase(input,reservedCommit);
+    const base = await this.workspaceBase(input,reservedCommit,true);
     if (!base.ok) return base;
     try {
       const made = await this.deps.worktrees.create({ ...input, commit: base.value.commit });
       return succeed({ runId: input.runId, path: made.path, branch: made.branch, base: base.value, created: made.created });
-    } catch (error) { const failure = failureOf(error); if (failure) return { ok: false, error: failure }; throw error; }
+    } catch (error) {
+      if (error instanceof WorktreeConflict) return fail("conflict",error.message);
+      const failure=failureOf(error);
+      if (failure) return {ok:false,error:failure};
+      throw error;
+    }
   }
 
   async freshManagedBase(repository: string, commit: string, parent?: {runId:string; id:string; receipt:string}): Promise<Outcome<{commit:string}>> {
@@ -132,7 +138,7 @@ export class CodeDelivery {
     return succeed({commit});
   }
 
-  async workspaceBase(input: { runId: Id; repositoryPath: string },reservedCommit?:string): Promise<Outcome<Workspace["base"]>> {
+  async workspaceBase(input: { runId: Id; repositoryPath: string },reservedCommit?:string,forWorkspace=false): Promise<Outcome<Workspace["base"]>> {
     if (!isId(input.runId)) return fail("invalid", "runId is required");
     try {
       const found = await this.deps.units.run("read", async r => {
@@ -153,7 +159,7 @@ export class CodeDelivery {
         return succeed(binding.base);
       };
       if (found.binding) return bound(found.binding.payload);
-      if (repository) {
+      if (repository || forWorkspace) {
         let existing;
         try {existing=await this.deps.worktrees.existingBase(input);} catch {return fail("conflict","cannot prove the original base of the existing external worktree");}
         if (existing && reservedCommit && existing!==reservedCommit) return fail("conflict","existing worktree and sandbox reservation have different bases");
