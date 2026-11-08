@@ -144,9 +144,9 @@ export class CodeDelivery {
       if (!found) return fail("not-found", `run ${input.runId} does not exist`);
       if (found.run.status === "delivered" || found.run.status === "failed" || found.run.status === "cancelled") return fail("conflict", `run ${found.run.id} is already ${found.run.status}`);
       let base: Workspace["base"];
-      const externalWithoutDelivery = found.parent?.workerMode === "external" &&
+      const callerWithoutDelivery = found.parent && found.parent.workerMode !== "managed" &&
         (found.parent.status === "failed" || found.parent.status === "cancelled") && !found.parent.manifest;
-      if (found.run.refines && !externalWithoutDelivery) {
+      if (found.run.refines && !callerWithoutDelivery) {
         const item = found.parent?.manifest?.items.find(i => i.type === "candidate");
         if (!item) return fail("conflict", `run ${found.run.refines} delivered no code to continue from`);
         const { receipt } = await this.deps.repairs.current(found.run.refines, item, input.repositoryPath);

@@ -63,6 +63,7 @@ test("standalone runs refine a frozen delivery and never allocate a Work",async(
   await withHarness(async h=>{
     const task=ok(await h.cli("task","create","--title","Independent run","--criterion","archive commit","--repo-remote",h.remote,"--baseline",h.baseline));
     const start=["work","start-run","--task",task.taskId,"--mode","none","--retention","release","--operation-id",newUUIDv7()];
+    assert.equal((await h.cli(...start,"--refine","typo")).ok,false);
     const first=ok(await h.cli(...start));
     assertContract("work-results.schema.json",first);
     assert.deepEqual(ok(await h.cli(...start)),first);
@@ -78,6 +79,10 @@ test("standalone runs refine a frozen delivery and never allocate a Work",async(
     const workspace=ok(await h.cli("work","workspace","--run",second.runId));
     assert.equal(workspace.base.commit,delivery.delivery.commit);
     assert.equal(workspace.base.from,"delivery");
+    const cancelled=ok(await h.cli("work","start-run","--task",task.taskId,"--mode","none"));
+    ok(await h.cli("work","cancel","--run",cancelled.runId));
+    const fresh=ok(await h.cli("work","start-run","--task",task.taskId,"--mode","external","--refines",cancelled.runId,"--sandbox","fresh"));
+    assert.equal(ok(await h.cli("work","workspace","--run",fresh.runId)).base.commit,h.baseline);
     const db=new DatabaseSync(join(h.directory,"ledger.db"));
     try {assert.equal(db.prepare("SELECT COUNT(*) AS n FROM work_works").get()?.n,0);} finally {db.close();}
   });

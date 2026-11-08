@@ -67,7 +67,7 @@ export class AgentDefinitions {
     const failedManaged = parent?.workerMode === "managed" && !candidate && (parent.status === "failed" || parent.status === "cancelled");
     const freshAfterFailure = failedManaged && sandbox === "fresh";
     if (parent && !candidate && !inherited && !freshAfterFailure &&
-        !(parent.workerMode === "external" && !parent.manifest && (parent.status === "failed" || parent.status === "cancelled"))) {
+        !(parent.workerMode !== "managed" && !parent.manifest && (parent.status === "failed" || parent.status === "cancelled"))) {
       return fail("conflict", "the parent delivered no candidate; select a retained workspace or explicitly start fresh from a failed managed run's baseline");
     }
     const previous = (inherited || freshAfterFailure) && parent ? (await r.intents.listForSubject("managed-worker", "task_run", parent.id))[0]?.payload as ManagedTask | undefined : undefined;

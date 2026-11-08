@@ -111,11 +111,13 @@ export class TaskExecution {
   private async refine(r: WorkRepositories, work: Work, refines: Id, input: { workerMode: RunMode; agent?:AgentSelection; taskRevisionId?: Id; environmentRevisionId?: Id; sandbox?: SandboxChoice; retention?: Retention }, onHead: boolean, moveWork: (work: Work, runId: Id, at: string) => Result<Decision<Work, unknown, unknown>>): Promise<Outcome<ContinuedRun>> {
     const parent = await r.taskRuns.get(refines, { lock: true });
     if (!parent || parent.workId !== work.id) return fail("not-found", `run ${refines} is not a run of work ${work.id}`);
-    const created=await this.createRun(r,work.taskDefinitionId,input,parent,work.id,onHead);
+    const created=await this.createRun(r,work.taskDefinitionId,input,parent,work.id,onHead,async (runId,at)=>{
+      const moved=moveWork(work,runId,at);
+      if (!moved.ok) return fromRejection(moved.error);
+      await r.works.save(moved.value.state,work.version);
+      return succeed(null);
+    });
     if (!created.ok) return created;
-    const moved=moveWork(work,created.value.runId,created.value.at);
-    if (!moved.ok) return fromRejection(moved.error);
-    await r.works.save(moved.value.state,work.version);
     const {runId,taskRevisionId,executionId}=created.value;
     return succeed({workId:work.id,runId,refines,taskRevisionId,...(executionId ? {executionId} : {})});
   }
@@ -123,6 +125,9 @@ export class TaskExecution {
   startRun(input:RunOptions & {requestId:string; taskDefinitionId:Id; refines?:Id}):Promise<Outcome<IndependentRun>> {
     const early=needId("requestId",input.requestId) ?? needId("taskDefinitionId",input.taskDefinitionId);
     if (early) return Promise.resolve(early);
+    for (const field of ["refines","taskRevisionId","environmentRevisionId"] as const) {
+      if (input[field]!==undefined && !isId(input[field])) return Promise.resolve(fail("invalid",field+" is malformed"));
+    }
     return once<IndependentRun>(this.context,{requestId:input.requestId,kind:"start-run",input:input as unknown as JsonValue,subject:{type:"task",id:input.taskDefinitionId}},async r=>{
       const parent=input.refines ? await r.taskRuns.get(input.refines,{lock:true}) : undefined;
       if (input.refines && !parent) return fail("not-found","the run to refine does not exist");
@@ -134,7 +139,7 @@ export class TaskExecution {
     });
   }
 
-  private async createRun(r:WorkRepositories,taskDefinitionId:Id,input:RunOptions,parent?:TaskRun,workId?:Id,onHead=false):Promise<Outcome<{runId:Id;taskRevisionId:Id;at:string;executionId?:Id}>> {
+  private async createRun(r:WorkRepositories,taskDefinitionId:Id,input:RunOptions,parent?:TaskRun,workId?:Id,onHead=false,moveWork?:(runId:Id,at:string)=>Promise<Outcome<null>>):Promise<Outcome<{runId:Id;taskRevisionId:Id;at:string;executionId?:Id}>> {
     const revision = await this.taskRevision(r, taskDefinitionId, input.taskRevisionId);
     if (!revision.ok) return revision;
     const at = this.deps.clock.now();
@@ -147,6 +152,10 @@ export class TaskExecution {
     const created = createTaskRun({ id: runId, taskRevision: refOf(revision.value), ...(environment.value ? { environment: environment.value } : {}), ...(workId ? {workId} : {}), ...(parent ? {refines:parent.id} : {}), workerMode: input.workerMode, retention: input.retention ?? "keep", at },
       parent ? { refines: { id: parent.id, status: parent.status, taskDefinitionId: parent.taskRevision.definitionId, workId: parent.workId } } : undefined);
     if (!created.ok) return fromRejection(created.error);
+    if (moveWork) {
+      const moved=await moveWork(runId,at);
+      if (!moved.ok) return moved;
+    }
     const agent = await this.admitAgent(r,created.value.state,input.agent,input.sandbox);
     if (!agent.ok) return agent;
     await r.taskRuns.create(created.value.state);

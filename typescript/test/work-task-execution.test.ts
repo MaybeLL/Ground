@@ -47,6 +47,9 @@ for (const backend of backends) {
 
   scenario("standalone cancellation, retry and refinement preserve the original Work boundary",async t=>{
     const input={requestId:"solo",taskDefinitionId:"task-1",workerMode:"external" as const};
+    for (const field of ["refines","taskRevisionId","environmentRevisionId"]) {
+      refused(await t.exec.startRun({...input,[field]:""}),"invalid");
+    }
     const first=value(await t.exec.startRun(input));
     assert.deepEqual(value(await t.exec.startRun(input)),first);
     refused(await t.exec.startRun({...input,workerMode:"none"}),"request-conflict");
@@ -63,6 +66,8 @@ for (const backend of backends) {
     value(await t.exec.submit({requestId:"finish-owned",runId:owned.runId,items}));
     refused(await t.exec.startRun({...child,requestId:"cross",refines:owned.runId}),"conflict");
     assert.equal(value(await t.exec.getWork(owned.workId)).work.head,owned.runId);
+    value(await t.exec.closeWork({requestId:"close",workId:owned.workId}));
+    refused(await t.exec.continueWork({requestId:"closed-managed",workId:owned.workId,expectedHead:owned.runId,workerMode:"managed"}),"conflict");
   });
 
   scenario("a request is applied once: a replay returns the first answer, other input under the same identity is a conflict", async t => {

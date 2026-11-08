@@ -215,6 +215,9 @@ async function work(args: ParsedArgs, action: string, app: WorkApplication, deps
     }
     case "environment": return unwrap(await app.environments.show(need(args,"environment"), integer(args,"revision")));
     case "start-run": {
+      const options=["task","mode","agent","agent-revision","repo","environment-revision","revision-id","refines","sandbox","retention","operation-id","cwd","json","config"];
+      for (const key of Object.keys(args.values)) if (!options.includes(key)) throw validation(key,"unknown option for work start-run");
+      if (args.positionals.length!==2) throw validation("arguments","unexpected positional argument for work start-run");
       const retention=raw(args,"retention")===undefined ? "keep" : need(args,"retention");
       if (retention!=="release" && retention!=="keep") throw validation("retention","expected keep or release");
       return unwrap(await app.exec.startRun({requestId:requestId(args),taskDefinitionId:need(args,"task"),workerMode:mode(args),retention,...selection(),...sandboxChoice(),
@@ -380,7 +383,7 @@ export const workHelp = (): string => [
   "grounds work import-trace --run RUN --session SESSION --provider codex|claude-code --file FILE --digest SHA256 | work trace --run RUN --digest SHA256 --stream raw|events --chunk N",
   "grounds work prepare-sandbox --run RUN [--repo PATH] | work reconcile-sandbox --run RUN | work pause-sandbox|release-sandbox --run RUN",
   "grounds work define-environment --name NAME --devcontainer FILE --image-digest SHA256 [--lockfile FILE] [--environment ID --expected-seq N] | work environment --environment ID --revision N",
-  "grounds work start-run --task ID --mode external|none|managed [--refines RUN] [--retention release|keep] [--sandbox fresh|inherit]",
+  "grounds work start-run --task ID --mode external|none|managed [--revision-id REV --environment-revision REV --refines RUN --retention release|keep --sandbox fresh|inherit]; managed requires --agent ID [--agent-revision REV --repo PATH]",
   "grounds work start --task ID --mode external|none [--environment-revision ID] | work continue --work ID --expected-head RUN --mode M [--sandbox inherit|fresh] | work branch --work ID --refines RUN --mode M [--sandbox fresh|inherit]",
   "grounds work select --work ID --run RUN [--expected-head RUN] | work close --work ID | work show --work ID [--repo PATH] | work run --run RUN [--repo PATH]",
   "grounds work save-artifact --run RUN [--session S] --slot KEY --file ARCHIVED_PATH=LOCAL_FILE... | work submit-artifacts --run RUN [--session S] --artifact ID...",
