@@ -2154,6 +2154,8 @@ test("managed evaluator runs the built-in gate blind before reading the author's
     const transcript=join(h.directory,"author.log"),bytes="private-author-marker";
     writeFileSync(transcript,bytes);
     writeFileSync(join(h.directory,"report"),"public result");
+    const controllers:{gradingId:string;operationId:string}[]=[];
+    try {
     for (const title of ["independent review","alter findings","pinned code","dangling link","cancel blind"]) {
       const coding=title==="pinned code" || title==="dangling link";
       const agent=judges[coding ? 1 : 0];
@@ -2181,6 +2183,7 @@ test("managed evaluator runs the built-in gate blind before reading the author's
         const db=new DatabaseSync(join(h.directory,"ledger.db"));try {db.exec(statement);} finally {db.close();}
       };
       if (lockFreeze) sql("CREATE TRIGGER lose_gate_freeze BEFORE INSERT ON work_intents WHEN NEW.kind='gate-blind' BEGIN SELECT RAISE(ABORT,'lost blind receipt'); END");
+      controllers.push({gradingId,operationId:args.at(-1)!});
       const started=ok(await h.cli(...args));
       assert.deepEqual(ok(await h.cli(...args)),started);
       assert.equal((await h.cli("grade","register","--grading",gradingId,"--agent","another")).ok,false);
@@ -2196,7 +2199,8 @@ test("managed evaluator runs the built-in gate blind before reading the author's
           if (!ready) await new Promise(resolve=>setTimeout(resolve,200));
         }
         assert.ok(ready);
-        ok(await h.cli("grade","cancel","--grading",gradingId));
+        const operationId=newUUIDv7();controllers.push({gradingId,operationId});
+        ok(await h.cli("grade","cancel","--grading",gradingId,"--operation-id",operationId));
       }
       let status,interrupted=false;
       const deadline=Date.now()+65000;
@@ -2207,7 +2211,8 @@ test("managed evaluator runs the built-in gate blind before reading the author's
           assert.equal((await h.cli("grade","evaluator-evidence","--grading",gradingId,"--stream","blind-output","--chunk","0")).ok,false);
           sql("DROP TRIGGER lose_gate_freeze");
           interrupted=true;
-          ok(await h.cli("grade","resume-evaluator","--grading",gradingId,"--operation-id",newUUIDv7()));
+          const operationId=newUUIDv7();controllers.push({gradingId,operationId});
+          ok(await h.cli("grade","resume-evaluator","--grading",gradingId,"--operation-id",operationId));
           status=undefined;
           await new Promise(resolve=>setTimeout(resolve,600));
           continue;
@@ -2243,6 +2248,16 @@ test("managed evaluator runs the built-in gate blind before reading the author's
       assert.equal(blind.ref.digest,status.protocol[1].blindDigest);
       assert.equal(JSON.parse(Buffer.from(blind.base64,"base64").toString()).findings.length,2);
       assert.equal(ok(await h.cli("work","run","--run",runId)).acceptance,title==="alter findings" ? "pending" : "accepted");
+    }
+    } finally {
+      // The cancelling or resuming controller may still be queued behind the
+      // controller that recorded release. Keep its test ledger until both exit.
+      const {managedRequestRunning,queueRoot}=await import("../src/managed-host-client.js");
+      const deadline=Date.now()+30000;
+      while (controllers.some(({gradingId,operationId})=>managedRequestRunning(gradingId,operationId)) && Date.now()<deadline)
+        await new Promise(resolve=>setTimeout(resolve,100));
+      assert.ok(controllers.every(({gradingId,operationId})=>!managedRequestRunning(gradingId,operationId)));
+      for (const id of new Set(controllers.map(c=>c.gradingId))) await withRuntimeLock(queueRoot(),"execution-"+id,async()=>{},30000);
     }
   });
 });
