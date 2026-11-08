@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, symlinkSync, rmSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { deflateSync } from "node:zlib";
 import { join } from "node:path";
@@ -281,4 +282,26 @@ test("grading material is the exact regular blob from a frozen delivery despite 
   await assertBytes();
   assert.equal((await adapter.readFile(r.work, item, "../oracle.bin")).status, "invalid");
   assert.equal((await adapter.readFile(r.work, item, "missing")).status, "missing");
+});
+
+test("managed publication pins local file URLs and rejects Git endpoint rewrites", async t => {
+  const a = repository(), b = repository();
+  t.after(a.cleanup); t.after(b.cleanup);
+  const commit = a.commit("source");
+  const remote = join(a.root, "destination");
+  symlinkSync(a.remote, remote);
+  const archive = new GitTagArchive();
+  const frozen = await archive.freezeSource(a.work, "HEAD", pathToFileURL(remote).href);
+  assert.equal(frozen.remote, pathToFileURL(realpathSync(a.remote)).href);
+  rmSync(remote);
+  symlinkSync(b.remote, remote);
+  const first = await archive.archive({repositoryPath: a.work, remote: frozen.remote, frozenDestination: true, deliveryId: "frozen", commit});
+  assert.equal(first.status, "confirmed");
+  assert.equal(git(a.remote, "rev-parse", "refs/tags/grounds/deliveries/frozen"), commit);
+  assert.equal(git(b.remote, "tag", "-l"), "");
+  git(a.work, "remote", "remove", "grounds-frozen-delivery");
+  git(a.work, "config", "url." + pathToFileURL(b.remote).href + ".insteadOf", frozen.remote);
+  const redirected = await archive.archive({repositoryPath: a.work, remote: frozen.remote, frozenDestination: true, deliveryId: "blocked", commit});
+  assert.equal(redirected.status, "unavailable");
+  assert.equal(git(b.remote, "tag", "-l"), "");
 });

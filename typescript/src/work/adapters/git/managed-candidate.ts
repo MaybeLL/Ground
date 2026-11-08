@@ -29,6 +29,6 @@ export async function archiveCandidateBundle(archive:GitTagArchive,input:{reposi
     try { await git(["fsck","--full","--no-dangling",input.commit]); }
     catch { return {status: "invalid" as const, reason: "candidate objects failed integrity verification"}; }
     const remote = input.remote;
-    return await archive.archive({repositoryPath:root,commit:input.commit,remote,deliveryId:input.id,observeOnly:!input.allowPublish});
+    return await archive.archive({repositoryPath:root,commit:input.commit,remote,deliveryId:input.id,observeOnly:!input.allowPublish,frozenDestination:true});
   } finally {await rm(root,{recursive:true,force:true});}
 }

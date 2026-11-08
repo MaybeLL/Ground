@@ -310,6 +310,15 @@ for (const backend of backends) test(backend + ": managed admission, archive out
     refused(await app.sandboxes.prepare("override", run.runId, root), "forbidden");
     refused(await app.delivery.deliver({requestId: "publish", runId: run.runId, repositoryPath: repo, commit: baseline}), "unsupported");
     assert.equal(git(repo, "ls-remote", "--tags", remote), "");
+    git(repo, "branch", "temporary-base", baseline);
+    const earlier = value(await app.tasks.createTask({requestId: "parent-task", summary: "refine",
+      criteria: [{statement: "committed"}], environmentDefinitionId: environment.environmentId, repository: {remote, baseline: "temporary-base"}}));
+    const first = value(await app.exec.startWork({requestId: "parent-start", taskDefinitionId: earlier.taskId, workerMode: "none"}));
+    const delivered = value(await app.delivery.deliver({requestId: "parent-deliver", runId: first.runId, repositoryPath: repo, commit: "HEAD"}));
+    git(repo, "branch", "-d", "temporary-base");
+    const child = value(await app.exec.continueWork({requestId: "refine", workId: first.workId, expectedHead: first.runId,
+      workerMode: "managed", agent: {definitionId: agent.agentId, repositoryPath: repo}}));
+    assert.equal(value(await app.workers.context(child.runId)).job.baseline, delivered.delivery.commit);
     const {requestSandbox, attachSandbox, markReady} = await import("../src/work/domain/index.js");
     const {ProviderTraceCapture} = await import("../src/work/adapters/providers/trace-capture.js");
     const startedAt = new Date().toISOString(), sandboxId = newUUIDv7();

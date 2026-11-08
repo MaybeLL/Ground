@@ -32,6 +32,10 @@ async function schedule() {
       try { ticket = JSON.parse(safeRead(path, 4096).toString()); }
       catch (error) { if (!existsSync(path)) continue; throw error; }
       if (hostProcessIdentity(ticket.pid) !== ticket.birth) {
+        if (ticket.name && !attempted.has(ticket.name)) {
+          attempted.add(ticket.name);
+          await launchManaged("job", [ticket.name, "recover"]);
+        }
         // A new runner must acquire the slot under its own request. A
         // previously granted slot stays occupied until stop is confirmed.
         await withRuntimeLock(queueRoot(), "ticket-" + name, async () => {

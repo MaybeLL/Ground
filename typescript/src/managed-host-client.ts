@@ -50,10 +50,11 @@ export async function notifyManaged(job: HostJob, operationId: string) {
  * orphan reconciliation uses observation authority. */
 export async function observeManagedHost(executionId: string, ledgerId: string) {
   const root = join(dataLayout().runtime, "managed-host");
-  if (!managedId.test(executionId) || !existsSync(join(root, "slots", executionId))) return;
+  if (!managedId.test(executionId)) return;
+  const fallback = join(root, "recovery-status", executionId);
+  if (![join(root, "slots", executionId), join(root, "waiting", executionId), fallback].some(path => existsSync(path))) return;
   try { await withRuntimeLock(root, "host", async () => launchManaged("host")); }
   catch (error) { if (!String(error).includes("another local controller")) throw error; }
-  const fallback = join(root, "recovery-status", executionId);
   if (existsSync(fallback)) {
     try {
       const record = JSON.parse(safeRead(fallback, 4096).toString());

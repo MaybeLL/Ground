@@ -8,7 +8,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import type { DeliveryItem, ReceiptCheck } from "../../domain/index.js";
 import type { ArchivedDigest, ArchivedFiles, ArchivedFile, ArchiveObservation, ArchiveProtection, RepairIdentity, RepairInput, CodeArchivePort, CodeFetchResult, DeliveryReceiptPort } from "../../ports/index.js";
@@ -119,12 +119,15 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
     return { tree, parents };
   }
 
-  async freezeSource(path: string, baseline: string, remote: string) {
+  async freezeSource(path: string, baseline: string, remote: string, parentReceipt?: string) {
     const repositoryPath = await realpath(path);
-    const commit = (await this.isolatedGit(repositoryPath, ["rev-parse", "--verify", "--end-of-options", baseline + "^{commit}"])).trim();
-    if (!OID.test(commit)) throw new Error("managed baseline must resolve to a full commit");
+    const commit = parentReceipt ? decodeReceipt(parentReceipt)?.commit :
+      (await this.isolatedGit(repositoryPath, ["rev-parse", "--verify", "--end-of-options", baseline + "^{commit}"])).trim();
+    if (!commit || !OID.test(commit)) throw new Error("managed baseline must resolve to a full commit");
     const endpoint = await this.archiveRemote(repositoryPath, remote);
-    return {repositoryPath, baseline: commit, remote: isAbsolute(endpoint) ? await realpath(endpoint) : endpoint};
+    const destination = endpoint.startsWith("file://") ? pathToFileURL(await realpath(fileURLToPath(endpoint))).href :
+      isAbsolute(endpoint) ? await realpath(endpoint) : endpoint;
+    return {repositoryPath, baseline: commit, remote: destination};
   }
 
   async archiveRemote(repositoryPath: string, remote: string): Promise<string> {
@@ -363,7 +366,7 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
   }
 
   /** Archive a commit of the repository at `repositoryPath` under the delivery identity. Repeating it for the same commit is harmless. */
-  async archive(input: { observeOnly?: boolean; repositoryPath: string; remote: string; deliveryId: string; commit: string; previousReceipt?: string; protection?: ArchiveProtection }): Promise<ArchiveResult> {
+  async archive(input: { frozenDestination?: boolean; observeOnly?: boolean; repositoryPath: string; remote: string; deliveryId: string; commit: string; previousReceipt?: string; protection?: ArchiveProtection }): Promise<ArchiveResult> {
     if (!validProtection(input.protection)) return { status: "invalid", reason: "invalid archive protection evidence" };
     if (!/^[A-Za-z0-9._-]{1,128}$/.test(input.deliveryId)) return { status: "invalid", reason: "the delivery identity is not usable in a reference name" };
     const ref = `${REF_NAMESPACE}${input.deliveryId}`;
@@ -372,7 +375,21 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
       commit = (await this.git(input.repositoryPath, ["rev-parse", "--verify", `${input.commit}^{commit}`])).trim();
       ({ tree, parents } = await this.commitFacts(input.repositoryPath, commit));
     } catch { return { status: "invalid", reason: `the commit and its headers could not be read in ${input.repositoryPath}` }; }
-    try { remote = await this.archiveRemote(input.repositoryPath, input.remote); }
+    let destination = input.remote;
+    if (input.frozenDestination) {
+      try {
+        // A private import repository owns this remote. Set a literal push
+        // URL so pushInsteadOf cannot select another publication endpoint.
+        destination = "grounds-frozen-delivery";
+        await this.isolatedGit(input.repositoryPath, ["remote", "add", "--", destination, input.remote]);
+        await this.isolatedGit(input.repositoryPath, ["config", "remote." + destination + ".pushurl", input.remote]);
+        const actual = (await this.isolatedGit(input.repositoryPath, ["remote", "get-url", "--push", "--all", destination])).trim();
+        if (actual !== input.remote || !await this.sameEndpoint(input.remote, input.repositoryPath)) {
+          return {status: "unavailable", reason: "Git redirects the frozen publication endpoint"};
+        }
+      } catch { return {status: "unavailable", reason: "the frozen publication endpoint cannot be verified"}; }
+    }
+    try { remote = input.frozenDestination ? input.remote : await this.archiveRemote(input.repositoryPath, input.remote); }
     catch { return { status: "invalid", reason: "archive requires one stable remote destination without embedded HTTPS credentials" }; }
     if (input.previousReceipt !== undefined) {
       const frozen = decodeReceipt(input.previousReceipt);
@@ -392,7 +409,7 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
     if (before.state === "absent") {
       if (input.observeOnly) return {status: "unavailable", reason: "publication has no remote receipt; resume to publish"};
       // A plain push of a new tag: never forced, so an existing different tag wins any race.
-      try { await this.git(input.repositoryPath, ["push", "--porcelain", "--", remote, `${commit}:${ref}`]); }
+      try { await this.git(input.repositoryPath, ["push", "--porcelain", "--", input.frozenDestination ? destination : remote, `${commit}:${ref}`]); }
       catch { /* A lost answer is not a failed write: read it back before deciding. */ }
       const after = await this.observe(remote, ref, input.repositoryPath);
       if (after.state === "unreachable") return { status: "unavailable", reason: after.reason };
