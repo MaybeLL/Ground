@@ -88,6 +88,22 @@ test("a workspace is prepared only for a run that can still do work, from what i
   });
 });
 
+for (const backend of backends) test(backend+": external workspace selection binds one Git clone and immutable base",{skip:backendSkip(backend)},async()=>{
+  await scenario(async({app,store,repo,remote,root,baseline})=>{
+    const other=join(root,"second");
+    git(root,"clone","-q",repo,other);
+    const created=await task(app,{remote,baseline:"main"});
+    const {runId}=value(await app.exec.startRun({requestId:"start",taskDefinitionId:created.taskId,workerMode:"external"}));
+    const results=await Promise.all([repo,other].map(repositoryPath=>app.delivery.workspaceBase({runId,repositoryPath})));
+    assert.equal(results.filter(result=>result.ok).length,1);
+    const winner=results[0]!.ok ? repo : other;
+    git(winner,"commit","--allow-empty","-qm","advance after selection");
+    assert.equal(value(await app.delivery.workspaceBase({runId,repositoryPath:winner})).commit,baseline);
+    const records=await new SqlWorkUnitOfWork(store).run("read",r=>r.intents.listForSubject("external-workspace","task_run",runId));
+    assert.equal(records.length,1);
+  },backend);
+});
+
 for (const backend of backends) test(`${backend}: repair resumes after a lost push reply and retains both archive facts`, { skip: backendSkip(backend) }, async () => {
   await scenario(async ({ app, store, repo, remote, baseline }) => {
     const task = value(await app.tasks.createTask({ requestId: "task", summary: "repair fixture", criteria: [{ statement: "retain original" }], repository: { remote, baseline } }));
