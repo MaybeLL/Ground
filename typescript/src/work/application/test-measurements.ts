@@ -6,7 +6,7 @@ import { fromRejection, succeed } from "./outcome.js";
 
 export type TestPlan = {
   suite: RevisionRef; caseKey: string; bindingKey: string; runId: string; deliveryId: string;
-  commit: string; archiveId:string; receipt: string; repository: string;
+  commit: string; archiveId:string; receipt: string; originalReceipt?: string; repository: string;
 };
 export type AcceptedTest = {
   gradingId: string; suiteId: string; revisionId: string; caseKey: string; bindingKey: string;
@@ -25,7 +25,7 @@ export async function admitTestMeasurement(ctx: RequestContext, r: WorkRepositor
     graderRevision:revision, grader, requestSeq:await r.sequences.next(GRADING_REQUEST_COUNTER),
     targets:[{type:target.type, id:target.id, digest:targetDigest.value}], materials, at});
   if (!created.ok) return fromRejection(created.error);
-  const payload = {...plan, suite:{...plan.suite}} satisfies JsonValue;
+  const payload = {...plan, originalReceipt:target.receipt, suite:{...plan.suite}} satisfies JsonValue;
   const hash = digestOf(payload, ctx.hash);
   if (!hash.ok) return fromRejection(hash.error);
   await r.gradings.create(created.value.state);

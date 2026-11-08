@@ -1,11 +1,12 @@
 import { authorizeBridge, isGradingTerminal } from "../domain/index.js";
 import type { ManagedWorkspacePort, RuntimeOwner, SandboxLauncher, SandboxRuntimePort, TestProcessPort } from "../ports/index.js";
 import { fail, succeed, type Outcome } from "../application/outcome.js";
+import type { ArchiveRepairs } from "../application/archive-repairs.js";
 import type { TestExecution } from "../application/test-execution.js";
 import type { DriveState } from "./managed-task.js";
 
 type Observation = {state:DriveState;detail?:string;providerStopped?:boolean};
-type Dependencies = {tests:TestExecution;runtime:SandboxRuntimePort;launcher:SandboxLauncher;workspaces:ManagedWorkspacePort;
+type Dependencies = {tests:TestExecution;repairs:ArchiveRepairs;runtime:SandboxRuntimePort;launcher:SandboxLauncher;workspaces:ManagedWorkspacePort;
   process:TestProcessPort;ledgerId():Promise<string>};
 
 export class TestGradingDriver {
@@ -66,7 +67,18 @@ export class TestGradingDriver {
           return succeed({state:"running",detail:"reconciling evaluator setup dispatch"});
         }
         let workspace;
-        try { workspace = await process.prepare(owner,plan,environment,materials); }
+        try {
+          let target = plan;
+          const original = plan.originalReceipt ?? (plan.archiveId === plan.deliveryId ? plan.receipt : undefined);
+          if (original) {
+            const {observation,receipt} = await this.deps.repairs.current(plan.runId,{id:plan.deliveryId,receipt:original},plan.repository);
+            if (observation.recordedCommit !== plan.commit || !["intact","ref-changed"].includes(observation.status ?? "")) {
+              return succeed({state:"blocked",detail:"frozen evaluator target archive could not be verified",providerStopped:true});
+            }
+            target = {...plan,archiveId:"activeArchiveId" in observation ? observation.activeArchiveId : plan.deliveryId,receipt};
+          }
+          workspace = await process.prepare(owner,target,environment,materials);
+        }
         catch { return succeed({state:"blocked",detail:"frozen evaluator workspace or target could not be prepared",providerStopped:true}); }
         const current = await tests.context(id);
         if (!current.ok) return current;

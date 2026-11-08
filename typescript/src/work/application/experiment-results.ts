@@ -42,7 +42,7 @@ export class ExperimentResults {
       const [drive] = await r.intents.listForSubject("drive-experiment","experiment_run",id);
       const saved = drive?.payload as {observation?:{state:string;detail?:string};firstTerminalAt?:string;firstTerminalState?:string} | undefined;
       const host = saved?.observation;
-      const completion = saved?.firstTerminalAt && {at:saved.firstTerminalAt,state:saved.firstTerminalState};
+      const completion = saved?.firstTerminalAt && {at:saved.firstTerminalAt,state:saved.firstTerminalState ?? (batch.cancelIntent && batch.cancelIntent.at <= saved.firstTerminalAt ? "cancelled" : "completed")};
       const groups = new Map<string,Summary>();
       const counts = {planned:batch.members.length, pending:0, active:0, delivered:0, executionErrors:0, failed:0, cancelled:0, fullyGraded:0};
       const members = [], readAt = this.ctx.now();

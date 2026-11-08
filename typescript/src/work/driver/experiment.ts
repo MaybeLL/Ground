@@ -1,12 +1,9 @@
-import {createHash} from "node:crypto";
+import {operation} from "./operation-id.js";
 import type {WorkApplication} from "../application/index.js";
 import {succeed} from "../application/outcome.js";
 
 type Child = {runId:string;executionId:string;kind?:"test-grading";allowStart:boolean};
-const operation = (...keys:string[]) => {
-  const hash = createHash("sha256").update(JSON.stringify(keys)).digest("hex");
-  return [hash.slice(0,8),hash.slice(8,12),hash.slice(12,16),hash.slice(16,20),hash.slice(20,32)].join("-");
-};
+
 
 /** The batch owns task slots in SQL. Each child uses the existing worker
  * or evaluator host and its independent stop, archive and release protocol. */

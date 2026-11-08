@@ -1190,7 +1190,7 @@ test("experiment runs reconcile after controller loss and cancel only their own 
       const paused = await until(()=>view(first),v=>v.counts.delivered===1 && v.host?.state==="awaiting-resume");
       assert.equal(paused.counts.pending,2);
       assert.equal(paused.members[0].requirements[0].attempts,0);
-      ok(await h.cli("experiment","resume","--batch",first));
+      ok(await h.cli("experiment","resume","--batch",first,"--operation-id",first));
       await ready(first,1,"worker");
       await ready(first,0,"test");
       ok(await h.cli("experiment","cancel","--batch",first));
@@ -1202,9 +1202,14 @@ test("experiment runs reconcile after controller loss and cancel only their own 
       docker("exec",await ready(unrelated,0,"test"),"touch","/tmp/test-release");
       const completed = await until(()=>view(unrelated),v=>v.host?.state==="terminal");
       const key = completed.members[0].key, adopted = completed.members[0].requirements[0].adopted;
+      const original = (await detail(unrelated,key)).run.manifest.items[0];
+      const repairSource = join(h.directory,"member-repair.git");
+      git(h.directory,"clone","--bare","--quiet",h.remote,repairSource);
+      git(h.remote,"update-ref","-d","refs/tags/grounds/deliveries/"+original.id);
+      ok(await h.cli("work","repair","--run",completed.members[0].runId,"--delivery",original.id,"--repo",repairSource));
       ok(await h.cli("experiment","regrade","--batch",unrelated,"--member",key,"--binding","quality"));
       await ready(unrelated,0,"test");
-      ok(await h.cli("experiment","cancel","--batch",unrelated));
+      ok(await h.cli("experiment","cancel","--batch",unrelated,"--operation-id",unrelated));
       await until(()=>view(unrelated),v=>v.host?.state==="terminal" && !!v.batch.cancelIntent);
       const final = await detail(unrelated,key);
       assert.equal(final.gradings.at(-1).status,"cancelled");

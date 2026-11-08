@@ -11,7 +11,7 @@ import { bundledPluginRoot, defaultSkillsDirectory, installGroundsSkills } from 
 import { installationStatus } from "./installation-status.js";
 import { cliVersion } from "./runtime-version.js";
 import { composeWork } from "./work/composition.js";
-import { notifyManaged, observeManagedHost, batchHostObservation } from "./managed-host-client.js";
+import { notifyManaged, observeManagedHost, batchNotificationId, batchHostObservation } from "./managed-host-client.js";
 import { executeWorkCommand, WORK_GROUPS, WORK_WRITE_ACTIONS, workHelp } from "./work/entry/index.js";
 
 export interface Warning { code: string; message: string }
@@ -437,7 +437,7 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
       }
       if (group === "experiment" && typeof data.batchId === "string" && ["launch","resume","cancel"].includes(action)) {
         await notifyManaged({kind:"experiment",config:configPath(value(args,"config")),ledgerId:opened.config.database.expected_database_id,
-          runId:data.batchId,executionId:data.batchId,allowStart:action !== "cancel"},action === "launch" ? data.batchId : value(args,"operation-id"));
+          runId:data.batchId,executionId:data.batchId,allowStart:action !== "cancel"},batchNotificationId(action,action === "launch" ? data.batchId : value(args,"operation-id")));
       }
       if (typeof data.gradingId === "string" && ((group === "suite" && action === "measure" || group === "experiment" && action === "regrade") && data.status === "accepted" ||
           group === "grade" && (action === "cancel" || action === "resume-test"))) {
@@ -448,7 +448,7 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
       if (group === "experiment" && action === "regrade" && data.status === "accepted") {
         const id = value(args,"batch");
         await notifyManaged({kind:"experiment",config:configPath(value(args,"config")),ledgerId:opened.config.database.expected_database_id,
-          runId:id,executionId:id,allowStart:false},value(args,"operation-id"));
+          runId:id,executionId:id,allowStart:false},batchNotificationId(action,value(args,"operation-id")));
       }
       if (group === "grade" && action === "test-status" && typeof data.gradingId === "string") {
         const observation = await observeManagedHost(data.gradingId, opened.config.database.expected_database_id);

@@ -1,3 +1,4 @@
+import {operation} from "./work/driver/operation-id.js";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -56,10 +57,12 @@ export function batchHostObservation(id:string,ledgerId:string,saved?:{state?:st
   if (saved?.state && !["running","accepted"].includes(saved.state)) return;
   const owner = localRecord(join(root,"batches",id));
   if (typeof owner?.pid !== "number" || typeof owner.birth !== "string" || hostProcessIdentity(owner.pid) !== owner.birth) {
-    if (managedRequestRunning(id,id)) return {state:"starting",detail:"batch controller is starting"};
+    if (managedRequestRunning(id,batchNotificationId("launch",id))) return {state:"starting",detail:"batch controller is starting"};
     return {state:"awaiting-resume",detail:"no live local batch controller was observed; resume to continue"};
   }
 }
+
+export const batchNotificationId = (action:string,id:string) => operation("experiment-host",action,id);
 
 export function managedRequestRunning(executionId:string,operationId:string) {
   const path = join(dataLayout().runtime,"managed-host","requests",executionId + "." + operationId + ".owner");
