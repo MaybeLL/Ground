@@ -3,13 +3,14 @@
 // remote shows now. A receipt is self-describing; a historical receipt is never
 // taken as a fresh observation.
 import { execFile, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import type { DeliveryItem, ReceiptCheck } from "../../domain/index.js";
-import type { ArchiveObservation, ArchiveProtection, CodeArchivePort, CodeFetchResult, DeliveryReceiptPort } from "../../ports/index.js";
+import type { ArchiveObservation, ArchiveProtection, RepairIdentity, RepairInput, CodeArchivePort, CodeFetchResult, DeliveryReceiptPort } from "../../ports/index.js";
 
 const run = promisify(execFile);
 const RECEIPT_PREFIX = "git-delivery:v1:";
@@ -201,7 +202,10 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
 
   /** A repair publishes another tag. Its identity is derived from the saved intent;
    * a retry first asks the remote whether the earlier push already succeeded. */
-  async repair(input: { repositoryPath: string; originalId: string; originalReceipt: string; archiveId: string; earlierReceipts: readonly string[] }): Promise<ArchiveResult> {
+  repair(input: RepairInput): Promise<ArchiveResult> { return this.repairTag(input, input); }
+  inspectRepair(identity: RepairIdentity): Promise<ArchiveResult> { return this.repairTag(identity); }
+
+  private async repairTag(input: RepairIdentity, publish?: RepairInput): Promise<ArchiveResult> {
     const original = decodeReceipt(input.originalReceipt);
     if (!original || deliveryIdOf(original) !== input.originalId || !stableRemote(original.remote)) return { status: "invalid", reason: "repair needs a frozen receipt with a stable destination" };
     if (!/^[A-Za-z0-9_-]{1,128}$/.test(input.archiveId) || input.archiveId === input.originalId) return { status: "invalid", reason: "repair needs a new archive identity" };
@@ -220,20 +224,33 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
       if (pushURL !== remote || !await this.sameEndpoint(remote, scratch)) return { status: "invalid", reason: "the configured Git endpoint redirects the frozen destination" };
       const before = await this.observe(remote, ref, scratch, true);
       if (before.state === "unreachable") return { status: "unavailable", reason: "cannot observe the repair destination" };
-      if (before.state === "present") return before.commit === commit ? { status: "confirmed", receipt, commit } : { status: "conflict", reason: "another object occupies the repair tag" };
+      if (before.state === "present") {
+        if (before.commit !== commit) return { status: "conflict", reason: "another object occupies the repair tag" };
+        if (await this.retrieve(scratch, remote, ref, original) !== "verified") return { status: "unavailable", reason: "the advertised repair tag does not supply the verified object" };
+        return { status: "confirmed", receipt, commit };
+      }
+      if (!publish) return { status: "unavailable", reason: "the repair tag is absent; repeat the repair with its operation ID to publish it" };
 
-      let verified = await this.retrieveLocal(input.repositoryPath, scratch, original, true).catch(() => "unknown");
-      for (const prior of [original, ...input.earlierReceipts.map(decodeReceipt)]) {
+      let verified = await this.retrieveLocal(publish.repositoryPath, scratch, original, true).catch(() => "unknown");
+      for (const prior of [original, ...publish.earlierReceipts.map(decodeReceipt)]) {
         if (verified === "verified") break;
         if (prior && prior.remote === remote && prior.commit === commit) verified = await this.retrieve(scratch, remote, prior.ref, original, true);
       }
       if (verified !== "verified") verified = await this.retrieve(scratch, remote, commit, original, true);
-      if (verified !== "verified") verified = await this.retrieveLocal(input.repositoryPath, scratch, original).catch(() => "unknown");
+      if (verified !== "verified") verified = await this.retrieveLocal(publish.repositoryPath, scratch, original).catch(() => "unknown");
       if (verified !== "verified") return { status: "unavailable", reason: "cannot recover and verify the recorded object for repair" };
+      let failure = "the repair tag could not be confirmed";
       try { await this.isolatedGit(scratch, ["push", "--porcelain", "--", "destination", `${commit}:${ref}`]); }
-      catch { /* Read back the exact tag before deciding whether the push succeeded. */ }
+      catch (error) {
+        // Remote hooks may print credentials or arbitrary text. Return only recognized categories.
+        const output = String((error as { stdout?: string }).stdout ?? "") + String((error as { stderr?: string }).stderr ?? "");
+        if (/remote rejected|hook declined|protected tag/i.test(output)) failure = "the server rejected the repair tag";
+        else if (/permission denied|authentication failed|access denied|returned error: 40[13]/i.test(output)) failure = "the server denied permission to publish the repair tag";
+        else if (/timed out|connection|resolve host|network/i.test(output)) failure = "the network failed during repair publication";
+        else failure = "Git push failed and the repair tag could not be confirmed";
+      }
       const after = await this.observe(remote, ref, scratch, true);
-      if (after.state !== "present") return { status: "unavailable", reason: "the repair tag could not be confirmed" };
+      if (after.state !== "present") return { status: "unavailable", reason: failure };
       return after.commit === commit ? { status: "confirmed", receipt, commit } : { status: "conflict", reason: "the repair tag points to a different commit" };
     } finally { if (scratch) await rm(scratch, { recursive: true, force: true }); }
   }
@@ -242,12 +259,17 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
   async fetch(input: { repositoryPath: string; receipt: string }): Promise<CodeFetchResult> {
     const receipt = decodeReceipt(input.receipt);
     if (!receipt) return { status: "missing", reason: "the receipt cannot be read" };
-    const seen = await this.observe(receipt.remote, receipt.ref, input.repositoryPath);
+    const seen = await this.observe(receipt.remote, receipt.ref, input.repositoryPath, true);
     if (seen.state === "unreachable") return { status: "unavailable", reason: seen.reason };
     if (seen.state === "absent" || seen.commit !== receipt.commit) return { status: "missing", reason: "the remote no longer shows the delivered commit under its tag" };
-    try { await this.git(input.repositoryPath, ["fetch", "--no-tags", "--quiet", "--", receipt.remote, receipt.ref]); }
-    catch (error) { return { status: "unavailable", reason: (error as Error).message.split("\n")[0] ?? "the commit could not be fetched" }; }
-    return await this.resolveCommit(input.repositoryPath, receipt.commit) === receipt.commit ? { status: "fetched", commit: receipt.commit } : { status: "unavailable", reason: "the fetched objects do not contain the delivered commit" };
+    const fetchedRef = `refs/grounds/fetch/${randomUUID()}`;
+    try {
+      if (!await this.sameEndpoint(receipt.remote, input.repositoryPath)) return { status: "unavailable", reason: "the checkout redirects the recorded archive endpoint" };
+      await this.isolatedGit(input.repositoryPath, ["fetch", "--no-write-fetch-head", "--no-tags", "--quiet", "--", receipt.remote, `${receipt.ref}:${fetchedRef}`]);
+      const fetched = (await this.isolatedGit(input.repositoryPath, ["rev-parse", "--verify", `${fetchedRef}^{commit}`])).trim();
+      return fetched === receipt.commit ? { status: "fetched", commit: fetched } : { status: "missing", reason: "the fetched tag no longer points to the delivered commit" };
+    } catch { return { status: "unavailable", reason: "the archived tag could not be fetched" }; }
+    finally { await this.isolatedGit(input.repositoryPath, ["update-ref", "-d", fetchedRef]); }
   }
 
   /** Archive a commit of the repository at `repositoryPath` under the delivery identity. Repeating it for the same commit is harmless. */

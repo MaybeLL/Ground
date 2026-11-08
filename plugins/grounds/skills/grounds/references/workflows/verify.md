@@ -15,8 +15,9 @@ grounds grade request --run "$RUN_ID" --json
 从公共交付结果和[本轮保存的调用参数](develop.md)准备**另一份**检出，无需解码 receipt：
 
 - `DELIVERY_ID` 与 `DELIVERY_COMMIT` 分别取成功交付结果的 `data.delivery.id`、`data.delivery.commit`（完整 commit），并核对 `data.delivery.receipt` 与该 run 冻结 manifest 中同 ID 的 receipt 完全一致；迟到提交的回执不能作为本轮冻结交付。
+- 有修复时，从同一次 `work run` 的 `archiveIntegrity` 中按原 `DELIVERY_ID` 选择记录，核对 `recordedCommit` 等于原 `DELIVERY_COMMIT` 且 `status` 为 `intact`，将其 `activeArchiveId` 设为 `ACTIVE_ARCHIVE_ID`。没有修复时清除该变量。
 - `DELIVERY_REMOTE` 必须取本轮 `work deliver --remote` 实际使用并保存的完整 URL 或绝对路径。它可能覆盖 Task 默认值，不能从 Task 猜测，也不能在新目录使用 `origin` 别名。缺少原调用记录时停止交接，先索取确切远端。
-- 公开归档 ref 固定为 `refs/tags/grounds/deliveries/$DELIVERY_ID`。`REVIEW_DIR` 是父目录已存在、当前路径尚不存在的绝对路径，与 worker worktree 分开。
+- 公开归档 ref 使用 `refs/tags/grounds/deliveries/` 加上所选归档 ID。`REVIEW_DIR` 是父目录已存在、当前路径尚不存在的绝对路径，与 worker worktree 分开。
 
 在 Bash 中执行下列步骤；任一步失败都停止，留下的目录仅供排障，不作为验收输入：
 
@@ -33,7 +34,8 @@ grounds grade request --run "$RUN_ID" --json
     printf '%s\n' 'Invalid full delivery commit' >&2
     exit 1
   fi
-  DELIVERY_REF="refs/tags/grounds/deliveries/$DELIVERY_ID"
+  ARCHIVE_ID="${ACTIVE_ARCHIVE_ID:-$DELIVERY_ID}"
+  DELIVERY_REF="refs/tags/grounds/deliveries/$ARCHIVE_ID"
   EXPECTED_LINE="$(printf '%s\t%s' "$DELIVERY_COMMIT" "$DELIVERY_REF")"
   mkdir "$REVIEW_DIR"
   git init -q --object-format="$OBJECT_FORMAT" "$REVIEW_DIR"

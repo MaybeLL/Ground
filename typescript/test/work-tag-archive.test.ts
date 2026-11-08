@@ -230,3 +230,25 @@ test("a pre-upgrade submission replays its original receipt without a new push",
   assert.deepEqual(replay, { status: "confirmed", commit, receipt: old });
   assert.equal(git(r.work, "ls-remote", "--refs", r.remote), "");
 });
+
+test("repair recovery verifies remote objects, reports rejected pushes and never republishes during inspection", async t => {
+  const r = repository(); t.after(r.cleanup);
+  const commit = r.commit("original");
+  const archive = new GitTagArchive();
+  const original = await archive.archive({ repositoryPath: r.work, remote: r.remote, deliveryId: "d", commit });
+  assert.equal(original.status, "confirmed");
+  if (original.status !== "confirmed") return;
+  const identity = { originalId: "d", originalReceipt: original.receipt, archiveId: "repair-trial" };
+  const input = { ...identity, repositoryPath: r.work, earlierReceipts: [] };
+  const ref = "refs/tags/grounds/deliveries/repair-trial";
+  assert.equal((await archive.inspectRepair(identity)).status, "unavailable");
+  assert.equal(git(r.remote, "tag", "-l", "grounds/deliveries/repair-trial"), "");
+  writeFileSync(join(r.remote, "hooks/pre-receive"), "#!/bin/sh\necho private-hook-output >&2\nexit 1\n", { mode: 0o755 });
+  assert.deepEqual(await archive.repair(input), { status: "unavailable", reason: "the server rejected the repair tag" });
+
+  git(r.remote, "update-ref", ref, commit);
+  rmSync(join(r.remote, "objects", commit.slice(0, 2), commit.slice(2)));
+  assert.ok(git(r.root, "ls-remote", "--refs", r.remote, ref).startsWith(commit));
+  assert.equal((await archive.inspectRepair(identity)).status, "unavailable");
+  assert.equal((await archive.repair(input)).status, "unavailable");
+});

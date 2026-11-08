@@ -4,6 +4,14 @@
   "title": "Task, work and grade CLI results",
   "oneOf": [
     {
+      "type":"object","required":["command","result_type","runId","confirmed","outstanding"],"additionalProperties":false,
+      "properties":{
+        "command":{"const":"work.reconcile"}, "result_type":{"const":"grounds.result.work.reconcile/v1"},
+        "runId":{"$ref":"#/$defs/Id"}, "confirmed":{"type":"array","items":{"$ref":"#/$defs/ArchiveRepair"}},
+        "outstanding":{"type":"array","items":{"type":"object","required":["requestId","archiveId","reason"],"additionalProperties":false,"properties":{"requestId":{"$ref":"#/$defs/Id"},"archiveId":{"$ref":"#/$defs/Id"},"reason":{"type":"string"}}}}
+      }
+    },
+    {
       "type": "object", "additionalProperties": false, "required": ["command", "result_type", "repair"],
       "properties": {
         "command": {"const":"work.repair"}, "result_type": {"const":"grounds.result.work.repair/v1"},
@@ -353,7 +361,7 @@
       "properties":{
         "requestId":{"$ref":"#/$defs/Id"}, "archiveId":{"$ref":"#/$defs/Id"}, "deliveryId":{"$ref":"#/$defs/Id"},
         "runId":{"$ref":"#/$defs/Id"}, "commit":{"type":"string","pattern":"^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
-        "receipt":{"type":"string","maxLength":1024}, "recordedAt":{"$ref":"#/$defs/Timestamp"},
+        "receipt":{"type":"string","minLength":1,"maxLength":1024}, "recordedAt":{"$ref":"#/$defs/Timestamp"},
         "observation":{"$ref":"#/$defs/ArchiveObservation"}
       }, "additionalProperties":false
     },
@@ -403,6 +411,10 @@
       "type": "array",
       "items": {
         "type": "object",
+        "oneOf": [
+          {"required":["activeArchiveId","original","repairs"]},
+          {"not":{"anyOf":[{"required":["activeArchiveId"]},{"required":["original"]},{"required":["repairs"]}]}}
+        ],
         "required": [
           "id",
           "status",
@@ -450,7 +462,7 @@
           "repairs": {
             "type": "array",
             "items": {
-              "$ref": "#/$defs/ArchiveRepair"
+              "allOf": [{"$ref": "#/$defs/ArchiveRepair"}, {"type":"object","required":["observation"]}]
             }
           }
         }

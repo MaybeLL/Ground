@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -13,6 +14,13 @@ import { validateGrade } from "../src/work/domain/index.js";
 import { parseGrade, workHelp } from "../src/work/entry/index.js";
 
 const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "T", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "T", GIT_COMMITTER_EMAIL: "t@t" } }).trim();
+
+function checkoutRecipe(): string {
+  const guide = readFileSync(new URL("../../plugins/grounds/skills/grounds/references/workflows/verify.md", import.meta.url), "utf8");
+  const checkout = /```bash\n(# Frozen delivery checkout\n[\s\S]*?)\n```/.exec(guide)?.[1];
+  assert.ok(checkout, "the skill contains an executable checkout recipe");
+  return checkout;
+}
 
 interface Harness { cli(...args: string[]): Promise<{ code: number; ok: boolean; data: any; error: any; stderr: string[] }>; repo: string; remote: string; directory: string; baseline: string }
 
@@ -152,13 +160,11 @@ for (const objectFormat of ["sha1", "sha256"] as const) test(`the skill checks o
 
     // Execute the distributed instructions, not an internal receipt decoder or
     // archive adapter. Installation tests prove source/bundle Markdown parity.
-    const guide = readFileSync(new URL("../../plugins/grounds/skills/grounds/references/workflows/verify.md", import.meta.url), "utf8");
-    const checkout = /```bash\n(# Frozen delivery checkout\n[\s\S]*?)\n```/.exec(guide)?.[1];
-    assert.ok(checkout, "the skill contains an executable checkout recipe");
+    const checkout = checkoutRecipe();
     const materialize = (directory: string, remote = actualRemote, commit = delivered.delivery.commit) => execFileSync("bash", ["-c", checkout], {
       cwd: h.directory, encoding: "utf8", stdio: "pipe", env: { ...process.env,
         GIT_DEFAULT_HASH: objectFormat === "sha1" ? "sha256" : "sha1",
-        DELIVERY_REMOTE: remote, DELIVERY_ID: delivered.delivery.id, DELIVERY_COMMIT: commit, REVIEW_DIR: directory },
+        ACTIVE_ARCHIVE_ID: "", DELIVERY_REMOTE: remote, DELIVERY_ID: delivered.delivery.id, DELIVERY_COMMIT: commit, REVIEW_DIR: directory },
     });
     const review = join(h.directory, "independent-review");
     materialize(review);
@@ -277,9 +283,26 @@ test("work repair publishes a separate archive and exposes the original beside t
     const gate = ok(await h.cli("grade", "request", "--run", runId));
     git(h.remote, "update-ref", "-d", `refs/tags/grounds/deliveries/${delivery.id}`);
     git(h.remote, "reflog", "expire", "--expire=now", "--all"); git(h.remote, "gc", "--prune=now");
-    const args = ["work", "repair", "--run", runId, "--delivery", delivery.id, "--repo", h.repo, "--operation-id", newUUIDv7()];
-    const { repair } = ok(await h.cli(...args));
-    assert.deepEqual(ok(await h.cli(...args)).repair, repair);
+    const args = ["work", "repair", "--run", runId, "--delivery", delivery.id, "--repo", h.repo];
+    const db = new DatabaseSync(join(h.directory, "ledger.db"));
+    try {
+      db.exec("CREATE TRIGGER interrupt_repair BEFORE UPDATE ON work_intents WHEN NEW.kind='repair-archive' AND NEW.state='completed' BEGIN SELECT RAISE(ABORT, 'injected interruption'); END");
+      assert.equal((await h.cli(...args)).ok, false);
+      db.exec("DROP TRIGGER interrupt_repair");
+    } finally { db.close(); }
+    const recovery = ok(await h.cli("work", "reconcile", "--run", runId));
+    assertContract("work-results.schema.json", recovery);
+    assert.equal(recovery.confirmed.length, 1);
+    const repair = recovery.confirmed[0];
+    assert.deepEqual(ok(await h.cli(...args, "--operation-id", repair.requestId)).repair, repair);
+    const materialize = (id: string, directory: string) => execFileSync("bash", ["-c", checkoutRecipe()], {
+      cwd: h.directory, stdio: "pipe", env: { ...process.env, ACTIVE_ARCHIVE_ID: id, DELIVERY_ID: delivery.id,
+        DELIVERY_COMMIT: h.baseline, DELIVERY_REMOTE: h.remote, REVIEW_DIR: directory },
+    });
+    const checkout = join(h.directory, "repaired-review");
+    materialize(repair.archiveId, checkout);
+    assert.equal(git(checkout, "rev-parse", "HEAD"), h.baseline);
+    assert.throws(() => materialize(delivery.id, join(h.directory, "stale-review")));
     assert.equal(repair.commit, h.baseline);
     assert.notEqual(repair.archiveId, delivery.id);
     for (const data of [ok(await h.cli("work", "show", "--work", workId)), ok(await h.cli("grade", "show", "--grading", gate.gradingId)), ok(await h.cli("grade", "list", "--run", runId))]) {
@@ -288,6 +311,11 @@ test("work repair publishes a separate archive and exposes the original beside t
       assert.equal(current.original.tag, "missing");
       assert.equal(current.status, "intact");
       assert.equal(current.repairs[0].receipt, repair.receipt);
+      assertContract("work-results.schema.json", data);
+      const incomplete = { ...current };
+      delete incomplete.original;
+      assert.throws(() => assertContract("work-results.schema.json", { ...data, archiveIntegrity: [incomplete] }));
+      assert.throws(() => assertContract("work-results.schema.json", { ...data, archiveIntegrity: [{ ...current, repairs: [repair] }] }));
     }
   });
 });

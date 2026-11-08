@@ -20,8 +20,12 @@ export interface ArchiveObservation {
   readonly remoteCommit?: string;
 }
 
+export type RepairIdentity = { originalId: string; originalReceipt: string; archiveId: string };
+export type RepairInput = RepairIdentity & { repositoryPath: string; earlierReceipts: readonly string[] };
+
 export interface CodeArchivePort {
-  repair(input: { repositoryPath: string; originalId: string; originalReceipt: string; archiveId: string; earlierReceipts: readonly string[] }): Promise<CodeArchiveResult>;
+  repair(input: RepairInput): Promise<CodeArchiveResult>;
+  inspectRepair(identity: RepairIdentity): Promise<CodeArchiveResult>;
   inspect(repositoryPath: string, item: { id: string; receipt: string }): Promise<ArchiveObservation>;
   /** The full identity of a commit-ish in the repository, or undefined when it names no commit. */
   resolveCommit(repositoryPath: string, commitish: string): Promise<string | undefined>;

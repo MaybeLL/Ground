@@ -112,8 +112,13 @@ for (const backend of backends) test(`${backend}: repair resumes after a lost pu
     await assert.rejects(interrupted.repair(input), /injected interruption/);
     assert.equal((await units.run("read", r => r.intents.findByRequest("recover")))!.state, "registered");
     const tags = git(repo, "ls-remote", "--tags", remote);
+    const recovered = value(await app.repairs.reconcile(run.runId));
+    assert.equal(recovered.confirmed.length, 1);
+    assert.deepEqual(recovered.outstanding, []);
+    assert.deepEqual(value(await app.repairs.reconcile(run.runId)).confirmed, []);
     const [a, b] = await Promise.all([app.repairs.repair(input), app.repairs.repair(input)]);
     const repaired = value(a);
+    assert.deepEqual(recovered.confirmed[0], repaired);
     assert.deepEqual(value(b), repaired);
     assert.deepEqual(value(await app.repairs.repair(input)), repaired);
     assert.equal(git(repo, "ls-remote", "--tags", remote), tags);

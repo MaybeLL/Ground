@@ -21,7 +21,7 @@
 
 Git 传输不会返回托管服务的标签保护规则。已核对策略的操作者可在交付时使用 `--protection protected|unprotected --protection-evidence REF` 记录来源；省略时保护等级为 `unknown`。保护记录不参与标签推送、读回及验收判定。
 
-运行 `work repair --run RUN --delivery ID --repo PATH` 会对原提交核对 Git 对象、推送新的修复标签并读回。每次显式修复以 operation ID 登记，重复请求使用同一标签与已存回执。存在修复时，`archiveIntegrity` 同时展示原观察、修复事实及当前采用的归档身份；精化工作可从已验证的修复回执取回原提交。
+运行 `work repair --run RUN --delivery ID --repo PATH` 会对原提交核对 Git 对象、推送新的修复标签并读回。`work reconcile --run RUN` 核对该运行的未确认修复，只登记已取回并验证的新标签。未推送的意图及其操作 ID 会列在 outstanding 中。每次显式修复以 operation ID 登记，重复请求使用同一标签与已存回执。存在修复时，`archiveIntegrity` 同时展示原观察、修复事实及当前采用的归档身份；精化工作可从已验证的修复回执取回原提交。
 
 ## 本机环境（grounds env）
 
