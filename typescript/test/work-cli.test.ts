@@ -25,10 +25,11 @@ function checkoutRecipe(): string {
   return checkout;
 }
 
-interface Harness { cli(...args: string[]): Promise<{ code: number; ok: boolean; data: any; error: any; stderr: string[] }>; repo: string; remote: string; directory: string; baseline: string }
+interface Harness { retainForDiagnosis():void; cli(...args: string[]): Promise<{ code: number; ok: boolean; data: any; error: any; stderr: string[] }>; repo: string; remote: string; directory: string; baseline: string }
 
 async function withHarness(run: (h: Harness) => Promise<void>, objectFormat: "sha1" | "sha256" = "sha1"): Promise<void> {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), "grounds-work-cli-")));
+  let retained=false;
   try {
     const repo = join(directory, "repo"), remote = join(directory, "remote.git");
     execFileSync("git", ["init", "-q", `--object-format=${objectFormat}`, "--bare", remote]);
@@ -46,9 +47,9 @@ async function withHarness(run: (h: Harness) => Promise<void>, objectFormat: "sh
         assertContract("cli-envelope.schema.json", envelope);
         return { code, ok: envelope.ok, data: envelope.data, error: envelope.error, stderr: errors };
       };
-      await run({ cli, repo, remote, directory, baseline });
+      await run({ cli, repo, remote, directory, baseline, retainForDiagnosis(){retained=true;} });
     });
-  } finally { rmSync(directory, { recursive: true, force: true }); }
+  } finally { if (!retained) rmSync(directory, { recursive: true, force: true }); }
 }
 
 const gradeFile = (directory: string, name: string, criteria: Array<{ criterion_id: string; final: string; reused_from?: string }>) => {
@@ -2155,6 +2156,7 @@ test("managed evaluator runs the built-in gate blind before reading the author's
     writeFileSync(transcript,bytes);
     writeFileSync(join(h.directory,"report"),"public result");
     const controllers:{gradingId:string;operationId:string}[]=[];
+    let failure:unknown;
     try {
     for (const title of ["independent review","alter findings","pinned code","dangling link","cancel blind"]) {
       const coding=title==="pinned code" || title==="dangling link";
@@ -2249,15 +2251,30 @@ test("managed evaluator runs the built-in gate blind before reading the author's
       assert.equal(JSON.parse(Buffer.from(blind.base64,"base64").toString()).findings.length,2);
       assert.equal(ok(await h.cli("work","run","--run",runId)).acceptance,title==="alter findings" ? "pending" : "accepted");
     }
-    } finally {
+    } catch (error) {failure=error;throw error;} finally {
       // The cancelling or resuming controller may still be queued behind the
       // controller that recorded release. Keep its test ledger until both exit.
       const {managedRequestRunning,queueRoot}=await import("../src/managed-host-client.js");
-      const deadline=Date.now()+30000;
-      while (controllers.some(({gradingId,operationId})=>managedRequestRunning(gradingId,operationId)) && Date.now()<deadline)
-        await new Promise(resolve=>setTimeout(resolve,100));
-      assert.ok(controllers.every(({gradingId,operationId})=>!managedRequestRunning(gradingId,operationId)));
-      for (const id of new Set(controllers.map(c=>c.gradingId))) await withRuntimeLock(queueRoot(),"execution-"+id,async()=>{},30000);
+      const ids=new Set(controllers.map(c=>c.gradingId));
+      try {
+        if (failure) for (const gradingId of ids) {
+          const state=await h.cli("grade","evaluator-status","--grading",gradingId);
+          if (state.ok && state.data.sandboxPhase!=="released") {
+            const operationId=newUUIDv7();controllers.push({gradingId,operationId});
+            ok(await h.cli("grade","cancel","--grading",gradingId,"--operation-id",operationId));
+          }
+        }
+        const deadline=Date.now()+45000;
+        while (controllers.some(({gradingId,operationId})=>managedRequestRunning(gradingId,operationId)) && Date.now()<deadline)
+          await new Promise(resolve=>setTimeout(resolve,100));
+        assert.ok(controllers.every(({gradingId,operationId})=>!managedRequestRunning(gradingId,operationId)));
+        for (const id of ids) await withRuntimeLock(queueRoot(),"execution-"+id,async()=>{},30000);
+      } catch (error) {
+        h.retainForDiagnosis();
+        const detail="controller cleanup was not confirmed; fixture retained at "+h.directory+": "+String(error);
+        if (failure instanceof Error) failure.message+="\n"+detail;
+        else throw new Error(detail,{cause:error});
+      }
     }
   });
 });
