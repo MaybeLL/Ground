@@ -8,6 +8,7 @@ import { newUUIDv7 } from "../identity.js";
 import type { SQLStore } from "../sql-store.js";
 import { GitTagArchive, GitWorktrees, SqlWorkUnitOfWork } from "./adapters/index.js";
 import { DurableSandboxLauncher } from "./adapters/devcontainer/launch.js";
+import {DevcontainerBuilds} from "./adapters/devcontainer/build.js";
 import { pinnedConfig } from "./adapters/devcontainer/config.js";
 import { DevcontainerRuntime } from "./adapters/devcontainer/runtime.js";
 import { ManagedWorkspaces } from "./adapters/devcontainer/workspace.js";
@@ -63,7 +64,8 @@ export function composeWork(store: SQLStore): WorkApplication & {driver:ManagedT
   const suites = new EvaluationSuites({ units, repairs, archive, hash: shared.hash, now: shared.clock.now, newId: newUUIDv7,
     capture: bytes => ({ digest: "sha256:" + createHash("sha256").update(bytes).digest("hex"), base64: Buffer.from(bytes).toString("base64") }) });
   const rules = new RuleDefinitions(context);
-  const environments = new EnvironmentDefinitions(context, pinnedConfig);
+  const builds=new DevcontainerBuilds(ledgerId);
+  const environments = new EnvironmentDefinitions(context,pinnedConfig,builds.build.bind(builds));
   const delivery = new CodeDelivery({ units, exec, archive, repairs, ledgerId, materials:new MaterialWorkspaces(), worktrees: new GitWorktrees() });
   const sandboxes = new SandboxProvisioning({ ...managed, delivery }, recovery);
   const workers=new ManagedWorkers({...context,lifecycle});

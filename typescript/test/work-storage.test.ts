@@ -386,6 +386,33 @@ for (const backend of backends) {
   });
 }
 
+for (const backend of backends) test(`${backend}: a frozen image build reserves one operation and publishes one immutable environment revision`,{skip:backendSkip(backend)},async()=>{
+  const fixture=await openLedger(backend);
+  try {
+    const {EnvironmentDefinitions}=await import("../src/work/application/environment-definitions.js");
+    const {newUUIDv7}=await import("../src/identity.js");
+    const calls:string[]=[];
+    const definitions=new EnvironmentDefinitions({units:new SqlWorkUnitOfWork(fixture.store),hash,now:clock(),newId:newUUIDv7},()=>{},async id=>{
+      calls.push(id);
+      return calls.length===1 ? {status:"unavailable",reason:"simulated interruption"} : {status:"built",image:{
+        config:'{"image":"built"}',imageDigest:d("a"),source:'{"build":{"dockerfile":"Dockerfile"}}',lockfile:"{}"}};
+    });
+    const input={requestId:"build",name:"frozen",repository:"/fixture",commit:"a".repeat(40),path:".devcontainer/devcontainer.json",expectedSeq:0};
+    assert.equal((await definitions.build(input)).ok,false);
+    assert.equal((await definitions.build({...input,commit:"b".repeat(40)})).ok,false);
+    const published=await definitions.build(input);
+    assert.ok(published.ok);
+    assert.deepEqual(await definitions.build(input),published);
+    assert.equal(calls.length,2);
+    assert.equal(calls[0],calls[1]);
+    const shown=await definitions.show(published.value.environmentId,1);
+    assert.ok(shown.ok);
+    assert.equal((shown.value.content as {build:{commit:string}}).build.commit,input.commit);
+    assert.equal((await definitions.build({...input,requestId:"stale",definitionId:published.value.environmentId})).ok,false);
+    assert.equal(calls.length,2);
+  } finally {await fixture.close();}
+});
+
 for (const backend of backends) test(`${backend}: raw transcript imports freeze chunks and bind only the registered session`,{skip:backendSkip(backend)},async()=>{
   const fixture=await openLedger(backend);
   try {

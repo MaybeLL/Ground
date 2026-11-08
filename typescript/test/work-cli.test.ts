@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, statSync, symlinkSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, existsSync, statSync, symlinkSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -1205,6 +1205,66 @@ test("managed worker runs in its owned devcontainer after admission and delivers
         if (value === undefined) delete process.env[key]; else process.env[key] = value;
       }
       for(const id of docker("ps","-aq","--filter","label=dev.grounds.ledger="+ledger).split("\n").filter(Boolean))docker("rm","-f",id);
+    }
+  });
+});
+
+test("managed worker runs with an environment built from an immutable repository snapshot", {skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async()=>{
+  await withHarness(async h=>{
+    const image=process.env.GROUNDS_TEST_MANAGED_AGENT!;
+    const docker=(...args:string[])=>execFileSync("docker",args,{encoding:"utf8"}).trim();
+    const folder=join(h.repo,".devcontainer");
+    mkdirSync(folder);
+    mkdirSync(join(folder,"marker-feature"));
+    writeFileSync(join(folder,"marker-feature","devcontainer-feature.json"),JSON.stringify({id:"marker-feature",version:"1.0.0",name:"Frozen marker"}));
+    writeFileSync(join(folder,"marker-feature","install.sh"),"#!/bin/sh\nprintf 'frozen feature' > /feature-marker\n",{mode:0o755});
+    const source=JSON.stringify({build:{dockerfile:"Dockerfile",context:".."},features:{"./marker-feature":{}},workspaceFolder:"/task",overrideCommand:false});
+    writeFileSync(join(folder,"devcontainer.json"),source);
+    writeFileSync(join(folder,"Dockerfile"),"FROM "+image+"\nCOPY marker.txt /environment-marker\n");
+    writeFileSync(join(h.repo,"marker.txt"),"frozen bytes");
+    git(h.repo,"add",".");git(h.repo,"commit","-qm","define environment");
+    const commit=git(h.repo,"rev-parse","HEAD"), requestId=newUUIDv7();
+    writeFileSync(join(h.repo,"marker.txt"),"dirty working tree");
+    writeFileSync(join(folder,"devcontainer.json"),"invalid working tree configuration");
+    const args=["work","build-environment","--repo",h.repo,"--commit",commit,"--name","frozen build","--operation-id",requestId];
+    const db=new DatabaseSync(join(h.directory,"ledger.db"));
+    let firstImage="";
+    try {
+      db.exec("CREATE TRIGGER interrupt_built_revision BEFORE INSERT ON work_revisions BEGIN SELECT RAISE(ABORT,'interrupted publication'); END");
+      assert.equal((await h.cli(...args)).ok,false);
+      const reservation=db.prepare("SELECT body_json FROM work_intents WHERE request_id=?").get(requestId);
+      const buildId=JSON.parse(String(reservation?.body_json)).result.buildId;
+      const ledger=ok(await h.cli("db","status")).database_id;
+      const tag="grounds-environment:"+ledger+"-"+buildId;
+      firstImage=docker("image","inspect","--format","{{.Id}}",tag);
+      // Keep the frozen image addressable, then replace its mutable tag.
+      docker("tag",firstImage,tag+"-original");
+      docker("tag",image,tag);
+      db.exec("DROP TRIGGER interrupt_built_revision");
+    } finally {db.close();}
+    const published=ok(await h.cli(...args));
+    assertContract("sandbox-results.schema.json",published);
+    const definition=ok(await h.cli("work","environment","--environment",published.environmentId,"--revision","1"));
+    assertContract("sandbox-results.schema.json",definition);
+    const built=JSON.parse(definition.content.config).image;
+    const ledger=ok(await h.cli("db","status")).database_id;
+    try {
+      assert.equal(definition.content.build.source,source);
+      assert.equal(definition.content.build.commit,commit);
+      assert.equal(definition.content.imageDigest,firstImage);
+      assert.notEqual(firstImage,docker("image","inspect","--format","{{.Id}}",built));
+      assert.deepEqual(ok(await h.cli(...args)),published);
+      assert.equal((await h.cli(...args,"--name","different")).ok,false);
+      const task=ok(await h.cli("task","create","--title","built image","--criterion","uses frozen input","--repo-remote",h.remote,"--baseline",commit,"--environment",published.environmentId));
+      const {runId}=ok(await h.cli("work","start-run","--task",task.taskId,"--mode","external"));
+      const sb=ok(await h.cli("work","prepare-sandbox","--run",runId,"--repo",h.repo));
+      assert.equal(docker("exec",sb.instanceId,"cat","/environment-marker"),"frozen bytes");
+      assert.equal(docker("exec",sb.instanceId,"cat","/feature-marker"),"frozen feature");
+      ok(await h.cli("work","cancel","--run",runId));
+      ok(await h.cli("work","release-sandbox","--run",runId));
+    } finally {
+      for (const id of docker("ps","-aq","--filter","label=dev.grounds.ledger="+ledger).split("\n").filter(Boolean)) docker("rm","-f",id);
+      docker("image","rm",built,built+"-original");
     }
   });
 });

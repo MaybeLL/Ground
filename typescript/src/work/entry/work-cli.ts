@@ -13,7 +13,7 @@ export const WORK_GROUPS = ["task", "work", "grade", "suite", "experiment"] as c
 export const WORK_WRITE_ACTIONS = new Set([
   "experiment:define", "experiment:launch", "experiment:resume", "experiment:cancel", "experiment:regrade",
   "grade:define-agent","grade:measure", "grade:resume-test","grade:resume-evaluator", "grade:define-test", "grade:define-rule", "suite:publish", "suite:measure",
-  "work:resume-managed", "work:define-agent", "work:import-trace", "work:prepare-sandbox", "work:pause-sandbox", "work:release-sandbox", "work:define-environment", "task:create", "task:revise",
+  "work:resume-managed", "work:define-agent", "work:import-trace", "work:prepare-sandbox", "work:pause-sandbox", "work:release-sandbox", "work:build-environment", "work:define-environment", "task:create", "task:revise",
   "work:save-artifact", "work:submit-artifacts", "work:start", "work:start-run", "work:continue", "work:branch", "work:select", "work:close", "work:register", "work:transcript", "work:deliver", "work:repair", "work:stop", "work:cancel",
   "grade:request", "grade:register", "grade:stage", "grade:command", "grade:submit", "grade:stop", "grade:cancel",
 ]);
@@ -202,6 +202,12 @@ async function work(args: ParsedArgs, action: string, app: WorkApplication, deps
     case "reconcile-sandbox": return unwrap(await app.sandboxes.reconcile(need(args,"run")));
     case "pause-sandbox": return unwrap(await app.lifecycle.lifecycle(requestId(args), need(args,"run"), "pause"));
     case "release-sandbox": return unwrap(await app.lifecycle.lifecycle(requestId(args), need(args,"run"), "release"));
+    case "build-environment": {
+      const definitionId=text(args,"environment");
+      return unwrap(await app.environments.build({requestId:requestId(args),name:need(args,"name"),commit:need(args,"commit"),repository:resolve(deps.cwd,need(args,"repo")),
+        path:raw(args,"devcontainer")===undefined ? ".devcontainer/devcontainer.json" : need(args,"devcontainer"),
+        ...(definitionId ? {definitionId} : {}),expectedSeq:definitionId || raw(args,"expected-seq")!==undefined ? integer(args,"expected-seq") : 0}));
+    }
     case "define-environment": {
       const id = text(args, "environment");
       const read = (name: string) => {
@@ -390,6 +396,7 @@ export const workHelp = (): string => [
   "grounds work prepare-sandbox --run RUN [--repo PATH] | work reconcile-sandbox --run RUN | work pause-sandbox|release-sandbox --run RUN",
   "grounds work define-environment --name NAME --devcontainer FILE --image-digest SHA256 [--lockfile FILE] [--environment ID --expected-seq N] | work environment --environment ID --revision N",
   "grounds work host-capacity [--slots N] (shared local worker and evaluator Agent slots; default 20)",
+  "grounds work build-environment --name NAME --repo PATH --commit FULL_OID [--devcontainer REPO_RELATIVE_PATH] [--environment ID --expected-seq N]",
   "grounds work start-run --task ID --mode external|none|managed [--revision-id REV --environment-revision REV --refines RUN --retention release|keep --sandbox fresh|inherit]; managed requires --agent ID [--agent-revision REV --repo PATH]",
   "grounds work start --task ID --mode external|none [--environment-revision ID] | work continue --work ID --expected-head RUN --mode M [--sandbox inherit|fresh] | work branch --work ID --refines RUN --mode M [--sandbox fresh|inherit]",
   "grounds work select --work ID --run RUN [--expected-head RUN] | work close --work ID | work show --work ID [--repo PATH] | work run --run RUN [--repo PATH]",
