@@ -1,3 +1,4 @@
+import type { WorkRepositories } from "../ports/index.js";
 import { createTaskRun, digestOf, mayStartMember, requestExperimentCancel } from "../domain/index.js";
 import type { ExperimentGrading } from "./experiment-grading.js";
 import type { AgentDefinitions } from "./agent-definitions.js";
@@ -46,14 +47,19 @@ export class ExperimentMembers {
     });
   }
 
-  measure(batchId:string,key:string,requirement:string,requestId:string) {
-    return this.grading.measure({batchId,key,requirement,requestId});
+  async measure(batchId:string,key:string,requirement:string,requestId:string) {
+    const result = await this.grading.measure({batchId,key,requirement,requestId});
+    if (result.ok && !("status" in result.value && result.value.status === "accepted")) await this.note(batchId,"terminal");
+    return result;
   }
 
   finishRule(id:string) { return this.grading.finish(id); }
 
   async schedule(batchId:string) {
-    return this.ctx.units.run("read",async r=>{
+    return this.ctx.units.run("read", r=>this.readSchedule(r,batchId));
+  }
+
+  private async readSchedule(r:WorkRepositories,batchId:string) {
       const batch = await r.experiments.get(batchId);
       const plan = batch && await readExperiment(r,batch.experimentId);
       if (!batch || !plan) return fail("not-found","experiment batch does not exist");
@@ -84,7 +90,6 @@ export class ExperimentMembers {
           workerDone:worker.state === "completed" && released,host:worker.state === "completed" && !released ? {state:"awaiting-resume",detail:"worker sandbox release pending"} : job.observation,requirements,waitingTests,waitingRules});
       }
       return succeed({cancelled:!!batch.cancelIntent,pending:batch.members.length - members.length,members});
-    });
   }
 
   async resume(batchId:string,requestId:string) {
@@ -94,15 +99,27 @@ export class ExperimentMembers {
 
   async note(batchId:string,state:string,detail?:string) {
     return this.ctx.units.run("write",async r=>{
+      const batch = await r.experiments.get(batchId,{lock:true});
       const [job] = await r.intents.listForSubject("drive-experiment","experiment_run",batchId);
-      if (!job) return;
+      if (!batch || !job) return "blocked";
+      if (state === "terminal") {
+        const current = await this.readSchedule(r,batchId);
+        if (!current.ok) throw new Error(current.error.message);
+        const {cancelled,pending,members} = current.value;
+        const open = members.some(m=> !m.workerDone || !["delivered","failed","cancelled"].includes(m.status) ||
+          m.waitingTests.length > 0 || m.waitingRules.length > 0 ||
+          (!cancelled && m.status === "delivered" && m.requirements.some(req=>!req.records.length)));
+        if (open || pending && !cancelled) state = "running";
+      }
       const observation = {state,...(detail ? {detail} : {})};
       const prior = (job.payload as {observation?:{state:string;detail?:string}}).observation;
-      if (prior?.state === state && prior.detail === detail) return;
-      const payload = job.payload as {batchId:string;firstTerminalAt?:string};
+      if (prior?.state === state && prior.detail === detail) return state;
+      const payload = job.payload as {batchId:string;firstTerminalAt?:string;firstTerminalState?:"completed"|"cancelled"};
       const firstTerminalAt = payload.firstTerminalAt ?? (state === "terminal" ? this.ctx.now() : undefined);
-      await r.intents.save({...job,state:state === "terminal" ? "completed" : "registered",payload:{batchId,observation,...(firstTerminalAt ? {firstTerminalAt} : {})},
+      const firstTerminalState = payload.firstTerminalState ?? (batch.cancelIntent ? "cancelled" : "completed");
+      await r.intents.save({...job,state:state === "terminal" ? "completed" : "registered",payload:{batchId,observation,...(firstTerminalAt ? {firstTerminalAt,firstTerminalState} : {})},
         updatedAt:this.ctx.now(),version:job.version+1},job.version);
+      return state;
     });
   }
 

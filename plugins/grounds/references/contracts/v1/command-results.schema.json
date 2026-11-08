@@ -28,7 +28,7 @@
       "properties": {
         "result_type": { "const": "patchledger.result.help/v1" },
         "command": { "const": "help" },
-        "usage": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        "usage": { "type": "string", "minLength": 1, "maxLength": 8192 }
       }
     },
     "versionResult": {

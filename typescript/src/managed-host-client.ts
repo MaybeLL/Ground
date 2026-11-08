@@ -53,15 +53,16 @@ export function batchHostObservation(id:string,ledgerId:string,saved?:{state?:st
   const root = join(dataLayout().runtime,"managed-host");
   const fallback = localRecord(join(root,"recovery-status",id));
   if (fallback?.ledgerId === ledgerId) return {state:"awaiting-resume",detail:String(fallback.detail)};
-  if (saved?.state !== "running") return;
+  if (saved?.state && !["running","accepted"].includes(saved.state)) return;
   const owner = localRecord(join(root,"batches",id));
   if (typeof owner?.pid !== "number" || typeof owner.birth !== "string" || hostProcessIdentity(owner.pid) !== owner.birth) {
-    return {state:"awaiting-resume",detail:"batch controller is not running; resume to continue"};
+    if (managedRequestRunning(id,id)) return {state:"starting",detail:"batch controller is starting"};
+    return {state:"awaiting-resume",detail:"no live local batch controller was observed; resume to continue"};
   }
 }
 
 export function managedRequestRunning(executionId:string,operationId:string) {
-  const path = join(hostDirectory("requests"),executionId + "." + operationId + ".owner");
+  const path = join(dataLayout().runtime,"managed-host","requests",executionId + "." + operationId + ".owner");
   if (!existsSync(path)) return false;
   const owner = JSON.parse(safeRead(path,2048).toString());
   return hostProcessIdentity(owner.pid) === owner.birth;

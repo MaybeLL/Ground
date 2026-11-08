@@ -29,8 +29,8 @@ async function supervise(job: HostJob, name: string, observeOnly: boolean) {
         for (;;) {
           const result = await drive.drive(job.runId,live);
           const state = result.ok ? result.value.state : "blocked";
-          await app.members.note(job.runId,state,result.ok ? ("detail" in result.value ? result.value.detail : undefined) : result.error.message);
-          if (state !== "running") break;
+          const recorded = await app.members.note(job.runId,state,result.ok ? ("detail" in result.value ? result.value.detail : undefined) : result.error.message);
+          if (recorded !== "running") break;
           await delay(250);
         }
       } catch {

@@ -40,7 +40,9 @@ export class ExperimentResults {
       const progress = new Map((await r.experiments.memberProgress(id)).map(item=>[item.key,item]));
       if (detailKey !== undefined && !progress.has(detailKey)) return fail("not-found","batch member does not exist");
       const [drive] = await r.intents.listForSubject("drive-experiment","experiment_run",id);
-      const host = (drive?.payload as {observation?:{state:string;detail?:string}} | undefined)?.observation;
+      const saved = drive?.payload as {observation?:{state:string;detail?:string};firstTerminalAt?:string;firstTerminalState?:string} | undefined;
+      const host = saved?.observation;
+      const completion = saved?.firstTerminalAt && {at:saved.firstTerminalAt,state:saved.firstTerminalState};
       const groups = new Map<string,Summary>();
       const counts = {planned:batch.members.length, pending:0, active:0, delivered:0, executionErrors:0, failed:0, cancelled:0, fullyGraded:0};
       const members = [], readAt = this.ctx.now();
@@ -69,7 +71,7 @@ export class ExperimentResults {
             graderRevisionId:required.grader.revisionId,targets,materialsDigest:digest.value};
           const adoption = adoptGrading(history,slot,materialsFingerprint(required.materials));
           const adopted = history.find(g=>g.id === adoption.adopted);
-          requirements.push({key:required.key,...adoption,...(!adoption.attempts ? {notStarted:batch.cancelIntent ? "batch-cancelled" : gradingNotStarted(batch,member,run) ?? "not-scheduled"} : {}),...(adopted ? {grade:adopted.grade} : {})});
+          requirements.push({key:required.key,...adoption,...(!adoption.attempts ? {notStarted:gradingNotStarted(batch,member,run) ?? (batch.cancelIntent ? "batch-cancelled" : "not-scheduled")} : {}),...(adopted ? {grade:adopted.grade} : {})});
           const groupId = JSON.stringify([required.key,required.grader.revisionId,required.scale]);
           const group = groups.get(groupId) ?? {requirement:required.key,grader:required.grader,scale:required.scale,planned:0,
             adopted:0,valid:0,missing:0,indeterminate:0,errors:0,executionErrors:0,ungraded:0,numericMean:null,
@@ -85,7 +87,7 @@ export class ExperimentResults {
           ...(detailKey === undefined ? {} : {run,gradings:history,executions:run ? await r.executions.listByOwner({type:"task_run",id:run.id}) : []})});
       }
       const dimensions = [...groups.values()].map(({categories,...dimension})=>({...dimension,categories:Object.fromEntries(categories)}));
-      return detailKey === undefined ? succeed({readAt,batch,counts,dimensions,members,...(host ? {host} : {})}) : succeed({readAt,batchId:id,member:members[0]});
+      return detailKey === undefined ? succeed({readAt,batch,counts,dimensions,members,...(host ? {host} : {}),...(completion ? {completion} : {})}) : succeed({readAt,batchId:id,member:members[0]});
     });
   }
 }

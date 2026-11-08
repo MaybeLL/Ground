@@ -5,7 +5,7 @@ import {casesOf} from "./evaluation-suites.js";
 import {readExperiment} from "./experiment-plans.js";
 import {once,type RequestContext} from "./requests.js";
 import {fileRule,testGrader} from "./rule-definitions.js";
-import {admitTestMeasurement,type AcceptedTest} from "./test-measurements.js";
+import {admitTestMeasurement,markGradingActive,type AcceptedTest} from "./test-measurements.js";
 import {fail,fromRejection,succeed} from "./outcome.js";
 
 type Input = {batchId:string;key:string;requirement:string;requestId:string};
@@ -63,6 +63,7 @@ export class ExperimentGrading {
     const ticket:RuleTicket = {gradingId,suiteId:suite.definitionId,revisionId:suite.id,caseKey:item.key,bindingKey:binding.key,runId:run.id,deliveryId:target.id,
       repo:item.repository.repositoryPath,receipt:target.receipt,path:binding.answerPath,expectedDigest:binding.materials.find(m=>m.role === "reference-answer")?.digest ?? null};
     await r.gradings.create(created.value.state);
+    await markGradingActive(r,batch.id,at);
     await r.intents.register({id:this.ctx.newId(),requestId:"rule-"+gradingId,kind:"score-member-rule",subject:{type:"grading_record",id:gradingId},
       requestHash:digest.value,state:"registered",payload:ticket,createdAt:at,updatedAt:at,version:1});
     return succeed({kind:"rule",ticket});

@@ -1110,6 +1110,31 @@ test("experiment runs two pinned agents on one suite and adopts only member regr
           assert.equal(afterFault.member.requirements[0].latestFault.id,failed.gradingId);
           assert.equal(afterFault.member.gradings.length,5);
         } finally {renameSync(h.remote+"-offline",h.remote);}
+        const interruptedStore = await openStore(join(h.directory,"config.yaml"));
+        try {
+          const {composeWork} = await import("../src/work/composition.js");
+          const {ExperimentGrading} = await import("../src/work/application/experiment-grading.js");
+          const {SqlWorkUnitOfWork,GitTagArchive} = await import("../src/work/adapters/index.js");
+          const app = composeWork(interruptedStore.store);
+          let entered!:()=>void, release!:()=>void;
+          const inside = new Promise<void>(resolve=>{entered=resolve;}), gate = new Promise<void>(resolve=>{release=resolve;});
+          const blocked = new class extends GitTagArchive {
+            override async fileDigest(...args:Parameters<GitTagArchive["fileDigest"]>) {entered();await gate;return super.fileDigest(...args);}
+          }();
+          const slow = new ExperimentGrading({units:new SqlWorkUnitOfWork(interruptedStore.store),newId:newUUIDv7,
+            now:()=>new Date().toISOString(),hash:s=>createHash("sha256").update(s).digest("hex")},blocked,app.repairs);
+          const grading = slow.measure({batchId:launch.batchId,key:member.key,requirement:"answer",requestId:newUUIDv7()});
+          try {
+            await inside;
+            assert.equal(await app.members.note(launch.batchId,"terminal"),"running","stale terminal observation cannot cross a new grading");
+            ok(await h.cli("experiment","cancel","--batch",launch.batchId));
+          } finally {release();}
+          const cancelled = await grading;
+          assert.ok(cancelled.ok && "status" in cancelled.value && cancelled.value.status === "cancelled");
+          const after = ok(await h.cli("experiment","results","--batch",launch.batchId));
+          assert.deepEqual(after.completion,results.completion);
+          assert.equal(after.members[0].requirements[0].adopted,laterId);
+        } finally {await interruptedStore.store.close();}
         assert.equal(detail.member.run.retention,"release");
         assert.equal(detail.member.run.workId,undefined);
         assert.equal(ok(await h.cli("experiment","show","--experiment",plan.experimentId)).batches.length,1);

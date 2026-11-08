@@ -169,6 +169,25 @@
             "state"
           ],
           "additionalProperties": false
+        },
+        "completion": {
+          "type": "object",
+          "properties": {
+            "at": {
+              "type": "string"
+            },
+            "state": {
+              "enum": [
+                "completed",
+                "cancelled"
+              ]
+            }
+          },
+          "required": [
+            "at",
+            "state"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [

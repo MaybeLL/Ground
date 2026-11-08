@@ -437,7 +437,7 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
       }
       if (group === "experiment" && typeof data.batchId === "string" && ["launch","resume","cancel"].includes(action)) {
         await notifyManaged({kind:"experiment",config:configPath(value(args,"config")),ledgerId:opened.config.database.expected_database_id,
-          runId:data.batchId,executionId:data.batchId,allowStart:action !== "cancel"},value(args,"operation-id"));
+          runId:data.batchId,executionId:data.batchId,allowStart:action !== "cancel"},action === "launch" ? data.batchId : value(args,"operation-id"));
       }
       if (typeof data.gradingId === "string" && ((group === "suite" && action === "measure" || group === "experiment" && action === "regrade") && data.status === "accepted" ||
           group === "grade" && (action === "cancel" || action === "resume-test"))) {
