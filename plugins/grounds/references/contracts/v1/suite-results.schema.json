@@ -118,7 +118,6 @@
                   "additionalProperties": false,
                   "required": [
                     "key",
-                    "answerPath",
                     "graderRevision",
                     "materialSource",
                     "materials"
@@ -315,6 +314,39 @@
       ],
       "properties": {
         "command": {
+          "const": "grade.define-test"
+        },
+        "result_type": {
+          "const": "grounds.result.grade.define-test/v1"
+        },
+        "graderId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "revisionId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "digest": {
+          "$ref": "work-results.schema.json#/$defs/Digest"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "result_type",
+        "graderId",
+        "revisionId",
+        "seq",
+        "digest"
+      ],
+      "properties": {
+        "command": {
           "const": "grade.define-rule"
         },
         "result_type": {
@@ -388,6 +420,54 @@
         "result",
         "actualDigest",
         "expectedDigest"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "suite.measure"
+        },
+        "result_type": {
+          "const": "grounds.result.suite.measure/v1"
+        },
+        "status": {
+          "const": "accepted"
+        },
+        "gradingId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "suiteId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "revisionId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "caseKey": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "bindingKey": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "runId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "deliveryId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        }
+      },
+      "required": [
+        "command",
+        "result_type",
+        "status",
+        "gradingId",
+        "suiteId",
+        "revisionId",
+        "caseKey",
+        "bindingKey",
+        "runId",
+        "deliveryId"
       ]
     }
   ],

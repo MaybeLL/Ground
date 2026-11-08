@@ -3,16 +3,17 @@
 import { createDefinition, createGrading, digestOf, isId, isText, publishRevision, refOf, sameRef, submitGrade, unique, type DeliveryItem, type GradingOrigin, type JsonValue, type Revision, type RevisionRef } from "../domain/index.js";
 import { GRADING_REQUEST_COUNTER, type CodeArchivePort, type WorkRepositories } from "../ports/index.js";
 import type { ArchiveRepairs } from "./archive-repairs.js";
-import { fileRule, resolveRule, type GraderSelection, type Rule } from "./rule-definitions.js";
+import { admitTestMeasurement, type AcceptedTest } from "./test-measurements.js";
+import { testGrader, fileRule, resolveRule, resolveSuiteGrader, type GraderSelection, type Rule } from "./rule-definitions.js";
 import { fail, fromRejection, succeed, type Outcome } from "./outcome.js";
 import { once, type RequestContext } from "./requests.js";
 
 type DeliverySelection = { runId: string; deliveryId: string };
-type BindingSource = { key: string; answerPath: string; grader?: GraderSelection; referencePath?: string; hiddenTestPaths: string[]; materialSource?: DeliverySelection };
+type BindingSource = { key: string; answerPath?: string; grader?: GraderSelection; referencePath?: string; hiddenTestPaths: string[]; materialSource?: DeliverySelection };
 type CaseSource = DeliverySelection & { key: string; bindings: BindingSource[] };
 type Source = DeliverySelection & { manifestDigest: string; receipt: string; archiveId: string; archiveReceipt: string; commit: string };
 type Material = { role: "reference-answer" | "hidden-test"; visibility: "grader"; path: string; blob: string; digest: string; base64: string };
-type Binding = { key: string; answerPath: string; graderRevision: RevisionRef; materialSource: Source; materials: Material[] };
+type Binding = { key: string; answerPath?: string; graderRevision: RevisionRef; materialSource: Source; materials: Material[] };
 type FrozenCase = { key: string; taskRevision: RevisionRef; source: Source; bindings: Binding[] };
 type Published = { suiteId: string; revisionId: string; seq: number; digest: string; caseCount: number };
 type Measurement = { gradingId: string; suiteId: string; revisionId: string; caseKey: string; runId: string; deliveryId: string; bindingKey: string; result: string; actualDigest: string | null; expectedDigest: string | null };
@@ -33,11 +34,11 @@ export function parseSources(input: unknown): Outcome<CaseSource[]> {
     for (const binding of bindings) {
       if (!binding || typeof binding !== "object" || Object.keys(binding).some(k => !["key","answerPath","grader","referencePath","hiddenTestPaths","materialSource"].includes(k))) return fail("invalid", "unknown grading binding field");
       const { key, grader, referencePath, hiddenTestPaths = [], answerPath, materialSource } = binding;
-      if (!isId(key) || !validPath(answerPath) || (referencePath !== undefined && !validPath(referencePath)) ||
+      if (!isId(key) || (answerPath !== undefined && !validPath(answerPath)) || (referencePath !== undefined && !validPath(referencePath)) ||
           !Array.isArray(hiddenTestPaths) || !hiddenTestPaths.every(validPath) || !unique(hiddenTestPaths)) return fail("invalid", "invalid binding key or file paths");
       if (grader !== undefined && !(grader && isId(grader.definitionId) && isId(grader.revisionId) && Object.keys(grader).every(k => k === "definitionId" || k === "revisionId"))) return fail("invalid", "select an exact grader definition and revision");
       if (materialSource !== undefined && !(materialSource && isId(materialSource.runId) && isId(materialSource.deliveryId) && Object.keys(materialSource).every(k => k === "runId" || k === "deliveryId"))) return fail("invalid", "select a frozen material source run and delivery");
-      parsed.push({ key, answerPath, hiddenTestPaths, ...(referencePath ? { referencePath } : {}), ...(grader ? { grader } : {}), ...(materialSource ? { materialSource } : {}) });
+      parsed.push({ key, ...(answerPath ? {answerPath} : {}), hiddenTestPaths, ...(referencePath ? { referencePath } : {}), ...(grader ? { grader } : {}), ...(materialSource ? { materialSource } : {}) });
     }
     if (!unique(parsed, b => b.key)) return fail("invalid", "binding keys must be unique within a case");
     sources.push({ key, runId, deliveryId, bindings: parsed });
@@ -103,7 +104,7 @@ export class EvaluationSuites {
           const file = files.files.get(path)!;
           return { role: i === 0 && binding.referencePath ? "reference-answer" : "hidden-test", visibility: "grader", path, blob: file.blob, ...this.deps.capture(file.bytes) };
         });
-        bindings.push({ key: binding.key, answerPath: binding.answerPath, selection: binding.grader, materialSource: source.value.source, materials });
+        bindings.push({ key: binding.key, ...(binding.answerPath ? {answerPath:binding.answerPath} : {}), selection: binding.grader, materialSource: source.value.source, materials });
       }
       cases.push({ key: entry.key, taskRevision: delivery.value.taskRevision, source: delivery.value.source, bindings });
     }
@@ -113,9 +114,12 @@ export class EvaluationSuites {
       for (const entry of cases) {
         const bindings: Binding[] = [];
         for (const { selection, ...binding } of entry.bindings) {
-          const resolved = await resolveRule(r, this.deps, selection);
+          const resolved = await resolveSuiteGrader(r, this.deps, selection);
           if (!resolved.ok) return resolved;
-          const needsReference = resolved.value.rule.operation === "equal-file-bytes";
+          const grader = resolved.value.rule;
+          if (grader.strategy === "rule" && !binding.answerPath) return fail("invalid", "a file rule needs the path to grade");
+          if (grader.strategy === "test" && binding.answerPath) return fail("invalid", "a test binding takes its commands from its grader revision");
+          const needsReference = grader.strategy === "rule" && grader.operation === "equal-file-bytes";
           if (needsReference !== binding.materials.some(m => m.role === "reference-answer")) return fail("invalid", "reference answer does not match the grader's input contract");
           bindings.push({ ...binding, graderRevision: resolved.value.ref });
         }
@@ -211,9 +215,9 @@ export class EvaluationSuites {
     });
   }
 
-  async measure(input: { requestId: string; suiteId: string; seq: number; caseKey: string; bindingKey?: string; runId: string; deliveryId: string }, repo: string): Promise<Outcome<Measurement>> {
+  async measure(input: { requestId: string; suiteId: string; seq: number; caseKey: string; bindingKey?: string; runId: string; deliveryId: string }, repo: string): Promise<Outcome<Measurement | AcceptedTest>> {
     const request = { requestId: input.requestId, input: json(input), kind: "measure-file-match", subject: {type: "task_run", id: input.runId} };
-    const replay = await this.replay<Measurement>(request.requestId, request.kind, request.input);
+    const replay = await this.replay<Measurement | AcceptedTest>(request.requestId, request.kind, request.input);
     if (replay) return replay;
     const revision = await this.snapshot(input.suiteId, input.seq);
     if (!revision) return fail("not-found", "suite revision does not exist");
@@ -223,11 +227,21 @@ export class EvaluationSuites {
     if (!binding) return fail("invalid", "select one of this case's grading bindings");
     const graderRevision = await this.deps.units.run("read", r => r.definitions.getRevision(binding.graderRevision.definitionId, binding.graderRevision.revisionId));
     const rule = graderRevision && fileRule(graderRevision.content);
-    if (!rule || !sameRef(refOf(graderRevision!), binding.graderRevision)) return fail("unsupported", "the frozen rule revision cannot be loaded");
+    const test = graderRevision && testGrader(graderRevision.content);
+    if (!graderRevision || !sameRef(refOf(graderRevision), binding.graderRevision) || (!rule && !test)) return fail("unsupported", "the frozen grader revision cannot be loaded");
     const delivery = await this.delivery(input.runId, input.deliveryId, repo);
     if (!delivery.ok) return delivery;
     if (!sameRef(delivery.value.taskRevision, selected.taskRevision)) return fail("conflict", "delivery uses a different task revision");
+    if (test) {
+      const source = delivery.value.source;
+      const plan = {suite:refOf(revision), caseKey:selected.key, bindingKey:binding.key, runId:input.runId,
+        deliveryId:input.deliveryId, commit:source.commit, receipt:source.archiveReceipt, repository:repo};
+      const materials = binding.materials.map(m => ({id:m.path, digest:m.digest}));
+      return once(this.deps, request, r => admitTestMeasurement(this.deps, r, plan, delivery.value.item, test, binding.graderRevision, materials));
+    }
+    if (!rule) return fail("unsupported", "the selected rule is unavailable");
     const expected = binding.materials.find(m => m.role === "reference-answer");
+    if (!binding.answerPath) return fail("invalid", "the file rule has no target path");
     const scored = await this.score(repo, delivery.value.archive, binding.answerPath, rule, expected?.digest ?? null);
     if (!scored.ok) return scored;
     return once<Measurement>(this.deps, request, async r => {

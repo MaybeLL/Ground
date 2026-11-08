@@ -3,7 +3,7 @@
 export type RuntimeLocation = { hostId: string; daemonId: string };
 export type RuntimeOwner = { ledgerId: string; sandboxId: string; setupAttempt?: string };
 export type RuntimeState = { id: string; setupAttempt?: string; state: "running" | "paused" | "stopped" };
-export type RuntimeWorkspace = { path: string; configPath: string; containerFolder?: string; imageDigest?: string; frozenLockfile?: boolean };
+export type RuntimeWorkspace = { path: string; graderMaterials?: string; configPath: string; containerFolder?: string; imageDigest?: string; frozenLockfile?: boolean };
 export interface SandboxRuntimePort {
   location(): Promise<RuntimeLocation>;
   exclusive<T>(owner: RuntimeOwner, fn: () => Promise<T>): Promise<T>;

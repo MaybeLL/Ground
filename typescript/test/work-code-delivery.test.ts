@@ -444,3 +444,33 @@ test("a missing retained checkout cannot be initialized from the original alloca
     await assert.rejects(workspaces.prepare(owner,repo,baseline,config,true));
   });
 });
+
+for (const backend of backends) test(backend + ": test grader admission freezes a separate evaluation plan and hidden files", {skip:backendSkip(backend)}, async () => {
+  await scenario(async ({app,store,repo,remote,baseline}) => {
+    const env = value(await app.environments.publish({requestId:"env", name:"evaluator", expectedSeq:0,
+      config:'{"image":"fixture"}', imageDigest:"sha256:" + "1".repeat(64)}));
+    const grader = value(await app.rules.publishTest({requestId:"test-grader", name:"check result", expectedSeq:0,
+      environmentId:env.environmentId, environmentRevisionId:env.revisionId, pass:"pass", fail:"fail", commands:[["sh", "check.sh"]]}));
+    const task = value(await app.tasks.createTask({requestId:"task",summary:"produce a result",criteria:[{statement:"correct result"}],repository:{remote,baseline}}));
+    const worker = value(await app.exec.startWork({requestId:"work",taskDefinitionId:task.taskId,workerMode:"none"}));
+    writeFileSync(join(repo,"check.sh"), "test -e result.txt\n");
+    git(repo,"add","check.sh"); git(repo,"commit","-qm","private check");
+    const delivered = value(await app.delivery.deliver({requestId:"deliver",runId:worker.runId,repositoryPath:repo,commit:"HEAD"}));
+    const source = {runId:worker.runId,deliveryId:delivered.delivery.id};
+    const suite = value(await app.suites.publish({requestId:"suite",name:"cases",expectedSeq:0,cases:[{...source,key:"case",bindings:[{
+      key:"private",grader:{definitionId:grader.graderId,revisionId:grader.revisionId},hiddenTestPaths:["check.sh"],
+    }]}]},repo));
+    const input = {requestId:"measure",suiteId:suite.suiteId,seq:1,caseKey:"case",...source};
+    const accepted = value(await app.suites.measure(input,repo));
+    assert.ok("status" in accepted && accepted.status === "accepted");
+    assert.deepEqual(value(await app.suites.measure(input,repo)), accepted);
+    const units = new SqlWorkUnitOfWork(store);
+    const record = await units.run("read",r => r.gradings.get(accepted.gradingId));
+    assert.equal(record?.strategy,"test");
+    assert.equal(record?.graderRevision.revisionId,grader.revisionId);
+    assert.equal(record?.materials.length,1);
+    const snapshot = value(await app.suites.show(suite.suiteId,1));
+    assert.equal(JSON.stringify(snapshot).includes("base64"),false);
+    assert.equal(value(await app.exec.getRun(worker.runId)).run.status,"delivered");
+  },backend);
+});

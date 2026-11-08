@@ -1,3 +1,4 @@
+import { commandList } from "../application/rule-definitions.js";
 // The `task`, `work` and `grade` command groups. Each action maps to one use
 // case; results are plain objects the outer envelope wraps. The operation id of
 // a call is the request identity, so repeating a call with the same
@@ -10,7 +11,7 @@ import type { Outcome, WorkApplication } from "../application/index.js";
 
 export const WORK_GROUPS = ["task", "work", "grade", "suite"] as const;
 export const WORK_WRITE_ACTIONS = new Set([
-  "grade:measure", "grade:define-rule", "suite:publish", "suite:measure",
+  "grade:measure", "grade:define-test", "grade:define-rule", "suite:publish", "suite:measure",
   "work:resume-managed", "work:define-agent", "work:import-trace", "work:prepare-sandbox", "work:pause-sandbox", "work:release-sandbox", "work:define-environment", "task:create", "task:revise",
   "work:start", "work:continue", "work:branch", "work:select", "work:close", "work:register", "work:transcript", "work:deliver", "work:repair", "work:stop", "work:cancel",
   "grade:request", "grade:register", "grade:stage", "grade:command", "grade:submit", "grade:stop", "grade:cancel",
@@ -194,6 +195,17 @@ async function grade(args: ParsedArgs, action: string, app: WorkApplication, dep
         grader: { definitionId: need(args, "grader"), revisionId: need(args, "grader-revision") }, answerPath: need(args, "answer-path"),
         ...(reference ? { reference } : {}) }, text(args, "repo") ?? deps.cwd));
     }
+    case "define-test": {
+      let commands: unknown;
+      try { commands = JSON.parse(deps.readFile(need(args, "commands"))); }
+      catch { throw validation("commands", "supply a readable JSON command list"); }
+      if (!commandList(commands)) throw validation("commands", "expected a nonempty list of argument arrays");
+      const graderId = text(args,"grader");
+      return unwrap(await app.rules.publishTest({requestId:requestId(args), name:need(args,"name"), commands,
+        environmentId:need(args,"environment"), environmentRevisionId:need(args,"environment-revision"),
+        pass:need(args,"pass"), fail:need(args,"fail"), ...(graderId ? {graderId} : {}),
+        expectedSeq:graderId || text(args,"expected-seq") !== undefined ? integer(args,"expected-seq") : 0}));
+    }
     case "define-rule": {
       const graderId = text(args, "grader");
       return unwrap(await app.rules.publish({ requestId: requestId(args), name: need(args, "name"), operation: need(args, "rule"),
@@ -231,6 +243,7 @@ async function grade(args: ParsedArgs, action: string, app: WorkApplication, dep
 
 export const workHelp = (): string => [
   "grounds grade measure --run RUN --delivery ID --grader ID --grader-revision ID --answer-path PATH [--reference-run RUN --reference-delivery ID --reference-path PATH]",
+  "grounds grade define-test --name NAME --commands FILE --environment ID --environment-revision REV --pass LABEL --fail LABEL",
   "grounds grade define-rule --name NAME --rule equal-file-bytes|file-exists --pass LABEL --fail LABEL [--grader ID --expected-seq N]",
   "grounds suite publish --name NAME --cases-file FILE [--suite ID --expected-seq N] [--repo PATH]",
   "grounds suite show --suite ID --revision N | suite list | suite measure --suite ID --revision N --case KEY [--binding KEY] --run RUN --delivery ID [--repo PATH]",

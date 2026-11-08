@@ -46,3 +46,40 @@ test("three devcontainers isolate workspace writes and lifecycle operations by l
     await rm(base, { recursive: true, force: true });
   }
 });
+
+test("evaluator runs frozen hidden tests against its own target checkout with a read-only material mount", {skip:!process.env.GROUNDS_TEST_EVALUATOR_DOCKER}, async () => {
+  const {createHash} = await import("node:crypto");
+  const {GitTagArchive} = await import("../src/work/adapters/git/tag-archive.js");
+  const {ManagedWorkspaces} = await import("../src/work/adapters/devcontainer/workspace.js");
+  const {EvaluatorWorkspaces} = await import("../src/work/adapters/devcontainer/evaluator-workspace.js");
+  const shared = await mkdtemp(join(process.env.GROUNDS_TEST_CONTAINER_ROOT ?? tmpdir(),"grounds-evaluator-"));
+  const checkout = join(shared,"source"), remote = join(shared,"target.git");
+  const owner = {ledgerId:randomUUID(),sandboxId:randomUUID()};
+  const runtime = new DevcontainerRuntime(), archive = new GitTagArchive();
+  const git = (cwd:string,...args:string[]) => execFileSync("git",args,{cwd,encoding:"utf8"}).trim();
+  const image = execFileSync("docker",["image","inspect","--format","{{index .RepoDigests 0}}","alpine:latest"],{encoding:"utf8"}).trim();
+  const bytes = Buffer.from('test "$(cat result)" = original && test ! -e check.sh\n');
+  try {
+    git(shared,"init","-q",checkout); git(shared,"init","-q","--bare",remote);
+    await writeFile(join(checkout,"result"),"original");
+    git(checkout,"add","result"); git(checkout,"-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","-qm","target");
+    const commit = git(checkout,"rev-parse","HEAD");
+    const archived = await archive.archive({repositoryPath:checkout,commit,remote,deliveryId:"target"});
+    assert.equal(archived.status,"confirmed");
+    if (archived.status !== "confirmed") throw new Error("missing fixture receipt");
+    await writeFile(join(checkout,"result"),"different");
+    const adapter = new EvaluatorWorkspaces(new ManagedWorkspaces(shared),archive);
+    const workspace = await adapter.prepare(owner,{commit,receipt:archived.receipt},{
+      imageDigest:image.split("@")[1]!,config:JSON.stringify({image,workspaceFolder:"/work"}),lockfile:null,
+    },[{path:"check.sh", digest:"sha256:"+createHash("sha256").update(bytes).digest("hex"), base64:bytes.toString("base64")}]);
+    const instance = await runtime.up(owner,workspace);
+    const result = await runtime.execute(owner, instance.id, workspace, ["sh","-c",
+      "cd /work && sh /grounds-grader/check.sh && ! (echo tamper >> /grounds-grader/check.sh)"]);
+    assert.equal(result.exitCode,0);
+    assert.equal(await readFile(join(checkout,"result"),"utf8"),"different");
+  } finally {
+    const observed = await runtime.observe(owner);
+    if (observed) await runtime.remove(owner,observed.id);
+    await rm(shared,{recursive:true,force:true});
+  }
+});
