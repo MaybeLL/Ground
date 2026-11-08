@@ -17,10 +17,10 @@
  * Usage: node scripts/test-parallel.mjs [--workers N] [--reporter spec]
  */
 import { spawn } from "node:child_process";
-import { chmodSync, lstatSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { cpus } from "node:os";
 import { join } from "node:path";
-import { workerEnvironment, createWorkerHome, createIsolatedMysqlDatabase } from "./test-environment.mjs";
+import { workerEnvironment, createWorkerHome, removeWorkerHome, createIsolatedMysqlDatabase } from "./test-environment.mjs";
 
 const args = process.argv.slice(2);
 const value = (flag, fallback) => {
@@ -50,22 +50,6 @@ const recordFailure = (file, code, output) => {
   writeFileSync(join(repository, name), output);
   process.stderr.write(`${file} failed (exit ${code}); see ${name}\n`);
 };
-
-function removeWorkerHome(home) {
-  try {rmSync(home,{recursive:true,force:true});return;}
-  catch (error) {if (error.code!=="EACCES" && error.code!=="EPERM") throw error;}
-  // The successful worker can own immutable Git material snapshots (0555).
-  // Restore directory write permission only inside this test's private home.
-  function writable(directory) {
-    if (!lstatSync(directory).isDirectory()) return;
-    chmodSync(directory,0o700);
-    for (const entry of readdirSync(directory,{withFileTypes:true})) {
-      if (entry.isDirectory()) writable(join(directory,entry.name));
-    }
-  }
-  writable(home);
-  rmSync(home,{recursive:true,force:true});
-}
 
 const runFile = async (file, worker) => {
   const started = Date.now();
@@ -98,8 +82,11 @@ const runFile = async (file, worker) => {
   } finally {
     try { await database?.cleanup(); }
     catch (error) { exit = 1; recordFailure(file, exit, output + `\nWorker database cleanup failed: ${error.stack ?? error}`); }
-    if (exit === 0) removeWorkerHome(home);
-    else process.stderr.write(`Retained failed worker home: ${home}\n`);
+    if (exit===0) {
+      try {removeWorkerHome(home);}
+      catch (error) {exit=1;recordFailure(file,exit,output+"\nWorker home cleanup failed: "+error.stack);}
+    }
+    if (exit!==0) process.stderr.write(`Retained failed worker home: ${home}\n`);
   }
   process.stdout.write(`test-parallel: file=${file} exit=${exit} duration=${Math.round((Date.now() - started) / 1000)}s\n`);
 };
