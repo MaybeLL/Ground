@@ -43,6 +43,23 @@ Git 传输不会返回托管服务的标签保护规则。已核对策略的操�
 
 ### Historical evaluation suites
 
-`suite publish --name NAME --cases-file FILE` creates a suite and its first snapshot. To publish another snapshot supply `--suite ID --expected-seq N`. Each JSON array entry selects `key`, `runId`, `deliveryId`, `answerPath`, `referencePath` and optional `hiddenTestPaths`. Paths are relative to the frozen Git tree. Each material is a regular file of at most 1 MiB. The snapshot persists material bytes. Public views return provenance, visibility and digests.
+`suite publish --name NAME --cases-file FILE` creates a suite and its first snapshot. To publish another snapshot supply `--suite ID --expected-seq N`. Each case names a historical run and candidate. Its bindings choose independent graders and optionally a separate frozen source for later corrections or private tests.
 
-`suite show --suite ID --revision N` reads an exact snapshot. `suite list` lists suite heads. `suite measure --suite ID --revision N --case KEY --run RUN --delivery ID` evaluates the selected delivery of the same TaskRevision against its reference. Use a new operation ID to recompute and record a new measurement. `grade show` reads the resulting grading. See [suite command results](suite-results.schema.json).
+```json
+[{
+  "key": "export",
+  "runId": "historical-run",
+  "deliveryId": "selected-candidate",
+  "bindings": [{
+    "key": "exact-output",
+    "answerPath": "out.csv",
+    "referencePath": "expected.csv",
+    "hiddenTestPaths": ["test_export.py"],
+    "materialSource": {"runId": "curator-run", "deliveryId": "curated-candidate"}
+  }]
+}]
+```
+
+A binding defaults to the built-in exact-file grader. `grade define-rule --name NAME --rule file-exists --pass present --fail absent` publishes a rule with two ordered categories. Choose `equal-file-bytes` to require a reference answer. Use `--grader ID --expected-seq N` to revise an existing rule. To pin it on a binding, set `grader` to an object containing its `definitionId` (the returned `graderId`) and `revisionId`. File presence needs only `answerPath`. All paths are relative to the frozen Git tree. Each stored material is a regular file of at most 1 MiB. Answer files are hashed as streams. Public views return provenance, visibility and digests.
+
+`suite show --suite ID --revision N` reads an exact snapshot. `suite list` lists suite heads. `suite measure --suite ID --revision N --case KEY --binding KEY --run RUN --delivery ID` evaluates the selected delivery of the same TaskRevision. A single binding can be selected implicitly. Use a new operation ID to recompute and record another measurement. `grade show` reads the resulting grading. See [suite command results](suite-results.schema.json).

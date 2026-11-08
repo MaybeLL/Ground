@@ -239,6 +239,8 @@ test("a task revision keeps the criteria it names and the work started before ke
     const keep = first.criteria[0];
     const revised = ok(await h.cli("task", "revise", "--task", first.taskId, "--expected-seq", "1", "--title", "Add export", "--criterion", `${keep.id}: exports CSV with a BOM`, "--criterion", "streams large files"));
     assert.equal(revised.seq, 2);
+    assert.equal(ok(await h.cli("suite", "list")).suites[0].name, "Revised suite");
+    assert.equal(first.name, "Fixture suite");
     assert.equal(revised.criteria[0].id, keep.id);
     assert.equal(ok(await h.cli("task", "show", "--task", first.taskId, "--revision", "1")).revision.id, first.revisionId);
     const stale = await h.cli("task", "revise", "--task", first.taskId, "--expected-seq", "1", "--title", "x", "--criterion", "y");
@@ -324,15 +326,30 @@ test("20 historical runs become an immutable suite with traceable private materi
   await withHarness(async h => {
     const cases = [];
     const taskRevisions = [];
+    const rule = ok(await h.cli("grade", "define-rule", "--name", "Required output", "--rule", "file-exists", "--pass", "present", "--fail", "absent"));
     for (let i = 0; i < 20; i++) {
       const task = ok(await h.cli("task", "create", "--title", "Render sample " + i, "--criterion", "Render the fixture", "--repo-remote", h.remote, "--baseline", h.baseline));
       taskRevisions.push(task.revisionId);
       const { runId } = ok(await h.cli("work", "start", "--task", task.taskId, "--mode", "none"));
       writeFileSync(join(h.repo, "reference.txt"), "sample " + i);
-      writeFileSync(join(h.repo, "answer.txt"), i % 2 ? "incorrect" : "sample " + i);
+      writeFileSync(join(h.repo, "answer.txt"), i === 19 ? Buffer.alloc(1048577, 65) : i % 2 ? "incorrect" : "sample " + i);
       git(h.repo, "add", "-A"); git(h.repo, "commit", "-qm", "sample " + i);
       const { delivery } = ok(await h.cli("work", "deliver", "--run", runId, "--repo", h.repo));
-      cases.push({ key: "case-" + i, runId, deliveryId: delivery.id, answerPath: "answer.txt", referencePath: "reference.txt", hiddenTestPaths: i === 0 ? ["app.txt"] : [] });
+      if (i === 0) {
+        git(h.remote, "update-ref", "-d", "refs/tags/grounds/deliveries/" + delivery.id);
+        ok(await h.cli("work", "repair", "--run", runId, "--delivery", delivery.id, "--repo", h.repo));
+      }
+      cases.push({ key: "case-" + i, runId, deliveryId: delivery.id, bindings: [
+        { key: "compare", answerPath: "answer.txt", referencePath: "reference.txt", hiddenTestPaths: [] as string[] },
+        { key: "present", answerPath: "answer.txt", grader: { definitionId: rule.graderId, revisionId: rule.revisionId } },
+      ] });
+      if (i === 0) {
+        writeFileSync(join(h.repo, "private-test.js"), "assert(output === expected);");
+        git(h.repo, "add", "-A"); git(h.repo, "commit", "-qm", "curator adds a hidden test after delivery");
+        const curator = ok(await h.cli("work", "start", "--task", task.taskId, "--mode", "none"));
+        const extra = ok(await h.cli("work", "deliver", "--run", curator.runId, "--repo", h.repo));
+        Object.assign(cases[0]!.bindings[0]!, { materialSource: { runId: curator.runId, deliveryId: extra.delivery.id }, hiddenTestPaths: ["private-test.js"] });
+      }
     }
     const path = join(h.directory, "cases.json");
     writeFileSync(path, JSON.stringify(cases));
@@ -344,7 +361,7 @@ test("20 historical runs become an immutable suite with traceable private materi
     const first = ok(await h.cli(...show));
     assert.equal(first.suite.digest, snapshot.digest);
     assert.equal(first.cases.length, 20);
-    assert.equal(first.cases[0].materials[1].role, "hidden-test");
+    assert.equal(first.cases[0].bindings[0].materials[1].role, "hidden-test");
     assert.equal(JSON.stringify(first).includes("base64"), false);
     for (let i = 0; i < cases.length; i++) {
       const original = cases[i]!, frozen = first.cases[i];
@@ -352,21 +369,28 @@ test("20 historical runs become an immutable suite with traceable private materi
       assert.equal(frozen.source.deliveryId, original.deliveryId);
       assert.equal(frozen.taskRevision.revisionId, taskRevisions[i]);
       const expected = "sha256:" + createHash("sha256").update("sample " + i).digest("hex");
-      assert.equal(frozen.materials[0].digest, expected);
-      const args = ["suite", "measure", "--suite", snapshot.suiteId, "--revision", "1", "--case", original.key, "--run", original.runId, "--delivery", original.deliveryId];
+      assert.equal(frozen.bindings[0].materials[0].digest, expected);
+      const args = ["suite", "measure", "--suite", snapshot.suiteId, "--revision", "1", "--case", original.key, "--binding", "compare", "--run", original.runId, "--delivery", original.deliveryId];
       const measured = ok(await h.cli(...args));
       assert.equal(measured.result, i % 2 ? "mismatch" : "match");
       assert.equal(measured.expectedDigest, expected);
       const record = ok(await h.cli("grade", "show", "--grading", measured.gradingId));
-      assert.deepEqual(record.origin.historical, { taskRunId: original.runId, caseKey: original.key, suite: first.suite });
+      assert.deepEqual(record.origin.historical, { taskRunId: original.runId, caseKey: original.key, bindingKey: "compare", suite: first.suite });
       assert.equal(record.purpose, "measure"); assert.equal(record.grade.category, measured.result);
       const repeated = ok(await h.cli(...args));
       assert.notEqual(repeated.gradingId, measured.gradingId);
       assert.equal(repeated.actualDigest, measured.actualDigest); assert.equal(repeated.result, measured.result);
     }
+    assert.notEqual(first.cases[0].source.archiveReceipt, first.cases[0].source.receipt);
+    assert.notEqual(first.cases[0].source.archiveId, first.cases[0].source.deliveryId);
+    assert.notEqual(first.cases[0].bindings[0].materialSource.runId, first.cases[0].source.runId);
+    const presence = ok(await h.cli("suite", "measure", "--suite", snapshot.suiteId, "--revision", "1", "--case", cases[0]!.key, "--binding", "present", "--run", cases[0]!.runId, "--delivery", cases[0]!.deliveryId));
+    assert.equal(presence.result, "present"); assert.equal(presence.expectedDigest, null);
     writeFileSync(path, JSON.stringify(cases.slice(0, 1)));
-    const revised = ok(await h.cli("suite", "publish", "--suite", snapshot.suiteId, "--expected-seq", "1", "--name", "Fixture suite", "--cases-file", path));
+    const revised = ok(await h.cli("suite", "publish", "--suite", snapshot.suiteId, "--expected-seq", "1", "--name", "Revised suite", "--cases-file", path));
     assert.equal(revised.seq, 2);
+    assert.equal(ok(await h.cli("suite", "list")).suites[0].name, "Revised suite");
+    assert.equal(first.name, "Fixture suite");
     assert.deepEqual(ok(await h.cli(...show)), first);
     assert.equal(ok(await h.cli("suite", "list")).suites[0].head.seq, 2);
   });

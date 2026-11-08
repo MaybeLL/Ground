@@ -9,7 +9,7 @@ import type { Outcome, WorkApplication } from "../application/index.js";
 
 export const WORK_GROUPS = ["task", "work", "grade", "suite"] as const;
 export const WORK_WRITE_ACTIONS = new Set([
-  "suite:publish", "suite:measure",
+  "grade:define-rule", "suite:publish", "suite:measure",
   "task:create", "task:revise",
   "work:start", "work:continue", "work:branch", "work:select", "work:close", "work:register", "work:transcript", "work:deliver", "work:repair", "work:stop", "work:cancel",
   "grade:request", "grade:register", "grade:stage", "grade:command", "grade:submit", "grade:stop", "grade:cancel",
@@ -90,7 +90,7 @@ async function suite(args: ParsedArgs, action: string, app: WorkApplication, dep
     case "show": return unwrap(await app.suites.show(need(args, "suite"), integer(args, "revision")));
     case "list": return unwrap(await app.suites.list());
     case "measure": return unwrap(await app.suites.measure({ requestId: requestId(args), suiteId: need(args, "suite"), seq: integer(args, "revision"),
-      caseKey: need(args, "case"), runId: need(args, "run"), deliveryId: need(args, "delivery") }, repo));
+      caseKey: need(args, "case"), ...(text(args, "binding") ? {bindingKey: need(args,"binding")} : {}), runId: need(args, "run"), deliveryId: need(args, "delivery") }, repo));
     default: throw validation("action", `unknown suite action: ${action}`);
   }
 }
@@ -137,6 +137,12 @@ async function work(args: ParsedArgs, action: string, app: WorkApplication, deps
 async function grade(args: ParsedArgs, action: string, app: WorkApplication, deps: WorkEntryDependencies): Promise<object> {
   const grading = need.bind(null, args, "grading");
   switch (action) {
+    case "define-rule": {
+      const graderId = text(args, "grader");
+      return unwrap(await app.rules.publish({ requestId: requestId(args), name: need(args, "name"), operation: need(args, "rule"),
+        pass: need(args, "pass"), fail: need(args, "fail"), ...(graderId ? { graderId } : {}),
+        expectedSeq: graderId || text(args,"expected-seq") !== undefined ? integer(args, "expected-seq") : 0 }));
+    }
     case "request": return unwrap(await app.grading.requestGate({ requestId: requestId(args), taskRunId: need(args, "run"), materials: many(args, "material").map(entry => { const [id, digest] = entry.split("="); if (!id || !digest) throw validation("material", "is id=digest"); return { id, digest }; }) }));
     case "register": return unwrap(await app.grading.registerExternalEvaluator({ requestId: requestId(args), gradingId: grading(), agent: { id: need(args, "agent") } }));
     case "stage": return unwrap(await app.grading.recordStage({ requestId: requestId(args), gradingId: grading(), sessionId: need(args, "session"), stage: need(args, "stage") as ProtocolStage, ...(text(args, "blind-digest") ? { blindDigest: text(args, "blind-digest")! } : {}) }));
@@ -167,8 +173,9 @@ async function grade(args: ParsedArgs, action: string, app: WorkApplication, dep
 }
 
 export const workHelp = (): string => [
+  "grounds grade define-rule --name NAME --rule equal-file-bytes|file-exists --pass LABEL --fail LABEL [--grader ID --expected-seq N]",
   "grounds suite publish --name NAME --cases-file FILE [--suite ID --expected-seq N] [--repo PATH]",
-  "grounds suite show --suite ID --revision N | suite list | suite measure --suite ID --revision N --case KEY --run RUN --delivery ID [--repo PATH]",
+  "grounds suite show --suite ID --revision N | suite list | suite measure --suite ID --revision N --case KEY [--binding KEY] --run RUN --delivery ID [--repo PATH]",
   "grounds task create --title TEXT --criterion TEXT... [--context TEXT] [--repo-remote URL --baseline REF]",
   "grounds task revise --task ID --expected-seq N --title TEXT --criterion [ID: ]TEXT... | task show --task ID [--revision N] | task list",
   "grounds work start --task ID --mode external|none | work continue --work ID --expected-head RUN --mode M | work branch --work ID --refines RUN --mode M",

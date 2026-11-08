@@ -3,14 +3,14 @@
 // remote shows now. A receipt is self-describing; a historical receipt is never
 // taken as a fresh observation.
 import { execFile, spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import type { DeliveryItem, ReceiptCheck } from "../../domain/index.js";
-import type { ArchivedFile, ArchiveObservation, ArchiveProtection, RepairIdentity, RepairInput, CodeArchivePort, CodeFetchResult, DeliveryReceiptPort } from "../../ports/index.js";
+import type { ArchivedDigest, ArchivedFiles, ArchivedFile, ArchiveObservation, ArchiveProtection, RepairIdentity, RepairInput, CodeArchivePort, CodeFetchResult, DeliveryReceiptPort } from "../../ports/index.js";
 
 const run = promisify(execFile);
 const RECEIPT_PREFIX = "git-delivery:v1:";
@@ -202,9 +202,42 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
 
   /** Derive grading material only from a verified Git tree; symlinks and gitlinks cannot supply bytes. */
   async readFile(repositoryPath: string, item: { id: string; receipt: string }, path: string): Promise<ArchivedFile> {
-    if (!path || path.length > 4096 || /[\x00-\x1f\\]/.test(path) || path.split("/").some(part => !part || part === "." || part === "..")) {
+    const result = await this.readFiles(repositoryPath, item, [path]);
+    return result.status === "read" ? result.files.get(path)! : result;
+  }
+
+  async readFiles(repositoryPath: string, item: { id: string; receipt: string }, paths: readonly string[]): Promise<ArchivedFiles> {
+    if (paths.some(path => !path || path.length > 4096 || /[\x00-\x1f\\]/.test(path) || path.split("/").some(part => !part || part === "." || part === ".."))) {
       return { status: "invalid", reason: "material needs a relative Git file path" };
     }
+    return this.withTree<ArchivedFiles>(repositoryPath, item, async (scratch, commit) => {
+      const files = new Map<string, Extract<ArchivedFile, { status: "read" }>>();
+      for (const path of new Set(paths)) {
+        const file = await this.readBlob(scratch, commit, path);
+        if (file.status !== "read") return file;
+        files.set(path, file);
+      }
+      return { status: "read", files };
+    });
+  }
+
+  async fileDigest(repositoryPath: string, item: { id: string; receipt: string }, path: string): Promise<ArchivedDigest> {
+    return this.withTree<ArchivedDigest>(repositoryPath, item, async (scratch, commit) => {
+      const entry = await this.blobAt(scratch, commit, path);
+      if (entry.status === "invalid") return { status: "missing", reason: "the delivery has no regular file at the answer path" };
+      if (entry.status !== "found") return entry;
+      const child = spawn("git", ["cat-file", "blob", entry.blob], { cwd: scratch, env: inspectionEnvironment(), timeout: this.options.timeoutMs ?? 60_000, stdio: ["ignore", "pipe", "ignore"] });
+      const hash = createHash("sha256");
+      child.stdout.on("data", chunk => hash.update(chunk));
+      await new Promise<void>((resolve, reject) => {
+        child.once("error", reject);
+        child.once("close", code => code === 0 ? resolve() : reject(new Error("cannot read answer blob")));
+      });
+      return { status: "read", digest: "sha256:" + hash.digest("hex") };
+    });
+  }
+
+  private async withTree<T>(repositoryPath: string, item: { id: string; receipt: string }, read: (scratch: string, commit: string) => Promise<T>): Promise<T | Exclude<ArchivedFile, { status: "read" }>> {
     const receipt = decodeReceipt(item.receipt);
     if (!receipt || deliveryIdOf(receipt) !== item.id || !stableRemote(receipt.remote)) return { status: "invalid", reason: "invalid frozen delivery receipt" };
     const seen = await this.observe(receipt.remote, receipt.ref, repositoryPath, true);
@@ -221,16 +254,27 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
         if (matching?.[1]) verified = await this.retrieve(scratch, receipt.remote, matching[1], receipt);
       }
       if (verified !== "verified") return { status: "unavailable", reason: "the frozen delivery cannot be reproduced" };
-      const entry = await this.isolatedGit(scratch, ["--literal-pathspecs", "ls-tree", "-z", receipt.commit, "--", path]);
-      if (!entry) return { status: "missing", reason: "the delivery has no file at the material path" };
-      const blob = /^(?:100644|100755) blob ([0-9a-f]+)\t/.exec(entry)?.[1];
-      if (!blob || !OID.test(blob)) return { status: "invalid", reason: "material must be a regular file" };
-      const limit = 1024 * 1024;
-      if (Number(await this.isolatedGit(scratch, ["cat-file", "-s", blob])) > limit) return { status: "invalid", reason: "material exceeds 1 MiB" };
-      const result = await run("git", ["cat-file", "blob", blob], { cwd: scratch, env: inspectionEnvironment(), encoding: "buffer", maxBuffer: limit + 1, timeout: this.options.timeoutMs ?? 60_000 });
-      return { status: "read", commit: receipt.commit, blob, bytes: result.stdout };
+      return await read(scratch, receipt.commit);
     } catch { return { status: "unavailable", reason: "the archived material could not be read" }; }
     finally { await rm(scratch, { recursive: true, force: true }); }
+  }
+
+  private async blobAt(scratch: string, commit: string, path: string): Promise<{ status: "found"; blob: string } | Exclude<ArchivedFile, { status: "read" }>> {
+    const entry = await this.isolatedGit(scratch, ["--literal-pathspecs", "ls-tree", "-z", commit, "--", path]);
+    if (!entry) return { status: "missing", reason: "the delivery has no file at the material path" };
+    const blob = /^(?:100644|100755) blob ([0-9a-f]+)\t/.exec(entry)?.[1];
+    if (!blob || !OID.test(blob)) return { status: "invalid", reason: "material must be a regular file" };
+    return { status: "found", blob };
+  }
+
+  private async readBlob(scratch: string, commit: string, path: string): Promise<ArchivedFile> {
+    const entry = await this.blobAt(scratch, commit, path);
+    if (entry.status !== "found") return entry;
+    const { blob } = entry;
+    const limit = 1024 * 1024;
+    if (Number(await this.isolatedGit(scratch, ["cat-file", "-s", blob])) > limit) return { status: "invalid", reason: "material exceeds 1 MiB" };
+    const result = await run("git", ["cat-file", "blob", blob], { cwd: scratch, env: inspectionEnvironment(), encoding: "buffer", maxBuffer: limit + 1, timeout: this.options.timeoutMs ?? 60_000 });
+    return { status: "read", commit, blob, bytes: result.stdout };
   }
 
   /** A repair publishes another tag. Its identity is derived from the saved intent;

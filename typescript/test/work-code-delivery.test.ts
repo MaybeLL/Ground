@@ -141,9 +141,9 @@ for (const backend of backends) test(`${backend}: evaluation snapshots recover b
     const created = await task(app, { remote, baseline });
     const run = value(await app.exec.startWork({ requestId: "start", taskDefinitionId: created.taskId, workerMode: "none" }));
     const { delivery } = value(await app.delivery.deliver({ requestId: "deliver", runId: run.runId, repositoryPath: repo, commit: baseline }));
-    const entry = { key: "fixture", runId: run.runId, deliveryId: delivery.id, referencePath: "a.txt", answerPath: "absent.txt" };
+    const entry = { key: "fixture", runId: run.runId, deliveryId: delivery.id, bindings: [{ key: "compare", referencePath: "a.txt", answerPath: "absent.txt" }] };
     const input = { requestId: "snapshot", name: "suite", expectedSeq: 0, cases: [entry] };
-    const failed = await app.suites.publish({ ...input, cases: [entry, { ...entry, key: "bad", referencePath: "not-present.txt" }] }, repo);
+    const failed = await app.suites.publish({ ...input, cases: [entry, { ...entry, key: "bad", bindings: [{ key: "compare", answerPath: "a.txt", referencePath: "not-present.txt" }] }] }, repo);
     refused(failed, "not-found");
     assert.deepEqual(value(await app.suites.list()).suites, []);
     const snapshot = value(await app.suites.publish(input, repo));
@@ -153,7 +153,7 @@ for (const backend of backends) test(`${backend}: evaluation snapshots recover b
     assert.equal(measured.actualDigest, null);
     const shown = value(await app.suites.show(snapshot.suiteId, 1));
     assert.equal(shown.cases[0]!.source.commit, baseline);
-    assert.equal(shown.cases[0]!.graderRevision.kind, "grader");
+    assert.equal(shown.cases[0]!.bindings[0]!.graderRevision.kind, "grader");
     const grading = value(await app.grading.getGrading(measured.gradingId));
     assert.equal(grading.origin.type, "standalone");
     rmSync(remote, { recursive: true, force: true });

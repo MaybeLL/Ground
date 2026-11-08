@@ -28,7 +28,11 @@ export type ArchivedFile =
   | { readonly status: "read"; readonly commit: string; readonly blob: string; readonly bytes: Uint8Array }
   | { readonly status: "missing" | "unavailable" | "invalid"; readonly reason: string };
 
+export type ArchivedDigest = { status: "read"; digest: string } | Exclude<ArchivedFile, { status: "read" }>;
+export type ArchivedFiles = { status: "read"; files: Map<string, Extract<ArchivedFile, { status: "read" }>> } | Exclude<ArchivedFile, { status: "read" }>;
 export interface CodeArchivePort {
+  fileDigest(repositoryPath: string, item: { id: string; receipt: string }, path: string): Promise<ArchivedDigest>;
+  readFiles(repositoryPath: string, item: { id: string; receipt: string }, paths: readonly string[]): Promise<ArchivedFiles>;
   readFile(repositoryPath: string, item: { id: string; receipt: string }, path: string): Promise<ArchivedFile>;
   repair(input: RepairInput): Promise<CodeArchiveResult>;
   inspectRepair(identity: RepairIdentity): Promise<CodeArchiveResult>;
