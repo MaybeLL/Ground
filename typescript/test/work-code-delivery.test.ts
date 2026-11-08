@@ -544,3 +544,28 @@ for (const backend of backends) test(backend + ": immutable experiment plans bin
     assert.deepEqual(view.dimensions.map(d=>[d.planned,d.missing,d.valid]),[[3,3,0]]);
   },backend);
 });
+
+for (const backend of backends) test(backend + ": working runs freeze selected artifact files and enforce required output ownership", {skip:backendSkip(backend)}, async () => {
+  await scenario(async ({app}) => {
+    const task = value(await app.tasks.createTask({requestId:"working",kind:"working",summary:"Submit a report",criteria:[{statement:"cite evidence"}],
+      outputs:[{key:"report",required:true},{key:"data",required:true},{key:"chart",required:false}]}));
+    const start = async (requestId:string) => value(await app.exec.startWork({requestId,taskDefinitionId:task.taskId,workerMode:"none"})).runId;
+    const runId = await start("first"), other = await start("second");
+    const file = (path:string, data:string) => {
+      const bytes = Buffer.from(data);
+      return {path,source:{digest:"sha256:"+createHash("sha256").update(bytes).digest("hex"),byteLength:bytes.length,async *open(){yield bytes;}}};
+    };
+    const inputs = [file("report.txt","answer"),file("assets/plot.bin","bytes")];
+    const args = {runId,requestId:"save-report",slot:"report"};
+    const saved = value(await app.artifacts.save(args,inputs));
+    assert.deepEqual(value(await app.artifacts.save(args,[...inputs].reverse())),saved);
+    refused(await app.artifacts.save(args,[file("report.txt","modified")]),"request-conflict");
+    const selected = {id:saved.id,type:"artifact" as const,receipt:saved.receipt};
+    refused(await app.exec.submit({requestId:"incomplete",runId,items:[selected]}),"invalid");
+    refused(await app.exec.submit({requestId:"foreign",runId:other,items:[selected]}),"invalid");
+    const data = value(await app.artifacts.save({runId,requestId:"save-table",slot:"data"},[file("data.csv","a,b")]));
+    const result = value(await app.exec.submit({requestId:"submit",runId,items:[selected,{id:data.id,type:"artifact",receipt:data.receipt}]}));
+    assert.equal(result.status,"delivered");
+    assert.equal(value(await app.exec.getRun(runId)).run.manifest?.items.length,2);
+  },backend);
+});

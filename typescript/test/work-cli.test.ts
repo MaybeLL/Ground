@@ -236,13 +236,31 @@ test("refusals are structured, and nothing is written for them", async () => {
   });
 });
 
+test("external agents save and read explicit working artifacts before declaring delivery", async () => {
+  await withHarness(async h=>{
+    const task = ok(await h.cli("task","create","--kind","working","--title","Write report","--criterion","readable","--required-output","report"));
+    const {runId} = ok(await h.cli("work","start","--mode","external","--task",task.taskId));
+    const {sessionId} = ok(await h.cli("work","register","--run",runId,"--agent","writer"));
+    const file = join(h.directory,"report");
+    writeFileSync(file,Buffer.from([0,127,255]));
+    const {artifact} = ok(await h.cli("work","save-artifact","--run",runId,"--session",sessionId,"--slot","report","--file","report.bin="+file));
+    writeFileSync(file,"later edits");
+    const chunk = ok(await h.cli("work","artifact-file","--run",runId,"--artifact",artifact.id,"--path","report.bin","--chunk","0"));
+    assert.deepEqual(Buffer.from(chunk.base64,"base64"),Buffer.from([0,127,255]));
+    assert.deepEqual(ok(await h.cli("work","artifact","--run",runId,"--artifact",artifact.id)).artifact,artifact);
+    const result = ok(await h.cli("work","submit-artifacts","--run",runId,"--session",sessionId,"--artifact",artifact.id));
+    assert.equal(result.submitted.status,"delivered");
+  });
+});
+
 test("task revisions preserve the chosen workspace kind", async () => {
   await withHarness(async h => {
-    const task = ok(await h.cli("task","create","--kind","working","--title","Summarize changes","--criterion","include evidence"));
+    const task = ok(await h.cli("task","create","--kind","working","--required-output","report","--optional-output","chart","--title","Summarize changes","--criterion","include evidence"));
     ok(await h.cli("task","revise","--task",task.taskId,"--expected-seq","1","--title","Summarize changes","--criterion","cite revisions"));
     for (const revision of ["1","2"]) {
       const view = ok(await h.cli("task","show","--task",task.taskId,"--revision",revision));
       assert.equal(view.revision.content.kind,"working");
+      assert.deepEqual(view.revision.content.outputs,[{key:"report",required:true},{key:"chart",required:false}]);
     }
     assert.equal((await h.cli("task","create","--kind","unknown","--title","x","--criterion","x")).ok,false);
   });

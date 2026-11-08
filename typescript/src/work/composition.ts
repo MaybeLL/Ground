@@ -31,6 +31,7 @@ import { ExperimentResults } from "./application/experiment-results.js";
 import { ExperimentGrading } from "./application/experiment-grading.js";
 import { ExperimentMembers } from "./application/experiment-members.js";
 import { EvaluationSuites } from "./application/evaluation-suites.js";
+import { Artifacts } from "./application/artifacts.js";
 import { ArchiveRepairs } from "./application/archive-repairs.js";
 import { CodeDelivery, Grading, TaskDefinitions, TaskExecution, type WorkApplication } from "./application/index.js";
 
@@ -47,7 +48,14 @@ export function composeWork(store: SQLStore): WorkApplication & {driver:ManagedT
   const managed = { ...context, lifecycle, runtime, ledgerId, workspaces, launcher };
   const recovery = new SandboxRecovery(managed);
   const agents = new AgentDefinitions(context,commandLineProviders,archive);
-  const exec = new TaskExecution({ ...shared, agents, receipts: archive, lifecycle, recovery });
+  const artifacts = new Artifacts(context);
+  const exec = new TaskExecution({ ...shared, agents, lifecycle, recovery, receipts: {
+    async check(items) {
+      const files = items.filter(item=>item.type === "artifact");
+      if (files.length && await artifacts.check(files) !== "accepted") return "rejected";
+      return archive.check(items.filter(item=>item.type === "candidate"));
+    },
+  }});
   const repairs = new ArchiveRepairs({ ...shared, archive });
   const suites = new EvaluationSuites({ units, repairs, archive, hash: shared.hash, now: shared.clock.now, newId: newUUIDv7,
     capture: bytes => ({ digest: "sha256:" + createHash("sha256").update(bytes).digest("hex"), base64: Buffer.from(bytes).toString("base64") }) });
@@ -62,5 +70,5 @@ export function composeWork(store: SQLStore): WorkApplication & {driver:ManagedT
     process:new ContainerTestProcess(runtime,workspaces,new EvaluatorWorkspaces(workspaces,archive))});
   const experiments = new ExperimentPlans({...context,repairs,source:archive});
   const members = new ExperimentMembers(context,agents,new ExperimentGrading(context,archive,repairs));
-  return { experiments,members,experimentResults:new ExperimentResults(context),tests,testDriver,workers,driver,agents, traces:new ProviderTraces(context,new ProviderTraceCapture()), lifecycle, sandboxes, environments, rules, suites, repairs, tasks: new TaskDefinitions(shared), exec, grading: new Grading(shared), delivery };
+  return { artifacts,experiments,members,experimentResults:new ExperimentResults(context),tests,testDriver,workers,driver,agents, traces:new ProviderTraces(context,new ProviderTraceCapture()), lifecycle, sandboxes, environments, rules, suites, repairs, tasks: new TaskDefinitions(shared), exec, grading: new Grading(shared), delivery };
 }

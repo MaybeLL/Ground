@@ -3,6 +3,10 @@
   "$id": "https://patchledger.dev/contracts/v1/work-results.schema.json",
   "title": "Task, work and grade CLI results",
   "oneOf": [
+    {"type": "object", "required": ["command", "result_type", "artifact"], "properties": {"command": {"const": "work.save-artifact"}, "result_type": {"const": "grounds.result.work.save-artifact/v1"}, "artifact": {"$ref": "#/$defs/SavedArtifact"}}, "additionalProperties": false},
+    {"type": "object", "required": ["command", "result_type", "artifact"], "properties": {"command": {"const": "work.artifact"}, "result_type": {"const": "grounds.result.work.artifact/v1"}, "artifact": {"$ref": "#/$defs/SavedArtifact"}}, "additionalProperties": false},
+    {"type": "object", "required": ["command", "result_type", "id", "runId", "path", "ordinal", "ref", "base64"], "properties": {"command": {"const": "work.artifact-file"}, "result_type": {"const": "grounds.result.work.artifact-file/v1"}, "id": {"$ref": "#/$defs/Id"}, "runId": {"$ref": "#/$defs/Id"}, "path": {"type": "string"}, "ordinal": {"type": "integer", "minimum": 0}, "ref": {"$ref": "trace-results.schema.json#/$defs/Blob"}, "base64": {"type": "string"}}, "additionalProperties": false},
+    {"type": "object", "required": ["command", "result_type", "submitted"], "properties": {"command": {"const": "work.submit-artifacts"}, "result_type": {"const": "grounds.result.work.submit-artifacts/v1"}, "submitted": {"$ref": "#/$defs/Submitted"}}, "additionalProperties": false},
     {
       "type":"object","required":["command","result_type","runId","confirmed","outstanding"],"additionalProperties":false,
       "properties":{
@@ -353,6 +357,7 @@
     }
   ],
   "$defs": {
+    "SavedArtifact": {"type": "object", "required": ["id", "runId", "slot", "receipt", "files"], "properties": {"id": {"$ref": "#/$defs/Id"}, "runId": {"$ref": "#/$defs/Id"}, "slot": {"$ref": "#/$defs/Id"}, "receipt": {"type": "string"}, "sessionId": {"$ref": "#/$defs/Id"}, "files": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["path", "content"], "properties": {"path": {"type": "string"}, "content": {"$ref": "trace-results.schema.json#/$defs/Blob"}}, "additionalProperties": false}}}, "additionalProperties": false},
     "ArchiveProtection": {
       "oneOf": [
         {"type":"object","required":["level"],"properties":{"level":{"const":"unknown"}},"additionalProperties":false},
@@ -481,6 +486,7 @@
       "required": ["kind", "schemaVersion", "summary", "criteria"],
       "properties": {
         "kind": {"enum": ["coding", "working"]},
+        "outputs": {"type":"array","items":{"type":"object","required":["key","required"],"properties":{"key":{"$ref":"#/$defs/Id"},"required":{"type":"boolean"}},"additionalProperties":false}},
         "schemaVersion": {"type": "integer", "minimum": 1},
         "summary": {"type": "string", "minLength": 1, "maxLength": 1024},
         "criteria": {"type": "array", "items": {"$ref": "#/$defs/Criterion"}},

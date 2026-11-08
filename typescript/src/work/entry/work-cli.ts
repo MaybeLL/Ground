@@ -14,7 +14,7 @@ export const WORK_WRITE_ACTIONS = new Set([
   "experiment:define", "experiment:launch", "experiment:resume", "experiment:cancel", "experiment:regrade",
   "grade:measure", "grade:resume-test", "grade:define-test", "grade:define-rule", "suite:publish", "suite:measure",
   "work:resume-managed", "work:define-agent", "work:import-trace", "work:prepare-sandbox", "work:pause-sandbox", "work:release-sandbox", "work:define-environment", "task:create", "task:revise",
-  "work:start", "work:continue", "work:branch", "work:select", "work:close", "work:register", "work:transcript", "work:deliver", "work:repair", "work:stop", "work:cancel",
+  "work:save-artifact", "work:submit-artifacts", "work:start", "work:continue", "work:branch", "work:select", "work:close", "work:register", "work:transcript", "work:deliver", "work:repair", "work:stop", "work:cancel",
   "grade:request", "grade:register", "grade:stage", "grade:command", "grade:submit", "grade:stop", "grade:cancel",
 ]);
 
@@ -34,6 +34,14 @@ const many = (args: ParsedArgs, name: string): string[] => { const v = raw(args,
 const flag = (args: ParsedArgs, name: string): boolean => raw(args, name) === true || raw(args, name) === "true";
 const integer = (args: ParsedArgs, name: string): number => { const n = Number(need(args, name)); if (!Number.isSafeInteger(n) || n < 0) throw validation(name, "must be a non-negative integer"); return n; };
 const requestId = (args: ParsedArgs): string => need(args, "operation-id");
+const taskOutputs = (args:ParsedArgs) => {
+  const options = ["required-output","optional-output"] as const;
+  if (options.every(key=>raw(args,key) === undefined)) return {};
+  return {outputs:options.flatMap(key=>{
+    if (raw(args,key) !== undefined) need(args,key);
+    return many(args,key).map(slot=>({key:slot,required:key === "required-output"}));
+  })};
+};
 const taskKind = (args: ParsedArgs): {kind?: "coding" | "working"} => {
   if (raw(args,"kind") === undefined) return {};
   const kind = need(args,"kind");
@@ -76,7 +84,7 @@ export function parseGrade(json: unknown): Grade {
   return { form: "criteria", items };
 }
 
-export interface WorkEntryDependencies { readonly app: WorkApplication; readonly cwd: string; readonly readFile: (path: string) => string }
+export interface WorkEntryDependencies { readonly app: WorkApplication; readonly artifactFile:(path:string)=>Promise<import("../ports/index.js").EvidenceSource>; readonly cwd: string; readonly readFile: (path: string) => string }
 
 export async function executeWorkCommand(args: ParsedArgs, deps: WorkEntryDependencies): Promise<unknown> {
   const [group, action] = [args.positionals[0] ?? "", args.positionals[1] ?? ""];
@@ -138,8 +146,8 @@ async function suite(args: ParsedArgs, action: string, app: WorkApplication, dep
 
 async function task(args: ParsedArgs, action: string, app: WorkApplication): Promise<object> {
   switch (action) {
-    case "create": return unwrap(await app.tasks.createTask({ ...taskKind(args), requestId: requestId(args), summary: need(args, "title"), ...(raw(args,"environment") !== undefined ? { environmentDefinitionId: need(args,"environment") } : {}), criteria: criteria(args), ...(text(args, "name") ? { name: text(args, "name")! } : {}), ...(text(args, "context") ? { context: text(args, "context")! } : {}), ...(repository(args) ? { repository: repository(args)! } : {}) }));
-    case "revise": return unwrap(await app.tasks.reviseTask({ ...taskKind(args), requestId: requestId(args), taskId: need(args, "task"), expectedSeq: integer(args, "expected-seq"), summary: need(args, "title"), ...(raw(args,"environment") !== undefined ? { environmentDefinitionId: need(args,"environment") } : {}), criteria: criteria(args), ...(text(args, "context") ? { context: text(args, "context")! } : {}), ...(repository(args) ? { repository: repository(args)! } : {}) }));
+    case "create": return unwrap(await app.tasks.createTask({ ...taskKind(args), ...taskOutputs(args), requestId: requestId(args), summary: need(args, "title"), ...(raw(args,"environment") !== undefined ? { environmentDefinitionId: need(args,"environment") } : {}), criteria: criteria(args), ...(text(args, "name") ? { name: text(args, "name")! } : {}), ...(text(args, "context") ? { context: text(args, "context")! } : {}), ...(repository(args) ? { repository: repository(args)! } : {}) }));
+    case "revise": return unwrap(await app.tasks.reviseTask({ ...taskKind(args), ...taskOutputs(args), requestId: requestId(args), taskId: need(args, "task"), expectedSeq: integer(args, "expected-seq"), summary: need(args, "title"), ...(raw(args,"environment") !== undefined ? { environmentDefinitionId: need(args,"environment") } : {}), criteria: criteria(args), ...(text(args, "context") ? { context: text(args, "context")! } : {}), ...(repository(args) ? { repository: repository(args)! } : {}) }));
     case "show": return unwrap(await app.tasks.getTask(need(args, "task"), text(args, "revision") !== undefined ? integer(args, "revision") : undefined));
     case "list": return { tasks: unwrap(await app.tasks.listTasks()) };
     default: throw validation("action", `unknown task action: ${action}`);
@@ -215,6 +223,29 @@ async function work(args: ParsedArgs, action: string, app: WorkApplication, deps
     case "workspace": return unwrap(await app.delivery.prepareWorkspace({ runId: need(args, "run"), repositoryPath: text(args, "repo") ?? deps.cwd }));
     case "reconcile": return unwrap(await app.repairs.reconcile(need(args, "run")));
     case "repair": return { repair: unwrap(await app.repairs.repair({ requestId: requestId(args), runId: need(args, "run"), deliveryId: need(args, "delivery"), repositoryPath: text(args, "repo") ?? deps.cwd })) };
+    case "save-artifact": {
+      const names = many(args,"file");
+      const files = await Promise.all(names.map(async name=>{
+        const sep = name.indexOf("=");
+        if (sep < 1 || sep === name.length-1) throw validation("file","expected archived/path=local-file");
+        return {path:name.slice(0,sep),source:await deps.artifactFile(name.slice(sep+1))};
+      }));
+      return {artifact:unwrap(await app.artifacts.save({requestId:requestId(args),runId:need(args,"run"),slot:need(args,"slot"),
+        ...(text(args,"session") ? {sessionId:text(args,"session")} : {})},files))};
+    }
+    case "artifact": return {artifact:unwrap(await app.artifacts.get(need(args,"run"),need(args,"artifact")))};
+    case "artifact-file": {
+      const {data,...metadata} = unwrap(await app.artifacts.chunk(need(args,"run"),need(args,"artifact"),need(args,"path"),integer(args,"chunk")));
+      return {...metadata,base64:Buffer.from(data).toString("base64")};
+    }
+    case "submit-artifacts": {
+      const runId = need(args,"run");
+      const items = await Promise.all(many(args,"artifact").map(async id=>{
+        const saved = unwrap(await app.artifacts.get(runId,id));
+        return {type:"artifact" as const,id,receipt:saved.receipt};
+      }));
+      return {submitted:unwrap(await app.exec.submit({requestId:requestId(args),runId,items,...(text(args,"session") ? {sessionId:text(args,"session")} : {})}))};
+    }
     case "deliver": return unwrap(await app.delivery.deliver({ protection: archiveProtection(args), requestId: requestId(args), runId: need(args, "run"), repositoryPath: text(args, "repo") ?? deps.cwd, commit: text(args, "commit") ?? "HEAD",
       ...(text(args, "session") ? { sessionId: text(args, "session")! } : {}), ...(text(args, "remote") ? { remote: text(args, "remote")! } : {}), ...(flag(args, "declare-stop") ? { declaresStop: true } : {}) }));
     case "stop": return unwrap(await app.exec.declareStop({ requestId: requestId(args), runId: need(args, "run"), reason: need(args, "reason") as "human" | "abandoned", ...(text(args, "session") ? { sessionId: text(args, "session")! } : {}) }));
@@ -300,7 +331,7 @@ export const workHelp = (): string => [
   "grounds grade define-rule --name NAME --rule equal-file-bytes|file-exists --pass LABEL --fail LABEL [--grader ID --expected-seq N]",
   "grounds suite publish --name NAME --cases-file FILE [--suite ID --expected-seq N] [--repo PATH]",
   "grounds suite show --suite ID --revision N | suite list | suite measure --suite ID --revision N --case KEY [--binding KEY] --run RUN --delivery ID [--repo PATH]",
-  "grounds task create [--kind coding|working] --title TEXT --criterion TEXT... [--context TEXT] [--environment ID] [--repo-remote URL --baseline REF]",
+  "grounds task create [--kind coding|working] [--required-output KEY... --optional-output KEY...] --title TEXT --criterion TEXT... [--context TEXT] [--environment ID] [--repo-remote URL --baseline REF]",
   "grounds task revise --task ID --expected-seq N --title TEXT --criterion [ID: ]TEXT... | task show --task ID [--revision N] | task list",
   "grounds work define-agent --name NAME --provider codex|claude-code [--model MODEL] [--agent ID --expected-seq N]",
   "grounds work start --task ID --mode managed --agent ID [--agent-revision REV --repo PATH] | work managed-status|resume-managed --run RUN",

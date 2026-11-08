@@ -50,7 +50,8 @@ export function createDefinition(command: { id: Id; kind: DefinitionKind; name: 
 
 export type TaskKind = "coding" | "working";
 export interface Criterion { readonly id: Id; readonly statement: string }
-export interface TaskContent { readonly kind: TaskKind; readonly schemaVersion: number; readonly summary: string; readonly criteria: readonly Criterion[]; readonly environmentDefinitionId?: Id }
+export type OutputSlot = {key:string; required:boolean};
+export interface TaskContent { readonly outputs?: readonly OutputSlot[]; readonly kind: TaskKind; readonly schemaVersion: number; readonly summary: string; readonly criteria: readonly Criterion[]; readonly environmentDefinitionId?: Id }
 
 /** What an acceptance verdict is a verdict about on the task side: the criteria and their wording, independent of their order. */
 export function criteriaDigest(task: Pick<TaskContent, "criteria">, hash: Hasher): Result<Digest> {
@@ -68,7 +69,7 @@ const isObject = (value: unknown): value is Record<string, unknown> => !!value &
 
 export function parseTaskContent(content: unknown): Result<TaskContent> {
   if (!isObject(content)) return invalid("task content must be an object");
-  const { kind, schemaVersion, summary, criteria, environmentDefinitionId } = content;
+  const { kind, schemaVersion, summary, criteria, environmentDefinitionId, outputs } = content;
   if (kind !== "coding" && kind !== "working") return invalid("task kind must be coding or working");
   if (!Number.isSafeInteger(schemaVersion) || (schemaVersion as number) < 1) return invalid("schemaVersion must be a positive integer");
   if (!isText(summary, 1024)) return invalid("summary is required");
@@ -80,7 +81,16 @@ export function parseTaskContent(content: unknown): Result<TaskContent> {
   }
   if (!unique(parsed, c => c.id)) return invalid("criterion ids must be unique");
   if (environmentDefinitionId !== undefined && !isId(environmentDefinitionId)) return invalid("environmentDefinitionId must be an identifier");
-  return ok({ kind, schemaVersion: schemaVersion as number, summary, criteria: parsed, ...(environmentDefinitionId !== undefined ? { environmentDefinitionId } : {}) });
+  const slots:OutputSlot[] = [];
+  if (outputs !== undefined) {
+    if (!Array.isArray(outputs)) return invalid("task output slots must be a list");
+    for (const slot of outputs) {
+      if (!isObject(slot) || !isId(slot.key) || typeof slot.required !== "boolean") return invalid("each output needs a key and a required flag");
+      slots.push({key:slot.key,required:slot.required});
+    }
+    if (!unique(slots,slot=>slot.key)) return invalid("output keys must be unique");
+  }
+  return ok({ kind, ...(outputs === undefined ? {} : {outputs:slots}), schemaVersion: schemaVersion as number, summary, criteria: parsed, ...(environmentDefinitionId !== undefined ? { environmentDefinitionId } : {}) });
 }
 
 export function parseScale(value: unknown): Result<Scale> {

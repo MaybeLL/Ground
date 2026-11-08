@@ -1,3 +1,4 @@
+import {readArtifact} from "./artifacts.js";
 // TaskExecution for work done by the caller's own agent, or by nobody (a person
 // supplies the manifest). Managed workers arrive with phase P4.
 //
@@ -248,6 +249,22 @@ export class TaskExecution {
       const run = await r.taskRuns.get(input.runId, { lock: true });
       if (!run) return fail("not-found", `run ${input.runId} does not exist`);
       const at = this.deps.clock.now();
+      const taskRevision = await r.definitions.getRevision(run.taskRevision.definitionId,run.taskRevision.revisionId);
+      const task = parseTaskContent(taskRevision?.content);
+      if (!task.ok) return fromRejection(task.error);
+      if ((task.value.outputs || task.value.kind === "working" || input.items.some(item=>item.type === "artifact")) && !run.cancelIntent) {
+        const slots = new Set<string>();
+        for (const item of input.items) {
+          if (item.type !== "artifact") {
+            if (task.value.kind === "working") return fail("invalid","working tasks deliver artifacts");
+            continue;
+          }
+          const saved = await readArtifact(r,item.id);
+          if (!saved || saved.runId !== run.id || saved.receipt !== item.receipt || slots.has(saved.slot)) return fail("invalid","a selected artifact is missing, duplicated or belongs to another run");
+          slots.add(saved.slot);
+        }
+        if (task.value.outputs?.some(slot=>slot.required && !slots.has(slot.key))) return fail("invalid","the manifest is missing a required output");
+      }
       const steps: TaskRun[] = [];
       let current = run;
       if (current.status === "pending" && current.workerMode === "none") {
