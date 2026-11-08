@@ -32,7 +32,7 @@ export class AgentDefinitions {
     });
   }
 
-  async admit(r:WorkRepositories,run:TaskRun,selection?:AgentSelection,sandbox?:SandboxChoice) {
+  async admit(r:WorkRepositories,run:TaskRun,selection?:AgentSelection,sandbox?:SandboxChoice, frozen?:Pick<ManagedTask,"repositoryPath"|"remote"|"baseline">) {
     if (run.workerMode!=="managed") return selection ? fail("invalid","agent selection requires managed mode") : succeed({});
     if (!selection || !isId(selection.definitionId) || !run.environment) return fail("invalid","a managed run requires an agent and a resolved task environment");
     const revision=selection.revisionId ? await r.definitions.getRevision(selection.definitionId,selection.revisionId) : await r.definitions.latestRevision(selection.definitionId);
@@ -60,7 +60,7 @@ export class AgentDefinitions {
     const parentCandidate = candidate && parent ? {runId: parent.id, id: candidate.id, receipt: candidate.receipt} : previous?.parentCandidate;
     const parentReceipt = parentCandidate?.receipt ?? previous?.parentReceipt;
     let source;
-    try { source = await this.source.freezeSource(selection.repositoryPath, previous?.baseline ?? repository.baseline, repository.remote, parentReceipt); }
+    try { source = frozen ?? await this.source.freezeSource(selection.repositoryPath, previous?.baseline ?? repository.baseline, repository.remote, parentReceipt); }
     catch { return fail("invalid", "the managed repository, baseline or publication endpoint could not be resolved"); }
     if (previous && (previous.repositoryPath !== source.repositoryPath || previous.remote !== source.remote)) {
       return fail("conflict", "the selected repository differs from the retained workspace; select a fresh sandbox");

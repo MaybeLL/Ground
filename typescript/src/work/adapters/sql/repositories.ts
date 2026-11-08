@@ -118,6 +118,19 @@ class SqlGradings extends SqlRepository<GradingRecord> implements GradingReposit
 class SqlExperiments implements ExperimentRepository {
   constructor(private readonly table: AggregateTable<ExperimentRun>, private readonly client: SQLClient, private readonly writable: boolean) {}
 
+  async memberProgress(batchId:Id) {
+    const rows = await this.client.all<Record<string, unknown>>(
+      `SELECT m.member_key, i.id AS admission, i.kind, i.subject_type, t.id AS run_id, t.status
+       FROM work_experiment_members m LEFT JOIN work_intents i ON i.request_id=m.task_run_request_id
+       LEFT JOIN work_task_runs t ON t.id=i.subject_id WHERE m.experiment_run_id=? ORDER BY m.ordinal`, [batchId]);
+    return rows.map(row => {
+      if (row.admission && (row.kind !== "start-experiment-member" || row.subject_type !== "task_run" || !row.run_id)) {
+        throw new StorageFailure("integrity","experiment member admission does not identify its task run",batchId);
+      }
+      return {key:textOf(row.member_key),runId:row.run_id ? textOf(row.run_id) : null,status:row.status as TaskRun["status"]|null};
+    });
+  }
+
   private async members(experimentRunId: Id): Promise<Member[]> {
     const rows = await this.client.all<Record<string, unknown>>("SELECT * FROM work_experiment_members WHERE experiment_run_id = ? ORDER BY ordinal", [experimentRunId]);
     return rows.map(row => ({ key: textOf(row.member_key), caseKey: textOf(row.case_key), repeatIndex: Number(row.repeat_index), taskRunRequestId: textOf(row.task_run_request_id) }));

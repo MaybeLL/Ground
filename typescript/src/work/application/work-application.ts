@@ -5,6 +5,8 @@ import type { TaskExecution } from "./task-execution.js";
 
 /** Everything the command line can ask of the work model. */
 export interface WorkApplication {
+  readonly experiments:import("./experiment-plans.js").ExperimentPlans;
+  readonly members:import("./experiment-members.js").ExperimentMembers;
   readonly tests: import("./test-execution.js").TestExecution;
   readonly traces: import("./provider-traces.js").ProviderTraces;
   readonly workers:import("./managed-workers.js").ManagedWorkers;

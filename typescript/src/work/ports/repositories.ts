@@ -68,6 +68,7 @@ export interface GradingRepository extends AggregateRepository<GradingRecord> {
   findByEvaluatorExecution(executionId: Id): Promise<GradingRecord | undefined>;
 }
 export interface ExperimentRepository extends AggregateRepository<ExperimentRun> {
+  memberProgress(batchId:Id):Promise<{key:string;runId:string|null;status:TaskRun["status"]|null}[]>;
   /** The batch member whose task run was requested under this identity. */
   findMemberByRequest(taskRunRequestId: Id): Promise<{ experimentRunId: Id; key: string } | undefined>;
 }

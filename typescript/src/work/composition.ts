@@ -26,6 +26,8 @@ import { ContainerAgentProcess } from "./adapters/devcontainer/managed-process.j
 import { RetainedSetup } from "./application/retained-setup.js";
 import { AgentDefinitions } from "./application/agent-definitions.js";
 import { RuleDefinitions } from "./application/rule-definitions.js";
+import { ExperimentPlans } from "./application/experiment-plans.js";
+import { ExperimentMembers } from "./application/experiment-members.js";
 import { EvaluationSuites } from "./application/evaluation-suites.js";
 import { ArchiveRepairs } from "./application/archive-repairs.js";
 import { CodeDelivery, Grading, TaskDefinitions, TaskExecution, type WorkApplication } from "./application/index.js";
@@ -56,5 +58,7 @@ export function composeWork(store: SQLStore): WorkApplication & {driver:ManagedT
   const tests = new TestExecution(context);
   const testDriver = new TestGradingDriver({tests,runtime,launcher,workspaces,ledgerId,
     process:new ContainerTestProcess(runtime,workspaces,new EvaluatorWorkspaces(workspaces,archive))});
-  return { tests,testDriver,workers,driver,agents, traces:new ProviderTraces(context,new ProviderTraceCapture()), lifecycle, sandboxes, environments, rules, suites, repairs, tasks: new TaskDefinitions(shared), exec, grading: new Grading(shared), delivery };
+  const experiments = new ExperimentPlans({...context,repairs,source:archive});
+  const members = new ExperimentMembers(context,agents);
+  return { experiments,members,tests,testDriver,workers,driver,agents, traces:new ProviderTraces(context,new ProviderTraceCapture()), lifecycle, sandboxes, environments, rules, suites, repairs, tasks: new TaskDefinitions(shared), exec, grading: new Grading(shared), delivery };
 }

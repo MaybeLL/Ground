@@ -491,3 +491,49 @@ for (const backend of backends) test(backend + ": test grader admission freezes 
     assert.equal(value(await app.exec.getRun(worker.runId)).run.status,"delivered");
   },backend);
 });
+
+for (const backend of backends) test(backend + ": immutable experiment plans bind starts, repetitions and concurrent admissions", {skip:backendSkip(backend)}, async () => {
+  await scenario(async ({app,store,repo,remote,baseline}) => {
+    const environment = value(await app.environments.publish({requestId:"env",name:"worker",expectedSeq:0,
+      config:'{"image":"fixture"}',imageDigest:"sha256:" + "1".repeat(64)}));
+    const agent = value(await app.agents.publish({requestId:"agent",name:"candidate",expectedSeq:0,provider:"codex"}));
+    const rule = value(await app.rules.publish({requestId:"rule",name:"presence",operation:"file-exists",pass:"present",fail:"missing",expectedSeq:0}));
+    const task = value(await app.tasks.createTask({requestId:"task",summary:"edit a file",criteria:[{statement:"file is present"}],
+      environmentDefinitionId:environment.environmentId,repository:{remote,baseline:"HEAD"}}));
+    const historical = value(await app.exec.startWork({requestId:"work",taskDefinitionId:task.taskId,workerMode:"none"}));
+    const delivery = value(await app.delivery.deliver({requestId:"deliver",runId:historical.runId,commit:baseline,repositoryPath:repo}));
+    const suite = value(await app.suites.publish({requestId:"suite",name:"cases",expectedSeq:0,cases:[{
+      key:"case-a",runId:historical.runId,deliveryId:delivery.delivery.id,bindings:[{key:"presence",answerPath:"a.txt",grader:{definitionId:rule.graderId,revisionId:rule.revisionId}}],
+    }]},repo));
+    const experiment = value(await app.experiments.define({requestId:"define",name:"trial",suiteId:suite.suiteId,seq:1,agentId:agent.agentId,
+      agentRevisionId:agent.revisionId,repositoryPath:repo}));
+    value(await app.environments.publish({requestId:"change-env",name:"worker",definitionId:environment.environmentId,expectedSeq:1,
+      config:'{"image":"updated"}',imageDigest:"sha256:" + "2".repeat(64)}));
+    writeFileSync(join(repo,"a.txt"),"after definition");git(repo,"commit","-qam","advance baseline");
+    const launch = {requestId:"launch",experimentId:experiment.experimentId,repeatCount:3,taskConcurrency:1};
+    const batch = value(await app.experiments.launch(launch));
+    assert.equal(batch.memberCount,3);
+    const contenders = await Promise.all([app.members.next(batch.batchId),app.members.next(batch.batchId)]);
+    const admitted = contenders.map(value).find(result=>result.state === "started");
+    assert.ok(admitted?.state === "started");
+    assert.ok(contenders.some(result=>result.ok && result.value.state === "at-capacity"));
+    const facts = value(await app.workers.context(admitted.runId));
+    assert.equal(facts.job.baseline,baseline);
+    assert.equal(facts.run.environment?.source,"specified");
+    assert.equal(facts.run.environment?.revision.revisionId,environment.revisionId);
+    assert.equal(facts.run.workId,undefined);
+    assert.equal(facts.run.retention,"release");
+    value(await app.exec.cancel({requestId:"cancel-member",runId:admitted.runId}));
+    const next = value(await app.members.next(batch.batchId));
+    assert.ok(next.state === "started" && next.key !== admitted.key);
+    value(await app.members.cancel(batch.batchId,"cancel-batch"));
+    assert.equal(value(await app.members.next(batch.batchId)).state,"cancelled");
+    const records = await new SqlWorkUnitOfWork(store).run("read",r=>r.experiments.memberProgress(batch.batchId));
+    assert.equal(records.filter(member=>member.runId).length,2);
+    const {renameSync} = await import("node:fs");
+    renameSync(remote,remote+"-offline");
+    assert.deepEqual(value(await app.experiments.launch(launch)),batch);
+    refused(await app.experiments.launch({...launch,requestId:"new-batch"}),"unavailable");
+    assert.equal(value(await app.experiments.show(experiment.experimentId)).batches.length,1);
+  },backend);
+});

@@ -46,7 +46,7 @@ export function parseSources(input: unknown): Outcome<CaseSource[]> {
   return unique(sources, c => c.key) ? succeed(sources) : fail("invalid", "case keys must be unique");
 }
 
-function casesOf(revision: Revision): FrozenCase[] {
+export function casesOf(revision: Revision): FrozenCase[] {
   const content = revision.content as { format?: string; cases?: FrozenCase[] };
   if (content.format !== "grounds.evaluation-suite/v1" || !Array.isArray(content.cases)) throw new Error("unsupported evaluation suite snapshot");
   return content.cases;
@@ -215,7 +215,7 @@ export class EvaluationSuites {
     });
   }
 
-  async measure(input: { requestId: string; suiteId: string; seq: number; caseKey: string; bindingKey?: string; runId: string; deliveryId: string }, repo: string): Promise<Outcome<Measurement | AcceptedTest>> {
+  async measure(input: { requestId: string; suiteId: string; seq: number; caseKey: string; bindingKey?: string; runId: string; deliveryId: string; member?:{batchId:string;repeatIndex:number} }, repo: string): Promise<Outcome<Measurement | AcceptedTest>> {
     const request = { requestId: input.requestId, input: json(input), kind: "measure-file-match", subject: {type: "task_run", id: input.runId} };
     const replay = await this.replay<Measurement | AcceptedTest>(request.requestId, request.kind, request.input);
     if (replay) return replay;
@@ -232,12 +232,24 @@ export class EvaluationSuites {
     const delivery = await this.delivery(input.runId, input.deliveryId, repo);
     if (!delivery.ok) return delivery;
     if (!sameRef(delivery.value.taskRevision, selected.taskRevision)) return fail("conflict", "delivery uses a different task revision");
+    const origin = async (r:WorkRepositories):Promise<Outcome<GradingOrigin>> => {
+      if (!input.member) return succeed({type:"standalone",historical:{taskRunId:input.runId,caseKey:input.caseKey,bindingKey:binding.key,suite:refOf(revision)}});
+      const batch = await r.experiments.get(input.member.batchId,{lock:true});
+      if (!batch || batch.cancelIntent || !sameRef(batch.suite,refOf(revision))) return fail("conflict","batch no longer accepts measurements");
+      const member = batch.members.find(m=>m.caseKey === selected.key && m.repeatIndex === input.member!.repeatIndex);
+      const admission = member && await r.intents.findByRequest(member.taskRunRequestId);
+      if (admission?.kind !== "start-experiment-member" || admission.subject.id !== input.runId) return fail("conflict","this delivery does not belong to the selected batch member");
+      return succeed({type:"member",experimentRunId:batch.id,caseKey:selected.key,repeatIndex:member!.repeatIndex,requirementKey:binding.key});
+    };
     if (test) {
       const source = delivery.value.source;
       const plan = {suite:refOf(revision), caseKey:selected.key, bindingKey:binding.key, runId:input.runId,
         deliveryId:input.deliveryId, commit:source.commit, archiveId:source.archiveId, receipt:source.archiveReceipt, repository:repo};
       const materials = binding.materials.map((m, ordinal) => ({id:"suite-material-" + ordinal, digest:m.digest}));
-      return once(this.deps, request, r => admitTestMeasurement(this.deps, r, plan, delivery.value.item, test, binding.graderRevision, materials));
+      return once(this.deps,request,async r => {
+        const selectedOrigin = await origin(r);
+        return selectedOrigin.ok ? admitTestMeasurement(this.deps,r,plan,delivery.value.item,test,binding.graderRevision,materials,selectedOrigin.value) : selectedOrigin;
+      });
     }
     if (!rule) return fail("unsupported", "the selected rule is unavailable");
     const expected = binding.materials.find(m => m.role === "reference-answer");
@@ -245,9 +257,10 @@ export class EvaluationSuites {
     const scored = await this.score(repo, delivery.value.archive, binding.answerPath, rule, expected?.digest ?? null);
     if (!scored.ok) return scored;
     return once<Measurement>(this.deps, request, async r => {
-      const origin: GradingOrigin = { type: "standalone", historical: { taskRunId: input.runId, caseKey: input.caseKey, bindingKey: binding.key, suite: refOf(revision) } };
+      const selectedOrigin = await origin(r);
+      if (!selectedOrigin.ok) return selectedOrigin;
       const materials = [...(expected ? [{ id: "reference-answer", digest: expected.digest }] : []), { id: "suite-snapshot", digest: revision.digest }];
-      const recorded = await this.record(r, delivery.value.item, origin, binding.graderRevision, rule, scored.value.result, materials);
+      const recorded = await this.record(r, delivery.value.item, selectedOrigin.value, binding.graderRevision, rule, scored.value.result, materials);
       return recorded.ok ? succeed({ gradingId: recorded.value, suiteId: input.suiteId, revisionId: revision.id, caseKey: selected.key,
         runId: input.runId, deliveryId: delivery.value.item.id, bindingKey: binding.key, ...scored.value }) : recorded;
     });
