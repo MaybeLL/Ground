@@ -134,3 +134,5 @@ grounds work submit-artifacts --run RUN --session SESSION --artifact ID
 Coding 任务有必需附件时，用 `grounds work deliver --run RUN --session SESSION --artifact ID` 在同一份清单中提交 Git Candidate 和附件。每个槽选择一份已保存的产物。托管 worker 同样支持 working 任务和带附件的 coding 任务。运行器把材料仓库只读挂载在 `/grounds-materials/<name>`。Working 容器的当前目录用于写输出，`work prepare-sandbox` 的 `commit` 返回 `null`。Agent 的最终 JSON 以 `artifacts` 数组声明每个槽的文件。例如 `{"artifacts":[{"slot":"result","files":[{"path":"report.txt","source":"summary.txt"}]}]}`。Coding 的同一份声明还须包含 `candidate.commit`。每个托管 Artifact 保存来源 `executionId`，与同一轮的轨迹、冻结输出和交付清单关联。
 
 评测集可以选择一次已交付运行中的 Artifact。发布时核验产物回执和文件内容摘要，并固定任务修订及输出槽。历史材料保留产物的 `artifactSlot`，其 `commit` 为 `null`。规则评分读取归档文件，测试评分将该产物单独还原到评价者的工作区。参考答案和隐藏测试仅挂载给评价者。批次按同名输出槽选择本轮产物，结果记录实际参与评分的 Artifact ID。若某次成功交付省略了该可选槽，查询报告 `target-missing`。
+
+产物中的路径按跨平台可还原的相对文件名校验。每个组件至多 255 个 UTF-8 字节，目录和文件的拼写在 Unicode 规范化及大小写折叠后须一致。文件名之间不能重名或互为目录前缀。已有档案遇到不可还原的路径时，测试评分记录为 `grader_fault`。已评分成员的产物失去完整回执或任一文件证据后，查询以 `targetAvailability: unavailable` 标记，并保留此前采用的评分。

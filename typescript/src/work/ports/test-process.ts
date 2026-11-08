@@ -10,3 +10,6 @@ export interface TestProcessPort {
   output(owner:RuntimeOwner,ordinal:number,token:number):Promise<TestStreams>;
   dispose(owner:RuntimeOwner):Promise<void>;
 }
+
+/** The immutable evaluator input cannot produce the selected checkout. */
+export class TestTargetFault extends Error {}

@@ -1,5 +1,6 @@
 import type {ArchivedDigest,CodeArchivePort,WorkUnitOfWork} from "../ports/index.js";
-import {readArtifact} from "./artifacts.js";
+import type {Hasher} from "../domain/index.js";
+import {verifiedArtifact} from "./artifacts.js";
 
 export type SelectedArchive = {id:string;receipt:string;artifactRunId?:string};
 type MaterialFile={blob:string;bytes:Uint8Array;executable?:true};
@@ -8,16 +9,15 @@ type MaterialRead={status:"read";files:Map<string,MaterialFile>}|{status:"invali
 /** Evaluation sees only named bytes of a verified archive. Candidate and
  * artifact receipts have different backing stores and integrity checks. */
 export class EvaluationFiles {
-  constructor(private readonly units:WorkUnitOfWork,private readonly git:CodeArchivePort) {}
+  constructor(private readonly units:WorkUnitOfWork,private readonly git:CodeArchivePort,private readonly hash:Hasher) {}
 
   async digest(repo:string,archive:SelectedArchive,path:string):Promise<ArchivedDigest> {
     if (!archive.artifactRunId) return this.git.fileDigest(repo,archive,path);
     return this.units.run("read",async r=>{
-      const saved=await readArtifact(r,archive.id);
-      if (!saved || saved.runId!==archive.artifactRunId || saved.receipt!==archive.receipt) return {status:"unavailable",reason:"artifact receipt is unavailable"};
+      const saved=await verifiedArtifact(r,archive.artifactRunId!,archive.id,archive.receipt,this.hash);
+      if (!saved) return {status:"unavailable",reason:"artifact receipt is unavailable"};
       const file=saved.files.find(f=>f.path===path);
       if (!file) return {status:"missing",reason:"file is absent from the archived artifact"};
-      await r.evidence.verify(file.content.digest);
       return {status:"read",digest:file.content.digest};
     });
   }
@@ -25,14 +25,13 @@ export class EvaluationFiles {
   async material(repo:string,archive:SelectedArchive,paths:readonly string[]):Promise<MaterialRead> {
     if (!archive.artifactRunId) return this.git.readFiles(repo,archive,paths);
     return this.units.run("read",async r=>{
-      const saved=await readArtifact(r,archive.id);
-      if (!saved || saved.runId!==archive.artifactRunId || saved.receipt!==archive.receipt) return {status:"unavailable",reason:"artifact receipt is unavailable"};
+      const saved=await verifiedArtifact(r,archive.artifactRunId!,archive.id,archive.receipt,this.hash);
+      if (!saved) return {status:"unavailable",reason:"artifact receipt is unavailable"};
       const files=new Map<string,MaterialFile>();
       for (const path of paths) {
         const ref=saved.files.find(f=>f.path===path)?.content;
         if (!ref) return {status:"missing",reason:"material file is absent: "+path};
         if (ref.byteLength>1024*1024) return {status:"invalid",reason:"material exceeds 1 MiB"};
-        await r.evidence.verify(ref.digest);
         const bytes=new Uint8Array(ref.byteLength);
         let offset=0;
         for(let i=0;i<ref.chunkCount;i++){

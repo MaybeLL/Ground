@@ -75,7 +75,7 @@ export class ExperimentMembers {
         const job = worker.payload as {executionId:string;observation?:{state:string;detail?:string}};
         const history = await r.gradings.listForMember(batchId,member.caseKey,member.repeatIndex);
         const item=plan.cases.find(c=>c.key===member.caseKey)!;
-        const targetMissing=run.status==="delivered" && !(await selectCaseTarget(r,run,item.source.artifactSlot));
+        const targetMissing=run.status==="delivered" && !(await selectCaseTarget(r,run,item.source.artifactSlot,this.ctx.hash)).item;
         const requirements = item.requirements.map(requirement=>({
           key:requirement.key, targetMissing,records:history.filter(g=>g.origin.type === "member" && g.origin.requirementKey === requirement.key)
             .map(g=>({id:g.id,status:g.status,strategy:g.strategy})),

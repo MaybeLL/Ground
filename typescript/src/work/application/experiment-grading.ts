@@ -43,7 +43,8 @@ export class ExperimentGrading {
     if (!binding || !revision || !sameRef(refOf(revision),binding.graderRevision)) return fail("conflict","frozen grader identity changed");
     const admission = await r.intents.findByRequest(member.taskRunRequestId);
     const run = admission?.kind === "start-experiment-member" && await r.taskRuns.get(admission.subject.id);
-    const target=await selectCaseTarget(r,run || undefined,item.source.artifactSlot);
+    const {item:target,unknown}=await selectCaseTarget(r,run || undefined,item.source.artifactSlot,this.ctx.hash);
+    if (!target && unknown) return fail("unavailable","a frozen member artifact cannot be resolved");
     if (!run || !target || !sameRef(run.taskRevision,item.task)) return fail("conflict","member has no matching delivery");
     const origin:GradingOrigin = {type:"member",experimentRunId:batch.id,caseKey:member.caseKey,repeatIndex:member.repeatIndex,requirementKey:requirement.key};
     const test = testGrader(revision.content), rule = fileRule(revision.content);
@@ -90,7 +91,7 @@ export class ExperimentGrading {
       if (active && !["intact","ref-changed"].includes(active.status ?? "")) error = "member archive could not be verified";
       else {
         const source={id:active && "activeArchiveId" in active ? active.activeArchiveId : base.deliveryId,receipt:current?.receipt ?? receipt,artifactRunId};
-        const file=await new EvaluationFiles(this.ctx.units,this.archive).digest(repo,source,path);
+        const file=await new EvaluationFiles(this.ctx.units,this.archive,this.ctx.hash).digest(repo,source,path);
         if (file.status !== "read" && file.status !== "missing") error = file.reason;
         else {
           actualDigest = file.status === "read" ? file.digest : null;

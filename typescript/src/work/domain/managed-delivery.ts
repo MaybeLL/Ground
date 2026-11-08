@@ -9,6 +9,22 @@ export function outputPath(value:unknown):value is string {
     value.split("/").every(part=>part!=="" && part!=="." && part!==".." && new TextEncoder().encode(part).length<=255);
 }
 
+export function portableArtifactPaths(paths:readonly string[]) {
+  const files=new Set<string>(), directories=new Set<string>(), spelling=new Map<string,string>();
+  for (const path of paths) {
+    if (!outputPath(path)) return false;
+    const parts=path.split("/");
+    for (let i=0;i<parts.length;i++) {
+      const prefix=parts.slice(0,i+1).join("/"),key=prefix.normalize("NFC").toUpperCase().toLowerCase();
+      if (files.has(key) || spelling.has(key) && spelling.get(key)!==prefix) return false;
+      spelling.set(key,prefix);
+      if (i<parts.length-1) directories.add(key);
+      else {if (directories.has(key)) return false;files.add(key);}
+    }
+  }
+  return true;
+}
+
 /** The provider explicitly selects every file in each output slot. Paths
  * are relative to its writable workspace and to the archived artifact. */
 export function parseManagedDeclaration(message:string,kind:TaskKind,slots:readonly OutputSlot[]):ManagedDeclaration|undefined {
@@ -29,9 +45,9 @@ export function parseManagedDeclaration(message:string,kind:TaskKind,slots:reado
     for (const file of value.files) {
       if (!object(file) || !outputPath(file.path) || !outputPath(file.source ?? file.path)) return;
       const path=file.path;
-      if (files.some(other=>other.path===path || other.path.startsWith(path+"/") || path.startsWith(other.path+"/"))) return;
       files.push({path,source:typeof file.source==="string" ? file.source : path});
     }
+    if (!portableArtifactPaths(files.map(file=>file.path))) return;
     artifacts.push({slot:value.slot,files}); seen.add(value.slot);
   }
   if (slots.some(slot=>slot.required && !seen.has(slot.key)) || kind==="working" && !artifacts.length) return;

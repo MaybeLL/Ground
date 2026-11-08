@@ -1,3 +1,4 @@
+import {TestTargetFault} from "../ports/index.js";
 import { authorizeBridge, isGradingTerminal } from "../domain/index.js";
 import type { ManagedWorkspacePort, RuntimeOwner, SandboxLauncher, SandboxRuntimePort, TestProcessPort } from "../ports/index.js";
 import { fail, succeed, type Outcome } from "../application/outcome.js";
@@ -79,7 +80,13 @@ export class TestGradingDriver {
           }
           workspace = await process.prepare(owner,target,environment,materials);
         }
-        catch { return succeed({state:"blocked",detail:"frozen evaluator workspace or target could not be prepared",providerStopped:true}); }
+        catch (error) {
+          if (error instanceof TestTargetFault) {
+            const fault=await tests.fault(id,error.message);
+            return fault.ok ? this.drive(id,false) : fault;
+          }
+          return succeed({state:"blocked",detail:"frozen evaluator workspace or target could not be prepared",providerStopped:true});
+        }
         const current = await tests.context(id);
         if (!current.ok) return current;
         if (current.value.grading.cancelIntent || isGradingTerminal(current.value.grading)) return this.drive(id,false);

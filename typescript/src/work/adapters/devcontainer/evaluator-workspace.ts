@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import {outputPath} from "../../domain/managed-delivery.js";
-import type {EvidenceSource,RuntimeOwner} from "../../ports/index.js";
+import {portableArtifactPaths} from "../../domain/managed-delivery.js";
+import {TestTargetFault,type EvidenceSource,type RuntimeOwner} from "../../ports/index.js";
 import { GitTagArchive } from "../git/tag-archive.js";
 import { ManagedWorkspaces } from "./workspace.js";
 
@@ -17,9 +17,9 @@ export class EvaluatorWorkspaces {
   async prepare(owner:RuntimeOwner, target:{runId:string;commit:string|null;archiveId:string;receipt:string;repository:string}, environment:Environment, materials:Material[]) {
     if (target.commit===null) {
       const files=await this.artifactFiles(target.runId,target.archiveId,target.receipt);
+      if (!portableArtifactPaths(files.map(f=>f.path))) throw new TestTargetFault("frozen artifact contains incompatible evaluator paths");
       const prepared=await this.workspaces.prepare(owner,target.repository,null,environment,false,[],{receipt:target.receipt,populate:async directory=>{
         for (const {path,source} of files) {
-          if (!outputPath(path)) throw new Error("invalid archived output path");
           const dest=join(directory,path);
           await mkdir(dirname(dest),{recursive:true});
           const output=await open(dest,"wx"), hash=createHash("sha256");
@@ -27,7 +27,7 @@ export class EvaluatorWorkspaces {
           try {
             for await (const bytes of source.open()) {await output.writeFile(bytes);hash.update(bytes);size+=bytes.length;}
           } finally {await output.close();}
-          if (size!==source.byteLength || "sha256:"+hash.digest("hex")!==source.digest) throw new Error("artifact bytes differ from their frozen identity");
+          if (size!==source.byteLength || "sha256:"+hash.digest("hex")!==source.digest) throw new TestTargetFault("artifact bytes differ from their frozen identity");
         }
       }});
       return {...prepared,graderMaterials:await this.materials(owner,materials)};

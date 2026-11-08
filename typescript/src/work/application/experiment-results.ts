@@ -1,4 +1,4 @@
-import {selectCaseTarget} from "./artifacts.js";
+import {selectCaseTarget,verifiedArtifact} from "./artifacts.js";
 import {adoptGrading, digestOf, gradingNotStarted, isTerminal, materialsFingerprint, type Grade} from "../domain/index.js";
 import {completionAt, readExperiment, type ExperimentPlan} from "./experiment-plans.js";
 import {fail, succeed} from "./outcome.js";
@@ -61,8 +61,15 @@ export class ExperimentResults {
         else if (run.failure?.class === "infrastructure") counts.executionErrors++;
         else counts.failed++;
         const history = await r.gradings.listForMember(id,member.caseKey,member.repeatIndex);
-        const target = await selectCaseTarget(r,run,item.source.artifactSlot);
+        const selection=await selectCaseTarget(r,run,item.source.artifactSlot,this.ctx.hash);
+        // A completed grading keeps its exact target even if the backing
+        // archive later disappears. The member manifest still pins its receipt.
+        const target=selection.item ?? (selection.unknown ? run?.manifest?.items.find(entry=>{
+          const identity=digestOf({...entry},this.ctx.hash);
+          return identity.ok && history.some(grade=>grade.targets.some(ref=>ref.type===entry.type && ref.id===entry.id && ref.digest===identity.value));
+        }) : undefined);
         const identity = target && digestOf({...target},this.ctx.hash);
+        const unavailable=selection.unknown || (run && target?.type==="artifact" && !(await verifiedArtifact(r,run.id,target.id,target.receipt,this.ctx.hash)));
         const targets = target && identity?.ok ? [target.type + ":" + target.id + ":" + identity.value] : [];
         const requirements = [];
         for (const required of item.requirements) {
@@ -72,7 +79,7 @@ export class ExperimentResults {
             graderRevisionId:required.grader.revisionId,targets,materialsDigest:digest.value};
           const adoption = adoptGrading(history,slot,materialsFingerprint(required.materials));
           const adopted = history.find(g=>g.id === adoption.adopted);
-          requirements.push({key:required.key,...adoption,...(!adoption.attempts ? {notStarted:(run?.status==="delivered" && !target ? "target-missing" : gradingNotStarted(batch,member,run)) ?? (batch.cancelIntent ? "batch-cancelled" : "not-scheduled")} : {}),...(adopted ? {grade:adopted.grade} : {})});
+          requirements.push({key:required.key,...adoption,...(!adoption.attempts ? {notStarted:(unavailable ? "target-unavailable" : run?.status==="delivered" && !target ? "target-missing" : gradingNotStarted(batch,member,run)) ?? (batch.cancelIntent ? "batch-cancelled" : "not-scheduled")} : {}),...(adopted ? {grade:adopted.grade} : {})});
           const groupId = JSON.stringify([required.key,required.grader.revisionId,required.scale]);
           const group = groups.get(groupId) ?? {requirement:required.key,grader:required.grader,scale:required.scale,planned:0,
             adopted:0,valid:0,missing:0,indeterminate:0,errors:0,executionErrors:0,ungraded:0,numericMean:null,
@@ -84,7 +91,7 @@ export class ExperimentResults {
         if (complete) counts.fullyGraded++;
         const why = batch.cancelIntent && !history.length && run?.status === "delivered" ? "batch-cancelled" : gradingNotStarted(batch,member,run);
         members.push({key:member.key,caseKey:member.caseKey,repeatIndex:member.repeatIndex,runId:runId ?? null,status:run?.status ?? "not-started",complete,
-          ...(why && !history.length ? {gradingNotStarted:why} : {}),requirements,
+          ...(unavailable ? {targetAvailability:"unavailable" as const} : {}),...(why && !history.length ? {gradingNotStarted:why} : {}),requirements,
           ...(detailKey === undefined ? {} : {run,gradings:history,executions:run ? await r.executions.listByOwner({type:"task_run",id:run.id}) : []})});
       }
       const dimensions = [...groups.values()].map(({categories,...dimension})=>({...dimension,categories:Object.fromEntries(categories)}));

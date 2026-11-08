@@ -56,7 +56,7 @@ export function casesOf(revision: Revision): FrozenCase[] {
 
 export class EvaluationSuites {
   private readonly files:EvaluationFiles;
-  constructor(private readonly deps:SuiteDeps) {this.files=new EvaluationFiles(deps.units,deps.archive);}
+  constructor(private readonly deps:SuiteDeps) {this.files=new EvaluationFiles(deps.units,deps.archive,deps.hash);}
 
   private async delivery(runId: string, deliveryId: string, repo: string) {
     const run = await this.deps.units.run("read", r => r.taskRuns.get(runId));

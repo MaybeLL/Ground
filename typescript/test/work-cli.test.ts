@@ -1445,5 +1445,27 @@ test("experiment runs rule and sandbox test graders against the selected working
     const {member}=ok(await h.cli("experiment","member","--batch",batchId,"--member",report.key));
     assert.deepEqual(member.gradings.map((g:{grade:{category:string}})=>g.grade.category).sort(),["identical","pass"]);
     assert.ok(member.gradings.every((g:{targets:{type:string;id:string}[]})=>g.targets[0]?.type==="artifact" && g.targets[0].id!==artifact.id));
+    const id=member.gradings[0].targets[0].id, saved=ok(await h.cli("work","artifact","--run",member.runId,"--artifact",id)).artifact;
+    const appendix=saved.files.find((file:{path:string})=>file.path==="appendix.txt").content.digest;
+    const db=new DatabaseSync(join(h.directory,"ledger.db"));
+    try {
+      db.prepare("DELETE FROM work_evidence_chunks WHERE digest=?").run(appendix);
+      const regrade=["experiment","regrade","--batch",batchId,"--member",report.key,"--binding"];
+      assert.equal(ok(await h.cli(...regrade,"rule")).status,"grader_fault");
+      const accepted=ok(await h.cli(...regrade,"test"));
+      let status;
+      do {
+        status=ok(await h.cli("grade","test-status","--grading",accepted.gradingId));
+        if (status.status==="grader_fault") break;
+        await new Promise(resolve=>setTimeout(resolve,250));
+      } while(Date.now()<end);
+      assert.equal(status.status,"grader_fault",JSON.stringify(status));
+      db.prepare("DELETE FROM work_intents WHERE request_id=? AND kind='save-artifact'").run(id);
+      const after=ok(await h.cli("experiment","member","--batch",batchId,"--member",report.key)).member;
+      assert.equal(after.targetAvailability,"unavailable");
+      assert.deepEqual(after.requirements.map((v:{adopted:string})=>v.adopted),member.requirements.map((v:{adopted:string})=>v.adopted));
+      assert.equal(after.requirements.every((v:{latestFault?:unknown})=>!!v.latestFault),true);
+      assert.equal(ok(await h.cli("experiment","results","--batch",batchId)).counts.fullyGraded,1);
+    } finally {db.close();}
   });
 });

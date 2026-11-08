@@ -1,3 +1,5 @@
+import {portableArtifactPaths} from "../domain/managed-delivery.js";
+import {TestTargetFault} from "../ports/index.js";
 import {digestOf,isId,isTerminal,parseTaskContent,type DeliveryItem,type Hasher,type TaskRun} from "../domain/index.js";
 import {StorageFailure} from "../ports/index.js";
 import type {EvidenceRef,EvidenceSource,WorkRepositories} from "../ports/index.js";
@@ -11,14 +13,25 @@ export type SavedArtifact = {
 export type ArtifactSource = EvidenceSource;
 export type InputFile = {path:string;source:EvidenceSource};
 
-export async function selectCaseTarget(r:WorkRepositories,run:TaskRun|undefined,slot?:string) {
-  if (!run?.manifest || run.status!=="delivered") return;
-  if (slot===undefined) return run.manifest.items.find(item=>item.type==="candidate");
-  for (const item of run.manifest.items) {
-    if (item.type!=="artifact") continue;
-    const saved=await readArtifact(r,item.id);
-    if (saved?.slot===slot && saved.runId===run.id && saved.receipt===item.receipt) return item;
+function matchesReceipt(saved:SavedArtifact,runId:string,receipt:string,hash:Hasher) {
+  if (saved.runId!==runId || saved.receipt!==receipt) return false;
+  const files=saved.files.map(({path,content})=>({path,digest:content.digest,byteLength:content.byteLength}));
+  const digest=digestOf({runId,slot:saved.slot,files},hash);
+  return digest.ok && receipt==="artifact:"+digest.value;
+}
+
+export async function selectCaseTarget(r:WorkRepositories,run:TaskRun|undefined,slot:string|undefined,hash:Hasher) {
+  let unknown=false;
+  for (const item of run?.manifest?.items ?? []) {
+    if (slot===undefined) {
+      if (item.type==="candidate") return {item,unknown:false};
+    } else if (item.type==="artifact") {
+      const saved=await readArtifact(r,item.id);
+      if (!saved || !matchesReceipt(saved,run!.id,item.receipt,hash)) unknown=true;
+      else if (saved.slot===slot) return {item,unknown:false};
+    }
   }
+  return {item:undefined,unknown};
 }
 
 export async function archiveFiles(r:WorkRepositories,ctx:RequestContext,owner:{runId:string;slot:string;id:string;sessionId?:string;executionId?:string},files:InputFile[]) {
@@ -38,10 +51,7 @@ export async function readArtifact(r:WorkRepositories,id:string):Promise<SavedAr
 
 export async function verifiedArtifact(r:WorkRepositories,runId:string,id:string,receipt:string,hash:Hasher) {
   const saved=await readArtifact(r,id);
-  if (!saved || saved.runId!==runId || saved.receipt!==receipt) return;
-  const files=saved.files.map(({path,content})=>({path,digest:content.digest,byteLength:content.byteLength}));
-  const digest=digestOf({runId,slot:saved.slot,files},hash);
-  if (!digest.ok || receipt!=="artifact:"+digest.value) return;
+  if (!saved || !matchesReceipt(saved,runId,receipt,hash)) return;
   try {
     for (const file of saved.files) {
       const actual=await r.evidence.describe(file.content.digest);
@@ -61,12 +71,7 @@ export class Artifacts {
     return once<SavedArtifact>(this.ctx,{requestId:input.requestId,kind:"save-artifact",input:{...input,files:listed},
       subject:{type:"task_run",id:input.runId}},async r=>{
       if (!isId(input.slot) || !ordered.length) return fail("invalid","an artifact needs an output key and at least one file");
-      const paths = new Set<string>();
-      for (const {path} of ordered) {
-        if (path.includes("\\") || /[\u0000-\u001f]/u.test(path) || path.split("/").some(p=>!p || p==="." || p==="..") ||
-            paths.has(path) || path.split("/").some((_,i,parts)=>paths.has(parts.slice(0,i).join("/")))) return fail("invalid","artifact file paths must be distinct relative file names");
-        paths.add(path);
-      }
+      if (!portableArtifactPaths(ordered.map(file=>file.path))) return fail("invalid","artifact paths must be distinct portable relative file names");
       const run = await r.taskRuns.get(input.runId,{lock:true});
       if (!run) return fail("not-found","task run does not exist");
       if (isTerminal(run) || run.cancelIntent) return fail("conflict","the run no longer accepts new artifacts");
@@ -87,14 +92,14 @@ export class Artifacts {
   }
 
   async streams(runId:string,id:string,receipt:string) {
-    const saved=await this.get(runId,id);
-    if (!saved.ok || saved.value.receipt!==receipt) throw new Error("selected artifact is unavailable");
+    const saved=await this.ctx.units.run("read",r=>verifiedArtifact(r,runId,id,receipt,this.ctx.hash));
+    if (!saved) throw new TestTargetFault("selected artifact is unavailable");
     const units=this.ctx.units;
-    return saved.value.files.map(({path,content})=>({path,source:{digest:content.digest,byteLength:content.byteLength,
+    return saved.files.map(({path,content})=>({path,source:{digest:content.digest,byteLength:content.byteLength,
       async *open(){
         for (let i=0;i<content.chunkCount;i++) {
           const chunk=await units.run("read",r=>r.evidence.chunk(content.digest,i));
-          if (!chunk) throw new Error("archived artifact chunk is missing");
+          if (!chunk) throw new TestTargetFault("archived artifact chunk is missing");
           yield chunk;
         }
       }}}));

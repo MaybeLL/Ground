@@ -56,6 +56,10 @@ if (task.outputContract.slots?.some(slot=>slot.key==="report")) {
   if (task.task==="invalid output path") require("node:fs").symlinkSync("/etc/passwd","worker-report.txt");
   else writeFileSync("worker-report.txt",working ? readFileSync("/grounds-materials/input/app.txt") : "uncommitted report\n");
   result.artifacts=[{slot:"report",files:[{path:"report.txt",source:"worker-report.txt"}]}];
+  if (task.task==="artifact experiment") {
+    writeFileSync("appendix.txt","independent appendix bytes");
+    result.artifacts[0].files.push({path:"appendix.txt"});
+  }
 }
 const message=JSON.stringify(result);
 const emit = event => process.stdout.write(JSON.stringify(event)+"\n");

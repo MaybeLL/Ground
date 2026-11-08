@@ -789,6 +789,7 @@
         "complete": {
           "type": "boolean"
         },
+        "targetAvailability":{"const":"unavailable"},
         "gradingNotStarted": {
           "type": "string"
         },
@@ -874,6 +875,7 @@
         "complete": {
           "type": "boolean"
         },
+        "targetAvailability":{"const":"unavailable"},
         "gradingNotStarted": {
           "type": "string"
         },
