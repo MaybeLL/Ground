@@ -662,6 +662,7 @@
     "TranscriptImport": {
       "type": "object",
       "properties": {
+        "trace": {"$ref":"trace-results.schema.json#/$defs/Trace"},
         "ref": {"type": "string"},
         "digest": {"$ref": "#/$defs/Digest"},
         "coverage": {"enum": ["full", "partial", "unknown"]},

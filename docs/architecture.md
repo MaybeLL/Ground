@@ -20,7 +20,7 @@ A hexagonal subtree replacing the DevRun, Verification and evaluation paths. The
 
 Domain code is pure: functions take the current state and a command and return `Result<Decision>` (new state, events, outcome) or a rejection. Aggregates carry a version; a decision that changes anything advances it by one and must record an event (`advance()` throws otherwise). Each aggregate exports a `*Violations` checker that storage runs on every write and read.
 
-## Storage (work ledger protocol 2, schema 1)
+## Storage (work ledger protocol 2, schema 2)
 
 Initialization creates schema metadata and twelve work-model tables. Protocol 2 distinguishes this ledger from historical databases even if their numeric schema versions coincide. A caller can initialize an empty target or attach the same compatible database. An existing database with an older protocol is rejected before DDL.
 
@@ -102,3 +102,10 @@ A TaskRevision can name an environment definition. Starting or refining a run re
 `SandboxProvisioning` attaches a preparing sandbox to its TaskRun and records its frozen base. Its workspace adapter fetches only that commit into a private shallow repository. The devcontainer configuration and the local completion receipt live outside the workspace. A registered launch intent identifies a detached local helper. Its durable attempt marker and file lock authorize one invocation of the devcontainers CLI, which inherits the lock until it exits. The helper verifies the running image and bind mount before writing its completion receipt. Reconciliation requires the local completion receipt and the running Docker instance with the matching ledger and sandbox labels. An unresolved launch remains visible in the ledger.
 
 Terminal task retention pauses or releases the owned resource. Lifecycle operations check the persisted runtime host and Docker daemon and serialize inspection and changes under a sandbox lock. Work closure reserves releases for its owned sandboxes in its closing transaction and checks the releases before returning success. Release retains the local workspace and records its disposition.
+
+
+### Provider trajectory evidence
+
+The Claude Code and Codex adapters map observed JSONL records to common session, message, tool call, tool result, error and provider completion events. A normalized event stores its input line and part. Unknown, malformed and oversized records remain in the raw archive. Conversion reports partial coverage and its actual record counts.
+
+Raw and normalized streams use separate SHA-256 receipts. Schema 2 stores each stream in `work_evidence` and ordered binary chunks in `work_evidence_chunks`. An import writes both streams and the session binding in one transaction. `db status` checks each chunk and the digest of the whole stream. `db upgrade` adds the evidence tables to a configured protocol-2 schema-1 ledger under the migration and database identity checks.

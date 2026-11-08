@@ -21,7 +21,7 @@ grounds work deliver --run "$RUN_ID" --session "$WORKER_SESSION" \
 
 `--declare-stop` 只在工作者实际结束本轮后使用，且仅代表外部停止声明。命令推送不可覆盖的标签并读回确切 commit；失败不能当作交付。检查 `submitted.status/outcome`，再读回 `work run` 的冻结 manifest；迟到提交只可能被记录，不能替换原交付。保存实际 `REMOTE`、返回的完整 `delivery.commit`、`delivery.id/receipt` 和操作 ID。归档的公开标签 ref 是 `refs/tags/grounds/deliveries/<delivery.id>`；将这些固定值用于[独立检出步骤](verify.md)，无需解码 receipt 或读取实现源码。中断后重试须固定原 commit，不再使用可能已变化的 HEAD。
 
-如需记录轨迹，显式 `work transcript --run ID --session SESSION --ref REF --digest DIGEST --coverage full|partial|unknown`，只提供真实持久引用与实际摘要，不虚报覆盖率。
+保存 Codex 或 Claude Code JSONL 原文及统一事件时，用 `work import-trace --run ID --session SESSION --provider codex|claude-code --file FILE --digest SHA256`，核对返回的摘要、记录数和转换覆盖。已有持久引用而无本地原文时，显式 `work transcript --run ID --session SESSION --ref REF --digest DIGEST --coverage full|partial|unknown`，只提供真实持久引用与实际摘要，不虚报覆盖率。
 
 ## 精化与分支
 

@@ -11,6 +11,7 @@ import {
 import type { SQLClient } from "../../../sql-client.js";
 import type { SQLStore } from "../../../sql-store.js";
 import { isDuplicateKeyError, isolateStatement } from "../../../sql-shared.js";
+import { SqlEvidence } from "./evidence.js";
 import { AggregateTable, asStorageFailure, canonicalBody, digestText, textOf, type TableSpec } from "./aggregate-table.js";
 
 const owner = (o: { type: string; id: Id }) => ["owner_type = ? AND owner_id = ?", [o.type, o.id]] as const;
@@ -242,6 +243,7 @@ class SqlSequences implements SequenceRepository {
 
 export function repositoriesOver(client: SQLClient, writable: boolean): WorkRepositories {
   return {
+    evidence:new SqlEvidence(client,writable),
     definitions: new SqlDefinitions(new AggregateTable(client, definitionSpec, writable), client, writable),
     works: new SqlWorks(new AggregateTable(client, workSpec, writable)),
     taskRuns: new SqlTaskRuns(new AggregateTable(client, taskRunSpec, writable)),

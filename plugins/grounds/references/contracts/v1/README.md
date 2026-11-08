@@ -2,7 +2,7 @@
 
 # Grounds v1 契约
 
-`task` 定义和修订带验收标准的任务，`work` 记录执行、冻结交付和当前工作头，`grade` 登记独立评价者、冻结盲评并提交逐项判定。SQLite、MySQL 和 PostgreSQL 共用工作账本协议 2、schema 1。首次运行请用空数据库执行 `grounds init`。旧协议的数据库保留在原位置；选择新的数据库及配置路径即可开始工作。
+`task` 定义和修订带验收标准的任务，`work` 记录执行、冻结交付和当前工作头，`grade` 登记独立评价者、冻结盲评并提交逐项判定。SQLite、MySQL 和 PostgreSQL 共用工作账本协议 2、schema 2。已有协议 2、schema 1 的工作账本通过 `grounds db upgrade --config FILE` 原地增加轨迹存储，保留数据库身份及业务记录。首次运行请用空数据库执行 `grounds init`。旧协议的数据库保留在原位置；选择新的数据库及配置路径即可开始工作。
 
 | 契约 | Schema |
 |---|---|
@@ -73,3 +73,9 @@ Publish a trusted environment using `work define-environment --name NAME --devco
 Declare `--environment ID` when authoring a task. `work start`, `continue` and `branch` record the resolved revision and its selection source. Use `--environment-revision REVISION_ID` to pin a specific revision of the required definition. External tasks and tasks without an environment remain available on machines without Docker.
 
 `work prepare-sandbox --run RUN --repo PATH` prepares an independent checkout and devcontainer. Docker must have access to the Grounds workspace directory. This version accepts self-contained configurations backed by a prebuilt image. It pins the launch image before startup, freezes the lockfile next to the published config and checks the workspace bind mount in Docker. `work reconcile-sandbox --run RUN` observes an interrupted preparation. `work pause-sandbox` and `work release-sandbox` on terminal runs each take `--run RUN`; their operation IDs are replayable. Closing a work releases its owned containers. [Sandbox results](sandbox-results.schema.json)
+
+### Provider trace archives
+
+`work import-trace --run RUN --session SESSION --provider codex|claude-code --file FILE --digest SHA256` imports exact JSONL bytes from an external worker. The operation receipt includes two content-addressed streams, raw and normalized. Each stream uses 64 KiB chunks. An event identifies its source line (starting at 1) and block position (starting at 0). Unknown records remain available through the raw stream. Records larger than 8 MiB are retained raw and excluded from normalized output.
+
+`work trace --run RUN --digest RAW_DIGEST --stream raw|events --chunk N` returns one verified chunk as base64. Concatenate decoded chunks in ordinal order and compare the stream's SHA-256. Empty streams have zero chunks. Existing transcript references remain readable. [Trace result contracts](trace-results.schema.json)

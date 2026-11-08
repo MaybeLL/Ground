@@ -17,3 +17,14 @@ export interface AgentProvider {
   command(model?: string): readonly string[];
   events(record: JsonValue): ProviderEvent[];
 }
+
+export type ProviderTrace = import("../domain/index.js").FrozenTrace;
+export interface CapturedTrace {
+  descriptor: ProviderTrace;
+  raw: import("./evidence.js").EvidenceSource;
+  events: import("./evidence.js").EvidenceSource;
+  dispose(): Promise<void>;
+}
+export interface TraceCapturePort {
+  capture(provider: ProviderName, file: string): Promise<CapturedTrace>;
+}

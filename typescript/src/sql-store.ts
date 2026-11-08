@@ -15,6 +15,7 @@ export { SCHEMA_VERSION, PROTOCOL_VERSION, REMOTE_NORMALIZATION_VERSION, MINIMUM
 const CLI_VERSION = "0.2.53";
 import { asText, isMissingTableError, isSchemaShapeError, retryDelay, safeInteger, isSafeTransactionRetry, mapStorageError, compareVersions } from "./sql-shared.js";
 
+import { evidenceSchemaStatements, workTables } from "./work/adapters/sql/schema.js";
 import { inspectWorkIntegrity } from "./work/adapters/sql/integrity.js";
 
 /**
@@ -239,6 +240,50 @@ export class SQLStore {
 
   async initialize(policy: "warn" | "require_override"): Promise<{ metadata: Metadata; action: "initialized" | "attached" }> {
     return this.exclusive(() => this.lifecycleRetry(() => this.initializeExclusive(policy)));
+  }
+
+  /** The only upgrade supported here adds evidence storage to a verified
+   * protocol-2 ledger. The configured identity is checked under the migration
+   * lock before any mutation, including recovery of interrupted MySQL DDL. */
+  async upgrade(expectedId: string): Promise<Metadata> {
+    return this.exclusive(() => this.lifecycleRetry(async () => {
+      const client = await this.acquireClient();
+      let lock = false, tx = false;
+      try {
+        lock = await this.acquireMigrationLock(client);
+        await client.begin(true); tx = true;
+        const current = await this.metadataFrom(client, this.lifecycleLock);
+        if (current.database_id !== expectedId) throw new DomainError("DATABASE_ID_MISMATCH","config points at a different database",false,{reason:"expected_database_id does not match"});
+        if (current.schema_version === SCHEMA_VERSION) {
+          this.assertCompatible(current);
+          await client.commit(); tx = false;
+          return current;
+        }
+        if (current.schema_version !== 1 || current.migration_state === "dirty" ||
+            (current.migration_state !== "clean" && this.dialect.ddlIsTransactional)) {
+          throw new DomainError("SCHEMA_INCOMPATIBLE","unsupported work ledger upgrade",false,schemaDetails(SCHEMA_VERSION,"expected work ledger schema 1"));
+        }
+        this.assertCompatible({ ...current,schema_version:SCHEMA_VERSION,migration_state:"clean" });
+        for (const table of workTables.filter(t => t !== "work_evidence" && t !== "work_evidence_chunks")) {
+          await client.get(`SELECT 1 AS found FROM ${table} WHERE 1 = 0`);
+        }
+        await client.run("UPDATE schema_metadata SET migration_state = 'in_progress' WHERE singleton = 1");
+        if (!this.dialect.ddlIsTransactional) { await client.commit(); tx = false; }
+        for (const ddl of evidenceSchemaStatements(this.dialect)) await client.exec(ddl + this.dialect.tableSuffix);
+        if (!tx) { await client.begin(true); tx = true; }
+        await client.run("UPDATE schema_metadata SET schema_version = ?, migration_state = 'clean' WHERE singleton = 1 AND database_id = ? AND schema_version = 1", [SCHEMA_VERSION,expectedId]);
+        const metadata = await this.metadataFrom(client,this.lifecycleLock);
+        this.assertCompatible(metadata);
+        await client.commit(); tx = false;
+        return metadata;
+      } catch (error) {
+        if (tx) await client.rollback();
+        throw mapStorageError(error,this.dialect);
+      } finally {
+        await this.releaseMigrationLock(client,lock);
+        if (this.dialect.pooled) await client.close();
+      }
+    }));
   }
 
   private async initializeExclusive(policy: "warn" | "require_override"): Promise<{ metadata: Metadata; action: "initialized" | "attached" }> {

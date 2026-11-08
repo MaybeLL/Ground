@@ -3,7 +3,7 @@ import { workSchemaStatements } from "./work/adapters/sql/schema.js";
 
 // The protocol identifies the new ledger family, including when the old and
 // new families happen to have the same numeric schema version.
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 export const PROTOCOL_VERSION = 2;
 export const REMOTE_NORMALIZATION_VERSION = 1;
 export const MINIMUM_CLI_VERSION = "0.2.53";

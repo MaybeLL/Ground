@@ -13,6 +13,8 @@ import { SandboxLifecycle } from "./application/sandbox-lifecycle.js";
 import { SandboxRecovery } from "./application/sandbox-recovery.js";
 import { SandboxProvisioning } from "./application/sandbox-provisioning.js";
 import { EnvironmentDefinitions } from "./application/environment-definitions.js";
+import { ProviderTraces } from "./application/provider-traces.js";
+import { ProviderTraceCapture } from "./adapters/providers/trace-capture.js";
 import { RuleDefinitions } from "./application/rule-definitions.js";
 import { EvaluationSuites } from "./application/evaluation-suites.js";
 import { ArchiveRepairs } from "./application/archive-repairs.js";
@@ -37,5 +39,5 @@ export function composeWork(store: SQLStore): WorkApplication {
   const environments = new EnvironmentDefinitions(context, pinnedConfig);
   const delivery = new CodeDelivery({ units, exec, archive, repairs, worktrees: new GitWorktrees() });
   const sandboxes = new SandboxProvisioning({ ...managed, delivery }, recovery);
-  return { lifecycle, sandboxes, environments, rules, suites, repairs, tasks: new TaskDefinitions(shared), exec, grading: new Grading(shared), delivery };
+  return { traces:new ProviderTraces(context,new ProviderTraceCapture()), lifecycle, sandboxes, environments, rules, suites, repairs, tasks: new TaskDefinitions(shared), exec, grading: new Grading(shared), delivery };
 }

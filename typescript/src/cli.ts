@@ -70,7 +70,7 @@ const commandOptionKeys: Record<string, Set<string>> = {
   "doctor:": new Set(["skills-path"]),
   "install:skill": new Set(["link"]),
   "config:show": new Set(["config"]), "config:path": new Set(["config"]), "config:validate": new Set(["config"]),
-  "db:status": new Set(["config"]), "db:test": new Set(["config"]),
+  "db:upgrade": new Set(["config"]), "db:status": new Set(["config"]), "db:test": new Set(["config"]),
 };
 
 // One-line documentation for every option the CLI understands.  Subcommand
@@ -113,6 +113,7 @@ const commandDocs: Record<string, string> = {
   "config:path": "Print the config file path",
   "config:validate": "Validate the config file",
   "db:status": "Inspect database integrity and metadata",
+  "db:upgrade": "Add support for evidence blobs to the configured work ledger",
   "db:test": "Test the database connection",
 };
 
@@ -120,14 +121,14 @@ const commandDocs: Record<string, string> = {
 // A group help page is a navigation step, not an empty command: it must tell a
 // caller which actions exist before it can sensibly request action-level help.
 const actionSets: Record<string, string[]> = {
-  install: ["skill"], db: ["status", "test"],
+  install: ["skill"], db: ["status", "test", "upgrade"],
 };
 const positionalBounds: Record<string, [number, number]> = {
   "init:": [1, 1],
   "doctor:": [1, 1],
   "install:skill": [2, 3],
   "config:show": [2, 2], "config:path": [2, 2], "config:validate": [2, 2],
-  "db:status": [2, 2], "db:test": [2, 2],
+  "db:upgrade": [2, 2], "db:status": [2, 2], "db:test": [2, 2],
 };
 
 const validatePositionals = (args: ParsedArgs, group: string, action: string): void => {
@@ -393,7 +394,7 @@ const configCommand = (args: ParsedArgs): unknown => {
   throw validation("command", `unknown config action: ${action}`);
 };
 
-const databaseResult = (command: "db.test" | "db.status", metadata: Metadata, integrity?: IntegrityReport): unknown => ({
+const databaseResult = (command: "db.test" | "db.status" | "db.upgrade", metadata: Metadata, integrity?: IntegrityReport): unknown => ({
   result_type: "patchledger.result.database/v1",
   command,
   database_id: metadata.database_id,
@@ -479,6 +480,7 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
     const config = loadConfig(configFile);
     const store = storeForConfig(config);
     try {
+      if (action === "upgrade") return databaseResult("db.upgrade",await store.upgrade(config.database.expected_database_id));
       if (action === "status") { const inspected = await store.inspectIntegrity(); if (inspected.metadata.database_id !== config.database.expected_database_id) throw databaseIdentityMismatch(); return databaseResult("db.status", inspected.metadata, inspected.report); }
       const metadata = await store.open();
       if (metadata.database_id !== config.database.expected_database_id) throw databaseIdentityMismatch();

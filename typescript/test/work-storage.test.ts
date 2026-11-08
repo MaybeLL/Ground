@@ -385,3 +385,38 @@ for (const backend of backends) {
     assert.equal((await read(uow, r => r.taskRuns.get("run-case"))), undefined, "identifiers compare exactly, case included");
   });
 }
+
+for (const backend of backends) test(`${backend}: upgrade a populated work ledger and atomically store verifiable binary evidence`, {skip:backendSkip(backend)}, async () => {
+  const fixture = await openLedger(backend);
+  const {store} = fixture;
+  const units = new SqlWorkUnitOfWork(store);
+  try {
+    const identity = (await store.open()).database_id;
+    await units.run("write",r=>r.taskRuns.create(aRun("retain-me")));
+    await store.transaction(true,async c=>{
+      // DDL is committed independently on MySQL; this fixture owns its whole database.
+      await c.exec("DROP TABLE work_evidence_chunks"); await c.exec("DROP TABLE work_evidence");
+      await c.run("UPDATE schema_metadata SET schema_version = 1");
+    });
+    await assert.rejects(store.upgrade("wrong-id"),{code:"DATABASE_ID_MISMATCH"});
+    assert.equal((await store.inspect()).schema_version,1);
+    await assert.rejects(store.open(),{code:"SCHEMA_INCOMPATIBLE"});
+    assert.equal((await store.upgrade(identity)).schema_version,SCHEMA_VERSION);
+    assert.equal((await store.upgrade(identity)).database_id,identity);
+    assert.equal((await units.run("read",r=>r.taskRuns.get("retain-me")))!.id,"retain-me");
+    const bytes = Buffer.alloc(65536*2+137);
+    for (let i=0;i<bytes.length;i++) bytes[i]=i%256;
+    const {createHash} = await import("node:crypto");
+    const digest = "sha256:"+createHash("sha256").update(bytes).digest("hex");
+    const source = {digest,byteLength:bytes.length,open:async function*() { yield bytes.subarray(0,17); yield bytes.subarray(17); }};
+    await assert.rejects(units.run("write",r=>r.evidence.put({...source,byteLength:bytes.length+1})),/changed during capture/);
+    assert.equal(await units.run("read",r=>r.evidence.describe(digest)),undefined);
+    const ref = await units.run("write",r=>r.evidence.put(source));
+    assert.equal(ref.chunkCount,3);
+    assert.deepEqual(await units.run("write",r=>r.evidence.put(source)),ref);
+    assert.deepEqual(Buffer.from((await units.run("read",r=>r.evidence.chunk(digest,1)))!),bytes.subarray(65536,131072));
+    assert.equal((await store.inspectIntegrity()).report.valid,true);
+    await store.transaction(true,c=>c.run("UPDATE work_evidence_chunks SET bytes = ? WHERE digest = ? AND ordinal = 1",[Buffer.from("replaced"),digest]));
+    assert.equal((await store.inspectIntegrity()).report.valid,false);
+  } finally {await fixture.close();}
+});

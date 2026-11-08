@@ -600,3 +600,35 @@ test("verified local image setup failure retains a paused blocked sandbox that W
     }
   });
 });
+
+test("provider trace import preserves exact raw bytes, normalizes known records, and replays after the file is gone", async () => {
+  await withHarness(async h => {
+    const task = ok(await h.cli("task","create","--title","Trace","--criterion","reads input"));
+    const {runId} = ok(await h.cli("work","start","--task",task.taskId,"--mode","external"));
+    const {sessionId} = ok(await h.cli("work","register","--run",runId,"--agent","codex"));
+    const file = join(h.directory,"session.jsonl");
+    const bytes = Buffer.from([
+      JSON.stringify({type:"thread.started",thread_id:"session"}),
+      JSON.stringify({type:"unrecognized",padding:"x".repeat(65536)}),
+      "malformed",
+      JSON.stringify({type:"item.completed",item:{id:"msg",type:"agent_message",text:"finished"}}),
+      JSON.stringify({type:"turn.completed"}),
+    ].join("\r\n"));
+    writeFileSync(file,bytes);
+    const digest = "sha256:"+createHash("sha256").update(bytes).digest("hex");
+    const args = ["work","import-trace","--file",file,"--provider","codex","--digest",digest,"--run",runId,"--session",sessionId,"--operation-id",newUUIDv7()];
+    const imported = ok(await h.cli(...args));
+    const trace = imported.trace;
+    assert.equal(trace.records,5); assert.equal(trace.eventCount,3); assert.equal(trace.convertedRecords,3);
+    assert.equal(trace.raw.chunkCount,2);
+    rmSync(file); assert.deepEqual(ok(await h.cli(...args)),imported);
+    const read = async (stream: string, n: number) => Buffer.from(ok(await h.cli("work","trace","--run",runId,"--digest",digest,"--stream",stream,"--chunk",String(n))).base64,"base64");
+    assert.deepEqual(Buffer.concat([await read("raw",0),await read("raw",1)]),bytes);
+    const events = (await read("events",0)).toString().trim().split("\n").map(line=>JSON.parse(line));
+    assert.deepEqual(events.map(e=>e.sourceLine),[1,4,5]);
+    assert.equal(events[1].event.text,"finished");
+    assert.deepEqual(ok(await h.cli("work","run","--run",runId)).run.worker.registration.transcripts[0].trace,trace);
+    const other = ok(await h.cli("work","start","--task",task.taskId,"--mode","external"));
+    assert.equal((await h.cli("work","trace","--run",other.runId,"--digest",digest,"--stream","raw","--chunk","0")).error.code,"NOT_FOUND");
+  });
+});

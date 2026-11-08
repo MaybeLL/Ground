@@ -4,6 +4,7 @@
   "title": "Grounds CLI 命令结果 v1",
   "oneOf": [
     {"$ref": "work-results.schema.json"},
+    {"$ref": "trace-results.schema.json"},
     {"$ref": "sandbox-results.schema.json"},
     {"$ref": "suite-results.schema.json"},
     {"$ref": "environment.schema.json"},
@@ -156,7 +157,7 @@
       "required": ["result_type", "command", "database_id", "schema_version", "protocol_version", "remote_normalization_version", "baseline_reachability_policy", "migration_state"],
       "properties": {
         "result_type": { "const": "patchledger.result.database/v1" },
-        "command": { "enum": ["db.test", "db.status"] },
+        "command": { "enum": ["db.test", "db.status", "db.upgrade"] },
         "database_id": { "$ref": "common.schema.json#/$defs/id" },
         "schema_version": { "type": "integer", "minimum": 0 },
         "protocol_version": { "type": "integer", "minimum": 0 },

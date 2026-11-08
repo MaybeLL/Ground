@@ -5,6 +5,7 @@ import type { TaskExecution } from "./task-execution.js";
 
 /** Everything the command line can ask of the work model. */
 export interface WorkApplication {
+  readonly traces: import("./provider-traces.js").ProviderTraces;
   readonly rules: import("./rule-definitions.js").RuleDefinitions;
   readonly environments: import("./environment-definitions.js").EnvironmentDefinitions;
   readonly lifecycle: import("./sandbox-lifecycle.js").SandboxLifecycle;

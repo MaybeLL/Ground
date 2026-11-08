@@ -11,7 +11,7 @@ import type { Outcome, WorkApplication } from "../application/index.js";
 export const WORK_GROUPS = ["task", "work", "grade", "suite"] as const;
 export const WORK_WRITE_ACTIONS = new Set([
   "grade:measure", "grade:define-rule", "suite:publish", "suite:measure",
-  "work:prepare-sandbox", "work:pause-sandbox", "work:release-sandbox", "work:define-environment", "task:create", "task:revise",
+  "work:import-trace", "work:prepare-sandbox", "work:pause-sandbox", "work:release-sandbox", "work:define-environment", "task:create", "task:revise",
   "work:start", "work:continue", "work:branch", "work:select", "work:close", "work:register", "work:transcript", "work:deliver", "work:repair", "work:stop", "work:cancel",
   "grade:request", "grade:register", "grade:stage", "grade:command", "grade:submit", "grade:stop", "grade:cancel",
 ]);
@@ -108,6 +108,15 @@ async function task(args: ParsedArgs, action: string, app: WorkApplication): Pro
 
 async function work(args: ParsedArgs, action: string, app: WorkApplication, deps: WorkEntryDependencies): Promise<object> {
   switch (action) {
+    case "import-trace": {
+      const provider = need(args,"provider");
+      if (provider !== "codex" && provider !== "claude-code") throw validation("provider","expected codex or claude-code");
+      return unwrap(await app.traces.import({requestId:requestId(args),runId:need(args,"run"),sessionId:need(args,"session"),digest:need(args,"digest"),provider},resolve(deps.cwd,need(args,"file"))));
+    }
+    case "trace": {
+      const {data,...metadata} = unwrap(await app.traces.read(need(args,"run"),need(args,"digest"),need(args,"stream"),integer(args,"chunk")));
+      return {...metadata,base64:Buffer.from(data).toString("base64")};
+    }
     case "prepare-sandbox": return unwrap(await app.sandboxes.prepare(requestId(args), need(args,"run"), resolve(deps.cwd, text(args,"repo") ?? ".")));
     case "reconcile-sandbox": return unwrap(await app.sandboxes.reconcile(need(args,"run")));
     case "pause-sandbox": return unwrap(await app.lifecycle.lifecycle(requestId(args), need(args,"run"), "pause"));
@@ -204,6 +213,7 @@ export const workHelp = (): string => [
   "grounds suite show --suite ID --revision N | suite list | suite measure --suite ID --revision N --case KEY [--binding KEY] --run RUN --delivery ID [--repo PATH]",
   "grounds task create --title TEXT --criterion TEXT... [--context TEXT] [--environment ID] [--repo-remote URL --baseline REF]",
   "grounds task revise --task ID --expected-seq N --title TEXT --criterion [ID: ]TEXT... | task show --task ID [--revision N] | task list",
+  "grounds work import-trace --run RUN --session SESSION --provider codex|claude-code --file FILE --digest SHA256 | work trace --run RUN --digest SHA256 --stream raw|events --chunk N",
   "grounds work prepare-sandbox --run RUN [--repo PATH] | work reconcile-sandbox --run RUN | work pause-sandbox|release-sandbox --run RUN",
   "grounds work define-environment --name NAME --devcontainer FILE --image-digest SHA256 [--lockfile FILE] [--environment ID --expected-seq N] | work environment --environment ID --revision N",
   "grounds work start --task ID --mode external|none [--environment-revision ID] | work continue --work ID --expected-head RUN --mode M | work branch --work ID --refines RUN --mode M",

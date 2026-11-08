@@ -8,6 +8,7 @@ export async function inspectWorkIntegrity(client: SQLClient): Promise<Integrity
   const r = repositoriesOver(client, false);
   const report: IntegrityReport = { valid: true, issues: [] };
   const scans: [string, (row: Record<string, unknown>) => Promise<unknown> | unknown][] = [
+    ["work_evidence",row => r.evidence.verify(String(row.digest))],
     ["work_definitions", row => r.definitions.get(String(row.id))],
     ["work_revisions", row => r.definitions.getRevision(String(row.definition_id), String(row.id))],
     ["work_works", row => r.works.get(String(row.id))],
@@ -23,9 +24,9 @@ export async function inspectWorkIntegrity(client: SQLClient): Promise<Integrity
     }],
   ];
   for (const [table, decode] of scans) {
-    const keys = table === "work_revisions" ? "id, definition_id" : "id";
+    const keys = table === "work_evidence" ? "digest" : table === "work_revisions" ? "id, definition_id" : "id";
     for (let offset = 0; ; offset += 256) {
-      const rows = await client.all<Record<string, unknown>>(`SELECT ${keys} FROM ${table} ORDER BY id LIMIT 256 OFFSET ?`, [offset]);
+      const rows = await client.all<Record<string, unknown>>(`SELECT ${keys} FROM ${table} ORDER BY ${table === "work_evidence" ? "digest" : "id"} LIMIT 256 OFFSET ?`, [offset]);
       for (const row of rows) {
         try { await decode(row); }
         catch (error) {

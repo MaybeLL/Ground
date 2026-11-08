@@ -122,6 +122,7 @@ export const GRADING_REQUEST_COUNTER = "grading-request";
 export interface SequenceRepository { next(name: string): Promise<number> }
 
 export interface WorkRepositories {
+  readonly evidence: import("./evidence.js").EvidenceRepository;
   readonly definitions: DefinitionRepository;
   readonly works: WorkRepository;
   readonly taskRuns: TaskRunRepository;
