@@ -424,7 +424,7 @@ export function acceptanceOf(records: readonly GradingRecord[], subject: { taskR
 
 /** Digest of everything that makes up the materials a grading used, for binding. */
 export function materialsDigest(materials: readonly { id: Id; digest: Digest }[], hash: Hasher): Result<Digest> {
-  return digestOf([...materials].sort((a, b) => a.id.localeCompare(b.id)).map(m => ({ id: m.id, digest: m.digest })), hash);
+  return digestOf([...materials].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0).map(m => ({ id: m.id, digest: m.digest })), hash);
 }
 
 export function gradingViolations(g: GradingRecord): string[] {

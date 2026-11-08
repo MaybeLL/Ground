@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { DeliveryItem, Grade } from "../src/work/domain/index.js";
+import { digestOf, materialsDigest, type DeliveryItem, type Grade } from "../src/work/domain/index.js";
 import { BUILTIN_VERIFICATION_GRADER, ensureVerificationGrader } from "../src/work/application/index.js";
 import { SqlWorkUnitOfWork } from "../src/work/adapters/index.js";
 import { backends, backendSkip, openLedger } from "./backends.js";
@@ -83,6 +83,28 @@ for (const backend of backends) {
     const fresh=value(await app.grading.requestGate({requestId:"after",taskRunId:runId}));
     assert.ok(fresh.requestSeq>left!.requestSeq);
     for (const input of requests) assert.deepEqual(value(await app.grading.requestGate(input)),left);
+  });
+
+  scenario("Unicode material IDs have stable bindings across order and older ledger digests",async app=>{
+    const {runId}=await delivered(app);
+    const materials=[{id:"é",digest:d("a")},{id:"e\u0301",digest:d("b")}];
+    const reversed=[...materials].reverse();
+    const legacy=digestOf(materials,hash),current=materialsDigest(materials,hash);
+    assert.ok(legacy.ok && current.ok);
+    assert.notEqual(legacy.value,current.value);
+    assert.deepEqual(materialsDigest(reversed,hash),current);
+    const original=value(await app.grading.requestGate({requestId:"original",taskRunId:runId,materials}));
+    await app.units.run("write",async r=>{
+      const saved=await r.gradings.get(original.gradingId,{lock:true});
+      assert.ok(saved?.binding);
+      await r.gradings.save({...saved,version:saved.version+1,binding:{...saved.binding,materialsDigest:legacy.value}},saved.version);
+    });
+    const ask=(requestId:string)=>app.grading.requestGate({requestId,taskRunId:runId,materials:reversed});
+    assert.deepEqual(value(await ask("other")),original);
+    value(await app.grading.cancel({requestId:"end",gradingId:original.gradingId}));
+    const fresh=value(await ask("retry"));
+    assert.notEqual(fresh.gradingId,original.gradingId);
+    assert.equal(value(await app.grading.getGrading(fresh.gradingId)).binding?.materialsDigest,legacy.value);
   });
 
   scenario("only a delivered run can be accepted", async app => {
