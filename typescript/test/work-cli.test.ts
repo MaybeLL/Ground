@@ -357,6 +357,12 @@ test("20 historical runs become an immutable suite with traceable private materi
     const snapshot = ok(await h.cli(...publish));
     assert.equal(snapshot.caseCount, 20);
     assert.deepEqual(ok(await h.cli(...publish)), snapshot);
+    for (const extra of [{ grader: { definitionId: rule.graderId, revisionId: rule.revisionId, ignored: true } },
+      { materialSource: { runId: cases[0]!.runId, deliveryId: cases[0]!.deliveryId, ignored: true } }]) {
+      writeFileSync(path, JSON.stringify([{ ...cases[0], bindings: [{ ...cases[0]!.bindings[0], ...extra }] }]));
+      assert.equal((await h.cli(...publish)).error.code, "VALIDATION_ERROR");
+    }
+    writeFileSync(path, JSON.stringify(cases));
     const show = ["suite", "show", "--suite", snapshot.suiteId, "--revision", "1"];
     const first = ok(await h.cli(...show));
     assert.equal(first.suite.digest, snapshot.digest);

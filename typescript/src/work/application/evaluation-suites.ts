@@ -34,8 +34,8 @@ export function parseSources(input: unknown): Outcome<CaseSource[]> {
       const { key, grader, referencePath, hiddenTestPaths = [], answerPath, materialSource } = binding;
       if (!isId(key) || !validPath(answerPath) || (referencePath !== undefined && !validPath(referencePath)) ||
           !Array.isArray(hiddenTestPaths) || !hiddenTestPaths.every(validPath) || !unique(hiddenTestPaths)) return fail("invalid", "invalid binding key or file paths");
-      if (grader !== undefined && !(grader && isId(grader.definitionId) && isId(grader.revisionId))) return fail("invalid", "select an exact grader definition and revision");
-      if (materialSource !== undefined && !(materialSource && isId(materialSource.runId) && isId(materialSource.deliveryId))) return fail("invalid", "select a frozen material source run and delivery");
+      if (grader !== undefined && !(grader && isId(grader.definitionId) && isId(grader.revisionId) && Object.keys(grader).every(k => k === "definitionId" || k === "revisionId"))) return fail("invalid", "select an exact grader definition and revision");
+      if (materialSource !== undefined && !(materialSource && isId(materialSource.runId) && isId(materialSource.deliveryId) && Object.keys(materialSource).every(k => k === "runId" || k === "deliveryId"))) return fail("invalid", "select a frozen material source run and delivery");
       parsed.push({ key, answerPath, hiddenTestPaths, ...(referencePath ? { referencePath } : {}), ...(grader ? { grader } : {}), ...(materialSource ? { materialSource } : {}) });
     }
     if (!unique(parsed, b => b.key)) return fail("invalid", "binding keys must be unique within a case");
