@@ -567,5 +567,14 @@ for (const backend of backends) test(backend + ": working runs freeze selected a
     const result = value(await app.exec.submit({requestId:"submit",runId,items:[selected,{id:data.id,type:"artifact",receipt:data.receipt}]}));
     assert.equal(result.status,"delivered");
     assert.equal(value(await app.exec.getRun(runId)).run.manifest?.items.length,2);
+    const rule=value(await app.rules.publish({requestId:"file-rule",name:"exact report",expectedSeq:0,operation:"equal-file-bytes",pass:"match",fail:"different"}));
+    const grader={definitionId:rule.graderId,revisionId:rule.revisionId};
+    const suite=value(await app.suites.publish({requestId:"artifact-suite",name:"reports",expectedSeq:0,cases:[
+      {key:"review",runId,deliveryId:saved.id,bindings:[{key:"report",referencePath:"report.txt",answerPath:"report.txt",grader}]}
+    ]},"."));
+    const score=value(await app.suites.measure({requestId:"measure",suiteId:suite.suiteId,seq:1,caseKey:"review",runId,deliveryId:saved.id},"."));
+    assert.ok("result" in score && score.result==="match");
+    refused(await app.suites.measure({requestId:"wrong-slot",suiteId:suite.suiteId,seq:1,caseKey:"review",runId,deliveryId:data.id},"."),"conflict");
+
   },backend);
 });

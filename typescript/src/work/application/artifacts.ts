@@ -1,4 +1,5 @@
-import {digestOf,isId,isTerminal,parseTaskContent,type DeliveryItem} from "../domain/index.js";
+import {digestOf,isId,isTerminal,parseTaskContent,type DeliveryItem,type Hasher,type TaskRun} from "../domain/index.js";
+import {StorageFailure} from "../ports/index.js";
 import type {EvidenceRef,EvidenceSource,WorkRepositories} from "../ports/index.js";
 import {fail,succeed} from "./outcome.js";
 import {once,type RequestContext} from "./requests.js";
@@ -9,6 +10,16 @@ export type SavedArtifact = {
 };
 export type ArtifactSource = EvidenceSource;
 export type InputFile = {path:string;source:EvidenceSource};
+
+export async function selectCaseTarget(r:WorkRepositories,run:TaskRun|undefined,slot?:string) {
+  if (!run?.manifest || run.status!=="delivered") return;
+  if (slot===undefined) return run.manifest.items.find(item=>item.type==="candidate");
+  for (const item of run.manifest.items) {
+    if (item.type!=="artifact") continue;
+    const saved=await readArtifact(r,item.id);
+    if (saved?.slot===slot && saved.runId===run.id && saved.receipt===item.receipt) return item;
+  }
+}
 
 export async function archiveFiles(r:WorkRepositories,ctx:RequestContext,owner:{runId:string;slot:string;id:string;sessionId?:string;executionId?:string},files:InputFile[]) {
   const ordered=[...files].sort((a,b)=>a.path<b.path ? -1 : a.path>b.path ? 1 : 0);
@@ -23,6 +34,22 @@ export async function archiveFiles(r:WorkRepositories,ctx:RequestContext,owner:{
 export async function readArtifact(r:WorkRepositories,id:string):Promise<SavedArtifact|undefined> {
   const intent = await r.intents.findByRequest(id);
   if (intent?.kind === "save-artifact" && intent.state === "completed") return intent.result as SavedArtifact;
+}
+
+export async function verifiedArtifact(r:WorkRepositories,runId:string,id:string,receipt:string,hash:Hasher) {
+  const saved=await readArtifact(r,id);
+  if (!saved || saved.runId!==runId || saved.receipt!==receipt) return;
+  const files=saved.files.map(({path,content})=>({path,digest:content.digest,byteLength:content.byteLength}));
+  const digest=digestOf({runId,slot:saved.slot,files},hash);
+  if (!digest.ok || receipt!=="artifact:"+digest.value) return;
+  try {
+    for (const file of saved.files) {
+      const actual=await r.evidence.describe(file.content.digest);
+      if (!actual || actual.byteLength!==file.content.byteLength || actual.chunkCount!==file.content.chunkCount) return;
+      await r.evidence.verify(file.content.digest);
+    }
+  } catch(error) {if(error instanceof StorageFailure && error.reason==="integrity") return; throw error;}
+  return saved;
 }
 
 export class Artifacts {
@@ -57,6 +84,20 @@ export class Artifacts {
       const saved = await readArtifact(r,id);
       return saved?.runId === runId ? succeed(saved) : fail("not-found","artifact does not belong to this run");
     });
+  }
+
+  async streams(runId:string,id:string,receipt:string) {
+    const saved=await this.get(runId,id);
+    if (!saved.ok || saved.value.receipt!==receipt) throw new Error("selected artifact is unavailable");
+    const units=this.ctx.units;
+    return saved.value.files.map(({path,content})=>({path,source:{digest:content.digest,byteLength:content.byteLength,
+      async *open(){
+        for (let i=0;i<content.chunkCount;i++) {
+          const chunk=await units.run("read",r=>r.evidence.chunk(content.digest,i));
+          if (!chunk) throw new Error("archived artifact chunk is missing");
+          yield chunk;
+        }
+      }}}));
   }
 
   async chunk(runId:string,id:string,path:string,ordinal:number) {

@@ -256,6 +256,22 @@ test("external agents save and read explicit working artifacts before declaring 
     assert.deepEqual(ok(await h.cli("work","artifact","--run",runId,"--artifact",artifact.id)).artifact,artifact);
     const result = ok(await h.cli("work","submit-artifacts","--run",runId,"--session",sessionId,"--artifact",artifact.id));
     assert.equal(result.submitted.status,"delivered");
+    const rule=ok(await h.cli("grade","define-rule","--name","matches report","--rule","equal-file-bytes","--pass","yes","--fail","no"));
+    const definition={definitionId:rule.graderId,revisionId:rule.revisionId};
+    const cases=join(h.directory,"historical.json");
+    writeFileSync(cases,JSON.stringify([{key:"report",runId,deliveryId:artifact.id,bindings:[{key:"content",answerPath:"report.bin",referencePath:"report.bin",grader:definition}]}]));
+    const suite=ok(await h.cli("suite","publish","--name","report suite","--cases-file",cases));
+    const snapshot=ok(await h.cli("suite","show","--suite",suite.suiteId,"--revision","1"));
+    assert.equal(snapshot.cases[0].source.artifactSlot,"report");
+    assert.equal(snapshot.cases[0].source.commit,null);
+    assert.equal(snapshot.cases[0].bindings[0].materials[0].digest,chunk.ref.digest);
+    const measured=ok(await h.cli("suite","measure","--suite",suite.suiteId,"--revision","1","--case","report","--run",runId,"--delivery",artifact.id));
+    assert.equal(measured.result,"yes");
+    assert.equal(measured.actualDigest,chunk.ref.digest);
+    const db=new DatabaseSync(join(h.directory,"ledger.db"));
+    try {db.prepare("DELETE FROM work_evidence_chunks WHERE digest=?").run(chunk.ref.digest);}
+    finally {db.close();}
+    assert.equal((await h.cli("suite","publish","--name","unavailable","--cases-file",cases)).error.code,"STORAGE_TRANSIENT");
   });
 });
 
@@ -1387,5 +1403,47 @@ test("experiment runs reconcile after controller loss and cancel only their own 
       assert.equal(final.gradings.at(-1).status,"cancelled");
       assert.equal(final.requirements[0].adopted,adopted);
     } finally { for (const id of docker("ps","-aq","--filter","label=dev.grounds.ledger="+ledger).split("\n").filter(Boolean)) docker("rm","-f",id); }
+  });
+});
+
+test("experiment runs rule and sandbox test graders against the selected working artifact slot", {skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async()=>{
+  await withHarness(async h=>{
+    const docker=(...args:string[])=>execFileSync("docker",args,{encoding:"utf8"}).trim();
+    const image=process.env.GROUNDS_TEST_MANAGED_AGENT!, config=join(h.directory,"env.json"), material=join(h.directory,"materials.json");
+    const cases=join(h.directory,"cases.json"),commands=join(h.directory,"commands.json");
+    writeFileSync(config,JSON.stringify({image,workspaceFolder:"/work"}));
+    writeFileSync(material,JSON.stringify([{name:"input",repository:h.repo,commit:h.baseline}]));
+    const env=ok(await h.cli("work","define-environment","--name","grader and worker","--devcontainer",config,"--image-digest",docker("image","inspect","--format","{{.Id}}",image)));
+    const task=ok(await h.cli("task","create","--kind","working","--title","artifact experiment","--criterion","matches input","--required-output","report","--optional-output","chart","--environment",env.environmentId,"--materials",material));
+    const {runId}=ok(await h.cli("work","start","--task",task.taskId,"--mode","none"));
+    const {artifact}=ok(await h.cli("work","save-artifact","--run",runId,"--slot","report","--file","report.txt=app.txt"));
+    const chart=ok(await h.cli("work","save-artifact","--run",runId,"--slot","chart","--file","chart.txt=app.txt")).artifact;
+    ok(await h.cli("work","submit-artifacts","--run",runId,"--artifact",artifact.id,"--artifact",chart.id));
+    const rule=ok(await h.cli("grade","define-rule","--name","exact bytes","--rule","equal-file-bytes","--pass","identical","--fail","different"));
+    writeFileSync(commands,JSON.stringify([["sh","-c","test ! -d .git && cmp report.txt /grounds-grader/report.txt"]]));
+    const grader=ok(await h.cli("grade","define-test","--name","compare file","--commands",commands,"--environment",env.environmentId,"--environment-revision",env.revisionId,"--pass","pass","--fail","fail"));
+    writeFileSync(cases,JSON.stringify([{key:"report",runId,deliveryId:artifact.id,bindings:[
+      {key:"rule",answerPath:"report.txt",referencePath:"report.txt",grader:{definitionId:rule.graderId,revisionId:rule.revisionId}},
+      {key:"test",hiddenTestPaths:["report.txt"],grader:{definitionId:grader.graderId,revisionId:grader.revisionId}}
+    ]},{key:"optional",runId,deliveryId:chart.id,bindings:[{key:"chart",answerPath:"chart.txt",referencePath:"chart.txt",grader:{definitionId:rule.graderId,revisionId:rule.revisionId}}]}]));
+    const suite=ok(await h.cli("suite","publish","--name","working reports","--cases-file",cases));
+    const agent=ok(await h.cli("work","define-agent","--name","report author","--provider","codex"));
+    const plan=ok(await h.cli("experiment","define","--suite",suite.suiteId,"--revision","1","--agent",agent.agentId,"--agent-revision",agent.revisionId,"--name","working comparison"));
+    const {batchId}=ok(await h.cli("experiment","launch","--experiment",plan.experimentId));
+    const end=Date.now()+75000;
+    let result;
+    do {
+      result=ok(await h.cli("experiment","results","--batch",batchId));
+      if (result.host?.state==="terminal" || result.host?.state==="blocked") break;
+      await new Promise(resolve=>setTimeout(resolve,300));
+    } while(Date.now()<end);
+    assert.equal(result.host?.state,"terminal",JSON.stringify(result));
+    assert.equal(result.counts.fullyGraded,1,JSON.stringify(result));
+    assert.equal(result.counts.delivered,2);
+    assert.equal(result.members.find((m:{caseKey:string})=>m.caseKey==="optional").requirements[0].notStarted,"target-missing");
+    const report=result.members.find((m:{caseKey:string})=>m.caseKey==="report");
+    const {member}=ok(await h.cli("experiment","member","--batch",batchId,"--member",report.key));
+    assert.deepEqual(member.gradings.map((g:{grade:{category:string}})=>g.grade.category).sort(),["identical","pass"]);
+    assert.ok(member.gradings.every((g:{targets:{type:string;id:string}[]})=>g.targets[0]?.type==="artifact" && g.targets[0].id!==artifact.id));
   });
 });

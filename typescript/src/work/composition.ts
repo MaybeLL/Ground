@@ -68,7 +68,7 @@ export function composeWork(store: SQLStore): WorkApplication & {driver:ManagedT
   const driver=new ManagedTaskDriver({repairs,workers,sandboxes,lifecycle,ledgerId,process:new ContainerAgentProcess(runtime,workspaces,archive)});
   const tests = new TestExecution(context);
   const testDriver = new TestGradingDriver({tests,repairs,runtime,launcher,workspaces,ledgerId,
-    process:new ContainerTestProcess(runtime,workspaces,new EvaluatorWorkspaces(workspaces,archive))});
+    process:new ContainerTestProcess(runtime,workspaces,new EvaluatorWorkspaces(workspaces,archive,artifacts.streams.bind(artifacts)))});
   const experiments = new ExperimentPlans({...context,repairs,source:archive});
   const members = new ExperimentMembers(context,agents,new ExperimentGrading(context,archive,repairs));
   return { artifacts,experiments,members,experimentResults:new ExperimentResults(context),tests,testDriver,workers,driver,agents, traces:new ProviderTraces(context,new ProviderTraceCapture()), lifecycle, sandboxes, environments, rules, suites, repairs, tasks: new TaskDefinitions(shared), exec, grading: new Grading(shared), delivery };

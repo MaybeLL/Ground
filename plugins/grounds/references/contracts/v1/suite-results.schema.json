@@ -625,8 +625,9 @@
         "archiveId": {
           "$ref": "work-results.schema.json#/$defs/Id"
         },
+        "artifactSlot":{"$ref":"work-results.schema.json#/$defs/Id"},
         "commit": {
-          "type": "string",
+          "type": ["string","null"],
           "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
         },
         "archiveReceipt": {
@@ -661,7 +662,7 @@
         },
         "blob": {
           "type": "string",
-          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+          "pattern": "^(?:[0-9a-f]{40}|(?:sha256:)?[0-9a-f]{64})$"
         },
         "digest": {
           "$ref": "work-results.schema.json#/$defs/Digest"

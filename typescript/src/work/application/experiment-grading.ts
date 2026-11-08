@@ -1,3 +1,5 @@
+import {selectCaseTarget} from "./artifacts.js";
+import {EvaluationFiles} from "./evaluation-files.js";
 import {createGrading, digestOf, faultGrader, refOf, sameRef, submitGrade, requestGradingCancel, type GradingOrigin} from "../domain/index.js";
 import {GRADING_REQUEST_COUNTER, type CodeArchivePort, type WorkRepositories} from "../ports/index.js";
 import type {ArchiveRepairs} from "./archive-repairs.js";
@@ -9,7 +11,7 @@ import {admitTestMeasurement,markGradingActive,type AcceptedTest} from "./test-m
 import {fail,fromRejection,succeed} from "./outcome.js";
 
 type Input = {batchId:string;key:string;requirement:string;requestId:string};
-type RuleTicket = Omit<AcceptedTest,"status"> & {path:string;repo:string;receipt:string;expectedDigest:string|null};
+type RuleTicket = Omit<AcceptedTest,"status"> & {path:string;repo:string;receipt:string;artifactRunId?:string;expectedDigest:string|null};
 type Admission = {kind:"rule";ticket:RuleTicket} | {kind:"test";ticket:AcceptedTest};
 type Evaluated = Omit<AcceptedTest,"status"> & ({result:string;actualDigest:string|null;expectedDigest:string|null} | {status:"grader_fault"|"cancelled"});
 
@@ -41,13 +43,13 @@ export class ExperimentGrading {
     if (!binding || !revision || !sameRef(refOf(revision),binding.graderRevision)) return fail("conflict","frozen grader identity changed");
     const admission = await r.intents.findByRequest(member.taskRunRequestId);
     const run = admission?.kind === "start-experiment-member" && await r.taskRuns.get(admission.subject.id);
-    const target = run && run.status === "delivered" && run.manifest?.items.find(i=>i.type === "candidate");
+    const target=await selectCaseTarget(r,run || undefined,item.source.artifactSlot);
     if (!run || !target || !sameRef(run.taskRevision,item.task)) return fail("conflict","member has no matching delivery");
     const origin:GradingOrigin = {type:"member",experimentRunId:batch.id,caseKey:member.caseKey,repeatIndex:member.repeatIndex,requirementKey:requirement.key};
     const test = testGrader(revision.content), rule = fileRule(revision.content);
     if (test) {
-      const commit = this.archive.recordedCommit(target);
-      if (!commit) return fail("invalid","member has no Git receipt");
+      const commit = target.type==="artifact" ? null : this.archive.recordedCommit(target);
+      if (commit===undefined) return fail("invalid","member has no Git receipt");
       const job = await admitTestMeasurement(this.ctx,r,{suite:batch.suite,caseKey:item.key,bindingKey:binding.key,
         runId:run.id,deliveryId:target.id,commit,archiveId:target.id,receipt:target.receipt,repository:item.repository.repositoryPath},
         target,test,requirement.grader,requirement.materials,origin);
@@ -58,10 +60,10 @@ export class ExperimentGrading {
     if (!digest.ok) return fromRejection(digest.error);
     const at = this.ctx.now(), gradingId = this.ctx.newId();
     const created = createGrading({id:gradingId,purpose:"measure",origin,graderRevision:requirement.grader,grader:rule,
-      requestSeq:await r.sequences.next(GRADING_REQUEST_COUNTER), targets:[{type:"candidate",id:target.id,digest:digest.value}], materials:requirement.materials,at});
+      requestSeq:await r.sequences.next(GRADING_REQUEST_COUNTER), targets:[{type:target.type,id:target.id,digest:digest.value}], materials:requirement.materials,at});
     if (!created.ok) return fromRejection(created.error);
     const ticket:RuleTicket = {gradingId,suiteId:suite.definitionId,revisionId:suite.id,caseKey:item.key,bindingKey:binding.key,runId:run.id,deliveryId:target.id,
-      repo:item.repository.repositoryPath,receipt:target.receipt,path:binding.answerPath,expectedDigest:binding.materials.find(m=>m.role === "reference-answer")?.digest ?? null};
+      repo:item.repository.repositoryPath,receipt:target.receipt,...(target.type==="artifact" ? {artifactRunId:run.id} : {}),path:binding.answerPath,expectedDigest:binding.materials.find(m=>m.role === "reference-answer")?.digest ?? null};
     await r.gradings.create(created.value.state);
     await markGradingActive(r,batch.id,at);
     await r.intents.register({id:this.ctx.newId(),requestId:"rule-"+gradingId,kind:"score-member-rule",subject:{type:"grading_record",id:gradingId},
@@ -80,14 +82,15 @@ export class ExperimentGrading {
     });
     if (!read.job || !read.rule) return fail("not-found","member rule admission is missing");
     if (read.job.state === "completed") return succeed(read.job.result as Evaluated);
-    const {repo,path,receipt,expectedDigest,...base} = read.job.payload as RuleTicket;
+    const {repo,path,receipt,expectedDigest,artifactRunId,...base} = read.job.payload as RuleTicket;
     let actualDigest:string|null = null, result:string | undefined, error:string | undefined;
     if (!read.cancelled) try {
-      const current = await this.repairs.current(base.runId,{id:base.deliveryId,receipt},repo);
-      const active = current.observation;
-      if (!["intact","ref-changed"].includes(active.status ?? "")) error = "member archive could not be verified";
+      const current = artifactRunId ? undefined : await this.repairs.current(base.runId,{id:base.deliveryId,receipt},repo);
+      const active = current?.observation;
+      if (active && !["intact","ref-changed"].includes(active.status ?? "")) error = "member archive could not be verified";
       else {
-        const file = await this.archive.fileDigest(repo,{id:"activeArchiveId" in active ? active.activeArchiveId : base.deliveryId,receipt:current.receipt},path);
+        const source={id:active && "activeArchiveId" in active ? active.activeArchiveId : base.deliveryId,receipt:current?.receipt ?? receipt,artifactRunId};
+        const file=await new EvaluationFiles(this.ctx.units,this.archive).digest(repo,source,path);
         if (file.status !== "read" && file.status !== "missing") error = file.reason;
         else {
           actualDigest = file.status === "read" ? file.digest : null;

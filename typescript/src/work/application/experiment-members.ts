@@ -1,3 +1,4 @@
+import {selectCaseTarget} from "./artifacts.js";
 import type { WorkRepositories } from "../ports/index.js";
 import { createTaskRun, digestOf, mayStartMember, requestExperimentCancel } from "../domain/index.js";
 import type { ExperimentGrading } from "./experiment-grading.js";
@@ -32,7 +33,7 @@ export class ExperimentMembers {
         workerMode:"managed", retention:"release", at});
       if (!created.ok) return fromRejection(created.error);
       const admitted = await this.agents.admit(r,created.value.state,{definitionId:plan.agent.definitionId,revisionId:plan.agent.revisionId,
-        repositoryPath:item.repository.repositoryPath}, undefined, item.repository);
+        repositoryPath:item.repository.repositoryPath}, undefined, item.repository.baseline===null ? undefined : item.repository);
       if (!admitted.ok) return admitted;
       if (!("executionId" in admitted.value) || typeof admitted.value.executionId !== "string") throw new Error("missing managed member execution");
       await r.taskRuns.create(created.value.state);
@@ -73,8 +74,10 @@ export class ExperimentMembers {
         if (!worker) return fail("conflict","batch member has no registered worker");
         const job = worker.payload as {executionId:string;observation?:{state:string;detail?:string}};
         const history = await r.gradings.listForMember(batchId,member.caseKey,member.repeatIndex);
-        const requirements = plan.cases.find(c=>c.key === member.caseKey)!.requirements.map(requirement=>({
-          key:requirement.key, records:history.filter(g=>g.origin.type === "member" && g.origin.requirementKey === requirement.key)
+        const item=plan.cases.find(c=>c.key===member.caseKey)!;
+        const targetMissing=run.status==="delivered" && !(await selectCaseTarget(r,run,item.source.artifactSlot));
+        const requirements = item.requirements.map(requirement=>({
+          key:requirement.key, targetMissing,records:history.filter(g=>g.origin.type === "member" && g.origin.requirementKey === requirement.key)
             .map(g=>({id:g.id,status:g.status,strategy:g.strategy})),
         }));
         const waitingRules = history.filter(g=>g.strategy === "rule" && g.status === "running").map(g=>g.id);
@@ -110,7 +113,7 @@ export class ExperimentMembers {
         const {cancelled,pending,members} = current.value;
         const open = members.some(m=> !m.workerDone || !["delivered","failed","cancelled"].includes(m.status) ||
           m.waitingTests.length > 0 || m.waitingRules.length > 0 ||
-          (!cancelled && m.status === "delivered" && m.requirements.some(req=>!req.records.length)));
+          (!cancelled && m.status === "delivered" && m.requirements.some(req=>!req.records.length && !req.targetMissing)));
         if (open || pending && !cancelled) state = "running";
       }
       const observation = {state,...(detail ? {detail} : {})};

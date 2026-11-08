@@ -34,7 +34,7 @@ export class ManagedWorkspaces implements ManagedWorkspacePort {
     return privateDirectory(join(this.root(owner), "setup-attempts", owner.setupAttempt));
   }
 
-  async prepare(owner: RuntimeOwner, repository: string, commit: string|null, content: { config: string; lockfile: string | null; imageDigest: string }, requireExisting = false,repositories:readonly MaterialRepository[] = []) {
+  async prepare(owner: RuntimeOwner, repository: string, commit: string|null, content: { config: string; lockfile: string | null; imageDigest: string }, requireExisting = false,repositories:readonly MaterialRepository[] = [],artifact?:{receipt:string;populate(directory:string):Promise<void>}) {
     const configSource = pinnedConfig(content.config, content.imageDigest);
     const root = this.root(owner);
     if (commit!==null && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(commit)) throw new Error("managed workspace needs a full commit");
@@ -42,7 +42,7 @@ export class ManagedWorkspaces implements ManagedWorkspacePort {
     const dest = join(root, "prepared"), workspace = join(dest, "workspace");
     const selected = repositories.length ? await new MaterialWorkspaces().prepare(owner.ledgerId,owner.sandboxId,repositories) : undefined;
     const taskMaterials=selected && dirname(selected.materials[0]!.path);
-    const descriptor = JSON.stringify({ commit, ...(repositories.length ? {repositories} : {}), config: content.config, lockfile: content.lockfile, imageDigest: content.imageDigest });
+    const descriptor = JSON.stringify({ commit,...(artifact ? {artifactReceipt:artifact.receipt} : {}), ...(repositories.length ? {repositories} : {}), config: content.config, lockfile: content.lockfile, imageDigest: content.imageDigest });
     const verified = async () => {
       try { if (await readFile(join(dest, "source.json"), "utf8") !== descriptor) throw new Error("workspace preparation identity conflict"); return true; }
       catch (error) { if (absent(error)) return false; throw error; }
@@ -56,7 +56,7 @@ export class ManagedWorkspaces implements ManagedWorkspacePort {
       try {
         const clone = join(stage, "workspace"), config = join(stage, ".devcontainer");
         await mkdir(config);
-        if (commit===null) await mkdir(clone);
+        if (commit===null) {await mkdir(clone);await artifact?.populate(clone);}
         else {
           await git(["init", "--quiet", "--template=", "--object-format=" + (commit.length === 64 ? "sha256" : "sha1"), clone]);
           await git(["-C", clone, "-c", "core.hooksPath=/dev/null", "fetch", "--no-tags", "--depth=1", "--", pathToFileURL(repository).href, commit]);

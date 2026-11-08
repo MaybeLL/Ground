@@ -70,7 +70,7 @@ export class TestGradingDriver {
         try {
           let target = plan;
           const original = plan.originalReceipt ?? (plan.archiveId === plan.deliveryId ? plan.receipt : undefined);
-          if (original) {
+          if (original && plan.commit!==null) {
             const {observation,receipt} = await this.deps.repairs.current(plan.runId,{id:plan.deliveryId,receipt:original},plan.repository);
             if (observation.recordedCommit !== plan.commit || !["intact","ref-changed"].includes(observation.status ?? "")) {
               return succeed({state:"blocked",detail:"frozen evaluator target archive could not be verified",providerStopped:true});

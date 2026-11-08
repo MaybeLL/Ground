@@ -1,3 +1,4 @@
+import {verifiedArtifact} from "./artifacts.js";
 import {parseTaskContent} from "../domain/index.js";
 import {parseGraderContent, digestOf, isText, launchExperimentRun, refOf, sameRef, type RevisionRef} from "../domain/index.js";
 import type {WorkRepositories} from "../ports/index.js";
@@ -8,10 +9,10 @@ import {fail, fromRejection, succeed} from "./outcome.js";
 import type {ArchiveRepairs} from "./archive-repairs.js";
 
 type Pinned = {[K in keyof RevisionRef]:RevisionRef[K]};
-type ArchiveSource = {runId:string;deliveryId:string;receipt:string;commit:string};
+type ArchiveSource = {runId:string;deliveryId:string;receipt:string;commit:string|null;artifactSlot?:string};
 type Requirement = {key:string;grader:Pinned;scale:{form:"numeric";min:number;max:number} | {form:"criteria"} | {form:"category";categories:string[]};materials:{id:string;digest:string}[]};
 type CasePlan = {key:string;task:Pinned;environment:Pinned;source:ArchiveSource;materialSources:ArchiveSource[];
-  repository:{repositoryPath:string;baseline:string;remote:string};requirements:Requirement[]};
+  repository:{repositoryPath:string;baseline:string;remote:string}|{repositoryPath:string;baseline:null;remote:null};requirements:Requirement[]};
 export type ExperimentPlan = {id:string;name:string;suite:Pinned;agent:Pinned;cases:CasePlan[];createdAt:string};
 type CaseOverride = {repositoryPath:string};
 type Define = {requestId:string;name:string;suiteId:string;seq:number;agentId:string;agentRevisionId:string;repositoryPath:string;
@@ -44,7 +45,11 @@ export class ExperimentPlans {
       for (const item of casesOf(suite)) {
         const task = await r.definitions.getRevision(item.taskRevision.definitionId,item.taskRevision.revisionId);
         const contract=parseTaskContent(task?.content);
-        if (!contract.ok || contract.value.kind!=="coding") return fail("unsupported","this case requires a frozen Git candidate");
+        if (!contract.ok) return fromRejection(contract.error);
+        if (contract.value.kind==="working") {
+          entries.push({key:item.key,path:input.overrides?.[item.key]?.repositoryPath ?? input.repositoryPath,source:null});
+          continue;
+        }
         const source = (task?.content as {repository?:{remote:string;baseline:string}} | undefined)?.repository;
         if (!source?.baseline || !source.remote) return fail("invalid","a coding case requires a starting repository and baseline");
         entries.push({key:item.key,path:input.overrides?.[item.key]?.repositoryPath ?? input.repositoryPath,source});
@@ -55,6 +60,7 @@ export class ExperimentPlans {
     const pinned = new Map<string,CasePlan["repository"]>();
     const repositories = new Map<string,CasePlan["repository"]>();
     for (const entry of inputs.value) {
+      if (!entry.source) {pinned.set(entry.key,{repositoryPath:entry.path,baseline:null,remote:null});continue;}
       const identity = JSON.stringify([entry.path,entry.source.baseline,entry.source.remote]);
       try {
         const repository = repositories.get(identity) ?? await this.deps.source.freezeSource(entry.path,entry.source.baseline,entry.source.remote);
@@ -77,7 +83,7 @@ export class ExperimentPlans {
         if (!environment.ok) return environment;
         if (!environment.value) return fail("invalid","a managed experiment case requires an environment");
         const repository = pinned.get(item.key)!;
-        const archive = (s:ArchiveSource):ArchiveSource => ({runId:s.runId,deliveryId:s.deliveryId,receipt:s.receipt,commit:s.commit});
+        const archive = (s:ArchiveSource):ArchiveSource => ({runId:s.runId,deliveryId:s.deliveryId,receipt:s.receipt,commit:s.commit,...(s.artifactSlot ? {artifactSlot:s.artifactSlot} : {})});
         const requirements: Requirement[] = [];
         for (const binding of item.bindings) {
           const revision = await r.definitions.getRevision(binding.graderRevision.definitionId,binding.graderRevision.revisionId);
@@ -118,6 +124,11 @@ export class ExperimentPlans {
       for (const source of [item.source,...item.materialSources]) {
         const key = JSON.stringify([item.repository.repositoryPath,source]);
         if (checked.has(key)) continue;
+        if (source.artifactSlot !== undefined) {
+          const saved=await this.deps.units.run("read",r=>verifiedArtifact(r,source.runId,source.deliveryId,source.receipt,this.deps.hash));
+          if (!saved || saved.slot!==source.artifactSlot) return fail("unavailable","the frozen artifact is unavailable");
+          checked.add(key);continue;
+        }
         const {observation} = await this.deps.repairs.current(source.runId,{id:source.deliveryId,receipt:source.receipt},item.repository.repositoryPath);
         if (observation.recordedCommit !== source.commit || !["intact","ref-changed"].includes(observation.status ?? "")) {
           return fail("unavailable","the evaluation source for case " + item.key + " is unavailable");

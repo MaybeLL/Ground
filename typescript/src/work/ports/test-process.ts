@@ -4,7 +4,7 @@ export type EvaluatorTarget = {owner:RuntimeOwner;location:RuntimeLocation;conta
 export type StepRead = {state:"running" | "awaiting-resume";providerStopped?:boolean} | {state:"stopped";exitCode?:number};
 export type TestStreams = Partial<Record<"stdout"|"stderr",{source:EvidenceSource;observedBytes?:number}>>;
 export interface TestProcessPort {
-  prepare(owner:RuntimeOwner,target:{commit:string;archiveId:string;receipt:string;repository:string},environment:{config:string;lockfile:string|null;imageDigest:string},
+  prepare(owner:RuntimeOwner,target:{runId:string;commit:string|null;archiveId:string;receipt:string;repository:string},environment:{config:string;lockfile:string|null;imageDigest:string},
     materials:{path:string;digest:string;base64:string}[]):Promise<RuntimeWorkspace>;
   command(target:EvaluatorTarget,ordinal:number,token:number,argv:string[],allowStart:boolean,cancel:boolean):Promise<StepRead>;
   output(owner:RuntimeOwner,ordinal:number,token:number):Promise<TestStreams>;

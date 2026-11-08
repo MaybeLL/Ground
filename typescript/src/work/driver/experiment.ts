@@ -70,7 +70,7 @@ export class ExperimentDriver {
       }
       if (member.status !== "delivered" || cancelled) continue;
       for (const requirement of member.requirements) {
-        if (requirement.records.length) continue;
+        if (requirement.records.length || requirement.targetMissing) continue;
         if (!live) { blocked.push(member.key); continue; }
         const request = operation(batchId,member.key,requirement.key,"initial-measurement");
         const result = await this.app.members.measure(batchId,member.key,requirement.key,request);

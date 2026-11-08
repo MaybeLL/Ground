@@ -426,8 +426,9 @@
                   "receipt": {
                     "type": "string"
                   },
+                  "artifactSlot":{"$ref":"work-results.schema.json#/$defs/Id"},
                   "commit": {
-                    "type": "string"
+                    "type": ["string","null"]
                   }
                 },
                 "required": [
@@ -452,8 +453,9 @@
                     "receipt": {
                       "type": "string"
                     },
-                    "commit": {
-                      "type": "string"
+                    "artifactSlot":{"$ref":"work-results.schema.json#/$defs/Id"},
+                  "commit": {
+                      "type": ["string","null"]
                     }
                   },
                   "required": [
@@ -472,10 +474,10 @@
                     "type": "string"
                   },
                   "baseline": {
-                    "type": "string"
+                    "type": ["string","null"]
                   },
                   "remote": {
-                    "type": "string"
+                    "type": ["string","null"]
                   }
                 },
                 "required": [

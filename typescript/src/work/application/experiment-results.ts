@@ -1,3 +1,4 @@
+import {selectCaseTarget} from "./artifacts.js";
 import {adoptGrading, digestOf, gradingNotStarted, isTerminal, materialsFingerprint, type Grade} from "../domain/index.js";
 import {completionAt, readExperiment, type ExperimentPlan} from "./experiment-plans.js";
 import {fail, succeed} from "./outcome.js";
@@ -60,7 +61,7 @@ export class ExperimentResults {
         else if (run.failure?.class === "infrastructure") counts.executionErrors++;
         else counts.failed++;
         const history = await r.gradings.listForMember(id,member.caseKey,member.repeatIndex);
-        const target = run?.manifest?.items.find(delivery=>delivery.type === "candidate");
+        const target = await selectCaseTarget(r,run,item.source.artifactSlot);
         const identity = target && digestOf({...target},this.ctx.hash);
         const targets = target && identity?.ok ? [target.type + ":" + target.id + ":" + identity.value] : [];
         const requirements = [];
@@ -71,7 +72,7 @@ export class ExperimentResults {
             graderRevisionId:required.grader.revisionId,targets,materialsDigest:digest.value};
           const adoption = adoptGrading(history,slot,materialsFingerprint(required.materials));
           const adopted = history.find(g=>g.id === adoption.adopted);
-          requirements.push({key:required.key,...adoption,...(!adoption.attempts ? {notStarted:gradingNotStarted(batch,member,run) ?? (batch.cancelIntent ? "batch-cancelled" : "not-scheduled")} : {}),...(adopted ? {grade:adopted.grade} : {})});
+          requirements.push({key:required.key,...adoption,...(!adoption.attempts ? {notStarted:(run?.status==="delivered" && !target ? "target-missing" : gradingNotStarted(batch,member,run)) ?? (batch.cancelIntent ? "batch-cancelled" : "not-scheduled")} : {}),...(adopted ? {grade:adopted.grade} : {})});
           const groupId = JSON.stringify([required.key,required.grader.revisionId,required.scale]);
           const group = groups.get(groupId) ?? {requirement:required.key,grader:required.grader,scale:required.scale,planned:0,
             adopted:0,valid:0,missing:0,indeterminate:0,errors:0,executionErrors:0,ungraded:0,numericMean:null,

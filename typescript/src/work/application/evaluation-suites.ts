@@ -1,3 +1,5 @@
+import {verifiedArtifact} from "./artifacts.js";
+import {EvaluationFiles,type SelectedArchive} from "./evaluation-files.js";
 // A case belongs to its immutable suite revision. Private material is captured
 // from the selected delivery; the task revision remains the worker's only input.
 import { createDefinition, createGrading, digestOf, isId, isText, publishRevision, refOf, sameRef, submitGrade, unique, type DeliveryItem, type GradingOrigin, type JsonValue, type Revision, type RevisionRef } from "../domain/index.js";
@@ -11,7 +13,7 @@ import { once, type RequestContext } from "./requests.js";
 type DeliverySelection = { runId: string; deliveryId: string };
 type BindingSource = { key: string; answerPath?: string; grader?: GraderSelection; referencePath?: string; hiddenTestPaths: string[]; materialSource?: DeliverySelection };
 type CaseSource = DeliverySelection & { key: string; bindings: BindingSource[] };
-type Source = DeliverySelection & { manifestDigest: string; receipt: string; archiveId: string; archiveReceipt: string; commit: string };
+type Source = DeliverySelection & { manifestDigest: string; receipt: string; archiveId: string; archiveReceipt: string; commit:string|null; artifactSlot?:string };
 type Material = { role: "reference-answer" | "hidden-test"; visibility: "grader"; path: string; blob: string; executable?:true; digest: string; base64: string };
 type Binding = { key: string; answerPath?: string; graderRevision: RevisionRef; materialSource: Source; materials: Material[] };
 type FrozenCase = { key: string; taskRevision: RevisionRef; source: Source; bindings: Binding[] };
@@ -53,13 +55,20 @@ export function casesOf(revision: Revision): FrozenCase[] {
 }
 
 export class EvaluationSuites {
-  constructor(private readonly deps: SuiteDeps) {}
+  private readonly files:EvaluationFiles;
+  constructor(private readonly deps:SuiteDeps) {this.files=new EvaluationFiles(deps.units,deps.archive);}
 
   private async delivery(runId: string, deliveryId: string, repo: string) {
     const run = await this.deps.units.run("read", r => r.taskRuns.get(runId));
     if (!run) return fail("not-found", "the source run does not exist");
-    const item = run.manifest?.items.find(item => item.id === deliveryId && item.type === "candidate");
-    if (run.status !== "delivered" || !run.manifest || !item) return fail("conflict", "select a frozen candidate of this run");
+    const item = run.manifest?.items.find(item => item.id === deliveryId);
+    if (run.status !== "delivered" || !run.manifest || !item) return fail("conflict", "select a frozen delivery of this run");
+    if (item.type==="artifact") {
+      const saved=await this.deps.units.run("read",r=>verifiedArtifact(r,run.id,item.id,item.receipt,this.deps.hash));
+      if (!saved) return fail("unavailable","the selected artifact cannot be reproduced");
+      return succeed({taskRevision:run.taskRevision,item,archive:{id:item.id,receipt:item.receipt,artifactRunId:run.id},
+        source:{runId,deliveryId,manifestDigest:run.manifest.digest,receipt:item.receipt,archiveId:item.id,archiveReceipt:item.receipt,commit:null,artifactSlot:saved.slot}});
+    }
     const { observation, receipt } = await this.deps.repairs.current(runId, item, repo);
     if (observation.status === null) return fail("unavailable", "the archive endpoint could not confirm reproducibility");
     if (!observation.recordedCommit || (observation.status !== "intact" && observation.status !== "ref-changed")) return fail("unavailable", "the selected delivery cannot be reproduced");
@@ -90,7 +99,7 @@ export class EvaluationSuites {
       const delivery = await this.delivery(entry.runId, entry.deliveryId, repo);
       if (!delivery.ok) return delivery;
       if (entry.bindings.every(binding => binding.materialSource !== undefined)) {
-        const sourceTree = await this.deps.archive.readFiles(repo, delivery.value.archive, []);
+        const sourceTree = await this.files.material(repo, delivery.value.archive, []);
         if (sourceTree.status !== "read") return fail("unavailable", sourceTree.reason);
       }
       const bindings = [];
@@ -98,7 +107,7 @@ export class EvaluationSuites {
         const source = binding.materialSource ? await this.delivery(binding.materialSource.runId, binding.materialSource.deliveryId, repo) : delivery;
         if (!source.ok) return source;
         const paths = [...(binding.referencePath ? [binding.referencePath] : []), ...binding.hiddenTestPaths];
-        const files = await this.deps.archive.readFiles(repo, source.value.archive, paths);
+        const files = await this.files.material(repo, source.value.archive, paths);
         if (files.status !== "read") return fail(files.status === "missing" ? "not-found" : files.status, files.reason);
         const materials: Material[] = paths.map((path, i) => {
           const file = files.files.get(path)!;
@@ -162,8 +171,8 @@ export class EvaluationSuites {
     return this.deps.units.run("read", async r => succeed({ suites: (await r.definitions.list("suite")).map(d => ({ id: d.id, name: d.name, head: d.head })) }));
   }
 
-  private async score(repo: string, archive: { id: string; receipt: string }, path: string, rule: Rule, expectedDigest: string | null) {
-    const file = await this.deps.archive.fileDigest(repo, archive, path);
+  private async score(repo: string, archive:SelectedArchive, path: string, rule: Rule, expectedDigest: string | null) {
+    const file = await this.files.digest(repo, archive, path);
     if (file.status !== "read" && file.status !== "missing") return fail(file.status, file.reason);
     const actualDigest = file.status === "read" ? file.digest : null;
     const passes = rule.operation === "file-exists" ? actualDigest !== null : actualDigest !== null && actualDigest === expectedDigest;
@@ -201,7 +210,7 @@ export class EvaluationSuites {
     if (input.reference) {
       const source = await this.delivery(input.reference.runId, input.reference.deliveryId, repo);
       if (!source.ok) return source;
-      const file = await this.deps.archive.fileDigest(repo, source.value.archive, input.reference.path);
+      const file = await this.files.digest(repo, source.value.archive, input.reference.path);
       if (file.status !== "read") return fail(file.status === "missing" ? "not-found" : file.status, file.reason);
       reference = { archive: measurementArchive(source.value.source), taskRunId: input.reference.runId, deliveryId: input.reference.deliveryId, path: input.reference.path, digest: file.digest };
     }
@@ -232,6 +241,8 @@ export class EvaluationSuites {
     const delivery = await this.delivery(input.runId, input.deliveryId, repo);
     if (!delivery.ok) return delivery;
     if (!sameRef(delivery.value.taskRevision, selected.taskRevision)) return fail("conflict", "delivery uses a different task revision");
+    const frozenSource:Source=selected.source, currentSource:Source=delivery.value.source;
+    if (frozenSource.artifactSlot!==currentSource.artifactSlot) return fail("conflict","delivery does not match the frozen output slot");
     if (test) {
       const source = delivery.value.source;
       const plan = {suite:refOf(revision), caseKey:selected.key, bindingKey:binding.key, runId:input.runId,
