@@ -140,5 +140,6 @@ export interface WorkRepositories {
 
 /** Everything inside `run` commits together or not at all. A read unit rejects writes. */
 export interface WorkUnitOfWork {
+  verifyEvidence(ref:import("./evidence.js").EvidenceRef):Promise<void>;
   run<T>(mode: "read" | "write", work: (repositories: WorkRepositories) => Promise<T>): Promise<T>;
 }

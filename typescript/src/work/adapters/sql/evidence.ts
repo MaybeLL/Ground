@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { SQLClient } from "../../../sql-client.js";
 import { isDigest } from "../../domain/index.js";
-import { evidenceChunkBytes as chunkSize, StorageFailure, type EvidenceRepository, type EvidenceSource } from "../../ports/index.js";
+import { evidenceChunkBytes as chunkSize, StorageFailure, type EvidenceRef, type EvidenceRepository, type EvidenceSource } from "../../ports/index.js";
 
 const fingerprint = (bytes: Uint8Array) => "sha256:" + createHash("sha256").update(bytes).digest("hex");
 const invalid = (reason: string) => new StorageFailure("integrity",reason);
@@ -24,25 +24,28 @@ export class SqlEvidence implements EvidenceRepository {
     return row.bytes;
   }
 
-  async verify(digest: string) {
-    const ref = await this.describe(digest);
-    if (!ref) throw invalid("evidence manifest missing");
-    const hash = createHash("sha256");
-    // Read at most 2 MiB per page while checking every ordinal and chunk digest.
+  /** Business transactions reuse their own client; gate verification can release its read lock between pages. */
+  static async verifyPages(digest:string,read:<T>(fn:(evidence:SqlEvidence)=>Promise<T>)=>Promise<T>,expected?:EvidenceRef) {
+    const ref=await read(e=>e.describe(digest));
+    if (!ref || expected && (ref.byteLength!==expected.byteLength || ref.chunkCount!==expected.chunkCount)) throw invalid("evidence manifest missing or inconsistent");
+    const hash=createHash("sha256");
     for (let first=0;first<ref.chunkCount;first+=32) {
       const end=Math.min(first+32,ref.chunkCount);
-      const rows=await this.client.all("SELECT ordinal, bytes, chunk_digest FROM work_evidence_chunks WHERE digest = ? AND ordinal >= ? AND ordinal < ? ORDER BY ordinal",[digest,first,end]);
+      const rows=await read(e=>e.client.all("SELECT ordinal, bytes, chunk_digest FROM work_evidence_chunks WHERE digest = ? AND ordinal >= ? AND ordinal < ? ORDER BY ordinal",[digest,first,end]));
       if (rows.length!==end-first) throw invalid("missing or incorrectly sized evidence chunk");
       for (const [offset,row] of rows.entries()) {
-        const i=first+offset;
-        const data=row.bytes;
+        const i=first+offset, data=row.bytes;
         if (Number(row.ordinal)!==i || !(data instanceof Uint8Array) || data.length!==Math.min(chunkSize,ref.byteLength-i*chunkSize)) throw invalid("missing or incorrectly sized evidence chunk");
         if (fingerprint(data)!==row.chunk_digest) throw invalid("evidence chunk failed its digest check");
         hash.update(data);
       }
     }
-    const count = await this.client.get("SELECT COUNT(*) AS total FROM work_evidence_chunks WHERE digest = ?",[digest]);
-    if (Number(count?.total) !== ref.chunkCount || "sha256:" + hash.digest("hex") !== digest) throw invalid("evidence does not match its manifest");
+    const count=await read(e=>e.client.get("SELECT COUNT(*) AS total FROM work_evidence_chunks WHERE digest = ?",[digest]));
+    if (Number(count?.total)!==ref.chunkCount || "sha256:"+hash.digest("hex")!==digest) throw invalid("evidence does not match its manifest");
+  }
+
+  verify(digest:string) {
+    return SqlEvidence.verifyPages(digest,fn=>fn(this));
   }
 
   async put(source: EvidenceSource) {

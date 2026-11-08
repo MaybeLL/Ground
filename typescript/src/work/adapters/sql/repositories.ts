@@ -273,6 +273,9 @@ export function repositoriesOver(client: SQLClient, writable: boolean): WorkRepo
 /** The work model's unit of work over the ledger's SQL store: one transaction, retried by the store on transient failures. */
 export class SqlWorkUnitOfWork implements WorkUnitOfWork {
   constructor(private readonly store: SQLStore) {}
+  verifyEvidence(ref:import("../../ports/index.js").EvidenceRef) {
+    return SqlEvidence.verifyPages(ref.digest,fn=>this.store.transaction(false,client=>fn(new SqlEvidence(client,false))),ref);
+  }
   run<T>(mode: "read" | "write", work: (repositories: WorkRepositories) => Promise<T>): Promise<T> {
     return this.store.transaction(mode === "write", client => work(repositoriesOver(client, mode === "write")));
   }

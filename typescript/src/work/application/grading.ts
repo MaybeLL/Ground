@@ -62,21 +62,18 @@ export class Grading {
       if (!run) return fail("not-found","task run does not exist");
       if (run.status!=="delivered") return fail("conflict","only a delivered run can be accepted");
       const evidence=await gateEvidence(r,run);
-      for (const ref of evidence.values()) {
-        const digest=ref.digest;
-        try {
-          const stored=await r.evidence.describe(digest);
-          if (!stored || stored.byteLength!==ref.byteLength || stored.chunkCount!==ref.chunkCount) return fail("unavailable","archived transcript metadata is missing or inconsistent");
-          await r.evidence.verify(digest);
-        } catch (error) {
-          if (error instanceof StorageFailure && error.reason==="integrity") return fail("unavailable","archived transcript evidence is incomplete");
-          throw error;
-        }
-      }
-      const fingerprint=evidenceFingerprint(evidence,this.deps.hash);
-      return fingerprint.ok ? succeed(fingerprint.value) : fromRejection(fingerprint.error);
+      return succeed(evidence);
     });
     if (!snapshot.ok) return snapshot;
+    const checked=snapshot.value ?? new Map<string,TraceBlob>();
+    try {
+      for (const ref of checked.values()) await this.deps.units.verifyEvidence(ref);
+    } catch (error) {
+      if (error instanceof StorageFailure && error.reason==="integrity") return fail("unavailable","archived transcript evidence is incomplete");
+      throw error;
+    }
+    const checkedFingerprint=evidenceFingerprint(checked,this.deps.hash);
+    if (!checkedFingerprint.ok) return fromRejection(checkedFingerprint.error);
     return once<GateRequested>(this.context, { requestId: input.requestId, kind: "request-gate", input: input as unknown as JsonValue, subject: { type: "task_run", id: input.taskRunId } }, async r => {
       const run = await r.taskRuns.get(input.taskRunId);
       if (!run) return fail("not-found", `run ${input.taskRunId} does not exist`);
@@ -92,7 +89,7 @@ export class Grading {
       const evidence=await gateEvidence(r,run);
       const fingerprint=evidenceFingerprint(evidence,this.deps.hash);
       if (!fingerprint.ok) return fromRejection(fingerprint.error);
-      if (fingerprint.value!==snapshot.value) return fail("stale","the run's transcript evidence changed during verification");
+      if (fingerprint.value!==checkedFingerprint.value) return fail("stale","the run's transcript evidence changed during verification");
       if (materials.some(m=>/^(transcript|events):/.test(m.id) && !evidence.has(m.id))) return fail("invalid","transcript materials must refer to evidence archived for this run");
       for (const [id,ref] of evidence) {
         const digest=ref.digest;
