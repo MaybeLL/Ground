@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { inspectionEnvironment } from "../git/inspection-environment.js";
-import { atomicPrivateWrite } from "../../../runtime-files.js";
+import { atomicPrivateWrite, privateDirectory } from "../../../runtime-files.js";
 import { pinnedConfig } from "./config.js";
 import { dataLayout } from "../../../data-layout.js";
 import type { ManagedWorkspacePort, RuntimeOwner } from "../../ports/index.js";
@@ -18,6 +18,12 @@ export class ManagedWorkspaces implements ManagedWorkspacePort {
   root(owner: RuntimeOwner) {
     if (![owner.ledgerId, owner.sandboxId].every(id => /^[0-9a-f-]{36}$/.test(id))) throw new Error("invalid managed workspace identity");
     return join(this.directory, "sandboxes", owner.ledgerId, owner.sandboxId);
+  }
+
+  setupRoot(owner: RuntimeOwner) {
+    if (!owner.setupAttempt) return this.root(owner);
+    if (!/^[a-f0-9-]{36}$/.test(owner.setupAttempt)) throw new Error("invalid setup attempt identity");
+    return privateDirectory(join(this.root(owner), "setup-attempts", owner.setupAttempt));
   }
 
   async prepare(owner: RuntimeOwner, repository: string, commit: string, content: { config: string; lockfile: string | null; imageDigest: string }) {
@@ -51,13 +57,13 @@ export class ManagedWorkspaces implements ManagedWorkspacePort {
   }
 
   async receipt(owner: RuntimeOwner) {
-    try { return (await readFile(join(this.root(owner), "container-id"), "utf8")).trim(); }
+    try { return (await readFile(join(this.setupRoot(owner), "container-id"), "utf8")).trim(); }
     catch (error) { if (absent(error)) return null; throw error; }
   }
   async record(owner: RuntimeOwner, id: string) {
     if (!/^[0-9a-f]{64}$/.test(id)) throw new Error("invalid container receipt");
     const existing = await this.receipt(owner);
     if (existing !== null && existing !== id) throw new Error("sandbox completion receipt already identifies a different container");
-    if (existing === null) atomicPrivateWrite(join(this.root(owner), "container-id"),id);
+    if (existing === null) atomicPrivateWrite(join(this.setupRoot(owner), "container-id"),id);
   }
 }

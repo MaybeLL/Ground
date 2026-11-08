@@ -3,14 +3,15 @@ import type { ManagedProcessPort, ProcessPlan, WorkerTarget } from "../ports/ind
 import { fail, succeed, type Outcome } from "../application/outcome.js";
 import type { ManagedWorkers, ManagedContext } from "../application/managed-workers.js";
 import type { SandboxProvisioning } from "../application/sandbox-provisioning.js";
+import type { ArchiveRepairs } from "../application/archive-repairs.js";
 import type { SandboxLifecycle } from "../application/sandbox-lifecycle.js";
 
 type DriveObservation = {state: DriveState; detail?: string; providerStopped?: boolean};
 export type DriveState = "running" | "blocked" | "awaiting-resume" | "terminal";
-type Deps = {workers:ManagedWorkers;sandboxes:SandboxProvisioning;lifecycle:SandboxLifecycle;process:ManagedProcessPort;ledgerId():Promise<string>};
+type Deps = {repairs: ArchiveRepairs; workers:ManagedWorkers;sandboxes:SandboxProvisioning;lifecycle:SandboxLifecycle;process:ManagedProcessPort;ledgerId():Promise<string>};
 
 function taskPrompt(context:ManagedContext):string {
-  return JSON.stringify({task:context.task.summary,criteria:context.task.criteria,context:context.task.context??"",outputContract:{
+  return JSON.stringify({task:context.task.summary,criteria:context.task.criteria,...(context.run.refines ? {refinement:{parentRunId:context.run.refines,baseCommit:context.job.baseline,workspace:context.run.environment?.source==="inherited"?"retained":"fresh"}} : {}),context:context.task.context??"",outputContract:{
     type:"coding",instructions:"Implement the task in the current Git checkout. Commit the delivery locally. Return a final JSON object with candidate.commit equal to its full Git commit ID.",
     example:{candidate:{commit:"<full commit ID>"}},
   }});
@@ -59,7 +60,7 @@ export class ManagedTaskDriver {
     const plan:ProcessPlan={job:ctx.job,target,agent:ctx.agent,prompt:taskPrompt(ctx)};
     if(ctx.run.cancelIntent || isTerminal(ctx.run)) {
       if(ctx.job.dockerExecId)await this.deps.process.stop(plan,true);
-      const done=await this.deps.workers.infrastructure(runId,"managed worker cancelled",true);
+      const done=await this.deps.workers.infrastructure(runId,ctx.run.failure?.detail ?? "managed worker cancelled",true);
       return done.ok ? succeed({state:"terminal"}) : done;
     }
     if(!ctx.job.dockerExecId && !allowStart)return succeed({state:"awaiting-resume",detail:"worker has not started"});
@@ -121,7 +122,12 @@ export class ManagedTaskDriver {
     if (commit && !rejected) {
       if (!ctx.baseline) return fail("conflict", "managed baseline is missing");
       let published;
-      try { published = await this.deps.process.candidate(plan, commit, ctx.baseline, ctx.job.remote, allowPublish); }
+      try {
+        const parent = ctx.job.parentCandidate;
+        const current = parent && await this.deps.repairs.current(parent.runId, parent, ctx.job.repositoryPath);
+        const source = current ? {...plan, job: {...plan.job, parentReceipt: current.receipt}} : plan;
+        published = await this.deps.process.candidate(source, commit, ctx.baseline, ctx.job.remote, allowPublish);
+      }
       catch { published = {status: "unavailable" as const, reason: "the frozen candidate archive is temporarily unavailable"}; }
       if (published.status === "unavailable") {
         const blocked = await this.deps.workers.archiveUnavailable(ctx.run.id, published.reason);

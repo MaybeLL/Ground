@@ -1,13 +1,14 @@
-import { completeRelease, completeReservation, digestOf, isId, reserve, isTerminal, markBlocked } from "../domain/index.js";
+import { completeRelease, completeReservation, failTransferredSetup, failInfrastructure, digestOf, isId, reserve, isTerminal, markBlocked, type Sandbox } from "../domain/index.js";
 import type { SandboxRuntimePort, WorkRepositories } from "../ports/index.js";
 import { fail, fromRejection, succeed, type Outcome } from "./outcome.js";
+import type { RetainedSetup } from "./retained-setup.js";
 import type { RequestContext } from "./requests.js";
 
 type Action = "pause" | "release";
 type Result = { sandboxId: string; runId: string; phase: "blocked" | "paused" | "released" };
 
 export class SandboxLifecycle {
-  constructor(private readonly deps: RequestContext & { runtime: SandboxRuntimePort; ledgerId(): Promise<string> }) {}
+  constructor(private readonly deps: RequestContext & { setup?: RetainedSetup; runtime: SandboxRuntimePort; ledgerId(): Promise<string> }) {}
 
   async completeTransfer(runId: string, allowResume: boolean): Promise<Outcome<null>> {
     const sandbox = await this.deps.units.run("read", async r => {
@@ -20,22 +21,63 @@ export class SandboxLifecycle {
     const owner = {ledgerId: await this.deps.ledgerId(), sandboxId: sandbox.id};
     try {
       return await this.deps.runtime.exclusive(owner, async () => {
+        const facts = await this.deps.units.run("read", async r => {
+          const run = await r.taskRuns.get(runId);
+          const current = await r.sandboxes.get(sandbox.id);
+          const launch = (await r.intents.listForSubject("launch-devcontainer", "sandbox", sandbox.id))[0];
+          return {ended: !run || isTerminal(run) || !!run.cancelIntent, current, launch};
+        });
+        if (facts.current?.owner.id !== runId) return fail("conflict", "sandbox owner changed before transfer");
+        if (!facts.current.reservation) return succeed(null);
+        if (facts.current.reservation.operationId !== reservation.operationId) return fail("conflict", "sandbox reservation changed before transfer");
         const location = await this.deps.runtime.location();
         if (sandbox.location?.hostId !== location.hostId || sandbox.location.daemonId !== location.daemonId) return fail("conflict", "the retained sandbox is on another host");
-        const observed = await this.deps.runtime.observe(owner);
-        if (!observed || observed.id !== sandbox.runtime?.instanceId) return fail("unavailable", "retained container is unavailable");
-        if (observed.state !== "running") {
+        let observed = await this.deps.runtime.observe(owner);
+        let expected = sandbox.runtime;
+        const originalSetup = facts.launch?.state === "completed" && (facts.launch.result as {instanceId?: string}).instanceId === observed?.id;
+        const trusted = observed && expected?.instanceId === observed.id && !expected.setupFailed && (expected.setupAttempt || originalSetup);
+        let preparedRuntime: Sandbox["runtime"];
+        if (!trusted && (!facts.ended || observed && observed.id !== expected?.instanceId)) {
+          if (!this.deps.setup) return fail("unavailable", "the retained sandbox needs verified devcontainer setup");
+          const prepared = await this.deps.setup.verifyOrPrepare(sandbox, owner, reservation.operationId, allowResume && !facts.ended);
+          if (!prepared.ok) {
+            if (!await this.deps.setup.failed(owner, reservation.operationId)) return prepared;
+            const partial = await this.deps.runtime.observe(owner);
+            return this.deps.units.run("write", async r => {
+              const run = await r.taskRuns.get(runId, {lock:true});
+              const sb = await r.sandboxes.get(sandbox.id, {lock:true});
+              if (!run?.environment || sb?.owner.id !== runId) return fail("conflict", "failed setup owner changed");
+              const at = this.deps.now();
+              const blocked = failTransferredSetup(sb, {operationId:reservation.operationId, environmentRevisionId:run.environment.revision.revisionId,
+                instanceId:partial?.id, quiescent:partial?.state !== "running", at});
+              if (!blocked.ok) return fromRejection(blocked.error);
+              if (!isTerminal(run)) {
+                const ended = failInfrastructure(run, {detail:"retained setup failed", at});
+                if (!ended.ok) return fromRejection(ended.error);
+                await r.taskRuns.save(ended.value.state, run.version);
+              }
+              await r.sandboxes.save(blocked.value.state, sb.version);
+              return succeed(null);
+            });
+          }
+          preparedRuntime = expected = prepared.value;
+          observed = await this.deps.runtime.observe(owner);
+        }
+        if (observed && observed.id !== expected?.instanceId) return fail("conflict", "retained container identity changed");
+        if (!facts.ended && observed && observed.state !== "running") {
           if (!allowResume) return fail("unavailable", "retained container needs an explicit resume");
           await this.deps.runtime.resume(owner, observed.id);
         }
         const verified = await this.deps.runtime.observe(owner);
-        if (verified?.id !== observed.id || verified.state !== "running") return fail("unavailable", "retained container resume is unconfirmed");
+        if (verified && verified.id !== expected?.instanceId) return fail("conflict", "retained instance changed during transfer");
+        if (!facts.ended && verified?.state !== "running") return fail("unavailable", "retained container resume is unconfirmed");
+        const observation = verified?.state ?? "absent";
         return this.deps.units.run("write", async r => {
           const current = await r.sandboxes.get(sandbox.id, {lock: true});
           if (!current || current.owner.id !== runId || current.reservation?.operationId !== reservation.operationId) {
             return fail("conflict", "retained sandbox reservation changed");
           }
-          const done = completeReservation(current, {operationId: reservation.operationId, at: this.deps.now(), runtimeReady: true});
+          const done = completeReservation(current, {operationId: reservation.operationId, at: this.deps.now(), ...(observation === "running" ? {runtimeReady: true} : {pauseObservation: observation}), ...(preparedRuntime ? {preparedRuntime} : {})});
           if (!done.ok) return fromRejection(done.error);
           await r.sandboxes.save(done.value.state, current.version);
           return succeed(null);
@@ -143,6 +185,10 @@ export class SandboxLifecycle {
     });
     if (!facts?.sandbox || facts.sandbox.owner.id !== runId || facts.sandbox.phase === "released") return succeed(null);
     const {run,sandbox} = facts;
+    if (sandbox.reservation?.kind === "transfer") {
+      const observed = await this.completeTransfer(runId, false);
+      return observed.ok ? this.settleRun(runId) : observed;
+    }
     if (sandbox.phase === "preparing") return succeed(null); // preparation reconciles a racing termination
     const prior = facts.pending?.payload as { action?: Action } | undefined;
     if (facts.pending && (prior?.action === "pause" || prior?.action === "release")) {
@@ -151,7 +197,7 @@ export class SandboxLifecycle {
     }
     const action = run.retention === "release" ? "release" : "pause";
     if (action === "pause" && (sandbox.phase === "paused" || (sandbox.phase === "blocked" && (!sandbox.runtime || sandbox.blockedRuntimeQuiescent)))) return succeed(null);
-    const result = await this.lifecycle("terminal-" + action + "-" + sandbox.id,runId,action);
+    const result = await this.lifecycle("terminal-" + action + "-" + runId,runId,action);
     return result.ok ? succeed(null) : result;
   }
 

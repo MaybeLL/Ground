@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { execute, runCLI } from "../src/cli.js";
+import { execute, openStore, runCLI } from "../src/cli.js";
 import { signalHostProcessLeader } from "../src/env-process.js";
 import { dataLayout } from "../src/data-layout.js";
 import { hostDirectory } from "../src/managed-host-client.js";
@@ -811,14 +811,15 @@ test("managed worker runs a refinement in its retained workspace with the origin
     const image = process.env.GROUNDS_TEST_MANAGED_AGENT!;
     const digest = docker("image", "inspect", "--format", "{{.Id}}", image);
     const config = join(h.directory, "devcontainer.json");
-    writeFileSync(config, JSON.stringify({image, workspaceFolder: "/work"}));
+    writeFileSync(config, JSON.stringify({image, overrideCommand: false, workspaceFolder: "/work",
+      postCreateCommand: "test -f .setup-first || { touch .setup-first; exit 1; }; test -f .setup-second || { touch .setup-second; exit 1; }"}));
     const define = ["work", "define-environment", "--name", "retained", "--devcontainer", config, "--image-digest", digest];
     const environment = ok(await h.cli(...define));
     const task = ok(await h.cli("task", "create", "--title", "handoff fixture", "--criterion", "use notes", "--environment", environment.environmentId, "--repo-remote", h.remote, "--baseline", h.baseline));
     const agent = ok(await h.cli("work", "define-agent", "--name", "fixture", "--provider", "codex"));
     const managed = ["--mode", "managed", "--agent", agent.agentId, "--repo", h.repo];
     const ledger = ok(await h.cli("db", "status")).database_id;
-    const awaitDelivery = async (runId: string) => {
+    const awaitDelivery = async (runId: string, expected = "delivered") => {
       const deadline = Date.now() + 45_000;
       let status;
       do {
@@ -826,19 +827,38 @@ test("managed worker runs a refinement in its retained workspace with the origin
         if (status.status === "delivered" || status.host?.state === "blocked" || status.status === "failed") break;
         await new Promise(resolve => setTimeout(resolve, 200));
       } while (Date.now() < deadline);
-      assert.equal(status.status, "delivered", JSON.stringify(status));
+      assert.equal(status.status, expected, JSON.stringify(status));
       await withRuntimeLock(join(dataLayout().runtime, "managed-host"), "execution-" + status.executionId, async () => {}, 10_000);
       return ok(await h.cli("work", "run", "--run", runId)).run;
     };
     try {
-      const first = ok(await h.cli("work", "start", "--task", task.taskId, ...managed));
+      const failed = ok(await h.cli("work", "start", "--task", task.taskId, ...managed));
+      const unprepared = await awaitDelivery(failed.runId, "failed");
+      const partial = docker("ps", "-aq", "--filter", "label=dev.grounds.sandbox=" + unprepared.sandboxId);
+      assert.ok(partial);
+      const retry = ok(await h.cli("work", "continue", "--work", failed.workId, "--expected-head", failed.runId, ...managed));
+      const stillBlocked = await awaitDelivery(retry.runId, "failed");
+      assert.equal(stillBlocked.sandboxId, unprepared.sandboxId);
+      const first = ok(await h.cli("work", "continue", "--work", failed.workId, "--expected-head", retry.runId, ...managed));
       const parent = await awaitDelivery(first.runId);
-      writeFileSync(config, JSON.stringify({image, workspaceFolder: "/new-workspace"}));
+      assert.equal(parent.sandboxId, unprepared.sandboxId);
+      const replacement = docker("ps", "-aq", "--filter", "label=dev.grounds.sandbox=" + parent.sandboxId);
+      assert.ok(replacement && replacement !== partial);
+      writeFileSync(config, JSON.stringify({image, overrideCommand: false, workspaceFolder: "/new-workspace"}));
+      const originalTag = "refs/tags/grounds/deliveries/" + parent.manifest.items[0].id;
+      const repairSource = join(h.directory, "repair-source.git");
+      execFileSync("git", ["clone", "--bare", "--quiet", h.remote, repairSource]);
+      const fixedCommit = git(repairSource, "rev-parse", originalTag);
+      git(h.remote, "update-ref", "-d", originalTag);
+      ok(await h.cli("work", "repair", "--run", first.runId, "--delivery", parent.manifest.items[0].id, "--repo", repairSource));
+      assert.throws(() => git(h.repo, "cat-file", "-e", fixedCommit));
       const newer = ok(await h.cli(...define, "--environment", environment.environmentId, "--expected-seq", "1"));
       const next = ["work", "continue", "--work", first.workId, "--expected-head", first.runId, ...managed];
       assert.equal((await h.cli(...next, "--environment-revision", newer.revisionId)).ok, false);
       const child = ok(await h.cli(...next));
       const run = await awaitDelivery(child.runId);
+      const container = docker("ps", "-aq", "--filter", "label=dev.grounds.sandbox=" + parent.sandboxId);
+      assert.equal(docker("inspect", "-f", "{{.State.Paused}}", container), "true", docker("inspect", "-f", "{{json .State}}", container));
       assert.equal(run.sandboxId, parent.sandboxId);
       assert.equal(run.environment.source, "inherited");
       assert.equal(run.environment.revision.revisionId, parent.environment.revision.revisionId);
@@ -846,6 +866,21 @@ test("managed worker runs a refinement in its retained workspace with the origin
       assert.equal(git(h.remote, "show", tag + ":result.txt"), "inherited uncommitted note");
       assert.equal(git(h.remote, "ls-tree", "--name-only", tag, "scratch-note"), "");
       assert.equal((await h.cli("work", "branch", "--work", first.workId, "--refines", first.runId, ...managed, "--sandbox", "inherit")).ok, false);
+      // Crash after admission, before the receiver dispatches: cancellation
+      // must settle the transfer while preserving the retained, paused runtime.
+      const opened = await openStore(join(h.directory, "config.yaml"));
+      let cancelledRun;
+      try {
+        const {composeWork} = await import("../src/work/composition.js");
+        const app = composeWork(opened.store);
+        const admitted = await app.exec.continueWork({requestId: newUUIDv7(), workId: first.workId, expectedHead: child.runId,
+          workerMode: "managed", agent: {definitionId: agent.agentId, repositoryPath: h.repo}});
+        assert.ok(admitted.ok);
+        cancelledRun = admitted.value.runId;
+      } finally { await opened.store.close(); }
+      const cancelled = ok(await h.cli("work", "cancel", "--run", cancelledRun));
+      assert.equal(cancelled.status, "cancelled");
+      assert.equal(docker("inspect", "-f", "{{.State.Paused}}", container), "true", docker("inspect", "-f", "{{json .State}}", container));
       ok(await h.cli("work", "close", "--work", first.workId));
     } finally {
       for (const id of docker("ps", "-aq", "--filter", "label=dev.grounds.ledger=" + ledger).split("\n").filter(Boolean)) docker("rm", "-f", id);

@@ -90,3 +90,6 @@ When resuming partially created MySQL evidence tables, the upgrade account must 
 先通过 `work define-environment` 登记 devcontainer 环境，在任务定义中引用该环境。镜像须包含 Git 及选定的 Agent 命令。使用 `work define-agent --name NAME --provider codex|claude-code` 登记 Agent，可通过 `--model` 固定模型。随后执行 `work start --mode managed --task TASK --agent AGENT --repo PATH`。返回的 runId 可用于 `work managed-status --run RUN` 查询任务状态、Agent 执行阶段、停止证明和已封存的轨迹。
 
 任务要求 Agent 在容器工作区提交修改，最终输出形如 `{"candidate":{"commit":"完整 Git OID"}}` 的 JSON。宿主核实起始提交、候选提交和远端归档回执后记录交付。宿主报告等待恢复时，可执行 `work resume-managed --run RUN` 续接。已开始的模型调用只做状态核对。
+
+
+托管精化默认在 `work continue` 接手工作头保留的沙箱。使用 `--sandbox fresh` 可从父交付创建新的工作区。`work branch` 默认新建工作区，可用 `--sandbox inherit` 请求接手。接手保留未提交的文件并继承父运行的环境修订。请求的环境与保留沙箱冲突时，可改选新沙箱。父运行的正式交付提交会作为精化输入提供给工作者。

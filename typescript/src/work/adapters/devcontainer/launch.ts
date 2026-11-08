@@ -14,7 +14,7 @@ export class DurableSandboxLauncher implements SandboxLauncher {
   constructor(private readonly workspaces: ManagedWorkspaces) {}
 
   async status(owner: RuntimeOwner): Promise<LaunchObservation> {
-    const root = this.workspaces.root(owner);
+    const root = this.workspaces.setupRoot(owner);
     if (!existsSync(marker(root))) return "not-started";
     const state = safeRead(marker(root),64).toString();
     if (state === "completed" || state === "failed") return state;
@@ -31,7 +31,7 @@ export class DurableSandboxLauncher implements SandboxLauncher {
   }
 
   async cancelPending(owner: RuntimeOwner): Promise<boolean> {
-    const root = this.workspaces.root(owner);
+    const root = this.workspaces.setupRoot(owner);
     return withRuntimeLock(root,"launch",async () => {
       if (existsSync(marker(root))) return false;
       atomicPrivateWrite(marker(root),"failed");
@@ -40,7 +40,7 @@ export class DurableSandboxLauncher implements SandboxLauncher {
   }
 
   async start(owner: RuntimeOwner, workspace: RuntimeWorkspace, location: RuntimeLocation) {
-    const root = this.workspaces.root(owner), path = join(root,"launch.json");
+    const root = this.workspaces.setupRoot(owner), path = join(root,"launch.json");
     const contents = JSON.stringify({ owner, workspace, location } satisfies Plan);
     if (existsSync(path)) {
       if (safeRead(path,32768).toString() !== contents) throw new Error("conflicting sandbox launch plan");
@@ -57,7 +57,7 @@ export class DurableSandboxLauncher implements SandboxLauncher {
 export async function runLaunchHelper(path: string) {
   const plan = JSON.parse(safeRead(path,32768).toString()) as Plan;
   const workspaces = new ManagedWorkspaces();
-  const root = workspaces.root(plan.owner);
+  const root = workspaces.setupRoot(plan.owner);
   if (path !== join(root,"launch.json")) throw new Error("unexpected sandbox launch plan path");
   await withRuntimeLock(root,"launch",async fd => {
     if (existsSync(marker(root))) return;

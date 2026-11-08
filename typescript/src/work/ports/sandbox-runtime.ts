@@ -1,7 +1,7 @@
 // Sandbox IDs are scoped to a ledger. Only immutable Docker IDs may be used
 // for lifecycle operations after verifying both labels.
 export type RuntimeLocation = { hostId: string; daemonId: string };
-export type RuntimeOwner = { ledgerId: string; sandboxId: string };
+export type RuntimeOwner = { ledgerId: string; sandboxId: string; setupAttempt?: string };
 export type RuntimeState = { id: string; state: "running" | "paused" | "stopped" };
 export type RuntimeWorkspace = { path: string; configPath: string; containerFolder?: string; imageDigest?: string; frozenLockfile?: boolean };
 export interface SandboxRuntimePort {

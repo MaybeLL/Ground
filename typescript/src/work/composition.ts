@@ -19,6 +19,7 @@ import { commandLineProviders } from "./adapters/providers/command-line.js";
 import { ManagedWorkers } from "./application/managed-workers.js";
 import { ManagedTaskDriver } from "./driver/managed-task.js";
 import { ContainerAgentProcess } from "./adapters/devcontainer/managed-process.js";
+import { RetainedSetup } from "./application/retained-setup.js";
 import { AgentDefinitions } from "./application/agent-definitions.js";
 import { RuleDefinitions } from "./application/rule-definitions.js";
 import { EvaluationSuites } from "./application/evaluation-suites.js";
@@ -32,9 +33,10 @@ export function composeWork(store: SQLStore): WorkApplication & {driver:ManagedT
   const shared = { units, clock: { now: () => new Date().toISOString() }, ids: { next: newUUIDv7 }, hash: (text: string) => createHash("sha256").update(text).digest("hex") };
   const context = { units, hash: shared.hash, now: shared.clock.now, newId: newUUIDv7 };
   const runtime = new DevcontainerRuntime(), ledgerId = async () => (await store.inspect()).database_id;
-  const lifecycle = new SandboxLifecycle({ ...context, runtime, ledgerId });
-  const workspaces = new ManagedWorkspaces();
-  const managed = { ...context, lifecycle, runtime, ledgerId, workspaces, launcher:new DurableSandboxLauncher(workspaces) };
+  const workspaces = new ManagedWorkspaces(), launcher = new DurableSandboxLauncher(workspaces);
+  const setup = new RetainedSetup({units, runtime, workspaces, launcher});
+  const lifecycle = new SandboxLifecycle({ ...context, runtime, ledgerId, setup });
+  const managed = { ...context, lifecycle, runtime, ledgerId, workspaces, launcher };
   const recovery = new SandboxRecovery(managed);
   const agents = new AgentDefinitions(context,commandLineProviders,archive);
   const exec = new TaskExecution({ ...shared, agents, receipts: archive, lifecycle, recovery });
@@ -46,6 +48,6 @@ export function composeWork(store: SQLStore): WorkApplication & {driver:ManagedT
   const delivery = new CodeDelivery({ units, exec, archive, repairs, worktrees: new GitWorktrees() });
   const sandboxes = new SandboxProvisioning({ ...managed, delivery }, recovery);
   const workers=new ManagedWorkers({...context,lifecycle});
-  const driver=new ManagedTaskDriver({workers,sandboxes,lifecycle,ledgerId,process:new ContainerAgentProcess(runtime,workspaces,archive)});
+  const driver=new ManagedTaskDriver({repairs,workers,sandboxes,lifecycle,ledgerId,process:new ContainerAgentProcess(runtime,workspaces,archive)});
   return { workers,driver,agents, traces:new ProviderTraces(context,new ProviderTraceCapture()), lifecycle, sandboxes, environments, rules, suites, repairs, tasks: new TaskDefinitions(shared), exec, grading: new Grading(shared), delivery };
 }

@@ -11,7 +11,32 @@ type ProvisionDeps = RecoveryDeps & { delivery: CodeDelivery };
 export class SandboxProvisioning {
   private readonly recovery: SandboxRecovery;
   constructor(private readonly deps: ProvisionDeps, recovery?: SandboxRecovery) { this.recovery = recovery ?? new SandboxRecovery(deps); }
-  reconcile(runId: string) { return this.recovery.reconcile(runId); }
+  async reconcile(runId: string) {
+    return await this.transferred(runId, false) ?? this.recovery.reconcile(runId);
+  }
+
+  private async transferred(runId: string, allowResume: boolean): Promise<Outcome<Prepared> | undefined> {
+    const facts = await this.deps.units.run("read", async r => {
+      const run = await r.taskRuns.get(runId);
+      if (!run?.sandboxId || run.environment?.source !== "inherited") return;
+      const [intent] = await r.intents.listForSubject("managed-worker", "task_run", runId);
+      return {run, sandbox: await r.sandboxes.get(run.sandboxId), job: intent?.payload as {baseline:string}};
+    });
+    if (!facts) return;
+    if (isTerminal(facts.run) || facts.run.cancelIntent || facts.sandbox?.owner.id !== runId) return fail("conflict", "run no longer controls the transferred workspace");
+    if (facts.sandbox.reservation?.kind === "transfer") {
+      const settled = await this.deps.lifecycle.completeTransfer(runId, allowResume);
+      return settled.ok ? this.transferred(runId, false) : settled;
+    }
+    const sb = facts.sandbox;
+    if (sb.phase !== "ready" || !sb.runtime || !facts.job) return fail("unavailable", "transferred sandbox is not ready");
+    const owner = {ledgerId: await this.deps.ledgerId(), sandboxId: sb.id};
+    const location = await this.deps.runtime.location();
+    if (location.hostId !== sb.location?.hostId || location.daemonId !== sb.location.daemonId) return fail("conflict", "transferred sandbox belongs to another host");
+    const observed = await this.deps.runtime.observe(owner);
+    if (observed?.id !== sb.runtime.instanceId || observed.state !== "running") return fail("unavailable", "cannot verify the retained instance");
+    return succeed({runId, sandboxId: sb.id, environmentRevisionId: sb.runtime.environmentRevisionId, commit: facts.job.baseline, phase: "ready", instanceId: observed.id});
+  }
 
   async prepare(requestId: string, runId: string, repository: string): Promise<Outcome<Prepared>> {
     if (!isId(requestId) || !isId(runId)) return fail("invalid", "provide a run and operation identity");
@@ -26,6 +51,8 @@ export class SandboxProvisioning {
       return {allowed: job?.repositoryPath === repository, baseline: job?.baseline, useTaskBaseline};
     });
     if (!authorized.allowed) return fail("forbidden", "this repository was not selected for the managed worker");
+    const inherited = await this.transferred(runId, true);
+    if (inherited) return inherited;
     const kind = "reserve-task-sandbox";
     const input = { runId, repository };
     const saved = await this.deps.units.run("read", async r => await r.intents.findByRequest(requestId) ??

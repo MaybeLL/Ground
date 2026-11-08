@@ -356,3 +356,48 @@ for (const backend of backends) test(backend + ": managed admission, archive out
     } finally { await trace.dispose(); }
   }, backend);
 });
+
+for (const backend of backends) test(backend + ": one refinement inherits the retained sandbox and conflicts roll back", {skip: backendSkip(backend)}, async () => {
+  await scenario(async ({app, store, repo, remote, baseline}) => {
+    const env = value(await app.environments.publish({requestId:"env", name:"inherited", expectedSeq:0,
+      config:'{"image":"fixture","workspaceFolder":"/work"}', imageDigest:"sha256:" + "1".repeat(64)}));
+    const task = value(await app.tasks.createTask({requestId:"task", summary:"handoff", criteria:[{statement:"isolated"}],
+      environmentDefinitionId:env.environmentId, repository:{remote,baseline}}));
+    const agent = value(await app.agents.publish({requestId:"agent", name:"fixture", provider:"codex", expectedSeq:0}));
+    const selection = {workerMode:"managed" as const, agent:{definitionId:agent.agentId, repositoryPath:repo}};
+    const parent = value(await app.exec.startWork({requestId:"start", taskDefinitionId:task.taskId, ...selection}));
+    const {requestSandbox, attachSandbox, markBlocked, failInfrastructure} = await import("../src/work/domain/index.js");
+    const at = new Date().toISOString(), sandboxId = newUUIDv7();
+    const units = new SqlWorkUnitOfWork(store);
+    await units.run("write", async r => {
+      const run = await r.taskRuns.get(parent.runId);
+      assert.ok(run);
+      const allocated = requestSandbox({id:sandboxId,owner:{type:"task_run",id:run.id},retention:"keep",at});
+      assert.ok(allocated.ok);
+      const blocked = markBlocked(allocated.value.state,{reason:"setup failed",at});
+      const attached = attachSandbox(run,{sandboxId});
+      assert.ok(blocked.ok && attached.ok);
+      const failed = failInfrastructure(attached.value.state,{detail:"setup failed",at});
+      assert.ok(failed.ok);
+      await r.sandboxes.create(allocated.value.state);
+      await r.sandboxes.save(blocked.value.state,allocated.value.state.version);
+      await r.taskRuns.save(attached.value.state,run.version);
+      await r.taskRuns.save(failed.value.state,attached.value.state.version);
+    });
+    const branch = {workId:parent.workId, refines:parent.runId, sandbox:"inherit" as const, ...selection};
+    const competing = await Promise.all(["first","second"].map(requestId => app.exec.addBranch({...branch, requestId})));
+    const winner = competing.find(result => result.ok);
+    assert.ok(winner?.ok);
+    assert.equal(competing.filter(result => !result.ok && result.error.code === "conflict").length, 1);
+    const facts = await units.run("read", async r => ({
+      runs:await r.taskRuns.listByWork(parent.workId), sandbox:await r.sandboxes.get(sandboxId), work:await r.works.get(parent.workId),
+    }));
+    assert.equal(facts.runs.length, 2);
+    assert.equal(facts.work?.head, parent.runId);
+    assert.equal(facts.sandbox?.owner.id, winner.value.runId);
+    assert.equal(facts.sandbox?.reservation?.receiver, winner.value.runId);
+    assert.equal(facts.runs.find(run => run.id === winner.value.runId)?.environment?.source, "inherited");
+    const fresh = value(await app.exec.addBranch({...branch, requestId:"fresh", sandbox:"fresh"}));
+    assert.equal(value(await app.exec.getRun(fresh.runId)).run.sandboxId, undefined);
+  }, backend);
+});

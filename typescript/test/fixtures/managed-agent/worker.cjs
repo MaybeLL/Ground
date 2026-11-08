@@ -34,6 +34,7 @@ const content = handoff && existsSync("scratch-note") ? readFileSync("scratch-no
 writeFileSync("result.txt", content + "\n");
 if (handoff) writeFileSync("scratch-note", "inherited uncommitted note");
 const git = (...args) => execFileSync("git",args,{encoding:"utf8"}).trim();
+if (handoff && task.refinement && git("rev-parse", "HEAD") !== task.refinement.baseCommit) process.exit(6);
 git("add","result.txt"); git("commit","-qm","Deliver fixture");
 const message=JSON.stringify({candidate:{commit:git("rev-parse","HEAD")}});
 const emit = event => process.stdout.write(JSON.stringify(event)+"\n");

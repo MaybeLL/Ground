@@ -48,7 +48,7 @@ export class SandboxRecovery {
   async inspectPreparation(runId: string): Promise<Outcome<Prepared>> {
     const claim = await this.deps.units.run("read", async r => {
       const run = await r.taskRuns.get(runId);
-      if (!run?.sandboxId) return undefined;
+      if (!run?.sandboxId || (await r.sandboxes.get(run.sandboxId))?.owner.id !== runId) return undefined;
       return (await r.intents.listForSubject("launch-devcontainer", "sandbox", run.sandboxId))[0];
     });
     if (!claim) return fail("not-found", "run has no recorded devcontainer launch");
@@ -98,7 +98,8 @@ export class SandboxRecovery {
     const runs = await this.deps.units.run("read", async r => {
       const selected = [];
       for (const run of await r.taskRuns.listByWork(workId)) {
-        if (run.sandboxId && isTerminal(run) && (await r.sandboxes.get(run.sandboxId))?.phase === "preparing") selected.push(run);
+        const sb = run.sandboxId && await r.sandboxes.get(run.sandboxId);
+        if (sb && sb.owner.id === run.id && isTerminal(run) && sb.phase === "preparing") selected.push(run);
       }
       return selected;
     });
@@ -114,7 +115,8 @@ export class SandboxRecovery {
     const outstanding = await this.deps.units.run("read", async r => {
       const ids = [];
       for (const run of await r.taskRuns.listByWork(workId)) {
-        if (run.sandboxId && isTerminal(run) && (await r.sandboxes.get(run.sandboxId))?.reservation?.kind === "pause") ids.push(run.id);
+        const sb = run.sandboxId && await r.sandboxes.get(run.sandboxId);
+        if (sb && sb.owner.id === run.id && isTerminal(run) && ["transfer", "pause"].includes(sb.reservation?.kind ?? "")) ids.push(run.id);
       }
       return ids;
     });

@@ -22,7 +22,7 @@ export interface Sandbox extends Versioned {
   readonly phase: SandboxPhase;
   readonly workspace?: { readonly ref: Id; readonly origin: "own" | "borrowed" };
   /** The running resource (formerly a separate environment instance); one sandbox owns at most one. */
-  readonly runtime?: { readonly instanceId: Id; readonly environmentRevisionId: Id };
+  readonly runtime?: { readonly instanceId: Id; readonly environmentRevisionId: Id; readonly setupAttempt?: Id; readonly setupFailed?: true };
   readonly mounted: boolean;
   readonly lease?: Lease;
   /** Highest fencing token ever issued; tokens only grow. */
@@ -189,7 +189,7 @@ export function applyTransfer(sandbox: Sandbox, command: { operationId: Id; rete
 }
 
 /** Finish a pause, resume or transfer; a release finishes with completeRelease. */
-export function completeReservation(sandbox: Sandbox, command: { operationId: Id; at: Timestamp; runtimeReady?: boolean; pauseObservation?: "paused" | "stopped" | "absent" }): Step {
+export function completeReservation(sandbox: Sandbox, command: { operationId: Id; at: Timestamp; runtimeReady?: boolean; preparedRuntime?: Sandbox["runtime"]; pauseObservation?: "paused" | "stopped" | "absent" }): Step {
   if (!isId(command.operationId) || !isTimestamp(command.at)) return invalid("operationId and at are required");
   const r = sandbox.reservation;
   if (!r || r.operationId !== command.operationId) return conflict("no such operation is reserved");
@@ -199,12 +199,32 @@ export function completeReservation(sandbox: Sandbox, command: { operationId: Id
     case "resume": phase = "ready"; break;
     case "transfer":
       if (!r.ownerChanged) return conflict("the owner has not been changed yet");
-      phase = command.runtimeReady && sandbox.runtime ? "ready" : sandbox.phase === "paused" ? "ready" : sandbox.phase === "blocked" ? "preparing" : sandbox.phase;
+      if (command.preparedRuntime && (!isId(command.preparedRuntime.instanceId) ||
+          !isId(command.preparedRuntime.environmentRevisionId) || command.preparedRuntime.setupAttempt !== r.operationId)) {
+        return invalid("runtime setup evidence must belong to this transfer");
+      }
+      if (command.pauseObservation) {
+        phase = command.pauseObservation === "paused" ? "paused" : "blocked";
+        break;
+      }
+      phase = command.runtimeReady && (sandbox.runtime || command.preparedRuntime) ? "ready" : sandbox.phase === "paused" ? "ready" : sandbox.phase === "blocked" ? "preparing" : sandbox.phase;
       break;
     default: return conflict("a release finishes with completeRelease");
   }
-  return advance(sandbox, { phase, reservation: undefined, ...(phase === "blocked" ? {blockedRuntimeQuiescent:true, blockedReason:sandbox.blockedReason ?? "the retained runtime is " + command.pauseObservation} : phase === "preparing" ? {} : { blockedReason: undefined, blockedRuntimeQuiescent:undefined }) },
+  return advance(sandbox, { phase, reservation: undefined, ...(r.kind === "transfer" && command.preparedRuntime ? {runtime: command.preparedRuntime, workspace: {ref:sandbox.id,origin:"own" as const}, mounted:true} : {}), ...(phase === "blocked" ? {blockedRuntimeQuiescent:true, blockedReason:sandbox.blockedReason ?? "the retained runtime is " + command.pauseObservation} : phase === "preparing" ? {} : { blockedReason: undefined, blockedRuntimeQuiescent:undefined }) },
     [{ type: "reservation-completed", sandboxId: sandbox.id, kind: r.kind, phase, at: command.at }], undefined);
+}
+
+/** A failed setup belongs to the receiver, but supplies no launch credential. */
+export function failTransferredSetup(sandbox: Sandbox, command: {operationId: Id; environmentRevisionId: Id; instanceId?: Id; quiescent: boolean; at: Timestamp}): Step {
+  const reservation = sandbox.reservation;
+  if (reservation?.kind !== "transfer" || !reservation.ownerChanged || reservation.operationId !== command.operationId) return conflict("transfer no longer owns setup");
+  if (!isTimestamp(command.at) || !isId(command.environmentRevisionId) || command.instanceId !== undefined && !isId(command.instanceId)) return invalid("invalid failed setup observation");
+  const reason = "retained environment setup ended without a successful receipt";
+  const runtime = command.instanceId ? {instanceId:command.instanceId, environmentRevisionId:command.environmentRevisionId,
+    setupAttempt:command.operationId, setupFailed:true as const} : undefined;
+  return advance(sandbox, {phase:"blocked", reservation:undefined, runtime, blockedReason:reason, blockedRuntimeQuiescent:command.quiescent},
+    [{type:"blocked", sandboxId:sandbox.id, reason, at:command.at}], undefined);
 }
 
 /** Drop a reservation whose I/O never changed anything. A started release or a transfer past its owner change cannot be dropped. */
