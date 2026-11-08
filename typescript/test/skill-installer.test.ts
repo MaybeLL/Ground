@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import assert from "node:assert/strict";
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,12 +10,10 @@ import { assertContract } from "./schema-fixture.js";
 import { assembleSkillAssets, contractAssetsRoot } from "../src/skill-assets.js";
 import { DomainError } from "../src/errors.js";
 
-const skillNames = ["grounds", "grounds-eval", "grounds-knowledge-improve"];
+const skillNames = ["grounds"];
 const sourcePluginRoot = fileURLToPath(new URL("../../plugins/grounds/", import.meta.url));
 const workflows: Record<string, string[]> = {
   grounds: ["define", "develop", "verify", "auto-repair", "deliver", "export-confluence"],
-  "grounds-eval": ["eval-author", "eval-run"],
-  "grounds-knowledge-improve": ["improve"],
 };
 
 // Resolve a local Markdown link (optionally with a #fragment) from the file that contains it.
@@ -75,18 +72,14 @@ test("install skill creates self-contained skills at an explicit path and can up
       skills: Array<{ name: string; path: string }>;
     };
     assertContract("command-results.schema.json", result);
-    // Historical four-skill receipts remain readable.
-    assertContract("command-results.schema.json", {
-      ...result, skills: ["grounds-define", "grounds-develop", "grounds-verify", "grounds-deliver"].map(name => ({name, path: join(directory, name)})),
-    });
     assert.equal(result.target_path, resolve(directory, "agent-skills"));
     assert.deepEqual(result.skills.map((skill) => skill.name), skillNames);
 
     for (const skill of result.skills) {
       assert.equal(existsSync(join(skill.path, "SKILL.md")), true);
       assert.equal(existsSync(join(skill.path, "agents", "openai.yaml")), true);
-      assert.equal(existsSync(join(skill.path, "scripts", "grounds_agent.py")), true);
-      assert.equal(existsSync(join(skill.path, "scripts", "grounds_knowledge.py")), skill.name === "grounds-knowledge-improve");
+      assert.equal(existsSync(join(skill.path, "scripts", "grounds_agent.py")), false);
+      assert.equal(existsSync(join(skill.path, "scripts", "grounds_knowledge.py")), false);
       for (const script of [
         "grounds_eval_capture.py",
         "grounds_eval_import.py",
@@ -95,28 +88,22 @@ test("install skill creates self-contained skills at an explicit path and can up
         "grounds_eval_repositories.py",
         "grounds_eval_prepare_proxy.py",
         "grounds_eval_managed.py",
-      ]) assert.equal(existsSync(join(skill.path, "scripts", script)), skill.name === "grounds-eval");
+        "grounds_eval_runtime.py",
+      ]) assert.equal(existsSync(join(skill.path, "scripts", script)), false);
       assert.equal(existsSync(join(skill.path, "references", "contracts", "v1", "cli-envelope.schema.json")), true);
-      assert.match(readFileSync(join(skill.path, "SKILL.md"), "utf8"), /\$\{GROUNDS_SKILL_ROOT:-\$PLUGIN_ROOT\}/);
+      assert.deepEqual(readdirSync(join(skill.path, "scripts")), []);
+      for (const file of markdownFiles(skill.path)) {
+        assert.doesNotMatch(readFileSync(file, "utf8"), /grounds_agent\.py|grounds_eval_\w+\.py/, `retired caller in ${file}`);
+      }
       const marker = JSON.parse(readFileSync(join(skill.path, ".grounds-managed.json"), "utf8")) as { package_version?: string };
       assert.match(marker.package_version ?? "", /^\d+\.\d+\.\d+/);
     }
-    const evalSkill = result.skills.find(skill => skill.name === "grounds-eval")!;
-    for (const script of [
-      "grounds_eval_capture.py",
-      "grounds_eval_import.py",
-      "grounds_eval_run.py",
-      "grounds_eval_environment.py",
-      "grounds_eval_repositories.py",
-    ]) {
-      const help = execFileSync("python3", [join(evalSkill.path, "scripts", script), "--help"], { cwd: directory, encoding: "utf8" });
-      assert.match(help, /usage:/);
-    }
-    const knowledge = result.skills.find(skill => skill.name === "grounds-knowledge-improve")!;
-    const knowledgeHelp = execFileSync("python3", [join(knowledge.path, "scripts", "grounds_knowledge.py"), "--help"], { cwd: directory, encoding: "utf8" });
-    assert.match(knowledgeHelp, /inputs.*budget.*subject.*handoff.*compare/);
     const development = result.skills.find((skill) => skill.name === "grounds")!;
-    for (const name of ["self-contained-contracts.md", "confluence.md", "document-template.md", "review-conversation.md", "rationale-quality.md", "preparation.md"]) {
+    const verification = readFileSync(join(development.path, "references/workflows/verify.md"), "utf8");
+    assert.match(verification, /全新上下文，不 fork 主会话、不 resume worker/);
+    assert.match(verification, /时间必须在交付冻结后，且不同于 worker session/);
+    assert.match(verification, /--stage freeze --blind-digest/);
+    for (const name of ["preparation.md", "contracts/v1/work-results.schema.json", "contracts/v1/grade-input.schema.json", "contracts/v1/suite-results.schema.json"]) {
       assert.equal(existsSync(join(development.path, "references", name)), true);
     }
     assert.equal(existsSync(join(development.path, "evals")), false);
@@ -124,7 +111,6 @@ test("install skill creates self-contained skills at an explicit path and can up
       assert.equal(existsSync(join(development.path, "references/workflows", `${name}.md`)), true);
     }
     assert.equal(existsSync(join(development.path, "references/evaluation.md")), false);
-    assert.equal(existsSync(join(evalSkill.path, "references/review-conversation.md")), false);
     // Every static Markdown link resolves in both distribution layouts.
     for (const base of [bundledPluginRoot(), result.target_path]) {
       for (const name of skillNames) {
@@ -156,13 +142,13 @@ test("source plugin and assembled bundle install the same self-contained, skill-
   const directory = mkdtempSync(join(tmpdir(), "grounds-assembled-install-"));
   try {
     const bundle = join(directory, "bundle");
-    for (const name of ["grounds", "grounds-eval", "grounds-knowledge-improve"] as const) {
+    for (const name of ["grounds"] as const) {
       assembleSkillAssets(sourcePluginRoot, name, join(bundle, "skills", name));
     }
     const sourceInstall = installGroundsSkills(join(directory, "from-source"), sourcePluginRoot);
     const bundleInstall = installGroundsSkills(join(directory, "from-bundle"), bundle);
-    assert.equal(readFileSync(join(contractAssetsRoot(bundle), "candidate-submission.schema.json"), "utf8"),
-      readFileSync(join(contractAssetsRoot(sourcePluginRoot), "candidate-submission.schema.json"), "utf8"));
+    assert.equal(readFileSync(join(contractAssetsRoot(bundle), "grade-input.schema.json"), "utf8"),
+      readFileSync(join(contractAssetsRoot(sourcePluginRoot), "grade-input.schema.json"), "utf8"));
     for (const skill of sourceInstall.skills) {
       const packed = join(bundleInstall.target_path, skill.name);
       const expectedFiles = markdownFiles(skill.path).map(path => relative(skill.path, path)).sort();
@@ -342,7 +328,7 @@ test("install skill refuses to overwrite an unmanaged same-name directory", asyn
       (error: unknown) => error instanceof Error && "code" in error && error.code === "VALIDATION_ERROR",
     );
     assert.equal(readFileSync(join(unmanaged, "SKILL.md"), "utf8"), "user-owned\n");
-    assert.equal(existsSync(join(target, skillNames[1])), false);
+    assert.deepEqual(readdirSync(target), ["grounds"]);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -485,7 +471,7 @@ test("copy migration restores retired skills when replacement fails", async () =
     writeFileSync(join(retired, "SKILL.md"), "previous skill");
     writeFileSync(join(retired, ".grounds-managed.json"), JSON.stringify({format: "patchledger.skill-install/v1", skill: "grounds-define", package_version: "0.2.7"}));
     const fault = mock.method(fs.default, "renameSync", (source: string, destination: string) => {
-      if (destination === join(directory, "grounds-eval")) throw new Error("replacement failure");
+      if (destination === join(directory, "grounds")) throw new Error("replacement failure");
       return original(source, destination);
     });
     syncBuiltinESMExports();
@@ -509,7 +495,7 @@ test("link migration rolls back newly created links on failure", async () => {
     mkdirSync(target);
     symlinkSync(join(canonical, "grounds-define"), join(target, "grounds-define"));
     const fault = mock.method(fs.default, "symlinkSync", (source: string, destination: string) => {
-      if (destination === join(target, "grounds-eval")) throw new Error("link failure");
+      if (destination === join(target, "grounds")) throw new Error("link failure");
       return original(source, destination);
     });
     syncBuiltinESMExports();

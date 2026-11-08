@@ -1,0 +1,9 @@
+%% 已撤回的讨论示例，不作为当前开发要求。参见设计文档 D22。
+flowchart TB
+    A["轨迹快照 A<br/>当时已归档的事件 1—10"] -->|恢复执行后另存| B["轨迹快照 B<br/>加入新事件，共 1—20"]
+    G1["第一次 Grading<br/>保留原结果"] -->|固定评价范围| A
+    G2["明确重新评分<br/>新增第二次 Grading"] -->|固定评价范围| B
+    classDef evidence fill:#fff2dc,stroke:#af7918,color:#4a3512
+    classDef grading fill:#eaf0ff,stroke:#235aca,color:#18283e
+    class A,B evidence
+    class G1,G2 grading

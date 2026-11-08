@@ -14,7 +14,7 @@ root = Path(__file__).resolve().parents[2]
 with tempfile.TemporaryDirectory(prefix='grounds-dev-image-') as directory:
     context = Path(directory)
     for name in ['typescript/package.json', 'typescript/package-lock.json',
-                 'typescript/binding.gyp', 'tui/package.json', 'tui/package-lock.json',
+                 'typescript/binding.gyp',
                  'scripts/dev-environment/Dockerfile', 'scripts/dev-environment/grounds-dev',
                  'scripts/dev-environment/dependency-fingerprint.mjs']:
         target = context / name

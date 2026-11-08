@@ -1,0 +1,8 @@
+flowchart TB
+  T[Task 稳定身份] -->|具有修订| TR[TaskRevision 固定定义]
+  TY[TaskType 固定版本] -->|规定类型契约| TR
+  RUN[TaskRun 一次任务尝试] -->|固定引用| TR
+  RUN -->|关联具体执行| EX[AgentExecution]
+  AD[AgentDefinition 稳定身份] -->|具有修订| AR[AgentRevision 固定配置]
+  EX -->|固定引用| AR
+  EX -->|记录过程| TRACE[Trajectory]

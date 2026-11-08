@@ -1,0 +1,11 @@
+%% 3 · 交付、轨迹与评分的关系
+flowchart TB
+ X["任务执行<br/>AgentExecution"] -->|Coding 可交付| C["代码候选<br/>Candidate"]
+ X -->|可交付多个| A["答案、报告等<br/>Artifact"]
+ X -->|记录过程| T["执行轨迹<br/>Trajectory"]
+ C -->|可作为评价目标| G["评分记录<br/>GradingRecord"]
+ A -->|可同时评价多个| G
+ T -->|也可单独评价| G
+ GS["评分定义<br/>GraderSpec"] -->|标准、标尺和材料要求| G
+ G -->|正常评价结果| V["结果值<br/>Grade"]
+%% 三类对象并列，不实现 Grader。轨迹还可作为参考材料。评分可独立发起，规则评分不必启动 Agent。

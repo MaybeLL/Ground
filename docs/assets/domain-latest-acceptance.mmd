@@ -1,0 +1,11 @@
+flowchart TB
+  TR[TaskRevision] -->|定义| CR[契约条目 Criterion]
+  RUN[TaskRun] -->|固定任务定义| TR
+  RUN -->|当前选择与历史| LIST[完整交付清单 · 值对象]
+  LIST -->|确切引用| C[Candidate]
+  LIST -->|确切引用| A[Artifact]
+  RUN -->|采用完成依据| V[验收记录]
+  V -->|固定被验收清单| LIST
+  V -->|逐项对照| CR
+  V -->|记录验证来源| EX[验收 Agent 的 AgentExecution]
+  EX -->|记录过程| TRACE[Trajectory]

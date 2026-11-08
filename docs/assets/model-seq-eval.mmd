@@ -1,0 +1,39 @@
+sequenceDiagram
+  autonumber
+  participant EE as ExperimentExecution
+  participant TE as TaskExecution
+  participant SB as SandboxProvisioning
+  participant AE as AgentExecutionService
+  participant GR as Grading
+  EE->>EE: 登记不可变成员（评测项键 × 重复序号）
+  EE->>TE: 发起（成员派生请求身份、解析表中的环境、保留意图=释放）
+  TE-->>EE: TaskRun 已受理
+  TE->>SB: 申请任务沙箱
+  alt 确认无法准备
+    TE->>TE: 失败（infrastructure）
+  else 沙箱就绪
+    TE->>AE: 运行 worker AgentExecution
+    AE->>SB: 取得占用租约
+    AE-->>TE: 完成事件：输出、轨迹、交付声明已归档
+    TE->>TE: 形成 Manifest（tool 优先，否则 contract）
+    opt 回执 unavailable 或状态未知
+      TE->>TE: 留在进行中核对；不释放、不终结、不重跑
+    end
+    alt accepted
+      TE->>TE: 已交付
+    else 没有 Manifest 或 rejected
+      TE->>TE: 失败（agent-execution 或 agent-output）
+    end
+  end
+  TE->>SB: 确认无占用后释放（回收运行资源，保留 Workspace）
+  TE-->>EE: 完成事件：TaskRun 终结
+  alt 已交付
+    EE->>GR: measure（来源：成员键 + 评分要求键）
+    GR->>SB: 申请评价者沙箱（固定环境版本）
+    GR->>AE: 运行 Judge AgentExecution
+    AE-->>GR: 完成事件：Judge 输出已归档
+    GR->>GR: 校验 Grade，释放评价者沙箱
+    GR-->>EE: 完成事件：GradingRecord
+  else 失败
+    EE->>EE: 记录评分未开展；infrastructure 显示为执行错误
+  end

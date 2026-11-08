@@ -1,44 +1,34 @@
-import { gitCLICandidate } from "./git-cli-ledger-fixture.js";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { test } from "node:test";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, realpathSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { commandNeedsOperationID, execute, exitCode, parseArgs, runCLI } from "../src/cli.js";
 import { loadConfig, mysqlKeychainLocator, mysqlPassword, validateConfig, writeConfig, type DatabaseConfig } from "../src/config.js";
 import { asDomainError, DomainError } from "../src/errors.js";
 import { assertContract } from "./schema-fixture.js";
-import { LedgerFixture, testVerifier } from "./fixture.js";
-import { createVerificationHandoff } from "../src/verification-handoff.js";
-import { SCHEMA_VERSION, SQLStore } from "../src/sql-store.js";
+import { SCHEMA_VERSION } from "../src/sql-store.js";
 
 test("CLI exit codes follow the stable error registry", () => {
   assert.equal(exitCode(new DomainError("VALIDATION_ERROR", "invalid")), 2);
   assert.equal(exitCode(new DomainError("NOT_FOUND", "missing")), 3);
-  for (const code of ["STATE_CONFLICT", "AUTH_FAILED", "VERSION_CONFLICT", "PREDECESSOR_CONFLICT", "IDEMPOTENCY_CONFLICT"] as const) {
+  for (const code of ["STATE_CONFLICT", "AUTH_FAILED", "VERSION_CONFLICT", "IDEMPOTENCY_CONFLICT"] as const) {
     assert.equal(exitCode(new DomainError(code, "conflict")), 4);
   }
   for (const code of ["SCHEMA_INCOMPATIBLE", "MIGRATION_DIRTY", "DATABASE_ID_MISMATCH"] as const) {
     assert.equal(exitCode(new DomainError(code, "schema")), 5);
   }
-  for (const code of ["REPOSITORY_NOT_RESOLVED", "BASELINE_UNAVAILABLE", "ARTIFACT_TOO_LARGE"] as const) {
+  for (const code of ["BASELINE_UNAVAILABLE"] as const) {
     assert.equal(exitCode(new DomainError(code, "boundary")), 6);
   }
   assert.equal(exitCode(new DomainError("STORAGE_TRANSIENT", "retry", true)), 7);
 });
 
 test("only business writes receive generated operation IDs", async () => {
-  assert.equal(commandNeedsOperationID(parseArgs(["repository", "register"])), true);
-  assert.equal(commandNeedsOperationID(parseArgs(["requirement", "create"])), false);
-  assert.equal(commandNeedsOperationID(parseArgs(["requirement", "show"])), false);
-  assert.equal(commandNeedsOperationID(parseArgs(["workspace", "publish"])), false);
-  // Cleanup appends a ledger event under a registered operation, so it is a business write like abandon.
-  assert.equal(commandNeedsOperationID(parseArgs(["devrun", "cleanup"])), true);
-  assert.equal(commandNeedsOperationID(parseArgs(["devrun", "reconcile"])), false);
+  assert.equal(commandNeedsOperationID(parseArgs(["work", "deliver"])), true);
+  assert.equal(commandNeedsOperationID(parseArgs(["grade", "submit"])), true);
+  assert.equal(commandNeedsOperationID(parseArgs(["work", "show"])), false);
   assert.equal(commandNeedsOperationID(parseArgs(["init"])), false);
-
   const output: string[] = [];
   const errors: string[] = [];
   const status = await runCLI(
@@ -169,29 +159,8 @@ test("help rejects non-boolean help values", async () => {
   assert.equal(envelope.error?.details?.field, "help");
 });
 
-test("Workspace publish help lists the public authoring options", async () => {
-  const output: string[] = [];
-  const status = await runCLI(["workspace", "publish", "--help", "--json"], {
-    stdout: (line) => output.push(line),
-    stderr: () => undefined,
-  });
-  assert.equal(status, 0);
-  const envelope = JSON.parse(output[0]) as { ok: boolean; data: { command: string; usage: string } };
-  assertContract("cli-envelope.schema.json", envelope);
-  assert.equal(envelope.ok, true);
-  // The help result keeps the stable `command: "help"` contract; the target
-  // subcommand is conveyed inside usage so schema-constrained callers stay
-  // compatible.
-  assert.equal(envelope.data.command, "help");
-  assert.match(envelope.data.usage, /draft publish/);
-  assert.match(envelope.data.usage, /--dry-run/);
-  assert.match(envelope.data.usage, /--content-language/);
-  assert.match(envelope.data.usage, /--language-override-reason/);
-  assert.match(envelope.data.usage, /--agent-id/);
-});
-
-test("retired per-resource write commands are unavailable, including through help", async () => {
-  for (const command of [["quickstart", "create"], ["requirement", "create"], ["requirement", "revise"], ["issue", "create"], ["issue", "revise"]]) {
+test("retired authoring and delivery commands are unavailable, including through help", async () => {
+  for (const command of [["trace"], ["delivery-link", "record"], ["delivery-link", "show"], ["delivery-link", "withdraw"], ["selection", "set"], ["selection", "materialize"], ["completion", "record"], ["integration", "observe"], ["workspace", "edit"], ["draft", "migrate"], ["draft", "new"], ["workspace", "publish"], ["contract", "render"], ["quickstart", "create"], ["requirement", "create"], ["requirement", "revise"], ["issue", "create"], ["issue", "revise"]]) {
     for (const suffix of [[], ["--help"]]) {
       const output: string[] = [];
       assert.equal(await runCLI([...command, ...suffix, "--json"], { stdout: (line) => output.push(line), stderr: () => undefined }), 2);
@@ -201,177 +170,7 @@ test("retired per-resource write commands are unavailable, including through hel
   }
 });
 
-test("blind templates and signed handoffs work without opening a ledger", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "grounds-offline-verification-"));
-  try {
-    const contextPath = join(directory, "blind.json");
-    const reportPath = join(directory, "report.json");
-    writeFileSync(contextPath, JSON.stringify({
-      format: "patchledger.verification-context/v1", phase: "blind",
-      candidate_id: "018f0000-0000-7000-8000-000000000001",
-      result_tree_oid: `sha1:${"1".repeat(40)}`,
-      blind_context_digest: `sha256:${"2".repeat(64)}`,
-      issue: {
-        goals: [{ id: "018f0000-0000-7000-8000-000000000002", criteria: [{ id: "018f0000-0000-7000-8000-000000000003" }] }],
-        constraints: [],
-      },
-    }));
-    const templateOutput: string[] = [];
-    assert.equal(await runCLI(["verification", "template", "--context", contextPath, "--json"], { stdout: (line) => templateOutput.push(line), stderr: () => undefined }), 0);
-    const template = JSON.parse(templateOutput[0]) as { data: { report: Record<string, unknown> } };
-    assertContract("command-results.schema.json", template.data);
-    writeFileSync(reportPath, JSON.stringify(template.data.report));
-
-    const handoffOutput: string[] = [];
-    assert.equal(await runCLI(["verification", "handoff", "--file", reportPath, "--agent-id", "offline-verifier", "--agent-name", "Offline Verifier", "--json"], { stdout: (line) => handoffOutput.push(line), stderr: () => undefined }), 0);
-    const handoff = JSON.parse(handoffOutput[0]) as { data: Record<string, unknown> };
-    assertContract("command-results.schema.json", handoff.data);
-  } finally { rmSync(directory, { recursive: true, force: true }); }
-});
-
-test("a coordinator can submit a signed verifier handoff without impersonating the verifier", async t => {
-  const directory = realpathSync(mkdtempSync(join(tmpdir(), "grounds-handoff-submit-")));
-  let fixture: LedgerFixture | undefined;
-  try {
-    const config = join(directory, "config.yaml");
-    const database = join(directory, "ledger.db");
-    await execute(["init", "--driver", "sqlite", "--non-interactive", "--config", config, "--path", database]);
-    fixture = await LedgerFixture.createWithStore(SQLStore.sqlite(database));
-    const candidate = await gitCLICandidate(t, directory, config, fixture);
-    const template = await fixture.module.verificationReportTemplate(candidate.candidate.candidate_id);
-    const assessment = template.report.assessments[0].criteria[0];
-    assessment.independent = { verdict: "qualified", explanation: "The rendered home preserves the existing search and navigation behavior", evidence: [] };
-    assessment.reconciliation = { claim_relation: "corroborated", explanation: "agrees" };
-    assessment.final = { verdict: "qualified", explanation: "qualified" };
-    const handoffPath = join(directory, "handoff.json");
-    writeFileSync(handoffPath, JSON.stringify(createVerificationHandoff(template.report, testVerifier)));
-
-    const blockedOutput: string[] = [];
-    assert.equal(await runCLI(["verification", "submit", candidate.candidate.candidate_id, "--handoff", handoffPath, "--content-language", "zh-CN", "--config", config, "--json"], { cwd: candidate.repository, stdout: (line) => blockedOutput.push(line), stderr: () => undefined }), 2);
-    assert.equal(JSON.parse(blockedOutput[0]).error.details.field, "content_language");
-
-    const output: string[] = [];
-    assert.equal(await runCLI(["verification", "submit", candidate.candidate.candidate_id, "--handoff", handoffPath, "--content-language", "zh-CN", "--language-override-reason", "引用上游英文检查结果", "--config", config, "--json"], { cwd: candidate.repository, stdout: (line) => output.push(line), stderr: () => undefined }), 0);
-    const envelope = JSON.parse(output[0]) as { data: { command: string; verification_id: string }; warnings: { code: string }[] };
-    assert.equal(envelope.data.command, "verification.submit");
-    assert.ok(envelope.warnings.some(warning => warning.code === "CONTENT_LANGUAGE_OVERRIDE"));
-    const stored = await fixture.module.showVerification(envelope.data.verification_id);
-    assert.deepEqual(stored.attribution, testVerifier);
-  } finally {
-    if (fixture) await fixture.close();
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
-test("review CLI emits a contract-shaped trace and a provenance-oriented human view", async t => {
-  const directory = realpathSync(mkdtempSync(join(tmpdir(), "grounds-review-cli-")));
-  let fixture: LedgerFixture | undefined;
-  try {
-    const config = join(directory, "config.yaml");
-    const database = join(directory, "ledger.db");
-    await execute(["init", "--driver", "sqlite", "--non-interactive", "--config", config, "--path", database]);
-    fixture = await LedgerFixture.createWithStore(SQLStore.sqlite(database));
-    const candidate = await gitCLICandidate(t, directory, config, fixture);
-    await fixture.verify(candidate);
-    for (const args of [
-      ["review", candidate.candidate.candidate_id, "--summary", "--include-diff", "--at", "file-one"],
-      ["verification", "list", "--candidate", candidate.candidate.candidate_id, "--paged"],
-    ]) {
-      const response: string[] = [];
-      assert.equal(await runCLI([...args, "--config", config, "--cwd", candidate.repository, "--json"], { stdout: line => response.push(line), stderr: () => {} }), 0);
-      const data = JSON.parse(response[0]).data;
-      assertContract("query-results.schema.json", data);
-      assert.equal((data.trace?.verification_set ?? data.verification_set).reports_included, false);
-    }
-    const databaseDigestBeforeReview = createHash("sha256").update(readFileSync(database)).digest("hex");
-    const directoryEntriesBeforeReview = readdirSync(directory).sort();
-
-    const jsonOutput: string[] = [];
-    assert.equal(await runCLI(["review", candidate.candidate.candidate_id, "--at", "file-one:12", "--include-diff", "--config", config, "--cwd", candidate.repository, "--json"], { stdout: (line) => jsonOutput.push(line), stderr: () => undefined }), 0);
-    const envelope = JSON.parse(jsonOutput[0]) as { data: { result_type: string; trace: { location?: { line?: number }; verification_set: { complete: boolean } } } };
-    assertContract("cli-envelope.schema.json", envelope);
-    assertContract("query-results.schema.json", envelope.data);
-    assert.equal(envelope.data.trace.location?.line, 12);
-    assert.equal(envelope.data.trace.verification_set.complete, true);
-
-    const humanOutput: string[] = [];
-    assert.equal(await runCLI(["review", "--candidate", candidate.candidate.candidate_id, "--config", config, "--cwd", candidate.repository], { stdout: (line) => humanOutput.push(line), stderr: () => undefined }), 0);
-    assert.match(humanOutput.join("\n"), /Historical contract \[ledger fact\]/);
-    assert.match(humanOutput.join("\n"), /Coverage: 0\/1 Change Units explained \(not_recorded\)/);
-
-    const markdownOutput: string[] = [];
-    assert.equal(await runCLI(["review", candidate.candidate.candidate_id, "--markdown", "--config", config, "--cwd", candidate.repository], { stdout: (line) => markdownOutput.push(line), stderr: () => undefined }), 0);
-    const markdown = markdownOutput.join("\n");
-    assert.match(markdown, /^# Grounds Review — Implement the change/);
-    assert.match(markdown, /## Review at a glance/);
-    assert.match(markdown, /## Changes and why/);
-    assert.match(markdown, /<summary>Full historical contract<\/summary>/);
-    assert.match(markdown, /<summary>Complete independent verification<\/summary>/);
-    assert.match(markdown, /Complete set: \*\*1\*\*/);
-    assert.doesNotMatch(markdown, /"format":"patchledger\.cli\/v1"/);
-
-    const markdownWithDiffOutput: string[] = [];
-    assert.equal(await runCLI(["review", candidate.candidate.candidate_id, "--markdown", "--include-diff", "--config", config, "--cwd", candidate.repository], { stdout: (line) => markdownWithDiffOutput.push(line), stderr: () => undefined }), 0);
-    assert.match(markdownWithDiffOutput.join("\n"), /<summary>Unified diff<\/summary>[\s\S]*```diff/);
-    assert.equal(createHash("sha256").update(readFileSync(database)).digest("hex"), databaseDigestBeforeReview);
-    assert.deepEqual(readdirSync(directory).sort(), directoryEntriesBeforeReview);
-    assert.equal(commandNeedsOperationID(parseArgs(["review", candidate.candidate.candidate_id, "--markdown"])), false);
-
-    const conflictOutput: string[] = [];
-    assert.equal(await runCLI(["review", candidate.candidate.candidate_id, "--markdown", "--json"], { stdout: (line) => conflictOutput.push(line), stderr: () => undefined }), 2);
-    assert.equal((JSON.parse(conflictOutput[0]) as { error: { details: { field: string } } }).error.details.field, "markdown");
-
-    const reviewWorktree = join(directory, "review-worktree");
-    execFileSync("git", ["-C", candidate.repository, "worktree", "add", "--detach", reviewWorktree, candidate.candidate.source!.commit.split(":")[1]!], { stdio: "pipe" });
-    const reviewMarker = execFileSync("git", ["-C", reviewWorktree, "rev-parse", "--git-path", "grounds-review.json"], { encoding: "utf8" }).trim();
-    writeFileSync(reviewMarker, JSON.stringify({
-      format: "patchledger.review-worktree/v1",
-      database_id: loadConfig(config).database.expected_database_id,
-      candidate_id: candidate.candidate.candidate_id,
-      repository_id: fixture.repository.repository_id,
-      baseline_oid: candidate.run.context.baseline.git_oid,
-      result_tree_oid: candidate.artifact.result_tree_oid,
-      patch_digest: candidate.artifact.patch_digest,
-    }));
-    const databaseDigestBeforeDiscovery = createHash("sha256").update(readFileSync(database)).digest("hex");
-    const summaryOutput: string[] = [];
-    assert.equal(await runCLI(["review", "--summary", "--cwd", reviewWorktree, "--config", config, "--json"], { stdout: line => summaryOutput.push(line), stderr: () => {} }), 0);
-    assert.equal(JSON.parse(summaryOutput[0]).data.trace.candidate.candidate_id, candidate.candidate.candidate_id);
-    const markerDigestBeforeDiscovery = createHash("sha256").update(readFileSync(reviewMarker)).digest("hex");
-    const worktreeEntriesBeforeDiscovery = readdirSync(reviewWorktree).sort();
-    const discoveredOutput: string[] = [];
-    assert.equal(await runCLI(["review", "--cwd", reviewWorktree, "--config", config, "--json"], { stdout: (line) => discoveredOutput.push(line), stderr: () => undefined }), 0);
-    assert.equal((JSON.parse(discoveredOutput[0]) as { data: { trace: { candidate: { candidate_id: string } } } }).data.trace.candidate.candidate_id, candidate.candidate.candidate_id);
-    const discoveredMarkdownOutput: string[] = [];
-    assert.equal(await runCLI(["review", "--cwd", reviewWorktree, "--config", config, "--markdown"], { stdout: (line) => discoveredMarkdownOutput.push(line), stderr: () => undefined }), 0);
-    assert.equal(discoveredMarkdownOutput.join("\n"), markdown);
-    assert.equal(createHash("sha256").update(readFileSync(database)).digest("hex"), databaseDigestBeforeDiscovery);
-    assert.equal(createHash("sha256").update(readFileSync(reviewMarker)).digest("hex"), markerDigestBeforeDiscovery);
-    assert.deepEqual(readdirSync(reviewWorktree).sort(), worktreeEntriesBeforeDiscovery);
-  } finally {
-    if (fixture) await fixture.close();
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
 test("command-family help lists actions and link mode explains its behavior", async () => {
-  const candidateOutput: string[] = [];
-  const candidateStatus = await runCLI(["candidate", "--help", "--json"], {
-    stdout: (line) => candidateOutput.push(line), stderr: () => undefined,
-  });
-  assert.equal(candidateStatus, 0);
-  const candidate = JSON.parse(candidateOutput[0]) as { data: { usage: string } };
-  assert.match(candidate.data.usage, /candidate template/);
-  assert.match(candidate.data.usage, /candidate materialize/);
-  assert.match(candidate.data.usage, /candidate <操作> --help/);
-
-  const devRunOutput: string[] = [];
-  const devRunStatus = await runCLI(["devrun", "--help", "--json"], {
-    stdout: (line) => devRunOutput.push(line), stderr: () => undefined,
-  });
-  assert.equal(devRunStatus, 0);
-  assert.match((JSON.parse(devRunOutput[0]) as { data: { usage: string } }).data.usage, /devrun cleanup/);
-
   const installOutput: string[] = [];
   const installStatus = await runCLI(["install", "skill", "--help", "--json"], {
     stdout: (line) => installOutput.push(line), stderr: () => undefined,
@@ -381,16 +180,11 @@ test("command-family help lists actions and link mode explains its behavior", as
   assert.match(install.data.usage, /--link/);
   assert.match(install.data.usage, /canonical/);
 
-  const reviewOutput: string[] = [];
-  assert.equal(await runCLI(["review", "--help", "--json"], { stdout: (line) => reviewOutput.push(line), stderr: () => undefined }), 0);
-  const reviewUsage = (JSON.parse(reviewOutput[0]) as { data: { usage: string } }).data.usage;
-  assert.match(reviewUsage, /^grounds review \[candidate-id\]/);
-  assert.match(reviewUsage, /--markdown/);
-  assert.doesNotMatch(reviewUsage, /review ask/);
-
-  const removedAskOutput: string[] = [];
-  assert.equal(await runCLI(["review", "ask", "why?", "--json"], { stdout: (line) => removedAskOutput.push(line), stderr: () => undefined }), 2);
-  assert.equal((JSON.parse(removedAskOutput[0]) as { error: { details: { field: string } } }).error.details.field, "command");
+  for (const args of [["review"], ["review", "--help"], ["help", "review"], ["review", "--summary"], ["review", "--markdown"]]) {
+    const output: string[] = [];
+    assert.equal(await runCLI([...args, "--json"], { stdout: line => output.push(line) }), 2);
+    assert.equal(JSON.parse(output[0]).error.code, "VALIDATION_ERROR");
+  }
 });
 
 test("--version prints the package version under the stable contract", async () => {
@@ -407,25 +201,11 @@ test("--version prints the package version under the stable contract", async () 
   assert.match(envelope.data.version, /^\d+\.\d+\.\d+/);
 });
 
-test("ledger show with an invalid ID points the caller at ledger list", async () => {
-  const output: string[] = [];
-  const status = await runCLI(["ledger", "show", "not-a-uuid", "--json"], {
-    stdout: (line) => output.push(line),
-    stderr: () => undefined,
-  });
-  assert.equal(status, 2);
-  const envelope = JSON.parse(output[0]) as { ok: boolean; error?: { details?: { field?: string; reason?: string } } };
-  assertContract("cli-envelope.schema.json", envelope);
-  assert.equal(envelope.ok, false);
-  assert.equal(envelope.error?.details?.field, "event");
-  assert.match(String(envelope.error?.details?.reason), /ledger list/);
-});
-
 test("invalid supplied operation IDs fail before opening the configured store", async () => {
   const output: string[] = [];
   const errors: string[] = [];
   const status = await runCLI(
-    ["repository", "register", "--json", "--operation-id", "not-a-uuid", "--config", "/definitely/missing/grounds-config.yaml"],
+    ["task", "create", "--json", "--operation-id", "not-a-uuid", "--config", "/definitely/missing/grounds-config.yaml"],
     { stdout: (line) => output.push(line), stderr: (line) => errors.push(line) },
   );
   assert.equal(status, 2);
@@ -443,6 +223,21 @@ test("unexpected failures use the stable internal error message", () => {
   assert.equal(domain.code, "INTERNAL");
   assert.equal(domain.message, "unexpected internal failure");
   assert.equal(exitCode(domain), 1);
+});
+
+test("bare init on a terminal creates the default SQLite ledger without prompting", async () => {
+  const root = mkdtempSync(join(tmpdir(), "grounds-default-install-"));
+  const savedRoot = process.env.GROUNDS_DATA_HOME, savedConfig = process.env.GROUNDS_CONFIG;
+  try {
+    process.env.GROUNDS_DATA_HOME = root;
+    delete process.env.GROUNDS_CONFIG;
+    const result = await execute(["init"], { isTTY: true, prompt: async () => { throw new Error("unexpected prompt"); } }) as { config_path: string };
+    assert.equal(loadConfig(result.config_path).database.driver, "sqlite");
+  } finally {
+    if (savedRoot === undefined) delete process.env.GROUNDS_DATA_HOME; else process.env.GROUNDS_DATA_HOME = savedRoot;
+    if (savedConfig === undefined) delete process.env.GROUNDS_CONFIG; else process.env.GROUNDS_CONFIG = savedConfig;
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("interactive init uses the same config model as flags", async () => {
@@ -559,12 +354,6 @@ test("numeric CLI options reject non-decimal integer spellings before storage ac
   }
 });
 
-test("file options accept the documented stdin sentinel", () => {
-  const parsed = parseArgs(["issue", "create", "--requirement", "019c0000-0000-7000-8000-000000000001", "--file", "-"]);
-  assert.equal(parsed.values.file, "-");
-  assert.deepEqual(parsed.positionals, ["issue", "create"]);
-});
-
 test("boolean option values are case-insensitive in execution", async () => {
   const output: string[] = [];
   const status = await runCLI(
@@ -597,19 +386,6 @@ test("explicit empty config and SQLite paths fail before filesystem access", asy
   assert.equal(initEnvelope.ok, false);
   assert.equal(initEnvelope.error?.code, "VALIDATION_ERROR");
   assert.equal(initEnvelope.error?.details?.field, "path");
-});
-
-test("CLI rejects the retired --worktree clone selector before opening storage", async () => {
-  const output: string[] = [];
-  const status = await runCLI(
-    ["config", "path", "--worktree", "/tmp/two", "--json"],
-    { stdout: (line) => output.push(line), stderr: () => undefined },
-  );
-  assert.equal(status, 2);
-  const envelope = JSON.parse(output[0]) as { ok: boolean; error?: { code: string; details?: { field?: string } } };
-  assert.equal(envelope.ok, false);
-  assert.equal(envelope.error?.code, "VALIDATION_ERROR");
-  assert.equal(envelope.error?.details?.field, "--worktree");
 });
 
 test("schema and database identity failures keep their details contract-valid", async () => {
@@ -651,56 +427,13 @@ test("schema and database identity failures keep their details contract-valid", 
   }
 });
 
-test("repository move rejects both canonical remote option spellings", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "grounds-cli-test-"));
-  try {
-    const configFile = join(directory, "config.yaml");
-    await execute(["init", "--driver", "sqlite", "--non-interactive", "--config", configFile, "--path", join(directory, "ledger.db")]);
-    const output: string[] = [];
-    const status = await runCLI([
-      "repository", "move", "--json", "--config", configFile,
-      "--repository", "019c0000-0000-7000-8000-000000000001",
-      "--canonical-remote", "https://example.test/one",
-      "--remote-url", "https://example.test/two",
-      "--operation-id", "019c0000-0000-7000-8000-000000000002",
-      "--agent-id", "agent", "--agent-name", "agent",
-    ], { stdout: (line) => output.push(line), stderr: () => undefined });
-    assert.equal(status, 2);
-    const envelope = JSON.parse(output[0]) as { ok: boolean; error?: { code?: string; details?: { field?: string } } };
-    assertContract("cli-envelope.schema.json", envelope);
-    assert.equal(envelope.ok, false);
-    assert.equal(envelope.error?.code, "VALIDATION_ERROR");
-    assert.equal(envelope.error?.details?.field, "canonical-remote");
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
+test("retired ledger commands reject before configuration or database access", async () => {
+  for (const command of ["requirement list", "issue list", "devrun start", "candidate submit", "verification run", "preflight assess", "repository register", "ledger list", "db migrate", "config set-development-mode"]) {
+    const args = command.split(" ");
+    for (const flags of [["--config", "/missing/retired-ledger.yaml"], ["--help"]]) {
+      const output: string[] = [];
+      assert.equal(await runCLI([...args, ...flags, "--json"], { stdout: line => output.push(line) }), 2, command);
+      assert.equal(JSON.parse(output[0]).error.code, "VALIDATION_ERROR");
+    }
   }
-});
-
-
-test("candidate artifact help advertises only supported Git artifacts", async () => {
-  for (const json of [false, true]) {
-    const output: string[] = [], errors: string[] = [];
-    assert.equal(await runCLI(["candidate", "artifact", "--help", ...(json ? ["--json"] : [])], {
-      stdout: (line) => output.push(line), stderr: (line) => errors.push(line),
-    }), 0);
-    assert.deepEqual(errors, []);
-    const help = json ? JSON.stringify(JSON.parse(output[0]).data) : output.join("\n");
-    assert.match(help, /protected remote Git source/);
-    assert.match(help, /historical patch-only Candidates are unsupported/);
-    assert.doesNotMatch(help, /legacy base\/SQL patch\/tree/);
-  }
-});
-
-test("integration source help requires exact Git history and retires patch-only", async () => {
-  for (const json of [false, true]) {
-    const output: string[] = [];
-    assert.equal(await runCLI(["integration", "observe", "--help", ...(json ? ["--json"] : [])], {
-      stdout: (line) => output.push(line), stderr: () => undefined,
-    }), 0);
-    const usage = json ? JSON.stringify(JSON.parse(output[0]).data) : output.join("\n");
-    assert.match(usage, /managed source must match archived commit\/ordered parents\/result tree and contain Candidate base/);
-    assert.match(usage, /requires the exact source commit of the Git artifact/);
-    assert.doesNotMatch(usage, /single parent must equal Candidate base/);
-  }
-
 });

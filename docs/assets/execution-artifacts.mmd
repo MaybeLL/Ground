@@ -1,0 +1,12 @@
+flowchart TB
+    T["Task 声明交付要求<br/>代码必需，分析报告可选"] --> E["一次 AgentExecution"]
+    E --> C["代码产物 Artifact<br/>独立身份，提交后冻结"]
+    E --> R["报告产物 Artifact<br/>独立身份，提交后冻结"]
+    C --> G["Grading 引用确切产物<br/>按声明材料进行评分"]
+    R -. "需要报告时" .-> G
+    classDef definition fill:#eaf0ff,stroke:#235aca,color:#18283e
+    classDef artifact fill:#e8f6f3,stroke:#087c75,color:#18283e
+    classDef optional fill:#fff2dc,stroke:#af7918,color:#4a3512
+    class T,E,G definition
+    class C artifact
+    class R optional

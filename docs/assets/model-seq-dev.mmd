@@ -1,0 +1,34 @@
+sequenceDiagram
+  autonumber
+  participant U as 用户
+  participant A as 自带 Agent（如 Claude Code）
+  participant TE as TaskExecution
+  participant SB as SandboxProvisioning
+  participant V as 外部评价者（全新会话）
+  participant GR as Grading
+  U->>TE: 开始工作（外部执行）
+  TE->>TE: 同一事务：创建 Work 与 TaskRun #1，登记外部执行者并签发会话身份
+  TE->>SB: 准备 Workspace（开发 worktree，可选运行环境）
+  TE-->>A: Workspace 路径与任务契约（经 skill 交给 Agent）
+  A->>A: 在宿主上实现、自测
+  A->>TE: 出示会话身份，提交完整清单（origin = external）并声明停止
+  TE->>TE: 接收校验 accepted，#1 已交付
+  U->>GR: 发起 gate（#1 的绑定）
+  GR->>GR: 签发评价者会话身份（须不同于 worker 会话）
+  GR-->>V: 盲验材料（以摘要绑定）
+  Note over V: 盲验 → 固定摘要 → 对照 → 提交逐条报告
+  V->>GR: 提交报告
+  GR->>GR: 校验逐条结论
+  U->>TE: 查询工作结论
+  TE-->>U: rejected（工作头 #1，第 3 条未满足）
+  U->>TE: 继续（期望工作头 = #1），外部执行
+  TE->>TE: 同一事务：受理 #2 refines #1，工作头 = #2
+  TE->>SB: 从 #1 的冻结 Candidate 新建 worktree（外部执行不移交旧 worktree）
+  TE-->>A: 上一轮交付与验收意见
+  A->>TE: 提交新清单并声明停止，#2 已交付
+  U->>GR: gate（#2，全部重验）
+  V->>GR: 提交报告：全部满足
+  U->>TE: 查询工作结论
+  TE-->>U: accepted（工作头 #2）
+  U->>TE: 结束工作
+  TE->>SB: 释放（保留 Workspace）

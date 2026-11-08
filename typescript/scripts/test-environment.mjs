@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync, mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { chmodSync, lstatSync, readdirSync, rmSync, readFileSync, mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import mysql from 'mysql2/promise';
 
 export const createWorkerHome = worker => {
@@ -17,18 +17,25 @@ export const createWorkerHome = worker => {
   return home;
 };
 
-// Capture the caller's browser installation before assigning an isolated HOME.
-// Browser profiles remain private; only the installed, read-only binaries are shared.
+export function removeWorkerHome(home) {
+  try {rmSync(home,{recursive:true,force:true});return;}
+  catch (error) {if (!["EACCES","EPERM","ENOTEMPTY"].includes(error.code)) throw error;}
+  // The successful worker can own immutable Git material snapshots (0555).
+  // Restore directory write permission only inside this test's private home.
+  function writable(directory) {
+    if (!lstatSync(directory).isDirectory()) return;
+    chmodSync(directory,0o700);
+    for (const entry of readdirSync(directory,{withFileTypes:true})) {
+      if (entry.isDirectory()) writable(join(directory,entry.name));
+    }
+  }
+  writable(home);
+  rmSync(home,{recursive:true,force:true,maxRetries:5,retryDelay:100});
+}
+
 export const workerEnvironment = (home, environment = process.env) => {
-  let browsers = environment.PLAYWRIGHT_BROWSERS_PATH;
-  if (!browsers) {
-    const cache = process.platform === 'darwin' ? join(homedir(), 'Library', 'Caches')
-      : environment.XDG_CACHE_HOME || join(homedir(), '.cache');
-    browsers = join(cache, 'ms-playwright');
-  } else if (browsers !== '0') browsers = resolve(environment.INIT_CWD || process.cwd(), browsers);
   return { ...environment, HOME: home, TMPDIR: join(home, 'tmp'),
-    GROUNDS_ENV_TEST_ROOT: environment.GROUNDS_ENV_TEST_ROOT || join(home, 'tmp'),
-    PLAYWRIGHT_BROWSERS_PATH: browsers };
+    GROUNDS_ENV_TEST_ROOT: environment.GROUNDS_ENV_TEST_ROOT || join(home, 'tmp') };
 };
 
 export const mysqlEnabled = environment => ['HOST', 'DATABASE', 'USERNAME', 'PASSWORD']

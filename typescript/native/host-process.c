@@ -70,7 +70,7 @@ static int proc_identity(pid_t pid, host_proc *out) {
   file = fopen("/proc/stat", "r"); if (!file) return 0;
   unsigned long long boot = 0; while (fgets(data, sizeof(data), file)) if (sscanf(data, "btime %llu", &boot) == 1) break;
   fclose(file); long hz = sysconf(_SC_CLK_TCK); if (!boot || hz <= 0) return 0;
-  out->second = boot; out->born_ms = (double)boot * 1000 + (double)out->first * 1000 / hz;
+  out->second = boot; out->born_ms = (double)out->first * 1000 / hz;
   return 1;
 #else
   return 0;
@@ -207,11 +207,12 @@ static int unrelated_parent_chain(const host_proc *candidate, const char *marker
 #endif
 static napi_value scan(napi_env env, napi_callback_info info) {
   napi_value argv[4], result, array, complete_value; size_t argc = 4; char marker[65]; double started;
+  void *clock_domain = NULL;
   int32_t leader_pid = 0; char leader_identity[64] = {0};
 #if defined(__APPLE__)
   int parent_proof = 0;
 #endif
-  if (napi_get_cb_info(env, info, &argc, argv, NULL, NULL) != napi_ok || (argc != 2 && argc != 4) || !marker_argument(env, argv[0], marker) || napi_get_value_double(env, argv[1], &started) != napi_ok || !(started > 0)) {napi_throw_type_error(env, NULL, "valid host process scope required"); return NULL;}
+  if (napi_get_cb_info(env, info, &argc, argv, NULL, &clock_domain) != napi_ok || (argc != 2 && argc != 4) || !marker_argument(env, argv[0], marker) || napi_get_value_double(env, argv[1], &started) != napi_ok || !(started > 0)) {napi_throw_type_error(env, NULL, "valid host process scope required"); return NULL;}
   if (argc == 4) {
     size_t length = 0;
     if (napi_get_value_int32(env, argv[2], &leader_pid) != napi_ok || leader_pid <= 0 ||
@@ -228,10 +229,11 @@ static napi_value scan(napi_env env, napi_callback_info info) {
 #endif
   }
   host_list matched = {NULL, 0, 0}; int complete = 0;
-  /* Darwin exposes microsecond births. Linux's /proc boot epoch is rounded
-   * to seconds, so its cutoff conservatively includes one extra second. */
 #if defined(__linux__)
-  double cutoff = started - 1000;
+  /* /proc/PID/stat reports elapsed boot ticks, independent of wall-clock
+   * adjustments. A legacy wall-time scope must inspect every same-uid process. */
+  long hz = sysconf(_SC_CLK_TCK);
+  double cutoff = clock_domain && hz > 0 ? started - 1000.0 / hz - 10.0 : 0.0;
 #else
   double cutoff = started;
 #endif
@@ -322,9 +324,12 @@ static napi_value signal_leader(napi_env env, napi_callback_info info) {
 napi_status register_host_process(napi_env env, napi_value exports) {
   napi_property_descriptor methods[] = {
     {"hostProcesses", NULL, scan, NULL, NULL, NULL, napi_default, NULL},
+#if defined(__linux__)
+    {"hostProcessesSinceBoot", NULL, scan, NULL, NULL, NULL, napi_default, (void *)1},
+#endif
     {"signalHostProcess", NULL, signal_owned, NULL, NULL, NULL, napi_default, NULL},
     {"hostProcessIdentity", NULL, read_identity, NULL, NULL, NULL, napi_default, NULL},
     {"signalHostProcessLeader", NULL, signal_leader, NULL, NULL, NULL, napi_default, NULL}
   };
-  return napi_define_properties(env, exports, 4, methods);
+  return napi_define_properties(env, exports, sizeof(methods) / sizeof(methods[0]), methods);
 }

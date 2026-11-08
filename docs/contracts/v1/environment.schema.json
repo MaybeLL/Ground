@@ -5,6 +5,9 @@
   "description": "grounds env 的本机结果。任务实例与执行记录只保存在本机运行时目录，不写入业务账本。",
   "oneOf": [
     {
+      "$ref": "#/$defs/repositoryResult"
+    },
+    {
       "$ref": "#/$defs/upResult"
     },
     {
@@ -44,6 +47,27 @@
   "$defs": {
     "resultType": {
       "const": "grounds.result.environment/v1"
+    },
+    "repository": {
+      "description": "Local Git common-directory incarnation. Obtain with env repository; linked worktrees share it, other clones and recreated directories do not. Not a remote or ledger identity.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["git_common_dir", "device", "inode"],
+      "properties": {
+        "git_common_dir": { "type": "string", "pattern": "^/", "maxLength": 4096 },
+        "device": { "type": "string", "pattern": "^[0-9]+$" },
+        "inode": { "type": "string", "pattern": "^[0-9]+$" }
+      }
+    },
+    "repositoryResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_type", "command", "repository"],
+      "properties": {
+        "result_type": { "$ref": "#/$defs/resultType" },
+        "command": { "const": "env.repository" },
+        "repository": { "$ref": "#/$defs/repository" }
+      }
     },
     "upResult": {
       "type": "object",
@@ -513,11 +537,8 @@
         "disclosure": {
           "type": "string"
         },
-        "repository_id": {
-          "$ref": "common.schema.json#/$defs/id"
-        },
-        "dev_run_id": {
-          "$ref": "common.schema.json#/$defs/id"
+        "repository": {
+          "$ref": "#/$defs/repository"
         },
         "input": {
           "type": "object",
@@ -816,6 +837,17 @@
             "startedAtMs"
           ],
           "properties": {
+            "platform": {"enum":["darwin","linux"]},
+            "linuxBoot": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id","uptimeMs","namespaces"],
+              "properties": {
+                "id": {"type":"string","format":"uuid"},
+                "uptimeMs": {"type":"integer","minimum":1},
+                "namespaces": {"type":"string","minLength":1}
+              }
+            },
             "marker": {
               "type": "string",
               "pattern": "^[a-f0-9]{64}$"
@@ -925,12 +957,27 @@
       "type": "string",
       "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
     },
+    "sharedService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "kind", "container_id", "network_id", "host", "port", "repository", "environment"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$" },
+        "kind": { "enum": ["mysql", "postgres"] },
+        "container_id": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "network_id": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "host": { "type": "string", "pattern": "^[a-zA-Z0-9.-]+$", "maxLength": 512 },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "repository": { "$ref": "#/$defs/repository" },
+        "environment": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    },
     "credentialGrant": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "name",
-        "repository_id",
+        "repository",
         "environment",
         "source_file",
         "account",
@@ -941,8 +988,8 @@
         "name": {
           "type": "string"
         },
-        "repository_id": {
-          "$ref": "common.schema.json#/$defs/id"
+        "repository": {
+          "$ref": "#/$defs/repository"
         },
         "environment": {
           "type": "string"

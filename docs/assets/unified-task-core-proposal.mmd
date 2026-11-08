@@ -1,0 +1,11 @@
+flowchart TD
+  TYPE[TaskType：任务类型与版本] -->|约束定义及交付| TASK[Task：一份工作定义]
+  TASK -->|每次明确尝试| RUN[TaskRun：通用任务尝试]
+  RUN -->|组织实际 Agent 调用| EXEC[AgentExecution：执行事实与轨迹]
+  RUN -->|固定交付引用| OUT[Candidate 或 Artifact 等交付]
+  APP[统一任务执行应用服务] -->|推进同一生命周期| RUN
+  APP -->|调用通用执行与环境能力| EXEC
+  EXT[编码 / 问答 / 抓取 / 自定义任务规则] -.->|输入解释与交付校验| APP
+  REQ[Requirement：需求意图] -->|编码任务来源| ISSUE[Issue：编码 Task 的业务定义或视图]
+  ISSUE -.->|纳入公共任务契约| TASK
+  EVAL[评测编排] -->|发起与关联通用尝试| RUN

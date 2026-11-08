@@ -1,0 +1,778 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/suite-results.schema.json",
+  "title": "Evaluation suite commands",
+  "oneOf": [
+    {"type":"object","required":["command","result_type","gradingId","runId","status"],"properties":{"command":{"const":"grade.start-managed"},"result_type":{"const":"grounds.result.grade.start-managed/v1"},"gradingId":{"$ref":"work-results.schema.json#/$defs/Id"},"runId":{"$ref":"work-results.schema.json#/$defs/Id"},"status":{"const":"accepted"}},"additionalProperties":false},
+    {"type": "object", "required": ["command", "result_type", "gradingId", "executionId", "stream", "ordinal", "ref", "base64"], "properties": {"command": {"const": "grade.evaluator-evidence"}, "result_type": {"const": "grounds.result.grade.evaluator-evidence/v1"}, "gradingId": {"$ref": "work-results.schema.json#/$defs/Id"}, "executionId": {"$ref": "work-results.schema.json#/$defs/Id"}, "stream": {"enum": ["raw", "events", "output", "stderr", "blind-raw", "blind-events", "blind-output", "blind-stderr"]}, "ordinal": {"type": "integer", "minimum": 0}, "ref": {"$ref": "trace-results.schema.json#/$defs/Blob"}, "base64": {"type": "string"}}, "additionalProperties": false},
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "suiteId",
+        "revisionId",
+        "seq",
+        "digest",
+        "caseCount"
+      ],
+      "properties": {
+        "command": {
+          "const": "suite.publish"
+        },
+        "result_type": {
+          "const": "grounds.result.suite.publish/v1"
+        },
+        "suiteId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "revisionId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "digest": {
+          "$ref": "work-results.schema.json#/$defs/Digest"
+        },
+        "caseCount": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "suite",
+        "cases",
+        "name"
+      ],
+      "properties": {
+        "command": {
+          "const": "suite.show"
+        },
+        "result_type": {
+          "const": "grounds.result.suite.show/v1"
+        },
+        "suite": {
+          "allOf": [
+            {
+              "$ref": "work-results.schema.json#/$defs/RevisionRef"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "suite"
+                },
+                "seq": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          ]
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "key",
+              "taskRevision",
+              "source",
+              "bindings"
+            ],
+            "properties": {
+              "key": {
+                "$ref": "work-results.schema.json#/$defs/Id"
+              },
+              "taskRevision": {
+                "allOf": [
+                  {
+                    "$ref": "work-results.schema.json#/$defs/RevisionRef"
+                  },
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "task"
+                      },
+                      "seq": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              "source": {
+                "$ref": "#/$defs/Source"
+              },
+              "bindings": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "key",
+                    "graderRevision",
+                    "materialSource",
+                    "materials"
+                  ],
+                  "properties": {
+                    "key": {
+                      "$ref": "work-results.schema.json#/$defs/Id"
+                    },
+                    "answerPath": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "graderRevision": {
+                      "allOf": [
+                        {
+                          "$ref": "work-results.schema.json#/$defs/RevisionRef"
+                        },
+                        {
+                          "properties": {
+                            "kind": {
+                              "const": "grader"
+                            },
+                            "seq": {
+                              "type": "integer",
+                              "minimum": 1
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "materialSource": {
+                      "$ref": "#/$defs/Source"
+                    },
+                    "materials": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/$defs/Material"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "suites"
+      ],
+      "properties": {
+        "command": {
+          "const": "suite.list"
+        },
+        "result_type": {
+          "const": "grounds.result.suite.list/v1"
+        },
+        "suites": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "head"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "work-results.schema.json#/$defs/Id"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "head": {
+                "type": "object",
+                "required": [
+                  "seq",
+                  "revisionId",
+                  "digest"
+                ],
+                "properties": {
+                  "seq": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "revisionId": {
+                    "$ref": "work-results.schema.json#/$defs/Id"
+                  },
+                  "digest": {
+                    "$ref": "work-results.schema.json#/$defs/Digest"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "gradingId",
+        "suiteId",
+        "revisionId",
+        "caseKey",
+        "runId",
+        "deliveryId",
+        "result",
+        "actualDigest",
+        "expectedDigest",
+        "bindingKey"
+      ],
+      "properties": {
+        "command": {
+          "const": "suite.measure"
+        },
+        "result_type": {
+          "const": "grounds.result.suite.measure/v1"
+        },
+        "gradingId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "suiteId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "revisionId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "caseKey": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "runId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "deliveryId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "result": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actualDigest": {
+          "oneOf": [
+            {
+              "$ref": "work-results.schema.json#/$defs/Digest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expectedDigest": {
+          "oneOf": [
+            {
+              "$ref": "work-results.schema.json#/$defs/Digest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "bindingKey": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "result_type",
+        "graderId",
+        "revisionId",
+        "seq",
+        "digest"
+      ],
+      "properties": {
+        "command": {
+          "const": "grade.define-agent"
+        },
+        "result_type": {
+          "const": "grounds.result.grade.define-agent/v1"
+        },
+        "graderId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "revisionId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "digest": {
+          "$ref": "work-results.schema.json#/$defs/Digest"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "result_type",
+        "graderId",
+        "revisionId",
+        "seq",
+        "digest"
+      ],
+      "properties": {
+        "command": {
+          "const": "grade.define-test"
+        },
+        "result_type": {
+          "const": "grounds.result.grade.define-test/v1"
+        },
+        "graderId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "revisionId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "digest": {
+          "$ref": "work-results.schema.json#/$defs/Digest"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "result_type",
+        "graderId",
+        "revisionId",
+        "seq",
+        "digest"
+      ],
+      "properties": {
+        "command": {
+          "const": "grade.define-rule"
+        },
+        "result_type": {
+          "const": "grounds.result.grade.define-rule/v1"
+        },
+        "graderId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "revisionId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "digest": {
+          "$ref": "work-results.schema.json#/$defs/Digest"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "grade.measure"
+        },
+        "result_type": {
+          "const": "grounds.result.grade.measure/v1"
+        },
+        "gradingId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "runId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "deliveryId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "result": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actualDigest": {
+          "oneOf": [
+            {
+              "$ref": "work-results.schema.json#/$defs/Digest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expectedDigest": {
+          "oneOf": [
+            {
+              "$ref": "work-results.schema.json#/$defs/Digest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "result_type",
+        "gradingId",
+        "runId",
+        "deliveryId",
+        "result",
+        "actualDigest",
+        "expectedDigest"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "const": "suite.measure"
+        },
+        "result_type": {
+          "const": "grounds.result.suite.measure/v1"
+        },
+        "status": {
+          "const": "accepted"
+        },
+        "gradingId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "suiteId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "revisionId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "caseKey": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "bindingKey": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "runId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "deliveryId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        }
+      },
+      "required": [
+        "command",
+        "result_type",
+        "status",
+        "gradingId",
+        "suiteId",
+        "revisionId",
+        "caseKey",
+        "bindingKey",
+        "runId",
+        "deliveryId"
+      ]
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "gradingId"
+      ],
+      "properties": {
+        "command": {
+          "const": "grade.resume-evaluator"
+        },
+        "result_type": {
+          "const": "grounds.result.grade.resume-evaluator/v1"
+        },
+        "gradingId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "gradingId"
+      ],
+      "properties": {
+        "command": {
+          "const": "grade.resume-test"
+        },
+        "result_type": {
+          "const": "grounds.result.grade.resume-test/v1"
+        },
+        "gradingId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "gradingId",
+        "status"
+      ],
+      "properties": {
+        "command": {
+          "const": "grade.evaluator-status"
+        },
+        "result_type": {
+          "const": "grounds.result.grade.evaluator-status/v1"
+        },
+        "gradingId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "status": {
+          "$ref": "work-results.schema.json#/$defs/GradingStatus"
+        },
+        "executionId": {"$ref":"work-results.schema.json#/$defs/Id"},
+        "agentRevision": {"$ref":"work-results.schema.json#/$defs/RevisionRef"},
+        "environmentRevision": {"$ref":"work-results.schema.json#/$defs/RevisionRef"},
+        "protocol": {"type":"array","items":{"$ref":"work-results.schema.json#/$defs/ProtocolRecord"}},
+        "sandboxPhase": {
+          "type": "string"
+        },
+        "host": {
+          "type": "object",
+          "required": [
+            "state"
+          ],
+          "properties": {
+            "state": {
+              "type": "string"
+            },
+            "detail": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "gradingId",
+        "status"
+      ],
+      "properties": {
+        "command": {
+          "const": "grade.test-status"
+        },
+        "result_type": {
+          "const": "grounds.result.grade.test-status/v1"
+        },
+        "gradingId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "status": {
+          "$ref": "work-results.schema.json#/$defs/GradingStatus"
+        },
+        "sandboxPhase": {
+          "type": "string"
+        },
+        "host": {
+          "type": "object",
+          "required": [
+            "state"
+          ],
+          "properties": {
+            "state": {
+              "type": "string"
+            },
+            "detail": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "gradingId",
+        "ordinal",
+        "stream",
+        "chunk",
+        "base64",
+        "digest",
+        "byteLength",
+        "chunkCount",
+        "complete"
+      ],
+      "properties": {
+        "command": {
+          "const": "grade.test-output"
+        },
+        "result_type": {
+          "const": "grounds.result.grade.test-output/v1"
+        },
+        "gradingId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "ordinal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stream": {
+          "enum": [
+            "stdout",
+            "stderr"
+          ]
+        },
+        "chunk": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "base64": {
+          "type": "string"
+        },
+        "digest": {
+          "$ref": "work-results.schema.json#/$defs/Digest"
+        },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "chunkCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "observedBytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  ],
+  "$defs": {
+    "Source": {
+      "type": "object",
+      "required": [
+        "runId",
+        "deliveryId",
+        "manifestDigest",
+        "receipt",
+        "archiveId",
+        "commit",
+        "archiveReceipt"
+      ],
+      "properties": {
+        "runId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "deliveryId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "manifestDigest": {
+          "$ref": "work-results.schema.json#/$defs/Digest"
+        },
+        "receipt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "archiveId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "artifactSlot":{"$ref":"work-results.schema.json#/$defs/Id"},
+        "commit": {
+          "type": ["string","null"],
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "archiveReceipt": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "Material": {
+      "type": "object",
+      "required": [
+        "role",
+        "visibility",
+        "path",
+        "blob",
+        "digest"
+      ],
+      "properties": {
+        "role": {
+          "enum": [
+            "reference-answer",
+            "hidden-test"
+          ]
+        },
+        "visibility": {
+          "const": "grader"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "blob": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|(?:sha256:)?[0-9a-f]{64})$"
+        },
+        "digest": {
+          "$ref": "work-results.schema.json#/$defs/Digest"
+        },
+        "executable": {
+          "const": true
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -7,11 +7,10 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const json = path => JSON.parse(readFileSync(resolve(root, path), 'utf8'));
 const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
 const cli = json('typescript/package.json');
-const tui = json('tui/package.json');
 const plugin = json('plugins/grounds/.codex-plugin/plugin.json');
 if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(cli.version)) throw new Error('A stable X.Y.Z version is required');
-if (tui.version !== cli.version || plugin.version !== cli.version) throw new Error('CLI, TUI and plugin versions must agree');
-for (const folder of ['typescript', 'tui']) {
+if (plugin.version !== cli.version) throw new Error('CLI and plugin versions must agree');
+for (const folder of ['typescript']) {
   const manifest = json(`${folder}/package.json`), lock = json(`${folder}/package-lock.json`);
   if (lock.version !== manifest.version || lock.packages[''].version !== manifest.version || lock.name !== manifest.name || lock.packages[''].name !== manifest.name) throw new Error(`${folder}: lock identity differs from manifest`);
   if (!manifest.license || manifest.license === 'UNLICENSED') throw new Error('Maintainer must resolve project licensing before distributing release artifacts');

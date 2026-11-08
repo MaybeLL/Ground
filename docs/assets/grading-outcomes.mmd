@@ -1,0 +1,15 @@
+flowchart LR
+    A["一次评分<br/>Grading"] --> G["评分完成<br/>通过、不通过或分数"]
+    A --> I["评分完成但无法判定<br/>记录缺少的必要依据"]
+    A --> E["评分器出错<br/>没有质量分数，记录故障"]
+    E --> R["分别保存状态与结果<br/>出错不自动变成零分"]
+    G --> R
+    I --> R
+    classDef definition fill:#eaf0ff,stroke:#235aca,color:#18283e
+    classDef quality fill:#e8f6f3,stroke:#087c75,color:#18283e
+    classDef uncertain fill:#fff2dc,stroke:#af7918,color:#4a3512
+    classDef failed fill:#fceeed,stroke:#ba584e,color:#672b25
+    class A,R definition
+    class G quality
+    class I uncertain
+    class E failed

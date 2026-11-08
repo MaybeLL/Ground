@@ -11,9 +11,9 @@ test('GitHub release rejects unlicensed, untagged, divergent, mismatched and dir
   const json = (path, value) => writeFileSync(join(root, path), JSON.stringify(value));
   const check = () => spawnSync(process.execPath, [join(root, 'scripts/github-release-check.mjs')], { cwd: root, encoding: 'utf8', env: { ...process.env, GITHUB_REF_NAME: 'v1.2.3', GITHUB_REPOSITORY: 'MaybeLL/Ground' } });
   try {
-    for (const folder of ['scripts', 'typescript', 'tui', 'plugins/grounds/.codex-plugin']) mkdirSync(join(root, folder), { recursive: true });
+    for (const folder of ['scripts', 'typescript', 'plugins/grounds/.codex-plugin']) mkdirSync(join(root, folder), { recursive: true });
     copyFileSync(new URL('./github-release-check.mjs', import.meta.url), join(root, 'scripts/github-release-check.mjs'));
-    for (const folder of ['typescript', 'tui']) {
+    for (const folder of ['typescript']) {
       const manifest = { name: folder, version: '1.2.3', license: 'MIT',
         publishConfig: { access: 'public', registry: 'https://registry.npmjs.org/' },
         repository: { type: 'git', url: 'git+https://github.com/MaybeLL/Ground.git' } };
@@ -35,25 +35,25 @@ test('GitHub release rejects unlicensed, untagged, divergent, mismatched and dir
     writeFileSync(join(root, 'dirty'), 'dirty');
     assert.match(check().stderr, /clean working tree/);
     rmSync(join(root, 'dirty'));
-    json('tui/package.json', { name: 'tui', version: '9.0.0', license: 'MIT' });
+    json('plugins/grounds/.codex-plugin/plugin.json', { version: '9.0.0' });
     assert.match(check().stderr, /versions must agree/);
-    git('checkout', '--', 'tui/package.json');
-    json('tui/package.json', { name: 'tui', version: '1.2.3', license: 'UNLICENSED' });
+    git('checkout', '--', 'plugins/grounds/.codex-plugin/plugin.json');
+    const original = JSON.parse(readFileSync(join(root, 'typescript/package.json'), 'utf8'));
+    json('typescript/package.json', { ...original, license: 'UNLICENSED' });
     assert.match(check().stderr, /resolve project licensing/);
-    git('checkout', '--', 'tui/package.json');
-    const original = JSON.parse(readFileSync(join(root, 'tui/package.json'), 'utf8'));
+    git('checkout', '--', 'typescript/package.json');
     for (const patch of [
       { private: true },
       { publishConfig: { ...original.publishConfig, access: 'restricted' } },
       { publishConfig: { ...original.publishConfig, registry: 'https://registry.example.invalid/' } },
     ]) {
-      json('tui/package.json', { ...original, ...patch });
+      json('typescript/package.json', { ...original, ...patch });
       assert.match(check().stderr, /public npm publication/);
-      git('checkout', '--', 'tui/package.json');
+      git('checkout', '--', 'typescript/package.json');
     }
-    json('tui/package.json', { ...original, repository: { type: 'git', url: 'git+https://github.com/MaybeLL/grounds-open.git' } });
+    json('typescript/package.json', { ...original, repository: { type: 'git', url: 'git+https://github.com/MaybeLL/grounds-open.git' } });
     assert.match(check().stderr, /repository must match/);
-    git('checkout', '--', 'tui/package.json');
+    git('checkout', '--', 'typescript/package.json');
     git('update-ref', 'refs/remotes/origin/main', 'HEAD^');
     assert.notEqual(check().status, 0, 'tag outside main ancestry fails');
   } finally { rmSync(root, { recursive: true, force: true }); }

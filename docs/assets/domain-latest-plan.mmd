@@ -1,0 +1,9 @@
+flowchart TB
+  SU[Suite 评测集] -->|冻结| SS[SuiteSnapshot]
+  EP[Experiment 固定方案] -->|固定引用| SS
+  EP -->|选择被测配置| AR[AgentRevision]
+  SS -->|包含| CASE[EvaluationCase 评测项]
+  CASE -->|固定任务| TR[TaskRevision]
+  CASE -->|选择并绑定评分材料| GR[GraderRevision]
+  GD[GraderDefinition 稳定身份] -->|具有修订| GR
+  GR -.->|采用 Agent Judge 时固定配置| JA[Judge 的 AgentRevision]

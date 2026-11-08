@@ -1,0 +1,9 @@
+flowchart TB
+  EV[Evaluation 评测用例] -->|发起被测任务| EX[Execution 统一任务执行用例]
+  CLI[独立任务入口] --> EX
+  EV -->|交付后调用| G[Grading 评分用例]
+  G --> GR[Grader：规则 / 测试 / Agent Judge]
+  GR -.->|仅 Agent Judge 组织评分任务| EX
+  EX --> TYPE[TaskType 规则与处理能力]
+  EX --> PORT[环境 / Workspace / Agent / 存取端口]
+  AD[外层适配器：Pi Durable / 容器 / Git / 文件与数据库] -.->|实现| PORT

@@ -18,17 +18,17 @@ import { temporary } from "./env-test-helpers.js";
 const exited = (child: ChildProcess): Promise<void> => new Promise((resolve, reject) => {
   child.once("exit", () => resolve()); child.once("error", reject);
 });
-async function stopped(scope: HostProcessScope): Promise<void> {
+async function stopped(scope: HostProcessScope, leader?:HostProcessIdentity): Promise<void> {
   for (let i = 0; i < 100; i++) {
-    const observed = inspectHostProcessScope(scope);
+    const observed = inspectHostProcessScope(scope,leader);
     if (observed.complete && observed.processes.length === 0) return;
     await delay(20);
   }
   assert.fail("scope did not confirm stopped after its own processes exited");
 }
-async function completeObservation(scope: HostProcessScope): Promise<HostProcessObservation> {
+async function completeObservation(scope: HostProcessScope, leader?:HostProcessIdentity): Promise<HostProcessObservation> {
   for (let i = 0; i < 100; i++) {
-    const observed = inspectHostProcessScope(scope);
+    const observed = inspectHostProcessScope(scope,leader);
     if (observed.complete) return observed;
     await delay(20);
   }
@@ -58,28 +58,59 @@ test("host completion includes a detached reparented Python descendant, and pers
   const directory = mkdtempSync(join(tmpdir(), "grounds-host-descendant-"));
   const scope = createHostProcessScope(); let descendant: number | undefined;
   try {
-    const child = spawn("python3", ["-c", `import subprocess,sys\np=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'],start_new_session=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\nopen(sys.argv[1],'w').write(str(p.pid))`, join(directory, "pid")], { detached: true, stdio: "ignore", env: { ...process.env, ...hostProcessEnvironment(scope), GROUNDS_TEST_SECRET: "must-never-leave-native-memory" } });
-    await exited(child);
+    const child = spawn("python3", ["-c", `import subprocess,sys\nsys.stdin.readline()\np=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'],start_new_session=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\nopen(sys.argv[1],'w').write(str(p.pid))`, join(directory, "pid")], { detached: true, stdio: ["pipe","ignore","ignore"], env: { ...process.env, ...hostProcessEnvironment(scope), GROUNDS_TEST_SECRET: "must-never-leave-native-memory" } });
+    const done=exited(child);
+    let leader:HostProcessIdentity;
+    try {
+      const identity=hostProcessIdentity(child.pid!);
+      assert.ok(identity);
+      leader={pid:child.pid!,identity};
+    } finally {child.stdin!.end("\n");}
+    await done;
     descendant = Number(readFileSync(join(directory, "pid"), "utf8"));
     process.kill(descendant, 0);
     const persisted = JSON.parse(JSON.stringify(scope)) as HostProcessScope;
-    const observed = await completeObservation(persisted);
+    const observed = await completeObservation(persisted,leader);
     assert.equal(observed.complete, true);
     assert.deepEqual(observed.processes.map(p => p.pid), [descendant]);
     assert.deepEqual(Object.keys(observed).sort(), ["complete", "processes"]);
     assert.deepEqual(Object.keys(observed.processes[0]).sort(), ["identity", "pid"]);
     assert.equal(JSON.stringify(observed).includes("must-never-leave-native-memory"), false);
-    signalHostProcessScope(persisted, "SIGTERM");
-    await stopped(persisted);
+    signalHostProcessScope(persisted, "SIGTERM",leader);
+    await stopped(persisted,leader);
   } finally {
     for (const owned of inspectHostProcessScope(scope).processes) signalHostProcessIdentity(scope, owned, "SIGKILL");
     rmSync(directory, { recursive: true, force: true });
   }
 });
 
+test("a foreign platform scope cannot confirm termination or authorize a leader signal",async()=>{
+  const scope=createHostProcessScope(),child=task(scope),done=exited(child);
+  try {
+    const foreign:HostProcessScope={marker:scope.marker,startedAtMs:scope.startedAtMs,platform:process.platform==="linux"?"darwin":"linux"};
+    assert.deepEqual(inspectHostProcessScope(foreign),{complete:false,processes:[]});
+    assert.equal(signalHostProcessLeader(child.pid!,hostProcessIdentity(child.pid!)!,"SIGTERM",foreign),false);
+  } finally {child.kill();await done;}
+});
+
+test("Linux scope recovery observes marked processes after a wall clock step", {skip:process.platform!=="linux"},async()=>{
+  const scope=createHostProcessScope();
+  const child=task(scope),done=exited(child);
+  try {
+    const shifted={...scope,startedAtMs:scope.startedAtMs+4500};
+    assert.equal((await observedProcess(shifted,child)).pid,child.pid);
+    assert.deepEqual(inspectHostProcessScope({...shifted,linuxBoot:{...scope.linuxBoot!,namespaces:"other"}}),{complete:false,processes:[]});
+    const legacy={marker:scope.marker,startedAtMs:shifted.startedAtMs};
+    assert.equal((await observedProcess(legacy,child)).pid,child.pid);
+    assert.deepEqual(inspectHostProcessScope({...shifted,linuxBoot:{...scope.linuxBoot!,id:"different-boot"}}),{complete:false,processes:[]});
+  } finally {child.kill();await done;}
+});
+
 test("host signals require both the correct random scope and process birth identity", async () => {
   const own = createHostProcessScope(), other = createHostProcessScope();
-  const a = task(own), b = task(other); const aDone = exited(a), bDone = exited(b);
+  const a = task(own), b = task(other);
+  const birthA=hostProcessIdentity(a.pid!),birthB=hostProcessIdentity(b.pid!);
+  const aDone = exited(a), bDone = exited(b);
   // An unrelated absent/inaccessible environment keeps the host census
   // incomplete. Empty macOS environments exercise the same fail-closed branch
   // without assuming that the runner enables SIP for /bin/sleep. Signal
@@ -90,22 +121,23 @@ test("host signals require both the correct random scope and process birth ident
   const restrictedDone = exited(restricted), restrictedBirth = hostProcessIdentity(restricted.pid!);
   try {
     assert.ok(restrictedBirth);
-    const [found] = await Promise.all([observedProcess(own, a), observedProcess(other, b), ready]);
+    const [found,foundOther] = await Promise.all([observedProcess(own, a), observedProcess(other, b), ready]);
     const otherBirth = hostProcessIdentity(b.pid!); assert.ok(otherBirth);
     assert.equal(signalHostProcessIdentity(own, { ...found, identity: "0:0" }, "SIGKILL"), false);
     assert.equal(signalHostProcessIdentity(other, found, "SIGKILL"), false);
     process.kill(a.pid!, 0); process.kill(b.pid!, 0);
-    signalHostProcessScope(own, "SIGKILL"); await aDone;
+    assert.equal(signalHostProcessIdentity(own,found,"SIGKILL"),true); await aDone;
     assert.equal(hostProcessIdentity(a.pid!), undefined);
     assert.deepEqual(inspectHostProcessScope(own), { complete: false, processes: [] });
     assert.notEqual(b.exitCode, 0); assert.equal(b.signalCode, null); process.kill(b.pid!, 0);
     assert.equal(hostProcessIdentity(b.pid!), otherBirth);
-    signalHostProcessScope(other, "SIGTERM"); await bDone;
+    assert.equal(signalHostProcessIdentity(other,foundOther,"SIGTERM"),true); await bDone;
     assert.equal(hostProcessIdentity(b.pid!), undefined);
     assert.deepEqual(inspectHostProcessScope(other), { complete: false, processes: [] });
     assert.equal(hostProcessIdentity(restricted.pid!), restrictedBirth);
   } finally {
-    for (const scope of [own, other]) for (const owned of inspectHostProcessScope(scope).processes) signalHostProcessIdentity(scope, owned, "SIGKILL");
+    if (birthA) signalHostProcessLeader(a.pid!,birthA,"SIGKILL");
+    if (birthB) signalHostProcessLeader(b.pid!,birthB,"SIGKILL");
     if (restrictedBirth) signalHostProcessLeader(restricted.pid!, restrictedBirth, "SIGKILL");
     await Promise.all([aDone, bDone, restrictedDone]);
   }
@@ -121,6 +153,7 @@ test("empty scopes can confirm and malformed or old absent scopes remain unknown
 
 test("absent or unreadable process environments retain unknown; a verified original leader can still be cancelled", async () => {
   const scope = createHostProcessScope();
+  if (process.platform==="linux") scope.startedAtMs+=4500; // simulated wall clock adjustment after scope creation
   const argv = process.platform === "darwin" ? ["/bin/sleep", "60"] : ["python3", "-c", "import ctypes,time;assert ctypes.CDLL(None).prctl(4,0,0,0,0)==0;print('ready',flush=True);time.sleep(60)"];
   const child = spawn(argv[0], argv.slice(1), { detached: true, stdio: ["ignore", "pipe", "ignore"], env: process.platform === "darwin" ? {} : { ...process.env, ...hostProcessEnvironment(scope) } });
   const ready = restrictedProcessReady(child);

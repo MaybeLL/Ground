@@ -1,0 +1,11 @@
+flowchart LR
+  P0["P0 领域与存储<br/>9 个聚合 · 外部执行登记<br/>schema v24 · 迁移演练"] --> P1["P1 契约开发闭环<br/>自带 Agent · Work · gate<br/>外部评价者 · 切换"]
+  P0 --> P2["P2 本地低摩擦<br/>免编译安装 · 默认 SQLite<br/>标签归档 · 一步初始化"]
+  P1 --> P3["P3 评测资产<br/>历史沉淀评测项 · 补充评分依据<br/>规则评分"]
+  P3 --> P4["P4 托管执行与沙箱<br/>devcontainer · 命令行 Agent 适配器<br/>测试评分 · 宿主"]
+  P4 --> P5["P5 实验与对比<br/>批次 · 重复 · 汇总<br/>迁移旧评测"]
+  P5 --> P6["P6 退役<br/>旧写入路径 · Python 协调器<br/>Codex 采集"]
+  classDef v1 fill:#ecf7ee,stroke:#4c8a5a,color:#173d22;
+  classDef v2 fill:#eef2ff,stroke:#5b6abf,color:#1e2a6b;
+  class P1,P2 v1;
+  class P3,P4,P5 v2;

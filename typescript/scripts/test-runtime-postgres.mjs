@@ -17,10 +17,14 @@ try {
   await exec('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
     '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1',
     '-keyout', join(temporary, 'server-key.pem'), '-out', join(temporary, 'server-cert.pem')]);
-  await docker(['run', '--detach', '--rm', '--name', name, '--label', 'grounds.test=true',
+  await docker(['create', '--rm', '--name', name, '--label', 'grounds.test=true',
     '--publish', '127.0.0.1::5432', '--env', 'POSTGRES_PASSWORD', '--tmpfs', '/var/lib/postgresql/data',
-    '--mount', `type=bind,src=${temporary},dst=/certificates,readonly`, 'postgres:16',
-    'bash', '-ec', 'cp /certificates/server-*.pem /tmp/; chown postgres:postgres /tmp/server-*.pem; chmod 600 /tmp/server-key.pem; exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tmp/server-cert.pem -c ssl_key_file=/tmp/server-key.pem']);
+    'postgres:16',
+    'bash', '-ec', 'chown postgres:postgres /tmp/server-*.pem; chmod 600 /tmp/server-key.pem; exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tmp/server-cert.pem -c ssl_key_file=/tmp/server-key.pem']);
+  for (const file of ['server-cert.pem', 'server-key.pem']) {
+    await docker(['cp', join(temporary, file), `${name}:/tmp/${file}`]);
+  }
+  await docker(['start', name]);
   const port = Number((await docker(['port', name, '5432/tcp'])).stdout.trim().split(':').at(-1));
   let ready = false;
   for (let attempt = 0; attempt < 120; attempt++) {

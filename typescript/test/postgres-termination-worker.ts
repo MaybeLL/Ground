@@ -26,12 +26,11 @@ const store = SQLStore.postgres(connection, { retryAttempts: 3 });
 await store.initialize("warn");
 let terminated = false;
 let attempts = 0;
-const result = await store.write(async (tx) => {
+const result = await store.transaction(true, async (tx) => {
   attempts += 1;
-  const inner = tx as unknown as { client: { get<T>(sql: string): Promise<T | undefined> } };
   if (!terminated) {
     terminated = true;
-    const pid = Number((await inner.client.get<{ pid: unknown }>("SELECT pg_backend_pid() AS pid"))?.pid);
+    const pid = Number((await tx.get<{ pid: unknown }>("SELECT pg_backend_pid() AS pid"))?.pid);
     const admin = new pg.Client({
       host: connection.host, port: connection.port, user: connection.username, password: connection.password,
       database: process.env.GROUNDS_TEST_PG_DATABASE ?? "postgres",
@@ -44,11 +43,11 @@ const result = await store.write(async (tx) => {
     // Let the socket close arrive while the checkout is still held.
     await sleep(600);
     // The connection is dead: this statement must surface as retryable transient.
-    return inner.client.get<{ one: unknown }>("SELECT 1 AS one");
+    return tx.get<{ one: unknown }>("SELECT 1 AS one");
   }
-  return inner.client.get<{ one: unknown }>("SELECT 1 AS one");
+  return tx.get<{ one: unknown }>("SELECT 1 AS one");
 });
 
-const afterwards = await store.write(async () => "still-works");
+const afterwards = await store.transaction(true, async () => "still-works");
 await store.close();
 console.log(JSON.stringify({ attempts, result, afterwards }));

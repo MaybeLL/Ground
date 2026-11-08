@@ -1,5 +1,6 @@
 import { dataLayout } from "./data-layout.js";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { flockSync, lockContended } from "./native-binding.js";
 import {
   constants,
   lstatSync,
@@ -146,29 +147,26 @@ export function atomicPrivateWrite(path: string, data: Buffer | string): void {
     closeSync(dir);
   }
 }
-/** Long-lived readers (such as draft editors) hold this until their service closes. */
-export async function acquireRuntimeLease(root: string, key: string, mode: "exclusive" | "shared"): Promise<() => void> {
-  const { flock } = await import("fs-ext");
+
+/** Nonblocking synchronous counterpart using the exact same lock file as
+ * withRuntimeLock. Keep the protected section short and never await inside it. */
+export function withRuntimeLockSync<T>(root: string, key: string, fn: () => T): T {
   const path = join(privateDirectory(join(root, "locks")), createHash("sha256").update(key).digest("hex") + ".lock");
   const fd = openSync(path, constants.O_CREAT | constants.O_RDWR | constants.O_NOFOLLOW, 0o600);
   try {
-    await new Promise<void>((yes, no) => flock(fd, mode === "shared" ? "shnb" : "exnb", error => error ? no(error) : yes()));
-  } catch {
-    closeSync(fd);
-    throw runtimeError("busy: another local controller holds the operation lock", undefined, "busy");
-  }
-  let released = false;
-  return () => { if (!released) { released = true; closeSync(fd); } };
+    try { flockSync(fd, "exnb"); }
+    catch (error) { if (!lockContended(error)) throw error; throw runtimeError("busy: another local controller holds the operation lock", undefined, "busy"); }
+    return fn();
+  } finally { closeSync(fd); }
 }
 
 export async function withRuntimeLock<T>(
   root: string,
   key: string,
-  fn: () => Promise<T>,
+  fn: (lockFd: number) => Promise<T>,
   waitMs = 0,
   mode: "exclusive" | "shared" = "exclusive",
 ): Promise<T> {
-  const { flock } = await import("fs-ext");
   const path = join(
     privateDirectory(join(root, "locks")),
     createHash("sha256").update(key).digest("hex") + ".lock",
@@ -178,26 +176,21 @@ export async function withRuntimeLock<T>(
     constants.O_CREAT | constants.O_RDWR | constants.O_NOFOLLOW,
     0o600,
   );
-  const lock = (op: "exnb" | "shnb") =>
-    new Promise<void>((yes, no) =>
-      flock(fd, op, (err) => (err ? no(err) : yes())),
-    );
   const deadline = performance.now() + waitMs;
   try {
     for (;;) {
       try {
-        await lock(mode === "shared" ? "shnb" : "exnb");
+        flockSync(fd, mode === "shared" ? "shnb" : "exnb");
         break;
-      } catch (error: any) {
-        const contended = ["EAGAIN", "EWOULDBLOCK"].includes(error.code);
-        if (waitMs > 0 && performance.now() < deadline && contended) {
+      } catch (error) {
+        if (!lockContended(error)) throw error;
+        if (waitMs > 0 && performance.now() < deadline) {
           // Never block libuv's worker pool on flock: multiple waiters can
           // otherwise starve the owner's asynchronous work. Only acquisition
           // is retried; the protected operation is invoked exactly once.
           await new Promise(resolve => setTimeout(resolve, 25));
           continue;
         }
-        if (waitMs > 0 && !contended) throw error;
         throw runtimeError(
           "busy: another local controller holds the operation lock",
           undefined,
@@ -205,7 +198,7 @@ export async function withRuntimeLock<T>(
         );
       }
     }
-    return await fn();
+    return await fn(fd);
   } finally {
     closeSync(fd);
   }

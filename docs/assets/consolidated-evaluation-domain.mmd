@@ -1,0 +1,17 @@
+flowchart TB
+  SU[Suite 评测集] -->|冻结| SNAP[SuiteSnapshot]
+  PLAN[Experiment] -->|固定| SNAP
+  PLAN -->|固定被测配置| A[AgentRevision]
+  SNAP -->|包含| CASE[EvaluationCase]
+  CASE -->|固定引用| TASK[TaskRevision]
+  GD[GraderDefinition] -->|具有多个修订| GS[GraderRevision]
+  CASE -->|选择与绑定材料| GS
+  GS -.->|Agent Judge 固定其配置| JA[Judge 的 AgentRevision]
+  B[ExperimentRun] -->|依据| PLAN
+  B -->|包含| E[EvalRun]
+  E -->|对应| CASE
+  E -->|关联被测尝试| R[TaskRun]
+  E -->|关联多次评分| G[GradingRecord]
+  G -->|依据| GS
+  G -->|引用实际目标与材料| OUT[Candidate / Artifact / Trajectory]
+  G -->|包含结果值| V[Grade]

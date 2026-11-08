@@ -1,26 +1,23 @@
-import type { GitArtifactResolver } from "./git-artifact-storage.js";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { deflateSync } from "node:zlib";
 import { isUUIDv7, newUUIDv7 } from "./identity.js";
-import { sha256 } from "./canonical-json.js";
 import { DomainError, schemaDetails, storageTransient, validation } from "./errors.js";
 import type { SqlDialect } from "./sql-dialect.js";
 import { mysqlDialect, postgresDialect, sqliteDialect } from "./sql-dialects.js";
 import { mysql, mysqlClient, postgresClient, sqliteClient, DatabaseSync, type SQLClient } from "./sql-client.js";
 import { Pool as PgPool } from "pg";
-import { applySchema, ensureLegacyColumns, migrateCandidateArtifacts, SCHEMA_VERSION, PROTOCOL_VERSION, REMOTE_NORMALIZATION_VERSION, MINIMUM_CLI_VERSION } from "./sql-schema.js";
+import { schemaStatements, SCHEMA_VERSION, PROTOCOL_VERSION, REMOTE_NORMALIZATION_VERSION, MINIMUM_CLI_VERSION } from "./sql-schema.js";
 export type DatabaseTarget = { state: "empty" } | { state: "unrecognized" } | { state: "initialized"; metadata: Metadata };
-import { type Candidate } from "./domain.js";
-import type { IntegrityReport, Metadata, ReadTx, Store, Tx } from "./store-types.js";
+import type { IntegrityReport, Metadata } from "./store-types.js";
 
 export { SCHEMA_VERSION, PROTOCOL_VERSION, REMOTE_NORMALIZATION_VERSION, MINIMUM_CLI_VERSION } from "./sql-schema.js";
-const CLI_VERSION = "0.1.0";
+const CLI_VERSION = "0.3.0";
 import { asText, isMissingTableError, isSchemaShapeError, retryDelay, safeInteger, isSafeTransactionRetry, mapStorageError, compareVersions } from "./sql-shared.js";
 
-import { SqlTx } from "./sql-tx.js";
-import { scanIntegrity } from "./sql-integrity.js";
+import { planEvidenceUpgrade } from "./work/adapters/sql/evidence-upgrade.js";
+import { evidenceSchemaStatements, workTables } from "./work/adapters/sql/schema.js";
+import { inspectWorkIntegrity } from "./work/adapters/sql/integrity.js";
 
 /**
  * The advisory-lock key that serializes migrations on one PostgreSQL database.  A stable 64-bit
@@ -35,11 +32,9 @@ export const postgresMigrationLockKey = (config: { host: string; port: number; d
 /** Migration-lock timeouts: their wait is spent, so the lifecycle retry loop must not repeat it. */
 const lockWaitExpired = new WeakSet<object>();
 
-export class SQLStore implements Store {
+export class SQLStore {
   private queue: Promise<void> = Promise.resolve();
-  private gitArtifactResolver?: GitArtifactResolver;
-  setGitArtifactResolver(resolver: GitArtifactResolver): void { this.gitArtifactResolver = resolver; }
-  private constructor(readonly dialect: SqlDialect, private readonly connectionFactory: () => Promise<SQLClient>, private readonly closeFactory: () => Promise<void>, private readonly migrationLockKey = "", private readonly retryAttempts = 7) {}
+  private constructor(readonly dialect: SqlDialect, private readonly connectionFactory: () => Promise<SQLClient>, private readonly closeFactory: () => Promise<void>, private readonly migrationLockKey = "", private readonly retryAttempts = 7, private readonly afterInitialize?: (client: SQLClient) => Promise<void>) {}
 
   /**
    * Engines with row locks serialize lifecycle work on the metadata row, which
@@ -96,11 +91,7 @@ export class SQLStore implements Store {
       mkdirSync(dirname(absolute), { recursive: true, mode: 0o700 });
       const database = new DatabaseSync(absolute);
       try {
-        // busy_timeout must be active before journal_mode: setting WAL can
-        // itself need a lock while another CLI process has the database open.
         database.exec(`PRAGMA busy_timeout = ${busyTimeoutMs}; PRAGMA foreign_keys = ON;`);
-        const journalMode = String((database.prepare("PRAGMA journal_mode").get() as { journal_mode?: unknown } | undefined)?.journal_mode ?? "").toLowerCase();
-        if (journalMode !== "wal") database.exec("PRAGMA journal_mode = WAL;");
         client = sqliteClient(sqliteDialect, database);
         return client;
       } catch (error) {
@@ -113,7 +104,7 @@ export class SQLStore implements Store {
       const current = client;
       client = undefined;
       await current.close();
-    }, "", retryAttempts);
+    }, "", retryAttempts, client => client.exec("PRAGMA journal_mode = WAL"));
   }
 
   static mysql(config: { host: string; port: number; database: string; username: string; password: string; caFile?: string }): SQLStore {
@@ -224,8 +215,8 @@ export class SQLStore implements Store {
     return Number(row?.present ?? 0) === 1;
   }
 
-  private async userTableCount(client: SQLClient): Promise<number> {
-    const row = await client.get<{ total: unknown }>(this.dialect.userTableCountSql);
+  private async userObjectCount(client: SQLClient): Promise<number> {
+    const row = await client.get<{ total: unknown }>(this.dialect.userObjectCountSql);
     return Number(row?.total ?? 0);
   }
 
@@ -234,30 +225,12 @@ export class SQLStore implements Store {
     if (metadata.schema_version !== SCHEMA_VERSION || metadata.protocol_version !== PROTOCOL_VERSION || metadata.remote_normalization_version !== REMOTE_NORMALIZATION_VERSION || compareVersions(metadata.minimum_cli_version, CLI_VERSION) > 0) throw new DomainError("SCHEMA_INCOMPATIBLE", "database schema is incompatible with this CLI", false, schemaDetails(SCHEMA_VERSION, `schema=${metadata.schema_version}, protocol=${metadata.protocol_version}, minimum_cli=${metadata.minimum_cli_version}, remote_normalization=${metadata.remote_normalization_version}`));
   }
 
-  private assertMigratable(metadata: Metadata): void {
-    // A previous migration may have left either durable marker behind. Every
-    // non-clean state is a recovery stop: callers must inspect the database
-    // and make an explicit recovery decision rather than silently replaying DDL.
-    if (metadata.migration_state !== "clean") throw new DomainError("MIGRATION_DIRTY", "database migration is incomplete", false, { reason: `migration_state=${metadata.migration_state}` });
-    // The current schema with a stale normalization version is not a
-    // migration candidate: there is no safe rewrite for already-persisted
-    // repository identities.  Only strictly older schema versions may pass
-    // through the versioned upgrade path (the exact current version is
-    // handled by the fast path above).
-    // An older schema can be upgraded even when its remote-normalization marker
-    // predates the current one; migration rewrites that marker. A mismatch is
-    // unrecoverable only when the database already claims the current schema.
-    if (metadata.schema_version < 1 || metadata.schema_version >= SCHEMA_VERSION || metadata.protocol_version !== PROTOCOL_VERSION || compareVersions(metadata.minimum_cli_version, CLI_VERSION) > 0) {
-      throw new DomainError("SCHEMA_INCOMPATIBLE", "database cannot be migrated by this CLI", false, schemaDetails(SCHEMA_VERSION, `schema=${metadata.schema_version}, protocol=${metadata.protocol_version}, remote_normalization=${metadata.remote_normalization_version}`));
-    }
-  }
-
   async classifyTarget(): Promise<DatabaseTarget> {
     return this.exclusive(() => this.lifecycleRetry(async () => {
       const client = await this.acquireClient();
       try {
         if (await this.hasMetadataTable(client)) return { state: "initialized", metadata: await this.metadataFrom(client) };
-        return await this.userTableCount(client) === 0 ? { state: "empty" } : { state: "unrecognized" };
+        return await this.userObjectCount(client) === 0 ? { state: "empty" } : { state: "unrecognized" };
       } catch (error) {
         throw mapStorageError(error, this.dialect);
       } finally {
@@ -270,47 +243,98 @@ export class SQLStore implements Store {
     return this.exclusive(() => this.lifecycleRetry(() => this.initializeExclusive(policy)));
   }
 
+  /** The only upgrade supported here adds evidence storage to a verified
+   * protocol-2 ledger. The configured identity is checked under the migration
+   * lock before any mutation, including recovery of interrupted MySQL DDL. */
+  async upgrade(expectedId: string): Promise<Metadata> {
+    return this.exclusive(() => this.lifecycleRetry(async () => {
+      const client = await this.acquireClient();
+      let lock = false, tx = false;
+      try {
+        lock = await this.acquireMigrationLock(client);
+        await client.begin(true); tx = true;
+        const current = await this.metadataFrom(client, this.lifecycleLock);
+        if (current.database_id !== expectedId) throw new DomainError("DATABASE_ID_MISMATCH","config points at a different database",false,{reason:"expected_database_id does not match"});
+        if (current.schema_version === SCHEMA_VERSION) {
+          this.assertCompatible(current);
+          await client.commit(); tx = false;
+          return current;
+        }
+        if (current.schema_version !== 1 || current.migration_state === "dirty" ||
+            (current.migration_state !== "clean" && this.dialect.ddlIsTransactional)) {
+          throw new DomainError("SCHEMA_INCOMPATIBLE","unsupported work ledger upgrade",false,schemaDetails(SCHEMA_VERSION,"expected work ledger schema 1"));
+        }
+        this.assertCompatible({ ...current,schema_version:SCHEMA_VERSION,migration_state:"clean" });
+        for (const table of workTables.filter(t => t !== "work_evidence" && t !== "work_evidence_chunks")) {
+          await client.get(`SELECT 1 AS found FROM ${table} WHERE 1 = 0`);
+        }
+        const missing = await planEvidenceUpgrade(client,current.migration_state === "in_progress");
+        await client.run("UPDATE schema_metadata SET migration_state = 'in_progress' WHERE singleton = 1");
+        if (!this.dialect.ddlIsTransactional) { await client.commit(); tx = false; }
+        for (const ddl of evidenceSchemaStatements(this.dialect)) {
+          const table = ddl.split(" (")[0]!.split(" ").at(-1)!;
+          if (missing.has(table)) await client.exec(ddl.replace("IF NOT EXISTS ","") + this.dialect.tableSuffix);
+        }
+        if (!tx) { await client.begin(true); tx = true; }
+        await client.run("UPDATE schema_metadata SET schema_version = ?, migration_state = 'clean' WHERE singleton = 1 AND database_id = ? AND schema_version = 1", [SCHEMA_VERSION,expectedId]);
+        const metadata = await this.metadataFrom(client,this.lifecycleLock);
+        this.assertCompatible(metadata);
+        await client.commit(); tx = false;
+        return metadata;
+      } catch (error) {
+        if (tx) await client.rollback();
+        throw mapStorageError(error,this.dialect);
+      } finally {
+        await this.releaseMigrationLock(client,lock);
+        if (this.dialect.pooled) await client.close();
+      }
+    }));
+  }
+
   private async initializeExclusive(policy: "warn" | "require_override"): Promise<{ metadata: Metadata; action: "initialized" | "attached" }> {
     const client = await this.acquireClient();
     let lock = false;
     let transaction = false;
     try {
       lock = await this.acquireMigrationLock(client);
-      if (this.dialect.requiresExplicitLifecycleTransaction) {
+      if (this.dialect.ddlIsTransactional) {
         await client.begin(true);
         transaction = true;
       }
-      if (await this.hasMetadataTable(client)) {
-        if (!transaction) { await client.begin(true); transaction = true; }
-        const metadata = await this.metadataFrom(client, this.lifecycleLock);
-        this.assertCompatible(metadata);
-        if (transaction) { await client.commit(); transaction = false; }
-        return { metadata, action: "attached" };
-      }
-      if (await this.userTableCount(client) !== 0) {
-        throw new DomainError("SCHEMA_INCOMPATIBLE", "database is neither empty nor an initialized Grounds database", false, schemaDetails(SCHEMA_VERSION, "unrecognized tables"));
+      const existing = await this.hasMetadataTable(client) ? await this.metadataFrom(client, this.lifecycleLock) : undefined;
+      const resuming = !this.dialect.ddlIsTransactional && existing?.migration_state === "in_progress";
+      if (existing) {
+        // An in-progress bootstrap marker authorizes finishing only this ledger family.
+        this.assertCompatible(resuming ? { ...existing, migration_state: "clean" } : existing);
+        if (!resuming) {
+          if (transaction) { await client.commit(); transaction = false; }
+          await this.afterInitialize?.(client);
+          return { metadata: existing, action: "attached" };
+        }
+      } else if (await this.userObjectCount(client) !== 0) {
+        throw new DomainError("SCHEMA_INCOMPATIBLE", "database is neither empty nor an initialized Grounds database", false, schemaDetails(SCHEMA_VERSION, "unrecognized database objects"));
       }
 
-      // MySQL DDL auto-commits, so no transaction may span schema creation.
-      // The advisory lock is the initialization serialization boundary.
-      if (!this.dialect.ddlIsTransactional && transaction) { await client.commit(); transaction = false; }
-      await applySchema(client, this.dialect);
-      if (!transaction) { await client.begin(true); transaction = true; }
-      // Recheck after DDL: a concurrent initializer that does not honor our
-      // lock must not be allowed to silently replace the database identity.
-      const existing = await client.get<Record<string, unknown>>(this.metadataSelect(this.lifecycleLock));
-      if (existing) {
-        const metadata = this.metadataRow(existing);
-        this.assertCompatible(metadata);
-        await client.commit(); transaction = false;
-        return { metadata, action: "attached" };
+      const [metadataDDL, ...tables] = schemaStatements(this.dialect);
+      const identity = [existing?.database_id ?? newUUIDv7(), SCHEMA_VERSION, PROTOCOL_VERSION, MINIMUM_CLI_VERSION, REMOTE_NORMALIZATION_VERSION, existing?.baseline_reachability_policy ?? policy];
+      const columns = "singleton, database_id, schema_version, protocol_version, minimum_cli_version, remote_normalization_version, baseline_reachability_policy, migration_state";
+      if (!existing) {
+        if (transaction) {
+          await client.exec(metadataDDL + this.dialect.tableSuffix);
+          await client.run(`INSERT INTO schema_metadata (${columns}) VALUES (1, ?, ?, ?, ?, ?, ?, 'in_progress')`, identity);
+        } else {
+          // MySQL commits DDL independently. Create its durable identity and
+          // bootstrap marker in the same atomic CREATE TABLE ... SELECT.
+          await client.run(metadataDDL + this.dialect.tableSuffix + " AS SELECT 1 AS singleton, ? AS database_id, ? AS schema_version, ? AS protocol_version, ? AS minimum_cli_version, ? AS remote_normalization_version, ? AS baseline_reachability_policy, 'in_progress' AS migration_state", identity);
+        }
       }
-      const id = newUUIDv7();
-      await client.run("INSERT INTO schema_metadata (singleton, database_id, schema_version, protocol_version, minimum_cli_version, remote_normalization_version, baseline_reachability_policy, migration_state) VALUES (1, ?, ?, ?, ?, ?, ?, 'clean')", [id, SCHEMA_VERSION, PROTOCOL_VERSION, MINIMUM_CLI_VERSION, REMOTE_NORMALIZATION_VERSION, policy]);
-      await client.run("INSERT INTO schema_migrations (schema_version, applied_at) VALUES (?, CURRENT_TIMESTAMP)", [SCHEMA_VERSION]);
+      for (const ddl of tables) await client.exec(ddl + this.dialect.tableSuffix);
+      if (!transaction) { await client.begin(true); transaction = true; }
+      await client.run("UPDATE schema_metadata SET migration_state = 'clean' WHERE singleton = 1 AND database_id = ? AND migration_state = 'in_progress'", [identity[0]]);
       const metadata = await this.metadataFrom(client, this.lifecycleLock);
-      await client.commit();
-      transaction = false;
+      this.assertCompatible(metadata);
+      await client.commit(); transaction = false;
+      await this.afterInitialize?.(client);
       return { metadata, action: "initialized" };
     } catch (error) {
       if (transaction) await client.rollback();
@@ -372,99 +396,19 @@ export class SQLStore implements Store {
   async inspect(): Promise<Metadata> { return this.exclusive(() => this.lifecycleRetry(() => this.inspectUnlocked())); }
 
   async inspectIntegrity(): Promise<{ metadata: Metadata; report: IntegrityReport }> {
-    return this.exclusive(() => this.lifecycleRetry(async () => {
-      const metadata = await this.inspectUnlocked();
-      const client = await this.acquireClient();
-      try { return await scanIntegrity(this.dialect, client, metadata, this.gitArtifactResolver); }
-      catch (error) {
-        try { await client.rollback(); } catch { /* preserve the original storage error */ }
-        throw mapStorageError(error, this.dialect);
-      } finally { if (this.dialect.pooled) await client.close(); }
+    return this.transaction(false, async client => ({
+      metadata: await this.metadataFrom(client),
+      report: await inspectWorkIntegrity(client),
     }));
   }
 
-  async migrate(): Promise<Metadata> {
-    return this.exclusive(() => this.lifecycleRetry(() => this.migrateExclusive()));
-  }
-
-  private async migrateExclusive(): Promise<Metadata> {
-      const client = await this.acquireClient();
-      let lock = false;
-      let transaction = false;
-      let foreignKeysDisabled = false;
-      try {
-        lock = await this.acquireMigrationLock(client);
-        // SQLite cannot change FK enforcement inside a transaction. The store
-        // queue plus BEGIN IMMEDIATE protects the parent-table rebuild below.
-        if (this.dialect.tableRebuild) {
-          const current = await this.metadataFrom(client, this.lifecycleLock);
-          if (current.migration_state === "clean" && current.schema_version === SCHEMA_VERSION && current.protocol_version === PROTOCOL_VERSION && current.remote_normalization_version === REMOTE_NORMALIZATION_VERSION) {
-            this.assertCompatible(current);
-            return current;
-          }
-          await client.exec(this.dialect.tableRebuild.disableForeignKeysSql);
-          foreignKeysDisabled = true;
-        }
-        await client.begin(true); transaction = true;
-        let metadata = await this.metadataFrom(client, this.lifecycleLock);
-        if (metadata.migration_state === "clean" && metadata.schema_version === SCHEMA_VERSION && metadata.protocol_version === PROTOCOL_VERSION && metadata.remote_normalization_version === REMOTE_NORMALIZATION_VERSION) {
-          this.assertCompatible(metadata);
-          await client.commit(); transaction = false;
-          return metadata;
-        }
-        this.assertMigratable(metadata);
-
-        if (!this.dialect.ddlIsTransactional) {
-          // The metadata row is taken exclusively so a locking read waits for
-          // every business transaction's shared lock.  The dirty marker is
-          // committed before DDL because this engine's DDL auto-commits, so no
-          // transaction may span schema creation.
-          await client.run("UPDATE schema_metadata SET migration_state = 'in_progress' WHERE singleton = 1");
-          await client.commit(); transaction = false;
-          // Create any tables first, but defer the refinement foreign key
-          // until the legacy column has been added.  Older databases may have
-          // a dev_runs table without refines_candidate_id; attempting to add
-          // the constraint before ensureLegacyColumns would fail with an
-          // unknown-column error.  Running schema twice is intentional:
-          // CREATE IF NOT EXISTS is idempotent, while the second pass installs
-          // the constraint after the additive ALTER TABLE steps.
-          await applySchema(client, this.dialect, false);
-          await ensureLegacyColumns(client, this.dialect);
-          await migrateCandidateArtifacts(client, this.dialect);
-          await applySchema(client, this.dialect);
-          await client.begin(true); transaction = true;
-          metadata = await this.metadataFrom(client, "exclusive");
-        } else {
-          await client.run("UPDATE schema_metadata SET migration_state = 'in_progress' WHERE singleton = 1");
-          await applySchema(client, this.dialect, false);
-          await ensureLegacyColumns(client, this.dialect);
-          await migrateCandidateArtifacts(client, this.dialect);
-          await applySchema(client, this.dialect);
-        }
-
-        if (this.dialect.foreignKeyCheckSql && (await client.all(this.dialect.foreignKeyCheckSql)).length) throw new DomainError("SCHEMA_INCOMPATIBLE", "Migration would leave invalid foreign-key bindings");
-        await client.run("UPDATE schema_metadata SET schema_version = ?, protocol_version = ?, minimum_cli_version = ?, remote_normalization_version = ?, migration_state = 'clean' WHERE singleton = 1", [SCHEMA_VERSION, PROTOCOL_VERSION, MINIMUM_CLI_VERSION, REMOTE_NORMALIZATION_VERSION]);
-        await client.run("INSERT INTO schema_migrations (schema_version, applied_at) SELECT ?, CURRENT_TIMESTAMP WHERE NOT EXISTS (SELECT 1 FROM schema_migrations WHERE schema_version = ?)", [SCHEMA_VERSION, SCHEMA_VERSION]);
-        metadata = await this.metadataFrom(client, this.lifecycleLock);
-        this.assertCompatible(metadata);
-        await client.commit(); transaction = false;
-        return metadata;
-      } catch (error) {
-        if (transaction) await client.rollback();
-        throw mapStorageError(error, this.dialect);
-      } finally {
-        if (foreignKeysDisabled) await client.exec(this.dialect.tableRebuild!.restoreForeignKeysSql);
-        await this.releaseMigrationLock(client, lock);
-        if (this.dialect.pooled) await client.close();
-      }
-  }
-
-  async write<T>(callback: (tx: Tx) => Promise<T>): Promise<T> {
-    return this.exclusive(() => this.businessTransaction(true, (client) => callback(new SqlTx(client, false, true, this.gitArtifactResolver))));
-  }
-
-  async read<T>(callback: (tx: ReadTx) => Promise<T>): Promise<T> {
-    return this.exclusive(() => this.businessTransaction(false, (client) => callback(new SqlTx(client, true, true, this.gitArtifactResolver))));
+  /**
+   * One business transaction with direct access to the SQL client, for adapters
+   * that own their tables (the work model). It shares the store's retry,
+   * compatibility check and error mapping; the callback may run more than once.
+   */
+  async transaction<T>(write: boolean, callback: (client: SQLClient) => Promise<T>): Promise<T> {
+    return this.exclusive(() => this.businessTransaction(write, callback));
   }
 
   private async businessTransaction<T>(write: boolean, callback: (client: SQLClient) => Promise<T>): Promise<T> {
@@ -498,11 +442,3 @@ export class SQLStore implements Store {
 
   async close(): Promise<void> { await this.exclusive(() => this.closeFactory()); }
 }
-
-export const artifactChunks = (patch: Buffer): Buffer[] => {
-  const compressed = deflateSync(patch);
-  const chunks: Buffer[] = [];
-  for (let offset = 0; offset < compressed.length; offset += 1024 * 1024) chunks.push(compressed.subarray(offset, Math.min(compressed.length, offset + 1024 * 1024)));
-  if (chunks.length === 0) chunks.push(Buffer.from([0x78, 0x9c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01]));
-  return chunks;
-};

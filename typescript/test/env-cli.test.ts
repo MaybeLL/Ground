@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import {test} from "node:test";
 import {writeFileSync,readFileSync} from "node:fs";
 import {join} from "node:path";
+import {execute} from "../src/cli.js";
 import {executeEnvironmentCommand,envHelp} from "../src/env-cli.js";
 import {temporary} from "./env-test-helpers.js";
 test("env CLI trusted-host path does not request SQL identity; runs/logs/down preserve history",async()=>temporary(async(root,workspace)=>{
- let resolutions=0;const result=await executeEnvironmentCommand({positionals:["env","up"],values:{}},workspace,{resolveRepository:async()=>{resolutions++;throw Error("must stay lazy");}}) as any;assert.equal(resolutions,0);assert.equal(result.environment.trust,"trusted_host");
+ const result=await execute(["env","up","--config",join(root,"missing-config")],{cwd:workspace}) as any;assert.equal(result.environment.trust,"trusted_host");
  const file=join(root,"argv.json");writeFileSync(file,JSON.stringify(["sh","-c","echo CLI"]));const ran=await executeEnvironmentCommand({positionals:["env","run",result.environment.id],values:{"argv-file":file}},workspace) as any;assert.equal(ran.run.state,"succeeded");
  const logs=await executeEnvironmentCommand({positionals:["env","logs",ran.run.id],values:{}},workspace) as any;assert.equal(logs.output,"CLI\n");
  await executeEnvironmentCommand({positionals:["env","down",result.environment.id],values:{}},workspace);assert.equal(readFileSync(join(ran.run.directory,"output.log"),"utf8"),"CLI\n");assert.ok(envHelp().includes("没有文件、网络或资源隔离"));

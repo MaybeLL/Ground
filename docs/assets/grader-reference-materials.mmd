@@ -1,0 +1,11 @@
+flowchart TB
+    T["Task 上下文与被评对象<br/>Candidate / Artifact / Trajectory"] -->|提供评价对象| G["Grader<br/>依据标准或偏好评价"]
+    C["评分要求<br/>标准、偏好：怎样算好"] -->|作为评价准则| G
+    R["参考答案或参考证据<br/>仅在适用时提供"] -.->|可选材料| G
+    G --> V["Grading 记录本次评价<br/>Grade 保存结果与依据"]
+    classDef target fill:#eaf0ff,stroke:#235aca,color:#18283e
+    classDef criteria fill:#e8f6f3,stroke:#087c75,color:#18283e
+    classDef optional fill:#fff2dc,stroke:#af7918,color:#4a3512
+    class T,V target
+    class C,G criteria
+    class R optional

@@ -2,24 +2,8 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { validation } from "./errors.js";
 
-export const skillNames = ["grounds", "grounds-eval", "grounds-knowledge-improve"] as const;
+export const skillNames = ["grounds"] as const;
 export type SkillName = typeof skillNames[number];
-
-const evalScripts = [
-  "grounds_eval_capture.py",
-  "grounds_eval_import.py",
-  "grounds_eval_run.py",
-  "grounds_eval_environment.py",
-  "grounds_eval_runtime.py",
-  "grounds_eval_repositories.py",
-  "grounds_eval_prepare_proxy.py",
-  "grounds_eval_managed.py",
-] as const;
-
-export const scriptsForSkill = (name: SkillName): readonly string[] =>
-  name === "grounds-eval" ? ["grounds_agent.py", ...evalScripts]
-    : name === "grounds-knowledge-improve" ? ["grounds_agent.py", "grounds_knowledge.py"]
-    : ["grounds_agent.py"];
 
 const included = (path: string): boolean =>
   !["__pycache__", ".pytest_cache", ".DS_Store"].includes(basename(path)) && !path.endsWith(".pyc");
@@ -36,16 +20,14 @@ const within = (root: string, path: string): boolean => {
 };
 
 const sourceLayout = (root: string): boolean =>
-  existsSync(join(root, "scripts", "grounds_agent.py"))
-  && existsSync(join(root, "references", "preparation.md"))
+  existsSync(join(root, "references", "preparation.md"))
   && existsSync(join(root, "references", "contracts", "v1"));
 
 export const isSkillAssetsRoot = (root: string): boolean =>
   skillNames.every((name) => existsSync(join(root, "skills", name, "SKILL.md")))
   && (sourceLayout(root) || skillNames.every((name) =>
     existsSync(join(root, "skills", name, "references", "preparation.md"))
-    && existsSync(join(root, "skills", name, "references", "contracts", "v1"))
-    && scriptsForSkill(name).every((script) => existsSync(join(root, "skills", name, "scripts", script)))));
+    && existsSync(join(root, "skills", name, "references", "contracts", "v1"))));
 
 export const contractAssetsRoot = (root: string): string => sourceLayout(root)
   ? join(root, "references", "contracts", "v1")
@@ -85,9 +67,6 @@ export const assembleSkillAssets = (root: string, name: SkillName, target: strin
     copies.set(path, destination);
   }
   mkdirSync(join(target, "scripts"), { recursive: true });
-  for (const script of scriptsForSkill(name)) {
-    cpSync(join(root, "scripts", script), join(target, "scripts", script), { errorOnExist: true });
-  }
 
   // Resolve source links before relocating them. Only this skill, shared
   // references, and the other entrypoints are portable distribution resources.

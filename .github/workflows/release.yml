@@ -32,11 +32,11 @@ jobs:
           python-version: '3.12'
       - name: Verify source, version and licensing
         run: node scripts/github-release-check.mjs
-      - run: npm ci --registry=https://registry.npmjs.org && npm run build
-        working-directory: typescript
-      - run: npm ci --registry=https://registry.npmjs.org && npm run build
-        working-directory: tui
-      - run: node scripts/release-artifacts.mjs
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: tested-package
+          path: output/release
+      - run: cd output/release && sha256sum --check SHA256SUMS
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-assets
@@ -69,20 +69,15 @@ jobs:
           gh release create "$RELEASE_TAG" ./*.tgz SHA256SUMS --verify-tag --generate-notes --title "Grounds $RELEASE_TAG"
 
   npm:
-    name: Publish ${{ matrix.package }} to npm
+    name: Publish CLI to npm
     needs: publish
-    # Bootstrap both packages with a manual tarball publish, configure their
-    # trusted publishers, then enable this repository variable.
+    # Configure the CLI package's trusted publisher before enabling this variable.
     if: vars.NPM_PUBLISH_ENABLED == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
       id-token: write
-    strategy:
-      fail-fast: false
-      matrix:
-        package: [maybell-grounds, maybell-grounds-tui]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -104,7 +99,7 @@ jobs:
         working-directory: release-assets
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-          NPM_PACKAGE: ${{ matrix.package }}
+          NPM_PACKAGE: maybell-grounds
         run: |
           sha256sum --check SHA256SUMS
           npm publish "${NPM_PACKAGE}-${RELEASE_TAG#v}.tgz" --access public --provenance --registry=https://registry.npmjs.org/

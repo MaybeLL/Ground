@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, openSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { flockSync } from "fs-ext";
+import { flockSync, lockContended } from "./native-binding.js";
 import { environmentStoreRoot, readRecord, writeRecord, instanceDirectories } from "./env-store.js";
 import { atomicPrivateWrite, digestBytes, privateDirectory, safeRead, directoryRegistryRoot } from "./runtime-files.js";
 import { stateConflict, validation } from "./errors.js";
 import type { EnvironmentCredentialDeclaration } from "./env-definition.js";
-export interface CredentialGrant { name: string; repository_id: string; environment: string; source_file: string; account: string; method: string; access: "model" | "context-read" | "repository-read"; writeback?: boolean; identity_fields?: string[] }
+import { sameEnvironmentRepository, validateEnvironmentRepository, type EnvironmentRepository } from "./env-repository.js";
+export interface CredentialGrant { name: string; repository: EnvironmentRepository; environment: string; source_file: string; account: string; method: string; access: "model" | "context-read" | "repository-read"; writeback?: boolean; identity_fields?: string[] }
 export interface CredentialBinding { name: string; path: string; grant: CredentialGrant; source_version: string; identity_digest: string; sync?: "unchanged" | "updated" | "conflict" | "failed" }
 /** Host authentication callers hold this lock across occupancy check and logout.
  * Preparation publishes its occupancy under the same source locks. The returned
@@ -21,7 +22,7 @@ export const acquireCredentialSourceLocks = (sourceFiles: string[]): (() => void
       const fd = openSync(join(privateDirectory(join(directoryRegistryRoot(), "credential-locks")), key), "a", 0o600);
       descriptors.push(fd);
       try { flockSync(fd, "exnb"); }
-      catch { throw stateConflict("credential", key, "credential source is in use by preparation, synchronization or authentication; explicitly retry"); }
+      catch (error) { if (!lockContended(error)) throw error; throw stateConflict("credential", key, "credential source is in use by preparation, synchronization or authentication; explicitly retry"); }
     }
     return release;
   } catch (error) { release(); throw error; }
@@ -41,11 +42,12 @@ export const withCredentialPreparation = <T>(bindings: CredentialBinding[], publ
 };
 const grantsFile = (): string => join(environmentStoreRoot(), "credential-grants.json");
 const checkGrant = (grant: CredentialGrant): void => {
-  if (!grant || typeof grant!=="object" || Array.isArray(grant) || Object.keys(grant).some(key=>!["name","repository_id","environment","source_file","account","method","access","writeback","identity_fields"].includes(key))) throw validation("grant","unknown credential authorization field");
-  for(const key of ["name","repository_id","environment","source_file","account","method","access"] as const)if(typeof grant[key]!=="string"||grant[key].length===0||grant[key].length>4096||/[\x00-\x1f]/.test(grant[key]))throw validation("grant","authorization fields must be bounded nonempty declaration strings");
+  if (!grant || typeof grant!=="object" || Array.isArray(grant) || Object.keys(grant).some(key=>!["name","repository","environment","source_file","account","method","access","writeback","identity_fields"].includes(key))) throw validation("grant","unknown credential authorization field");
+  for(const key of ["name","environment","source_file","account","method","access"] as const)if(typeof grant[key]!=="string"||grant[key].length===0||grant[key].length>4096||/[\x00-\x1f]/.test(grant[key]))throw validation("grant","authorization fields must be bounded nonempty declaration strings");
+  validateEnvironmentRepository(grant.repository);
   if(grant.writeback!==undefined&&typeof grant.writeback!=="boolean")throw validation("grant","writeback must be boolean");
   if(grant.identity_fields!==undefined&&(!Array.isArray(grant.identity_fields)||grant.identity_fields.length>16||grant.identity_fields.some(field=>typeof field!=="string"||!/^[a-zA-Z_][a-zA-Z0-9_.]{0,127}$/.test(field))))throw validation("grant","identity_fields must name bounded JSON fields");
-  if (!/^[a-z][a-z0-9-]{0,62}$/.test(grant.name) || !grant.repository_id || !grant.environment || !grant.account || !grant.method || !["model","context-read","repository-read"].includes(grant.access)) throw validation("grant", "requires a repository/environment/reference/account/method and permitted read or model access");
+  if (!/^[a-z][a-z0-9-]{0,62}$/.test(grant.name) || !grant.repository || !grant.environment || !grant.account || !grant.method || !["model","context-read","repository-read"].includes(grant.access)) throw validation("grant", "requires a repository/environment/reference/account/method and permitted read or model access");
   if (grant.writeback && !grant.identity_fields?.length) throw validation("grant", "writeback requires JSON identity_fields to prevent account or authentication-method changes");
   if (grant.writeback && (!grant.identity_fields!.some(field=>/(^|\.)(account|account_id|email)$/.test(field)) || !grant.identity_fields!.some(field=>/(^|\.)(method|auth_mode)$/.test(field)))) throw validation("grant", "writeback must bind both the authorized account and authentication method");
   const source=safeRead(grant.source_file, 1024 * 1024);
@@ -58,7 +60,7 @@ const checkGrant = (grant: CredentialGrant): void => {
 export const registerCredentialGrant = (grant: CredentialGrant): void => {
   checkGrant(grant);
   const grants = existsSync(grantsFile()) ? readRecord<CredentialGrant[]>(grantsFile()) : [];
-  writeRecord(grantsFile(), [...grants.filter(g => !(g.name === grant.name && g.repository_id === grant.repository_id && g.environment === grant.environment)), { ...grant, source_file: realpathSync(grant.source_file) }]);
+  writeRecord(grantsFile(), [...grants.filter(g => !(g.name === grant.name && sameEnvironmentRepository(g.repository, grant.repository) && g.environment === grant.environment)), { ...grant, source_file: realpathSync(grant.source_file) }]);
 };
 const identityOf = (bytes: Buffer, fields: string[] = []): Record<string,unknown> => {
   if (!fields.length) return {};
@@ -66,12 +68,13 @@ const identityOf = (bytes: Buffer, fields: string[] = []): Record<string,unknown
   try { value = JSON.parse(bytes.toString()); } catch { throw validation("credential", "identity-bound source must contain JSON"); }
   return Object.fromEntries(fields.map(field => { const found = field.split(".").reduce<unknown>((part,key) => part && typeof part === "object" ? (part as Record<string,unknown>)[key] : undefined, value); if (found === undefined) throw validation("credential", "required identity field missing"); return [field, found]; }));
 };
-export const authorizeCredentials = (input: { declarations: EnvironmentCredentialDeclaration[]; environment: string; taskRepositoryId?: string; resolvedRepositoryId?: string }): CredentialBinding[] => {
+export const authorizeCredentials = (input: { declarations: EnvironmentCredentialDeclaration[]; environment: string; repository?: EnvironmentRepository }): CredentialBinding[] => {
   if (!input.declarations.length) return [];
-  if (!input.taskRepositoryId || input.taskRepositoryId !== input.resolvedRepositoryId) throw validation("repository", "credential injection requires an unambiguous existing repository resolution matching the task");
+  if (!input.repository) throw validation("repository", "credential injection requires a verified local Git repository");
+  validateEnvironmentRepository(input.repository);
   const grants = existsSync(grantsFile()) ? readRecord<CredentialGrant[]>(grantsFile()) : [];
   return input.declarations.map(declaration => {
-    const grant = grants.find(g=>g.name===declaration.name && g.repository_id===input.taskRepositoryId && g.environment===input.environment);
+    const grant = grants.find(g=>g.name===declaration.name && sameEnvironmentRepository(g.repository,input.repository) && g.environment===input.environment);
     if (!grant) throw validation("credential", `no host authorization for ${declaration.name} in this repository/environment`);
     checkGrant(grant);
     const bytes = safeRead(grant.source_file, 1024 * 1024);

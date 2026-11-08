@@ -1,0 +1,11 @@
+flowchart TB
+    D["需求开发流程<br/>评价已产生的 Candidate"] -->|发起并关联| G["Grading：一次评分记录<br/>可独立于实验存在"]
+    E["实验中的 EvalRun<br/>组织本题的各次评分"] -->|发起并关联| G
+    G -->|绑定被评对象| T["Candidate / Artifact / Trajectory"]
+    G -->|采用固定版本| S["GraderSpec<br/>评分标准与材料要求"]
+    classDef caller fill:#e8f6f3,stroke:#087c75,color:#18283e
+    classDef grading fill:#eaf0ff,stroke:#235aca,color:#18283e
+    classDef input fill:#fff2dc,stroke:#af7918,color:#4a3512
+    class D,E caller
+    class G grading
+    class T,S input

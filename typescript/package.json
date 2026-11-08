@@ -1,6 +1,6 @@
 {
   "name": "@maybell/grounds",
-  "version": "0.2.53",
+  "version": "0.3.0",
   "description": "Grounds CLI for evidence-backed human and Agent work",
   "type": "module",
   "files": [
@@ -8,13 +8,14 @@
     "README.md",
     "binding.gyp",
     "native/",
-    "vendor/"
+    "vendor/",
+    "prebuilds/"
   ],
   "bin": {
     "grounds": "dist/src/bin.js"
   },
   "scripts": {
-    "build": "node scripts/clean.mjs && tsc -p tsconfig.json && node scripts/bundle-skills.mjs",
+    "build": "npm run build:native && node scripts/clean.mjs && tsc -p tsconfig.json && node scripts/bundle-skills.mjs",
     "dev": "tsx src/main.ts",
     "start": "node dist/src/main.js",
     "test": "node --test scripts/test-environment.test.mjs && node scripts/test-parallel.mjs",
@@ -23,29 +24,25 @@
     "test:package": "npm run build && node scripts/package-test.mjs",
     "prepublishOnly": "node -e \"throw new Error('Publish verified GitHub Release tarballs; see docs/releases.md')\"",
     "test:serial": "node scripts/test-parallel.mjs --workers 1",
-    "test:code-workspace": "node scripts/test-code-workspace.mjs",
-    "test:workspace-compatibility": "node scripts/test-workspace-compatibility.mjs",
-    "release:check": "node ../scripts/github-release-check.mjs"
+    "release:check": "node ../scripts/github-release-check.mjs",
+    "build:native": "node scripts/build-native.mjs"
   },
   "engines": {
     "node": ">=22.13.0"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1137.0",
-    "fs-ext": "^2.1.1",
-    "marked": "^17.0.6",
+    "@devcontainers/cli": "0.90.0",
+    "jsonc-parser": "3.3.1",
     "mysql2": "^3.24.2",
-    "node-pty": "1.0.0",
     "pg": "^8.23.1",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
-    "@types/fs-ext": "^2.0.3",
     "@types/node": "^26.4.0",
     "@types/pg": "^8.23.1",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
-    "playwright": "^1.63.0",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   },
@@ -62,5 +59,6 @@
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
-  }
+  },
+  "gypfile": false
 }

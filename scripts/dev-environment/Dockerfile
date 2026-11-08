@@ -7,11 +7,6 @@ COPY typescript/binding.gyp ./
 COPY typescript/native/ native/
 COPY typescript/vendor/ vendor/
 RUN npm ci --no-audit --no-fund --registry=https://registry.npmjs.org && node /usr/local/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js rebuild
-ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
-RUN npx --no-install playwright install --with-deps --only-shell chromium
-WORKDIR /opt/grounds-deps/tui
-COPY tui/package.json tui/package-lock.json ./
-RUN npm ci --no-audit --no-fund --registry=https://registry.npmjs.org
 COPY scripts/dev-environment/dependency-fingerprint.mjs /usr/local/lib/grounds-dependency-fingerprint.mjs
 COPY scripts/dev-environment/grounds-dev /usr/local/bin/grounds-dev
 RUN chmod 755 /usr/local/bin/grounds-dev

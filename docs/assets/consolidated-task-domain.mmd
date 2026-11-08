@@ -1,0 +1,13 @@
+flowchart TB
+  TYPE[TaskType 固定版本] -->|约束| REV[TaskRevision 不可变定义]
+  TASK[Task 稳定身份] -->|具有多个修订| REV
+  REV -->|声明环境要求| SPEC[EnvironmentSpec 固定版本]
+  RUN[TaskRun 一次尝试] -->|固定引用| REV
+  RUN -->|关联具体执行| EX[AgentExecution]
+  AD[AgentDefinition] -->|具有多个修订| AGENT[AgentRevision]
+  EX -->|固定配置| AGENT
+  EX -->|使用资源| ENV[EnvironmentInstance]
+  ENV -->|依据| SPEC
+  WS[Workspace 独立文件空间] -->|挂载与卸载| ENV
+  EX -->|保留过程| TRACE[Trajectory]
+  RUN -->|冻结交付引用| OUT[Candidate / Artifact]

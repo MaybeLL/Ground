@@ -1,19 +1,26 @@
 <a id="shared-grounds-preparation"></a>
 
-# Grounds 共享准备协议
+# CLI 准备与结果处理
 
-定位当前入口目录，即包含 `grounds`、`grounds-eval` 或 `grounds-knowledge-improve` SKILL.md 的目录。若其中包含 `scripts/grounds_agent.py`，将该目录导出为 `GROUNDS_SKILL_ROOT`；否则导出其所属 Plugin 根目录。遵循可选的 `GROUNDS_CONFIG` 和 Plugin 宿主的 `PLUGIN_ROOT` 回退设置。此根目录用于脚本调用；专属参考按当前文件的相对链接读取，不从 helper 根猜测其位置。Plugin 源码与独立安装遵循同一协议，不混用不同安装中的资源。
+直接调用已安装的 `grounds`，不使用 Python 命令包装器、Codex 采集器或自动运行 journal。先检查 `grounds --version` 和当前工作所需的帮助（开发用 `grounds work help --json`）。本开发树的新闭环为 `task / work / grade`；不要用旧业务命令或旧脚本代替缺失的新能力。
 
-在三个入口之间切换时，重新解析并导出当前入口的 helper 根，不沿用另一个 Skill 的根目录。独立安装只携带本 Skill 所需脚本；知识完善协调切换到 `grounds-eval` 后调用评测 helper，不重复分发或改写 runner。共享协议仍有效，不需要重复已经取得的授权。
+## 配置与授权
 
-执行 CLI 操作前，运行 `python3 "${GROUNDS_SKILL_ROOT:-$PLUGIN_ROOT}/scripts/grounds_agent.py" preflight`。业务写入前加上 `--write`，并要求稳定的 `GROUNDS_AGENT_ID` 和 `GROUNDS_AGENT_NAME`。验证者按验证协议使用自己的身份。检查 `installation_status`：出现 `upgrade_required` 时，在业务操作前按返回的建议命令完成升级；仅有 registry 可用性警告不阻止本地工作。
+- `grounds config path --json` 查看配置位置；已有配置用 `grounds db test --json` 核对连接。可用 `--config PATH` 显式选择账本，之后各调用保持一致。
+- 未初始化时，向用户说明将创建的配置和数据库；在已有授权范围内执行 `grounds init --non-interactive --json`。不要自动覆盖配置、升级旧数据库或迁移历史目录。
+- 使用 `--cwd DIR` 指定代码仓库；命令中出现的 ID、路径、摘要均来自真实回执，不凭猜测填充。
+- 只读请求不授权业务写入、启动 agent 或执行测试。独立验收需要主 agent 启动全新子 agent，必须处于用户允许的执行范围内。
 
-契约草稿的 `draft new/list/show/read/save/edit/resolve/bind/migrate`（兼容 `workspace` 别名） 以及无 `--output` 的 `contract render --workspace NAME` 只核对 CLI 安装与命令能力，不要求数据库预检成功；数据库不可达、schema 不兼容或离线不得阻止这些本地操作。新建草稿仍须有已配置的账本身份；打开账本现有来源、远端查询、发布仍执行完整预检。
+## 结构化结果与重试
 
-这个 helper `preflight` 只检查工具、配置和数据库准备情况，不证明目标分支最新或契约仍适用。普通目标开发流程还需按定义/开发工作流执行 Grounds 的 `preflight observe/assess/show`，并由发布或开工入口校验其事实绑定。不能把安装检查通过、历史可达或旧计划的本地跟踪观察代替目标刷新。目标刷新在明确授权内显式执行，同一任务及同一目标已有的有效授权不重复询问；无授权或刷新失败时不静默降级放行。离线草稿读写和固定起点评测仍按各自边界执行，不因此暗中联网。
+每条自动化调用加 `--json`。CLI envelope 的 `ok` 表示调用结果，不等于任务验收成功。失败时保留 `error.code`、`retryable` 和 `details`；不得把未知状态解释成空结果。
 
-JSON CLI 调用使用共享 helper 的 `invoke --cwd CLONE -- COMMAND`，由它按需提供配置、归属和幂等信息。读取成功或错误返回结构，不能假定调用成功。未知筛选条件以已安装命令的帮助为准。重试保留 operation ID，并遵循所选流程的冲突处理规则。不要编辑 `.grounds/` 内部文件。
+新闭环的写命令会返回并打印 `operation_id`；保存原始参数及该标识。需要安全重试时传回同一 `--operation-id`，保持参数和提交 commit 不变。不要为了避开冲突换一个 ID，也不要把未知启动结果当作未启动。读回 `work run`、`work show` 或 `grade show` 后决定下一步。
 
-只读诊断使用 `config path`、`config validate`、`db test` 和 `db status`。状态查询失败不授权初始化、迁移或修复。用户要求配置时，遵循定义需求流程中的明确确认协议。自然语言理解由 Agent 负责，CLI 参数只包含确定的筛选条件。
+CLI 当前不会验证新结果的全部 JSON schema；按具体命令返回内容核对状态、版本和身份，不能套用旧 Candidate 结果类型。结果与 `grade submit --grade-file` 的输入格式见[分发契约](contracts/v1/README.md)。
 
-准备协议跨流程切换共享。写入前，以及配置、安装或身份变化后重新检查；不要在每次切换时重新加载所有流程参考文件。
+## 证据边界
+
+声明、远端归档、独立验收、实际合入和发布是不同事实。外部 agent 的停止仅是声明，不是已核实的进程终止。真实模型未运行、测试被跳过或权限检查失败都要明确报告。
+
+本 skill 不再分发 Python 工具。旧评测、QA 草稿和知识材料流程已退出，不能调用 `eval` 或旧脚本补足尚未实现的新实验能力。

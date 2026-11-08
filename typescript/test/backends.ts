@@ -1,4 +1,7 @@
-import { LedgerFixture } from "./fixture.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { SQLStore } from "../src/sql-store.js";
 import { isolatedMySQL } from "./isolated-mysql.js";
 import { isolatedPostgres, postgresEnabled } from "./isolated-postgres.js";
 
@@ -15,16 +18,25 @@ export const backendSkip = (backend: Backend): string | false => {
   return false;
 };
 
-/** A fresh ledger fixture on the requested backend.  PostgreSQL gets its own database per call. */
-export const openLedger = async (backend: Backend): Promise<LedgerFixture> => {
-  if (backend === "sqlite") return LedgerFixture.create();
-  if (backend === "postgres") {
-    const pg = await isolatedPostgres();
-    return LedgerFixture.createWithStore(pg.store, pg.cleanup);
+/** Each test owns its database and closes the pool before disposing of it. */
+function isolatedSQLite() {
+  const directory = mkdtempSync(join(tmpdir(), "grounds-ledger-"));
+  return { store: SQLStore.sqlite(join(directory, "ledger.db")), cleanup: async () => rmSync(directory, { recursive: true, force: true }) };
+}
+
+export async function openLedger(backend: Backend, initialize = true) {
+  const database = backend === "sqlite"
+    ? isolatedSQLite()
+    : backend === "postgres" ? await isolatedPostgres() : await isolatedMySQL();
+  const close = async () => {
+    try { await database.store.close(); }
+    finally { await database.cleanup(); }
+  };
+  try {
+    if (initialize) await database.store.initialize("warn");
+    return { store: database.store, close };
+  } catch (error) {
+    await close();
+    throw error;
   }
-  // A fresh database per call: the shared MYSQL test database accumulates the deliberate
-  // corruption that integrity-mysql.test.ts writes, which would fail any later whole-database
-  // integrity assertion regardless of the code under test.
-  const mysql = await isolatedMySQL();
-  return LedgerFixture.createWithStore(mysql.store, async () => { await mysql.store.close(); await mysql.cleanup(); });
-};
+}

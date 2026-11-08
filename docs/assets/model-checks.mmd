@@ -1,0 +1,22 @@
+flowchart TB
+  SRC[Manifest 来源：tool 声明 / contract 提取 / caller 提供] --> FACT[TaskExecution 取得归档回执与元数据]
+  FACT -->|读取暂时失败| UNA[unavailable：阻塞核对，不判失败]
+  FACT --> L1["① 接收校验<br/>任务类型纯规则：结构 · 必需项 · 归属一致"]
+  L1 -->|rejected| REJ[TaskRun 失败：agent-output]
+  L1 -->|accepted| OK[TaskRun 已交付]
+  OK -->|调用方发起| L2["② 验收 gate<br/>完整覆盖条目 · 绑定任务、条目、清单、评分器、材料"]
+  OK -->|实验发起| L3["③ 评分 measure<br/>规则 / 测试 / Agent Judge"]
+  L2 --> S[(验收结论：本 TaskRun 最近一条完整记录<br/>accepted / rejected / pending)]
+  S -.->|若该 TaskRun 是 Work 的工作头| WC[(工作结论)]
+  S -->|rejected| RF[调用方发起 refinement TaskRun]
+  L3 --> Q[(批次结果：采用规则与完整性)]
+  classDef a fill:#eef2ff,stroke:#5b6abf,color:#1e2a6b;
+  classDef b fill:#fdecef,stroke:#b5546a,color:#5a1424;
+  classDef c fill:#ecf7ee,stroke:#4c8a5a,color:#173d22;
+  classDef w fill:#fff4e0,stroke:#c08a2d,color:#5a3b06;
+  classDef q fill:#f2f2f2,stroke:#888,color:#333;
+  class L1,FACT a;
+  class L2,L3 b;
+  class OK,REJ,RF c;
+  class UNA w;
+  class S,Q,WC q;

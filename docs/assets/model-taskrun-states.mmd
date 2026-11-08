@@ -1,0 +1,23 @@
+stateDiagram-v2
+  state "待开始" as Q
+  state "进行中" as P
+  state "已交付" as D
+  state "失败（附失败类别）" as F
+  state "已取消" as X
+  [*] --> Q
+  Q --> P: 取得名额与任务沙箱
+  P --> D: 无取消意图，Manifest 已接收且回执齐全
+  P --> F: agent-output / agent-execution / infrastructure
+  Q --> X: 关闭启动入口后
+  P --> X: 有取消意图且确认全部停止
+  D --> [*]
+  F --> [*]
+  X --> [*]
+  note right of P
+    归档受阻、回执 unavailable、停止未知：
+    留在进行中并核对，不判失败
+  end note
+  note right of D
+    继续修改 = 新 TaskRun refines 本轮，
+    可接手保留的 Sandbox
+  end note

@@ -1,0 +1,1052 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/work-results.schema.json",
+  "title": "Task, work and grade CLI results",
+  "oneOf": [
+    {"type":"object","properties":{"command":{"const":"work.host-capacity"},"result_type":{"const":"grounds.result.work.host-capacity/v1"},"agentSlots":{"type":"integer","minimum":1}},"required":["command","result_type","agentSlots"],"additionalProperties":false},
+    {"type": "object", "properties": {"command": {"const": "work.workspace"}, "result_type": {"const": "grounds.result.work.workspace/v1"}, "kind": {"const": "working"}, "runId": {"$ref": "#/$defs/Id"}, "path": {"type": "string"}, "created": {"type": "boolean"}, "materials": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "commit": {"type": "string"}, "path": {"type": "string"}}, "required": ["name", "commit", "path"], "additionalProperties": false}}}, "required": ["command", "result_type", "kind", "runId", "path", "created", "materials"], "additionalProperties": false},
+    {"type": "object", "required": ["command", "result_type", "artifact"], "properties": {"command": {"const": "work.save-artifact"}, "result_type": {"const": "grounds.result.work.save-artifact/v1"}, "artifact": {"$ref": "#/$defs/SavedArtifact"}}, "additionalProperties": false},
+    {"type": "object", "required": ["command", "result_type", "artifact"], "properties": {"command": {"const": "work.artifact"}, "result_type": {"const": "grounds.result.work.artifact/v1"}, "artifact": {"$ref": "#/$defs/SavedArtifact"}}, "additionalProperties": false},
+    {"type": "object", "required": ["command", "result_type", "id", "runId", "path", "ordinal", "ref", "base64"], "properties": {"command": {"const": "work.artifact-file"}, "result_type": {"const": "grounds.result.work.artifact-file/v1"}, "id": {"$ref": "#/$defs/Id"}, "runId": {"$ref": "#/$defs/Id"}, "path": {"type": "string"}, "ordinal": {"type": "integer", "minimum": 0}, "ref": {"$ref": "trace-results.schema.json#/$defs/Blob"}, "base64": {"type": "string"}}, "additionalProperties": false},
+    {"type": "object", "required": ["command", "result_type", "submitted"], "properties": {"command": {"const": "work.submit-artifacts"}, "result_type": {"const": "grounds.result.work.submit-artifacts/v1"}, "submitted": {"$ref": "#/$defs/Submitted"}}, "additionalProperties": false},
+    {
+      "type":"object","required":["command","result_type","runId","confirmed","outstanding"],"additionalProperties":false,
+      "properties":{
+        "command":{"const":"work.reconcile"}, "result_type":{"const":"grounds.result.work.reconcile/v1"},
+        "submission":{"$ref":"#/$defs/Submitted"}, "runId":{"$ref":"#/$defs/Id"}, "confirmed":{"type":"array","items":{"$ref":"#/$defs/ArchiveRepair"}},
+        "outstanding":{"type":"array","items":{"type":"object","required":["requestId","archiveId","reason"],"additionalProperties":false,"properties":{"requestId":{"$ref":"#/$defs/Id"},"archiveId":{"$ref":"#/$defs/Id"},"reason":{"type":"string"}}}}
+      }
+    },
+    {
+      "type": "object", "additionalProperties": false, "required": ["command", "result_type", "repair"],
+      "properties": {
+        "command": {"const":"work.repair"}, "result_type": {"const":"grounds.result.work.repair/v1"},
+        "repair": {"$ref":"#/$defs/ArchiveRepair"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "taskId", "revisionId", "seq", "criteria"],
+      "properties": {
+        "command": {"const": "task.create"},
+        "result_type": {"const": "grounds.result.task.create/v1"},
+        "taskId": {"$ref": "#/$defs/Id"},
+        "revisionId": {"$ref": "#/$defs/Id"},
+        "seq": {"type": "integer", "minimum": 0},
+        "criteria": {"type": "array", "items": {"$ref": "#/$defs/Criterion"}}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "taskId", "revisionId", "seq", "criteria"],
+      "properties": {
+        "command": {"const": "task.revise"},
+        "result_type": {"const": "grounds.result.task.revise/v1"},
+        "taskId": {"$ref": "#/$defs/Id"},
+        "revisionId": {"$ref": "#/$defs/Id"},
+        "seq": {"type": "integer", "minimum": 0},
+        "criteria": {"type": "array", "items": {"$ref": "#/$defs/Criterion"}}
+      }
+    },
+    {
+      "type": "object",
+      "properties": {"command": {"const": "task.show"}, "result_type": {"const": "grounds.result.task.show/v1"}},
+      "required": ["command", "result_type"],
+      "allOf": [{"$ref": "#/$defs/TaskViewFields"}],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "tasks"],
+      "properties": {
+        "command": {"const": "task.list"},
+        "result_type": {"const": "grounds.result.task.list/v1"},
+        "tasks": {"type": "array", "items": {"$ref": "#/$defs/TaskView"}}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "workId", "runId", "taskRevisionId", "workerMode"],
+      "properties": {
+        "command": {"const": "work.start"},
+        "executionId": {"$ref":"#/$defs/Id"},
+        "result_type": {"const": "grounds.result.work.start/v1"},
+        "workId": {"$ref": "#/$defs/Id"},
+        "runId": {"$ref": "#/$defs/Id"},
+        "taskRevisionId": {"$ref": "#/$defs/Id"},
+        "workerMode": {"$ref": "#/$defs/RunMode"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "runId", "taskRevisionId", "workerMode"],
+      "properties": {
+        "command": {"const": "work.start-run"},
+        "executionId": {"$ref":"#/$defs/Id"},
+        "result_type": {"const": "grounds.result.work.start-run/v1"},
+        "refines": {"$ref": "#/$defs/Id"},
+        "runId": {"$ref": "#/$defs/Id"},
+        "taskRevisionId": {"$ref": "#/$defs/Id"},
+        "workerMode": {"$ref": "#/$defs/RunMode"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "workId", "runId", "refines", "taskRevisionId"],
+      "properties": {
+        "command": {"const": "work.continue"},
+        "executionId": {"$ref":"#/$defs/Id"},
+        "result_type": {"const": "grounds.result.work.continue/v1"},
+        "workId": {"$ref": "#/$defs/Id"},
+        "runId": {"$ref": "#/$defs/Id"},
+        "refines": {"$ref": "#/$defs/Id"},
+        "taskRevisionId": {"$ref": "#/$defs/Id"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "workId", "runId", "refines", "taskRevisionId"],
+      "properties": {
+        "command": {"const": "work.branch"},
+        "executionId": {"$ref":"#/$defs/Id"},
+        "result_type": {"const": "grounds.result.work.branch/v1"},
+        "workId": {"$ref": "#/$defs/Id"},
+        "runId": {"$ref": "#/$defs/Id"},
+        "refines": {"$ref": "#/$defs/Id"},
+        "taskRevisionId": {"$ref": "#/$defs/Id"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "workId", "head"],
+      "properties": {
+        "command": {"const": "work.select"},
+        "result_type": {"const": "grounds.result.work.select/v1"},
+        "workId": {"$ref": "#/$defs/Id"},
+        "head": {"$ref": "#/$defs/Id"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "workId", "status", "blockedBy", "conclusion"],
+      "properties": {
+        "command": {"const": "work.close"},
+        "result_type": {"const": "grounds.result.work.close/v1"},
+        "workId": {"$ref": "#/$defs/Id"},
+        "status": {"enum": ["closing", "closed"]},
+        "blockedBy": {"type": "array", "items": {"$ref": "#/$defs/Id"}},
+        "conclusion": {"anyOf": [{"$ref": "#/$defs/WorkConclusion"}, {"const": null}]}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "work", "runs", "conclusion"],
+      "properties": {
+        "archiveIntegrity": {"$ref": "#/$defs/ArchiveObservations"},
+        "command": {"const": "work.show"},
+        "result_type": {"const": "grounds.result.work.show/v1"},
+        "work": {"$ref": "#/$defs/Work"},
+        "runs": {"type": "array", "items": {"$ref": "#/$defs/TaskRun"}},
+        "conclusion": {"$ref": "#/$defs/WorkConclusion"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "run", "acceptance"],
+      "properties": {
+        "archiveIntegrity": {"$ref": "#/$defs/ArchiveObservations"},
+        "command": {"const": "work.run"},
+        "result_type": {"const": "grounds.result.work.run/v1"},
+        "run": {"$ref": "#/$defs/TaskRun"},
+        "acceptance": {"anyOf": [{"$ref": "#/$defs/AcceptanceConclusion"}, {"const": null}]}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "runId", "sessionId"],
+      "properties": {
+        "command": {"const": "work.register"},
+        "result_type": {"const": "grounds.result.work.register/v1"},
+        "runId": {"$ref": "#/$defs/Id"},
+        "sessionId": {"$ref": "#/$defs/Id"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "runId"],
+      "properties": {
+        "command": {"const": "work.transcript"},
+        "result_type": {"const": "grounds.result.work.transcript/v1"},
+        "runId": {"$ref": "#/$defs/Id"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "runId", "path", "branch", "base", "created"],
+      "properties": {
+        "command": {"const": "work.workspace"},
+        "result_type": {"const": "grounds.result.work.workspace/v1"},
+        "runId": {"$ref": "#/$defs/Id"},
+        "path": {"type": "string"},
+        "branch": {"type": "string"},
+        "materials": {"type":"array","items":{"type":"object","required":["name","commit","path"],"properties":{"name":{"type":"string"},"commit":{"type":"string"},"path":{"type":"string"}},"additionalProperties":false}},
+        "base": {
+          "type": "object",
+          "properties": {"commit": {"type": "string"}, "from": {"enum": ["baseline", "delivery"]}, "of": {"type": "string"}},
+          "required": ["commit", "from", "of"],
+          "additionalProperties": false
+        },
+        "created": {"type": "boolean"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "delivery", "submitted"],
+      "properties": {
+        "command": {"const": "work.deliver"},
+        "result_type": {"const": "grounds.result.work.deliver/v1"},
+        "delivery": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "commit": {
+              "type": "string"
+            },
+            "receipt": {
+              "type": "string"
+            },
+            "protection": {
+              "$ref": "#/$defs/ArchiveProtection"
+            }
+          },
+          "required": [
+            "id",
+            "commit",
+            "receipt"
+          ],
+          "additionalProperties": false
+        },
+        "submitted": {"$ref": "#/$defs/Submitted"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "runId", "status", "outcome"],
+      "properties": {
+        "command": {"const": "work.stop"},
+        "result_type": {"const": "grounds.result.work.stop/v1"},
+        "runId": {"$ref": "#/$defs/Id"},
+        "status": {"$ref": "#/$defs/TaskRunStatus"},
+        "outcome": {"$ref": "#/$defs/TaskRunOutcome"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "runId", "status", "outcome"],
+      "properties": {
+        "command": {"const": "work.cancel"},
+        "result_type": {"const": "grounds.result.work.cancel/v1"},
+        "runId": {"$ref": "#/$defs/Id"},
+        "status": {"$ref": "#/$defs/TaskRunStatus"},
+        "outcome": {"$ref": "#/$defs/TaskRunOutcome"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "gradingId", "requestSeq", "taskRunId", "criteria"],
+      "properties": {
+        "command": {"const": "grade.request"},
+        "result_type": {"const": "grounds.result.grade.request/v1"},
+        "gradingId": {"$ref": "#/$defs/Id"},
+        "requestSeq": {"type": "integer", "minimum": 0},
+        "taskRunId": {"$ref": "#/$defs/Id"},
+        "criteria": {"type": "array", "items": {"$ref": "#/$defs/Criterion"}}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "gradingId", "sessionId"],
+      "properties": {
+        "command": {"const": "grade.register"},
+        "result_type": {"const": "grounds.result.grade.register/v1"},
+        "gradingId": {"$ref": "#/$defs/Id"},
+        "sessionId": {"$ref": "#/$defs/Id"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "gradingId", "status", "outcome"],
+      "properties": {
+        "command": {"const": "grade.stage"},
+        "result_type": {"const": "grounds.result.grade.stage/v1"},
+        "gradingId": {"$ref": "#/$defs/Id"},
+        "status": {"$ref": "#/$defs/GradingStatus"},
+        "outcome": {"$ref": "#/$defs/GradingOutcome"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "gradingId", "status", "outcome"],
+      "properties": {
+        "command": {"const": "grade.command"},
+        "result_type": {"const": "grounds.result.grade.command/v1"},
+        "gradingId": {"$ref": "#/$defs/Id"},
+        "status": {"$ref": "#/$defs/GradingStatus"},
+        "outcome": {"$ref": "#/$defs/GradingOutcome"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "gradingId", "status", "outcome"],
+      "properties": {
+        "command": {"const": "grade.submit"},
+        "result_type": {"const": "grounds.result.grade.submit/v1"},
+        "gradingId": {"$ref": "#/$defs/Id"},
+        "status": {"$ref": "#/$defs/GradingStatus"},
+        "outcome": {"$ref": "#/$defs/GradingOutcome"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "gradingId", "status", "outcome"],
+      "properties": {
+        "command": {"const": "grade.stop"},
+        "result_type": {"const": "grounds.result.grade.stop/v1"},
+        "gradingId": {"$ref": "#/$defs/Id"},
+        "status": {"$ref": "#/$defs/GradingStatus"},
+        "outcome": {"$ref": "#/$defs/GradingOutcome"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "gradingId", "status", "outcome"],
+      "properties": {
+        "command": {"const": "grade.cancel"},
+        "result_type": {"const": "grounds.result.grade.cancel/v1"},
+        "gradingId": {"$ref": "#/$defs/Id"},
+        "status": {"$ref": "#/$defs/GradingStatus"},
+        "outcome": {"$ref": "#/$defs/GradingOutcome"}
+      }
+    },
+    {
+      "type": "object",
+      "properties": {"command": {"const": "grade.show"}, "result_type": {"const": "grounds.result.grade.show/v1"}, "archiveIntegrity": {"$ref": "#/$defs/ArchiveObservations"}},
+      "required": ["command", "result_type"],
+      "allOf": [{"$ref": "#/$defs/GradingRecordFields"}],
+      "unevaluatedProperties": false
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "result_type", "gates"],
+      "properties": {
+        "archiveIntegrity": {"$ref": "#/$defs/ArchiveObservations"},
+        "command": {"const": "grade.list"},
+        "result_type": {"const": "grounds.result.grade.list/v1"},
+        "gates": {"type": "array", "items": {"$ref": "#/$defs/GradingRecord"}}
+      }
+    }
+  ],
+  "$defs": {
+    "SavedArtifact": {"type": "object", "required": ["id", "runId", "slot", "receipt", "files"], "properties": {"id": {"$ref": "#/$defs/Id"}, "runId": {"$ref": "#/$defs/Id"}, "slot": {"$ref": "#/$defs/Id"}, "receipt": {"type": "string"}, "sessionId": {"$ref": "#/$defs/Id"}, "executionId": {"$ref": "#/$defs/Id"}, "files": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["path", "content"], "properties": {"path": {"type": "string"}, "content": {"$ref": "trace-results.schema.json#/$defs/Blob"}}, "additionalProperties": false}}}, "additionalProperties": false},
+    "ArchiveProtection": {
+      "oneOf": [
+        {"type":"object","required":["level"],"properties":{"level":{"const":"unknown"}},"additionalProperties":false},
+        {"type":"object","required":["level","evidence"],"properties":{"level":{"enum":["protected","unprotected"]},"evidence":{"type":"string","minLength":1,"maxLength":256}},"additionalProperties":false}
+      ]
+    },
+    "ArchiveRepair": {
+      "type":"object","required":["requestId","archiveId","deliveryId","runId","commit","receipt","recordedAt"],
+      "properties":{
+        "requestId":{"$ref":"#/$defs/Id"}, "archiveId":{"$ref":"#/$defs/Id"}, "deliveryId":{"$ref":"#/$defs/Id"},
+        "runId":{"$ref":"#/$defs/Id"}, "commit":{"type":"string","pattern":"^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
+        "receipt":{"type":"string","minLength":1,"maxLength":1024}, "recordedAt":{"$ref":"#/$defs/Timestamp"},
+        "observation":{"$ref":"#/$defs/ArchiveObservation"}
+      }, "additionalProperties":false
+    },
+    "ArchiveObservation": {
+      "type": "object",
+      "required": [
+        "id",
+        "status",
+        "tag",
+        "protection"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "status": {
+          "enum": [
+            "intact",
+            "ref-changed",
+            "unavailable",
+            null
+          ]
+        },
+        "protection": {
+          "$ref": "#/$defs/ArchiveProtection"
+        },
+        "tag": {
+          "enum": [
+            "unchanged",
+            "moved",
+            "missing",
+            "unknown"
+          ]
+        },
+        "recordedCommit": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "remoteCommit": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        }
+      }
+    },
+    "ArchiveObservations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "oneOf": [
+          {"required":["activeArchiveId","original","repairs"]},
+          {"not":{"anyOf":[{"required":["activeArchiveId"]},{"required":["original"]},{"required":["repairs"]}]}}
+        ],
+        "required": [
+          "id",
+          "status",
+          "tag",
+          "protection"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/Id"
+          },
+          "status": {
+            "enum": [
+              "intact",
+              "ref-changed",
+              "unavailable",
+              null
+            ]
+          },
+          "protection": {
+            "$ref": "#/$defs/ArchiveProtection"
+          },
+          "tag": {
+            "enum": [
+              "unchanged",
+              "moved",
+              "missing",
+              "unknown"
+            ]
+          },
+          "recordedCommit": {
+            "type": "string",
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+          },
+          "remoteCommit": {
+            "type": "string",
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+          },
+          "activeArchiveId": {
+            "$ref": "#/$defs/Id"
+          },
+          "original": {
+            "$ref": "#/$defs/ArchiveObservation"
+          },
+          "repairs": {
+            "type": "array",
+            "items": {
+              "allOf": [{"$ref": "#/$defs/ArchiveRepair"}, {"type":"object","required":["observation"]}]
+            }
+          }
+        }
+      }
+    },
+    "Id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^\\u0000-\\u001f\\u007f]+$"},
+    "Timestamp": {"$ref": "common.schema.json#/$defs/timestamp"},
+    "Digest": {"$ref": "common.schema.json#/$defs/sha256"},
+    "ProtocolStage": {"enum": ["blind", "freeze", "reconcile", "handoff", "submit"]},
+    "RunMode": {"enum": ["external", "none", "managed"]},
+    "TaskContent": {
+      "type": "object",
+      "required": ["kind", "schemaVersion", "summary", "criteria"],
+      "properties": {
+        "kind": {"enum": ["coding", "working"]},
+        "materialRepositories": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "repository": {"type": "string"}, "commit": {"type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"}}, "required": ["name", "repository", "commit"], "additionalProperties": false}},
+        "outputs": {"type":"array","items":{"type":"object","required":["key","required"],"properties":{"key":{"$ref":"#/$defs/Id"},"required":{"type":"boolean"}},"additionalProperties":false}},
+        "schemaVersion": {"type": "integer", "minimum": 1},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 1024},
+        "criteria": {"type": "array", "items": {"$ref": "#/$defs/Criterion"}},
+        "environmentDefinitionId": {"$ref": "#/$defs/Id"},
+        "context": {"type": "string"},
+        "repository": {
+          "type": "object",
+          "required": ["remote", "baseline"],
+          "properties": {"remote": {"type": "string"}, "baseline": {"type": "string"}}
+        }
+      }
+    },
+    "Criterion": {
+      "type": "object",
+      "required": ["id", "statement"],
+      "properties": {"id": {"$ref": "#/$defs/Id"}, "statement": {"type": "string", "minLength": 1, "maxLength": 4096}},
+      "additionalProperties": false
+    },
+    "TaskView": {"type": "object", "allOf": [{"$ref": "#/$defs/TaskViewFields"}], "unevaluatedProperties": false},
+    "WorkConclusion": {
+      "anyOf": [
+        {"const": "in-progress"},
+        {"const": "failed"},
+        {"const": "cancelled"},
+        {"$ref": "#/$defs/AcceptanceConclusion"}
+      ]
+    },
+    "AcceptanceConclusion": {"enum": ["pending", "accepted", "rejected"]},
+    "Work": {
+      "type": "object",
+      "properties": {
+        "version": {"type": "integer", "minimum": 0},
+        "id": {"$ref": "#/$defs/Id"},
+        "taskDefinitionId": {"$ref": "#/$defs/Id"},
+        "status": {"$ref": "#/$defs/WorkStatus"},
+        "head": {"$ref": "#/$defs/Id"},
+        "headHistory": {"type": "array", "items": {"$ref": "#/$defs/HeadChange"}},
+        "runIds": {"type": "array", "items": {"$ref": "#/$defs/Id"}},
+        "closedFact": {
+          "type": "object",
+          "properties": {
+            "head": {"$ref": "#/$defs/Id"},
+            "conclusion": {"$ref": "#/$defs/WorkConclusion"},
+            "at": {"$ref": "#/$defs/Timestamp"}
+          },
+          "required": ["head", "conclusion", "at"],
+          "additionalProperties": false
+        },
+        "createdAt": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["version", "id", "taskDefinitionId", "status", "head", "headHistory", "runIds", "createdAt"],
+      "additionalProperties": false
+    },
+    "WorkStatus": {"enum": ["active", "closing", "closed"]},
+    "HeadChange": {
+      "type": "object",
+      "properties": {
+        "runId": {"$ref": "#/$defs/Id"},
+        "reason": {"$ref": "#/$defs/HeadReason"},
+        "at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["runId", "reason", "at"],
+      "additionalProperties": false
+    },
+    "HeadReason": {"enum": ["start", "continue", "select"]},
+    "TaskRun": {
+      "type": "object",
+      "properties": {
+        "version": {"type": "integer", "minimum": 0},
+        "id": {"$ref": "#/$defs/Id"},
+        "taskRevision": {"$ref": "#/$defs/RevisionRef"},
+        "workId": {"$ref": "#/$defs/Id"},
+        "refines": {"$ref": "#/$defs/Id"},
+        "workerMode": {"$ref": "#/$defs/WorkerMode"},
+        "retention": {"$ref": "#/$defs/Retention"},
+        "status": {"$ref": "#/$defs/TaskRunStatus"},
+        "environment": {"$ref": "#/$defs/ResolvedEnvironment"},
+        "sandboxId": {"$ref": "#/$defs/Id"},
+        "worker": {"$ref": "#/$defs/Worker"},
+        "manifest": {"$ref": "#/$defs/Manifest"},
+        "pendingManifest": {
+          "type": "object",
+          "properties": {"operationId": {"$ref": "#/$defs/Id"}, "origin": {"$ref": "#/$defs/ManifestOrigin"}},
+          "required": ["operationId", "origin"],
+          "additionalProperties": false
+        },
+        "cancelIntent": {
+          "type": "object",
+          "properties": {"at": {"$ref": "#/$defs/Timestamp"}, "reason": {"type": "string"}},
+          "required": ["at"],
+          "additionalProperties": false
+        },
+        "blocked": {
+          "type": "object",
+          "properties": {"reason": {"$ref": "#/$defs/BlockReason"}, "at": {"$ref": "#/$defs/Timestamp"}},
+          "required": ["reason", "at"],
+          "additionalProperties": false
+        },
+        "failure": {
+          "type": "object",
+          "properties": {
+            "class": {"$ref": "#/$defs/FailureClass"},
+            "detail": {"type": "string"},
+            "at": {"$ref": "#/$defs/Timestamp"}
+          },
+          "required": ["class", "detail", "at"],
+          "additionalProperties": false
+        },
+        "lateRecords": {"type": "array", "items": {"$ref": "#/$defs/LateRecord"}},
+        "createdAt": {"$ref": "#/$defs/Timestamp"},
+        "terminalAt": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["version", "id", "taskRevision", "workerMode", "retention", "status", "lateRecords", "createdAt"],
+      "additionalProperties": false
+    },
+    "RevisionRef": {
+      "type": "object",
+      "properties": {
+        "kind": {"$ref": "#/$defs/DefinitionKind"},
+        "definitionId": {"$ref": "#/$defs/Id"},
+        "revisionId": {"$ref": "#/$defs/Id"},
+        "seq": {"type": "integer", "minimum": 0},
+        "digest": {"$ref": "#/$defs/Digest"}
+      },
+      "required": ["kind", "definitionId", "revisionId", "seq", "digest"],
+      "additionalProperties": false
+    },
+    "DefinitionKind": {"enum": ["task", "agent", "grader", "environment", "suite"]},
+    "WorkerMode": {"enum": ["managed", "external", "none"]},
+    "Retention": {"enum": ["release", "keep"]},
+    "TaskRunStatus": {"enum": ["pending", "running", "delivered", "failed", "cancelled"]},
+    "ResolvedEnvironment": {
+      "type": "object",
+      "properties": {"revision": {"$ref": "#/$defs/RevisionRef"}, "source": {"$ref": "#/$defs/EnvironmentSource"}},
+      "required": ["revision", "source"],
+      "additionalProperties": false
+    },
+    "EnvironmentSource": {"enum": ["latest", "specified", "inherited"]},
+    "Worker": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {"const": "managed"},
+            "executionId": {"$ref": "#/$defs/Id"},
+            "stop": {"enum": ["active", "unknown", "verified"]},
+            "outcome": {"enum": ["succeeded", "failed"]}
+          },
+          "required": ["kind", "executionId", "stop"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {"kind": {"const": "external"}, "registration": {"$ref": "#/$defs/ExternalRegistration"}},
+          "required": ["kind", "registration"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ExternalRegistration": {
+      "type": "object",
+      "properties": {
+        "sessionId": {"$ref": "#/$defs/Id"},
+        "agent": {
+          "type": "object",
+          "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "model": {"type": "string"}},
+          "required": ["id"],
+          "additionalProperties": false
+        },
+        "registeredAt": {"$ref": "#/$defs/Timestamp"},
+        "stop": {
+          "type": "object",
+          "properties": {"declaredAt": {"$ref": "#/$defs/Timestamp"}, "reason": {"enum": ["submitted", "abandoned", "human"]}},
+          "required": ["declaredAt", "reason"],
+          "additionalProperties": false
+        },
+        "transcripts": {"type": "array", "items": {"$ref": "#/$defs/TranscriptImport"}}
+      },
+      "required": ["sessionId", "agent", "registeredAt", "transcripts"],
+      "additionalProperties": false
+    },
+    "TranscriptImport": {
+      "type": "object",
+      "properties": {
+        "trace": {"$ref":"trace-results.schema.json#/$defs/Trace"},
+        "raw": {"$ref":"trace-results.schema.json#/$defs/Blob"},
+        "ref": {"type": "string"},
+        "digest": {"$ref": "#/$defs/Digest"},
+        "coverage": {"enum": ["full", "partial", "unknown"]},
+        "importedAt": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["ref", "digest", "coverage", "importedAt"],
+      "additionalProperties": false
+    },
+    "Manifest": {
+      "type": "object",
+      "properties": {
+        "origin": {"$ref": "#/$defs/ManifestOrigin"},
+        "items": {"type": "array", "items": {"$ref": "#/$defs/DeliveryItem"}},
+        "trajectoryReceipt": {"type": "string"},
+        "digest": {"$ref": "#/$defs/Digest"},
+        "operationId": {"$ref": "#/$defs/Id"},
+        "frozenAt": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["origin", "items", "digest", "operationId", "frozenAt"],
+      "additionalProperties": false
+    },
+    "ManifestOrigin": {"enum": ["tool", "contract", "external", "caller"]},
+    "DeliveryItem": {
+      "type": "object",
+      "properties": {"type": {"enum": ["candidate", "artifact"]}, "id": {"$ref": "#/$defs/Id"}, "receipt": {"type": "string"}},
+      "required": ["type", "id", "receipt"],
+      "additionalProperties": false
+    },
+    "BlockReason": {"enum": ["receipt-unavailable", "archive-blocked", "stop-unknown", "awaiting-external-stop"]},
+    "FailureClass": {"enum": ["agent-output", "agent-execution", "infrastructure"]},
+    "LateRecord": {
+      "type": "object",
+      "properties": {
+        "kind": {"enum": ["manifest", "worker-stop", "failure"]},
+        "at": {"$ref": "#/$defs/Timestamp"},
+        "detail": {"type": "string"}
+      },
+      "required": ["kind", "at", "detail"],
+      "additionalProperties": false
+    },
+    "Submitted": {
+      "type": "object",
+      "properties": {
+        "runId": {"$ref": "#/$defs/Id"},
+        "status": {"$ref": "#/$defs/TaskRunStatus"},
+        "outcome": {"$ref": "#/$defs/TaskRunOutcome"},
+        "blocked": {"anyOf": [{"$ref": "#/$defs/BlockReason"}, {"type": "null"}]}
+      },
+      "required": ["runId", "status", "outcome", "blocked"],
+      "additionalProperties": false
+    },
+    "GradingRecord": {"type": "object", "allOf": [{"$ref": "#/$defs/GradingRecordFields"}], "unevaluatedProperties": false},
+    "Purpose": {"enum": ["gate", "measure"]},
+    "MeasurementArchive":{"type":"object","additionalProperties":false,"required":["archiveId","archiveReceipt","originalReceipt"],
+      "properties":{"archiveId":{"$ref":"#/$defs/Id"},"archiveReceipt":{"type":"string","minLength":1,"maxLength":1024},"originalReceipt":{"type":"string","minLength":1,"maxLength":1024}}},
+    "GradingOrigin": {
+      "anyOf": [
+        {
+          "type": "object",
+          "not": {"required":["direct","historical"]},
+          "properties": {"type": {"const": "standalone"}, "direct": {
+            "type":"object","additionalProperties":false,"required":["archive","taskRunId","answerPath","actualDigest"],
+            "properties":{"archive":{"$ref":"#/$defs/MeasurementArchive"},"taskRunId":{"$ref":"#/$defs/Id"},"answerPath":{"type":"string","minLength":1},"actualDigest":{"oneOf":[{"$ref":"#/$defs/Digest"},{"type":"null"}]},
+              "reference":{"type":"object","additionalProperties":false,"required":["archive","taskRunId","deliveryId","path","digest"],"properties":{"archive":{"$ref":"#/$defs/MeasurementArchive"},
+                "taskRunId":{"$ref":"#/$defs/Id"},"deliveryId":{"$ref":"#/$defs/Id"},"path":{"type":"string","minLength":1},"digest":{"$ref":"#/$defs/Digest"}
+              }}
+            }
+          }, "historical": {
+            "type": "object", "additionalProperties": false, "required": ["taskRunId","suite","caseKey","bindingKey"],
+            "properties":{"bindingKey":{"$ref":"#/$defs/Id"},"taskRunId":{"$ref":"#/$defs/Id"},"suite":{"allOf":[{"$ref":"#/$defs/RevisionRef"},{"properties":{"kind":{"const":"suite"}}}]},"caseKey":{"$ref":"#/$defs/Id"}}
+          }},
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {"type": {"const": "gate"}, "taskRunId": {"$ref": "#/$defs/Id"}},
+          "required": ["type", "taskRunId"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {"const": "member"},
+            "experimentRunId": {"$ref": "#/$defs/Id"},
+            "caseKey": {"type": "string"},
+            "repeatIndex": {"type": "integer", "minimum": 0},
+            "requirementKey": {"type": "string"}
+          },
+          "required": ["type", "experimentRunId", "caseKey", "repeatIndex", "requirementKey"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "TargetRef": {
+      "type": "object",
+      "properties": {
+        "type": {"enum": ["candidate", "artifact", "trajectory"]},
+        "id": {"$ref": "#/$defs/Id"},
+        "digest": {"$ref": "#/$defs/Digest"}
+      },
+      "required": ["type", "id", "digest"],
+      "additionalProperties": false
+    },
+    "GraderStrategy": {"enum": ["rule", "test", "agent"]},
+    "Scale": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {"form": {"const": "numeric"}, "min": {"type": "number"}, "max": {"type": "number"}},
+          "required": ["form", "min", "max"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {"form": {"const": "category"}, "categories": {"type": "array", "items": {"type": "string"}}},
+          "required": ["form", "categories"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {"form": {"const": "criteria"}},
+          "required": ["form"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "GateBinding": {
+      "type": "object",
+      "properties": {
+        "taskRevision": {"$ref": "#/$defs/RevisionRef"},
+        "criteriaDigest": {"$ref": "#/$defs/Digest"},
+        "manifestDigest": {"$ref": "#/$defs/Digest"},
+        "graderRevision": {"$ref": "#/$defs/RevisionRef"},
+        "materialsDigest": {"$ref": "#/$defs/Digest"},
+        "archivedEvidenceDigest": {"$ref": "#/$defs/Digest"},
+        "expectedCriteria": {"type": "array", "items": {"$ref": "#/$defs/Id"}}
+      },
+      "required": ["taskRevision", "criteriaDigest", "manifestDigest", "graderRevision", "materialsDigest", "expectedCriteria"],
+      "additionalProperties": false
+    },
+    "Evaluator": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {"kind": {"const": "rule"}},
+          "required": ["kind"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {"kind": {"const": "test"}},
+          "required": ["kind"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {"kind": {"const": "agent"}, "executionId": {"$ref": "#/$defs/Id"}},
+          "required": ["kind", "executionId"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {"const": "external"},
+            "sessionId": {"$ref": "#/$defs/Id"},
+            "agentId": {"type": "string"},
+            "stopDeclared": {"$ref": "#/$defs/Timestamp"},
+            "protocol": {"type": "array", "items": {"$ref": "#/$defs/ProtocolRecord"}},
+            "commandObservations": {"type": "array", "items": {"$ref": "#/$defs/CommandObservation"}}
+          },
+          "required": ["kind", "sessionId", "agentId"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ProtocolRecord": {
+      "type": "object",
+      "properties": {
+        "stage": {"$ref": "#/$defs/ProtocolStage"},
+        "at": {"$ref": "#/$defs/Timestamp"},
+        "blindDigest": {"$ref": "#/$defs/Digest"}
+      },
+      "required": ["stage", "at"],
+      "additionalProperties": false
+    },
+    "CommandObservation": {
+      "type": "object",
+      "properties": {
+        "stage": {"$ref": "#/$defs/ProtocolStage"},
+        "entry": {"type": "string"},
+        "argvDigest": {"$ref": "#/$defs/Digest"},
+        "state": {"enum": ["succeeded", "failed", "unknown"]},
+        "exitCode": {"type": "number"},
+        "at": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["stage", "entry", "argvDigest", "state", "at"],
+      "additionalProperties": false
+    },
+    "CommandOutputRef": {"type": "object", "required": ["digest", "byteLength", "chunkCount", "complete"], "properties": {"digest": {"$ref": "#/$defs/Digest"}, "byteLength": {"type": "integer", "minimum": 0}, "chunkCount": {"type": "integer", "minimum": 0}, "complete": {"type": "boolean"}, "observedBytes": {"type": "integer", "minimum": 0}}, "additionalProperties": false},
+    "CommandStep": {
+      "type": "object",
+      "properties": {
+        "output": {"type":"object","properties":{"stdout":{"$ref":"#/$defs/CommandOutputRef"},"stderr":{"$ref":"#/$defs/CommandOutputRef"}},"additionalProperties":false},
+        "ordinal": {"type": "integer", "minimum": 0},
+        "specDigest": {"$ref": "#/$defs/Digest"},
+        "state": {"$ref": "#/$defs/StepState"},
+        "exitCode": {"type": "number"},
+        "startedAt": {"$ref": "#/$defs/Timestamp"},
+        "stoppedAt": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": ["ordinal", "specDigest", "state", "startedAt"],
+      "additionalProperties": false
+    },
+    "StepState": {"enum": ["running", "stop_requested", "stop_unknown", "stopped_result", "stopped_no_result"]},
+    "GradingStatus": {"enum": ["running", "completed", "grader_fault", "cancelled"]},
+    "Grade": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {"form": {"const": "numeric"}, "value": {"type": "number"}},
+          "required": ["form", "value"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {"form": {"const": "category"}, "category": {"type": "string"}},
+          "required": ["form", "category"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "form": {"const": "criteria"},
+            "items": {"type": "array", "items": {"$ref": "#/$defs/CriterionVerdict"}}
+          },
+          "required": ["form", "items"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {"form": {"const": "indeterminate"}, "reason": {"type": "string"}},
+          "required": ["form", "reason"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "CriterionVerdict": {
+      "type": "object",
+      "properties": {
+        "criterionId": {"$ref": "#/$defs/Id"},
+        "independent": {"$ref": "#/$defs/Verdict"},
+        "reconciliation": {"enum": ["corroborated", "contradicted", "not_determined"]},
+        "final": {"$ref": "#/$defs/Verdict"},
+        "rationale": {"type": "string"},
+        "evidence": {"type": "array", "items": {"type": "string"}},
+        "reusedFrom": {"$ref": "#/$defs/Id"}
+      },
+      "required": ["criterionId", "independent", "reconciliation", "final", "rationale", "evidence"],
+      "additionalProperties": false
+    },
+    "Verdict": {"enum": ["satisfied", "unsatisfied", "indeterminate"]},
+    "GradingLate": {
+      "type": "object",
+      "properties": {
+        "kind": {"enum": ["grade", "fault", "step"]},
+        "at": {"$ref": "#/$defs/Timestamp"},
+        "detail": {"type": "string"}
+      },
+      "required": ["kind", "at", "detail"],
+      "additionalProperties": false
+    },
+    "TaskRunOutcome": {"enum": ["applied", "late", "cancel-wins", "already-terminal", "already-requested"]},
+    "GradingOutcome": {"enum": ["applied", "late", "cancel-wins", "already-terminal"]},
+    "TaskViewFields": {
+      "type": "object",
+      "properties": {
+        "taskId": {"$ref": "#/$defs/Id"},
+        "name": {"type": "string"},
+        "seq": {"type": "integer", "minimum": 0},
+        "revision": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "id": {"$ref": "#/$defs/Id"},
+                "seq": {"type": "integer", "minimum": 0},
+                "digest": {"type": "string"},
+                "content": {"$ref": "#/$defs/TaskContent"},
+                "publishedAt": {"type": "string"}
+              },
+              "required": ["id", "seq", "digest", "content", "publishedAt"],
+              "additionalProperties": false
+            },
+            {"const": null}
+          ]
+        }
+      },
+      "required": ["taskId", "name", "seq", "revision"]
+    },
+    "GradingRecordFields": {
+      "type": "object",
+      "properties": {
+        "version": {"type": "integer", "minimum": 0},
+        "id": {"$ref": "#/$defs/Id"},
+        "purpose": {"$ref": "#/$defs/Purpose"},
+        "origin": {"$ref": "#/$defs/GradingOrigin"},
+        "requestSeq": {"type": "integer", "minimum": 0},
+        "targets": {"type": "array", "items": {"$ref": "#/$defs/TargetRef"}},
+        "graderRevision": {"$ref": "#/$defs/RevisionRef"},
+        "strategy": {"$ref": "#/$defs/GraderStrategy"},
+        "scale": {"$ref": "#/$defs/Scale"},
+        "environmentRevisionId": {"$ref": "#/$defs/Id"},
+        "materials": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {"id": {"$ref": "#/$defs/Id"}, "digest": {"$ref": "#/$defs/Digest"}},
+            "required": ["id", "digest"],
+            "additionalProperties": false
+          }
+        },
+        "binding": {"$ref": "#/$defs/GateBinding"},
+        "evaluator": {"$ref": "#/$defs/Evaluator"},
+        "commandSteps": {"type": "array", "items": {"$ref": "#/$defs/CommandStep"}},
+        "sandboxId": {"$ref": "#/$defs/Id"},
+        "evaluatorStopped": {"type": "boolean"},
+        "status": {"$ref": "#/$defs/GradingStatus"},
+        "cancelIntent": {
+          "type": "object",
+          "properties": {"at": {"$ref": "#/$defs/Timestamp"}},
+          "required": ["at"],
+          "additionalProperties": false
+        },
+        "grade": {"$ref": "#/$defs/Grade"},
+        "fault": {"type": "string"},
+        "lateRecords": {"type": "array", "items": {"$ref": "#/$defs/GradingLate"}},
+        "createdAt": {"$ref": "#/$defs/Timestamp"},
+        "terminalAt": {"$ref": "#/$defs/Timestamp"}
+      },
+      "required": [
+        "version",
+        "id",
+        "purpose",
+        "origin",
+        "requestSeq",
+        "targets",
+        "graderRevision",
+        "strategy",
+        "scale",
+        "materials",
+        "commandSteps",
+        "status",
+        "lateRecords",
+        "createdAt"
+      ]
+    }
+  }
+}

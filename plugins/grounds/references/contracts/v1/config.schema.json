@@ -6,7 +6,6 @@
   "additionalProperties": false,
   "required": ["version", "database"],
   "properties": {
-    "development": { "type": "object", "additionalProperties": false, "required": ["default_mode"], "properties": { "default_mode": { "enum": ["simple", "container"] } } },
     "version": { "const": 2 },
     "database": {
       "oneOf": [
