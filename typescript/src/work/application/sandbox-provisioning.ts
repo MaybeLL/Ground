@@ -21,8 +21,9 @@ export class SandboxProvisioning {
       const [intent] = await r.intents.listForSubject("managed-worker", "task_run", runId);
       const job = intent?.payload as {repositoryPath: string; baseline: string} | undefined;
       const parent = run.refines ? await r.taskRuns.get(run.refines) : undefined;
-      const fetchDelivery = parent?.manifest?.items.some(item => item.type === "candidate");
-      return {allowed: job?.repositoryPath === repository, baseline: job?.baseline, fetchDelivery};
+      const useTaskBaseline = !run.refines || (parent?.workerMode === "external" &&
+        (parent.status === "failed" || parent.status === "cancelled") && !parent.manifest);
+      return {allowed: job?.repositoryPath === repository, baseline: job?.baseline, useTaskBaseline};
     });
     if (!authorized.allowed) return fail("forbidden", "this repository was not selected for the managed worker");
     const kind = "reserve-task-sandbox";
@@ -42,7 +43,7 @@ export class SandboxProvisioning {
         if (!replay.ok) return replay;
       }
     } else {
-      const base = authorized.baseline && !authorized.fetchDelivery ? succeed({commit: authorized.baseline}) : await this.deps.delivery.workspaceBase({ runId, repositoryPath: repository });
+      const base = authorized.baseline && authorized.useTaskBaseline ? succeed({commit: authorized.baseline}) : await this.deps.delivery.workspaceBase({ runId, repositoryPath: repository });
       if (!base.ok) return base;
       if (authorized.baseline && base.value.commit !== authorized.baseline) return fail("conflict", "the recovered delivery differs from the admitted baseline");
       const reservation = await once<Reserved>(this.deps, { kind, input, requestId, subject: {type:"task_run", id:runId} }, async r => {
