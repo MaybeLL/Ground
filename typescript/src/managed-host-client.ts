@@ -6,7 +6,7 @@ import { hostProcessIdentity } from "./env-process.js";
 import { dataLayout } from "./data-layout.js";
 import { atomicPrivateWrite, privateDirectory, removePrivateFile, safeRead, withRuntimeLock } from "./runtime-files.js";
 
-export type HostJob = {kind?: "test-grading"; config: string; ledgerId: string; runId: string; executionId: string; allowStart: boolean};
+export type HostJob = {kind?: "test-grading" | "experiment"; config: string; ledgerId: string; runId: string; executionId: string; allowStart: boolean};
 export const managedId = /^[a-f0-9-]{36}$/;
 export const queueRoot = () => privateDirectory(join(dataLayout().runtime, "managed-host"));
 export const hostDirectory = (name: string) => privateDirectory(join(queueRoot(), name));
@@ -32,6 +32,13 @@ export async function launchManaged(entry: "host" | "job", args: string[] = []) 
   }
 }
 
+export function managedRequestRunning(executionId:string,operationId:string) {
+  const path = join(hostDirectory("requests"),executionId + "." + operationId + ".owner");
+  if (!existsSync(path)) return false;
+  const owner = JSON.parse(safeRead(path,2048).toString());
+  return hostProcessIdentity(owner.pid) === owner.birth;
+}
+
 export async function notifyManaged(job: HostJob, operationId: string) {
   if (![job.ledgerId, job.runId, job.executionId, operationId].every(id => managedId.test(id))) {
     throw new Error("invalid host job identity");
@@ -42,11 +49,7 @@ export async function notifyManaged(job: HostJob, operationId: string) {
   await withRuntimeLock(queueRoot(), "request-" + name, async () => {
     if (existsSync(path)) {
       if (safeRead(path, 32768).toString() !== record) throw new Error("managed request input changed");
-      const ownerFile = path + ".owner";
-      if (existsSync(ownerFile)) {
-        const owner = JSON.parse(safeRead(ownerFile,2048).toString());
-        if (hostProcessIdentity(owner.pid) === owner.birth) return;
-      }
+      if (managedRequestRunning(job.executionId,operationId)) return;
       await launchManaged("job", [name, "observe"]);
       return;
     }
@@ -65,7 +68,7 @@ export async function observeManagedHost(executionId: string, ledgerId: string) 
   const root = join(dataLayout().runtime, "managed-host");
   if (!managedId.test(executionId)) return;
   const fallback = join(root, "recovery-status", executionId);
-  if (![join(root, "slots", executionId), join(root, "waiting", executionId), fallback].some(path => existsSync(path))) return;
+  if (![join(root, "slots", executionId), join(root, "waiting", executionId), join(root,"batches",executionId), fallback].some(path => existsSync(path))) return;
   try { await withRuntimeLock(root, "host", async () => launchManaged("host")); }
   catch (error) { if (!String(error).includes("another local controller")) throw error; }
   if (existsSync(fallback)) {

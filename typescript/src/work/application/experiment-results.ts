@@ -5,12 +5,17 @@ import type {RequestContext} from "./requests.js";
 
 type Requirement = ExperimentPlan["cases"][number]["requirements"][number];
 type Summary = {requirement:string;grader:Requirement["grader"];scale:Requirement["scale"];planned:number;adopted:number;valid:number;
-  indeterminate:number;missing:number;errors:number;numericMean:number|null;categories:Map<string,number>};
+  indeterminate:number;missing:number;errors:number;executionErrors:number;ungraded:number;numericMean:number|null;categories:Map<string,number>};
 
-function add(summary:Summary, grade:Grade | undefined, fault:boolean) {
+function add(summary:Summary, grade:Grade | undefined, fault:boolean, executionError:boolean) {
   summary.planned++;
   if (fault) summary.errors++;
-  if (!grade) { summary.missing++; return; }
+  if (executionError) summary.executionErrors++;
+  if (!grade) {
+    summary.missing++;
+    if (!executionError && !fault) summary.ungraded++;
+    return;
+  }
   summary.adopted++;
   if (grade.form === "indeterminate") { summary.indeterminate++; return; }
   summary.valid++;
@@ -34,6 +39,8 @@ export class ExperimentResults {
       const definitions = new Map(plan.cases.map(item=>[item.key,item]));
       const progress = new Map((await r.experiments.memberProgress(id)).map(item=>[item.key,item]));
       if (detailKey !== undefined && !progress.has(detailKey)) return fail("not-found","batch member does not exist");
+      const [drive] = await r.intents.listForSubject("drive-experiment","experiment_run",id);
+      const host = (drive?.payload as {observation?:{state:string;detail?:string}} | undefined)?.observation;
       const groups = new Map<string,Summary>();
       const counts = {planned:batch.members.length, pending:0, active:0, delivered:0, executionErrors:0, failed:0, cancelled:0, fullyGraded:0};
       const members = [], readAt = this.ctx.now();
@@ -65,9 +72,9 @@ export class ExperimentResults {
           requirements.push({key:required.key,...adoption,...(adopted ? {grade:adopted.grade} : {})});
           const groupId = JSON.stringify([required.key,required.grader.revisionId,required.scale]);
           const group = groups.get(groupId) ?? {requirement:required.key,grader:required.grader,scale:required.scale,planned:0,
-            adopted:0,valid:0,missing:0,indeterminate:0,errors:0,numericMean:null,
+            adopted:0,valid:0,missing:0,indeterminate:0,errors:0,executionErrors:0,ungraded:0,numericMean:null,
             categories:new Map<string,number>(required.scale.form === "category" ? required.scale.categories.map(c=>[c,0]) : [])};
-          add(group,adopted?.grade,!!adoption.latestFault);
+          add(group,adopted?.grade,!!adoption.latestFault,run?.failure?.class === "infrastructure");
           groups.set(groupId,group);
         }
         const complete = requirements.every(req=>req.adopted);
@@ -78,7 +85,7 @@ export class ExperimentResults {
           ...(detailKey === undefined ? {} : {run,gradings:history,executions:run ? await r.executions.listByOwner({type:"task_run",id:run.id}) : []})});
       }
       const dimensions = [...groups.values()].map(({categories,...dimension})=>({...dimension,categories:Object.fromEntries(categories)}));
-      return detailKey === undefined ? succeed({readAt,batch,counts,dimensions,members}) : succeed({readAt,batchId:id,member:members[0]});
+      return detailKey === undefined ? succeed({readAt,batch,counts,dimensions,members,...(host ? {host} : {})}) : succeed({readAt,batchId:id,member:members[0]});
     });
   }
 }

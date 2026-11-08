@@ -8,6 +8,7 @@
     {"$ref": "trace-results.schema.json"},
     {"$ref": "sandbox-results.schema.json"},
     {"$ref": "suite-results.schema.json"},
+    {"$ref": "experiment-results.schema.json"},
     {"$ref": "environment.schema.json"},
     {"$ref": "#/$defs/helpResult"},
     {"$ref": "#/$defs/versionResult"},

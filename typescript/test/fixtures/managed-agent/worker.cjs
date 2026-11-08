@@ -30,7 +30,7 @@ if (task.task.startsWith("concurrent fixture ")) {
   }
 }
 const handoff = task.task === "handoff fixture";
-const content = handoff && existsSync("scratch-note") ? readFileSync("scratch-note", "utf8") : task.task;
+const content = task.task === "comparison fixture" ? (process.argv[1].endsWith("claude") ? "claude result" : "codex result") : handoff && existsSync("scratch-note") ? readFileSync("scratch-note", "utf8") : task.task;
 writeFileSync("result.txt", content + "\n");
 if (handoff) writeFileSync("scratch-note", "inherited uncommitted note");
 const git = (...args) => execFileSync("git",args,{encoding:"utf8"}).trim();

@@ -11,9 +11,9 @@ async function schedule() {
   for (;;) {
     const waiting = readdirSync(queue).sort();
     const occupied = new Set(readdirSync(slots));
+    const batches = hostDirectory("batches");
     let live = false;
-    for (const id of occupied) {
-      const slot = join(slots, id);
+    for (const slot of [...Array.from(occupied,id=>join(slots,id)), ...readdirSync(batches).map(id=>join(batches,id))]) {
       let owner;
       try { owner = JSON.parse(safeRead(slot, 4096).toString()); }
       catch (error) { if (!existsSync(slot)) continue; throw error; }

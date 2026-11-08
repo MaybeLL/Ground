@@ -64,10 +64,63 @@ export class ExperimentMembers {
     return selected.ok ? this.suites.measure(selected.value.input,selected.value.repository) : selected;
   }
 
+  async schedule(batchId:string) {
+    return this.ctx.units.run("read",async r=>{
+      const batch = await r.experiments.get(batchId);
+      const plan = batch && await readExperiment(r,batch.experimentId);
+      if (!batch || !plan) return fail("not-found","experiment batch does not exist");
+      const progress = new Map((await r.experiments.memberProgress(batchId)).map(row=>[row.key,row]));
+      const members = [];
+      for (const member of batch.members) {
+        const row = progress.get(member.key);
+        const run = row?.runId && await r.taskRuns.get(row.runId);
+        if (!run) continue;
+        const [worker] = await r.intents.listForSubject("managed-worker","task_run",run.id);
+        if (!worker) return fail("conflict","batch member has no registered worker");
+        const job = worker.payload as {executionId:string;observation?:{state:string;detail?:string}};
+        const history = await r.gradings.listForMember(batchId,member.caseKey,member.repeatIndex);
+        const requirements = plan.cases.find(c=>c.key === member.caseKey)!.requirements.map(requirement=>({
+          key:requirement.key, records:history.filter(g=>g.origin.type === "member" && g.origin.requirementKey === requirement.key)
+            .map(g=>({id:g.id,status:g.status,strategy:g.strategy})),
+        }));
+        const waitingTests = [];
+        for (const grade of history.filter(g=>g.strategy === "test")) {
+          const [test] = await r.intents.listForSubject("run-test-grader","grading_record",grade.id);
+          if (test && test.state !== "completed") waitingTests.push({id:grade.id,status:grade.status,
+            host:(test.payload as {observation?:{state:string;detail?:string}}).observation});
+        }
+        const sandbox = run.sandboxId ? await r.sandboxes.get(run.sandboxId) : undefined;
+        const released = !sandbox || sandbox.phase === "released";
+        members.push({key:member.key,runId:run.id,status:run.status,cancel:!!run.cancelIntent,executionId:job.executionId,
+          workerDone:worker.state === "completed" && released,host:worker.state === "completed" && !released ? {state:"awaiting-resume",detail:"worker sandbox release pending"} : job.observation,requirements,waitingTests});
+      }
+      return succeed({cancelled:!!batch.cancelIntent,pending:batch.members.length - members.length,members});
+    });
+  }
+
+  async resume(batchId:string,requestId:string) {
+    return once(this.ctx,{requestId,kind:"resume-experiment",input:{batchId},subject:{type:"experiment_run",id:batchId}},async r=>
+      await r.experiments.get(batchId) ? succeed({batchId}) : fail("not-found","experiment batch does not exist"));
+  }
+
+  async note(batchId:string,state:string,detail?:string) {
+    return this.ctx.units.run("write",async r=>{
+      const [job] = await r.intents.listForSubject("drive-experiment","experiment_run",batchId);
+      if (!job) return;
+      const observation = {state,...(detail ? {detail} : {})};
+      const prior = (job.payload as {observation?:{state:string;detail?:string}}).observation;
+      if (prior?.state === state && prior.detail === detail) return;
+      await r.intents.save({...job,state:state === "terminal" ? "completed" : "registered",payload:{batchId,observation},
+        updatedAt:this.ctx.now(),version:job.version+1},job.version);
+    });
+  }
+
   cancel(batchId:string,requestId:string) {
     return once(this.ctx,{requestId,kind:"cancel-experiment",subject:{type:"experiment_run",id:batchId},input:{batchId}},async r=>{
       const batch = await r.experiments.get(batchId,{lock:true});
       if (!batch) return fail("not-found","experiment batch does not exist");
+      const [job] = await r.intents.listForSubject("drive-experiment","experiment_run",batchId);
+      if (job?.state === "completed") return succeed({batchId});
       const cancelled = requestExperimentCancel(batch,{at:this.ctx.now()});
       if (!cancelled.ok) return fromRejection(cancelled.error);
       if (cancelled.value.state !== batch) await r.experiments.save(cancelled.value.state,batch.version);

@@ -1031,3 +1031,56 @@ test("test grading runs ordered commands in its own sandbox and releases the pri
     }
   });
 });
+
+test("experiment runs two pinned agents on one suite and adopts only member regrades", {skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async()=>{
+  await withHarness(async h=>{
+    const image = process.env.GROUNDS_TEST_MANAGED_AGENT!;
+    const docker = (...args:string[]) => execFileSync("docker",args,{encoding:"utf8"}).trim();
+    const digest = docker("image","inspect","--format","{{.Id}}",image);
+    const config = join(h.directory,"env.json"), cases = join(h.directory,"cases.json");
+    writeFileSync(config,JSON.stringify({image,overrideCommand:false,workspaceFolder:"/work"}));
+    const env = ok(await h.cli("work","define-environment","--name","bench","--image-digest",digest,"--devcontainer",config));
+    const task = ok(await h.cli("task","create","--title","comparison fixture","--criterion","provide expected answer",
+      "--environment",env.environmentId,"--repo-remote",h.remote,"--baseline",h.baseline));
+    const history = ok(await h.cli("work","start","--task",task.taskId,"--mode","none"));
+    writeFileSync(join(h.repo,"expected.txt"),"codex result\n");
+    git(h.repo,"add","expected.txt");git(h.repo,"commit","-qm","reference");
+    const answer = ok(await h.cli("work","deliver","--run",history.runId,"--repo",h.repo));
+    writeFileSync(cases,JSON.stringify([{key:"case",runId:history.runId,deliveryId:answer.delivery.id,
+      bindings:[{key:"answer",answerPath:"result.txt",referencePath:"expected.txt"}]}]));
+    const suite = ok(await h.cli("suite","publish","--name","compare","--cases-file",cases));
+    const ledger = ok(await h.cli("db","status")).database_id;
+    try {
+      for (const provider of ["codex","claude-code"]) {
+        const agent = ok(await h.cli("work","define-agent","--name",provider,"--provider",provider));
+        const plan = ok(await h.cli("experiment","define","--name",provider,"--suite",suite.suiteId,"--revision","1",
+          "--agent",agent.agentId,"--agent-revision",agent.revisionId,"--repo",h.repo));
+        const args = ["experiment","launch","--experiment",plan.experimentId,"--repeat","2","--concurrency","1","--operation-id",newUUIDv7()];
+        const launch = ok(await h.cli(...args));
+        assert.deepEqual(ok(await h.cli(...args)),launch);
+        const deadline = Date.now()+120_000;
+        let results;
+        do {
+          results = ok(await h.cli("experiment","results","--batch",launch.batchId));
+          if (["terminal","awaiting-resume","blocked"].includes(results.host?.state)) break;
+          await new Promise(resolve=>setTimeout(resolve,250));
+        } while (Date.now()<deadline);
+        assert.equal(results.host?.state,"terminal",JSON.stringify(results));
+        assert.equal(results.counts.fullyGraded,2);
+        assert.equal(results.counts.delivered,2);
+        assert.deepEqual(results.dimensions[0].categories, provider==="codex" ? {match:2,mismatch:0} : {match:0,mismatch:2});
+        const member = results.members[0];
+        const original = member.requirements[0].adopted;
+        const repeat = ok(await h.cli("experiment","regrade","--batch",launch.batchId,"--member",member.key,"--binding","answer"));
+        assert.notEqual(repeat.gradingId,original);
+        const detail = ok(await h.cli("experiment","member","--batch",launch.batchId,"--member",member.key));
+        assert.equal(detail.member.gradings.length,2);
+        assert.equal(detail.member.requirements[0].adopted,repeat.gradingId);
+        assert.equal(detail.member.run.retention,"release");
+        assert.equal(detail.member.run.workId,undefined);
+        assert.equal(ok(await h.cli("experiment","show","--experiment",plan.experimentId)).batches.length,1);
+        await withRuntimeLock(join(dataLayout().runtime,"managed-host"),"execution-"+launch.batchId,async()=>{},10_000);
+      }
+    } finally { for (const id of docker("ps","-aq","--filter","label=dev.grounds.ledger="+ledger).split("\n").filter(Boolean)) docker("rm","-f",id); }
+  });
+});

@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { openStore } from "./cli.js";
 import { hostProcessIdentity } from "./env-process.js";
-import { hostDirectory, launchManaged, managedId, queueRoot, type HostJob } from "./managed-host-client.js";
+import { ExperimentDriver } from "./work/driver/experiment.js";
+import { hostDirectory, notifyManaged, managedRequestRunning, launchManaged, managedId, queueRoot, type HostJob } from "./managed-host-client.js";
 import { atomicPrivateWrite, removePrivateFile, safeRead, withRuntimeLock } from "./runtime-files.js";
 import { composeWork } from "./work/composition.js";
 
@@ -14,6 +15,29 @@ async function supervise(job: HostJob, name: string, observeOnly: boolean) {
     const fallback = join(hostDirectory("recovery-status"), job.executionId);
     if (existsSync(fallback)) removePrivateFile(fallback);
     const app = composeWork(opened.store);
+    if (job.kind === "experiment") {
+      if (job.executionId !== job.runId) throw new Error("invalid batch identity");
+      const birth = hostProcessIdentity(process.pid);
+      if (!birth) throw new Error("cannot establish batch controller identity");
+      const owner = join(hostDirectory("batches"),job.runId), issued = join(hostDirectory("issued"),name);
+      const drive = new ExperimentDriver(app,(child,requestId)=>notifyManaged({...child,ledgerId:job.ledgerId,config:job.config},requestId),name,managedRequestRunning);
+      const live = !observeOnly && job.allowStart && !existsSync(issued);
+      atomicPrivateWrite(owner,JSON.stringify({pid:process.pid,birth,name}));
+      try {
+        await launchManaged("host");
+        if (live) atomicPrivateWrite(issued,job.executionId);
+        for (;;) {
+          const result = await drive.drive(job.runId,live);
+          const state = result.ok ? result.value.state : "blocked";
+          await app.members.note(job.runId,state,result.ok ? ("detail" in result.value ? result.value.detail : undefined) : result.error.message);
+          if (state !== "running") break;
+          await delay(250);
+        }
+      } catch {
+        await app.members.note(job.runId,"blocked","batch observation failed; inspect the members and resume");
+      } finally { if (existsSync(owner)) removePrivateFile(owner); }
+      return;
+    }
     const test = job.kind === "test-grading";
     const status = async () => {
       if (test) {

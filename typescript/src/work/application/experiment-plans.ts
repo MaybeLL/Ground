@@ -100,6 +100,9 @@ export class ExperimentPlans {
         repeatCount:input.repeatCount ?? 1, taskConcurrency:input.taskConcurrency ?? 5,at:this.deps.now()},this.deps.hash);
       if (!batch.ok) return fromRejection(batch.error);
       await r.experiments.create(batch.value.state);
+      const at = this.deps.now();
+      await r.intents.register({id:this.deps.newId(),requestId:"drive-"+id,kind:"drive-experiment",requestHash:expected.value,
+        subject:{type:"experiment_run",id},state:"registered",payload:{batchId:id},createdAt:at,updatedAt:at,version:1});
       return succeed({experimentId:plan.id,batchId:id,memberCount:batch.value.state.members.length});
     });
   }
@@ -109,7 +112,18 @@ export class ExperimentPlans {
       const plan = await readExperiment(r,id);
       if (!plan) return fail("not-found","experiment does not exist");
       const launches = await r.intents.listForSubject("launch-experiment","experiment",id);
-      return succeed({plan,batches:launches.map(row=>row.result as {batchId:string;memberCount:number})});
+      const batches = [];
+      for (const launch of launches) {
+        const result = launch.result as {experimentId:string;batchId:string;memberCount:number};
+        const batch = await r.experiments.get(result.batchId);
+        if (!batch) return fail("conflict","experiment launch refers to a missing batch");
+        const progress = await r.experiments.memberProgress(batch.id);
+        const [job] = await r.intents.listForSubject("drive-experiment","experiment_run",batch.id);
+        const observation = (job?.payload as {observation?:{state:string}} | undefined)?.observation;
+        batches.push({...result,createdAt:batch.createdAt,cancelRequested:!!batch.cancelIntent,state:observation?.state ?? "accepted",
+          admitted:progress.filter(m=>m.runId !== null).length, delivered:progress.filter(m=>m.status === "delivered").length});
+      }
+      return succeed({plan,batches});
     });
   }
 }

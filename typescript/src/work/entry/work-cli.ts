@@ -9,8 +9,9 @@ import type { ParsedArgs } from "../../cli.js";
 import type { CriterionVerdict, Grade, ProtocolStage } from "../domain/index.js";
 import type { Outcome, WorkApplication } from "../application/index.js";
 
-export const WORK_GROUPS = ["task", "work", "grade", "suite"] as const;
+export const WORK_GROUPS = ["task", "work", "grade", "suite", "experiment"] as const;
 export const WORK_WRITE_ACTIONS = new Set([
+  "experiment:define", "experiment:launch", "experiment:resume", "experiment:cancel", "experiment:regrade",
   "grade:measure", "grade:resume-test", "grade:define-test", "grade:define-rule", "suite:publish", "suite:measure",
   "work:resume-managed", "work:define-agent", "work:import-trace", "work:prepare-sandbox", "work:pause-sandbox", "work:release-sandbox", "work:define-environment", "task:create", "task:revise",
   "work:start", "work:continue", "work:branch", "work:select", "work:close", "work:register", "work:transcript", "work:deliver", "work:repair", "work:stop", "work:cancel",
@@ -74,8 +75,39 @@ export interface WorkEntryDependencies { readonly app: WorkApplication; readonly
 export async function executeWorkCommand(args: ParsedArgs, deps: WorkEntryDependencies): Promise<unknown> {
   const [group, action] = [args.positionals[0] ?? "", args.positionals[1] ?? ""];
   const { app } = deps;
-  const r = group === "suite" ? await suite(args, action, app, deps) : group === "task" ? await task(args, action, app) : group === "work" ? await work(args, action, app, deps) : await grade(args, action, app, deps);
+  const r = group === "experiment" ? await experiment(args,action,app,deps) : group === "suite" ? await suite(args, action, app, deps) : group === "task" ? await task(args, action, app) : group === "work" ? await work(args, action, app, deps) : await grade(args, action, app, deps);
   return result(group, action, r);
+}
+
+async function experiment(args:ParsedArgs,action:string,app:WorkApplication,deps:WorkEntryDependencies):Promise<object> {
+  const batch = () => need(args,"batch");
+  switch (action) {
+    case "define": {
+      const overrides:Record<string,{repositoryPath?:string;environmentRevisionId?:string}> = Object.create(null);
+      if (text(args,"overrides")) {
+        let parsed;
+        try { parsed = JSON.parse(deps.readFile(need(args,"overrides"))); } catch { throw validation("overrides","expected a JSON case map"); }
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw validation("overrides","expected a JSON case map");
+        for (const [key,value] of Object.entries(parsed)) {
+          if (!value || typeof value !== "object" || Array.isArray(value) || Object.entries(value).some(([k,v])=>
+            !["repositoryPath","environmentRevisionId"].includes(k) || typeof v !== "string" || !v.trim())) throw validation("overrides","invalid case override");
+          const v = value as {repositoryPath?:string;environmentRevisionId?:string};
+          overrides[key] = {...v,...(v.repositoryPath ? {repositoryPath:resolve(deps.cwd,v.repositoryPath)} : {})};
+        }
+      }
+      return unwrap(await app.experiments.define({requestId:requestId(args), name:need(args,"name"), suiteId:need(args,"suite"),seq:integer(args,"revision"),
+        agentId:need(args,"agent"),agentRevisionId:need(args,"agent-revision"),repositoryPath:resolve(deps.cwd,text(args,"repo") ?? "."),overrides}));
+    }
+    case "launch": return unwrap(await app.experiments.launch({requestId:requestId(args),experimentId:need(args,"experiment"),
+      ...(raw(args,"repeat") === undefined ? {} : {repeatCount:integer(args,"repeat")}),...(raw(args,"concurrency") === undefined ? {} : {taskConcurrency:integer(args,"concurrency")})}));
+    case "show": return unwrap(await app.experiments.show(need(args,"experiment")));
+    case "results": return unwrap<object>(await app.experimentResults.inspect(batch()));
+    case "member": return unwrap<object>(await app.experimentResults.inspect(batch(),need(args,"member")));
+    case "resume": return unwrap(await app.members.resume(batch(),requestId(args)));
+    case "cancel": return unwrap(await app.members.cancel(batch(),requestId(args)));
+    case "regrade": return unwrap(await app.members.measure(batch(),need(args,"member"),need(args,"binding"),requestId(args)));
+    default: throw validation("action","unknown experiment action: " + action);
+  }
 }
 
 async function suite(args: ParsedArgs, action: string, app: WorkApplication, deps: WorkEntryDependencies): Promise<object> {
@@ -252,6 +284,9 @@ async function grade(args: ParsedArgs, action: string, app: WorkApplication, dep
 }
 
 export const workHelp = (): string => [
+  "grounds experiment define --name NAME --suite ID --revision N --agent ID --agent-revision REV [--repo PATH --overrides FILE]",
+  "grounds experiment launch --experiment ID [--repeat N --concurrency N] | experiment show --experiment ID",
+  "grounds experiment results|resume|cancel --batch ID | experiment member --batch ID --member KEY | experiment regrade --batch ID --member KEY --binding KEY",
   "grounds grade measure --run RUN --delivery ID --grader ID --grader-revision ID --answer-path PATH [--reference-run RUN --reference-delivery ID --reference-path PATH]",
   "grounds grade test-status|resume-test --grading ID | grade test-output --grading ID --step N --stream stdout|stderr --chunk N",
   "grounds grade define-test --name NAME --commands FILE --environment ID --environment-revision REV --pass LABEL --fail LABEL",
