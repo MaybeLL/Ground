@@ -86,7 +86,9 @@ test("host completion includes a detached reparented Python descendant, and pers
 
 test("host signals require both the correct random scope and process birth identity", async () => {
   const own = createHostProcessScope(), other = createHostProcessScope();
-  const a = task(own), b = task(other); const aDone = exited(a), bDone = exited(b);
+  const a = task(own), b = task(other);
+  const birthA=hostProcessIdentity(a.pid!),birthB=hostProcessIdentity(b.pid!);
+  const aDone = exited(a), bDone = exited(b);
   // An unrelated absent/inaccessible environment keeps the host census
   // incomplete. Empty macOS environments exercise the same fail-closed branch
   // without assuming that the runner enables SIP for /bin/sleep. Signal
@@ -97,22 +99,23 @@ test("host signals require both the correct random scope and process birth ident
   const restrictedDone = exited(restricted), restrictedBirth = hostProcessIdentity(restricted.pid!);
   try {
     assert.ok(restrictedBirth);
-    const [found] = await Promise.all([observedProcess(own, a), observedProcess(other, b), ready]);
+    const [found,foundOther] = await Promise.all([observedProcess(own, a), observedProcess(other, b), ready]);
     const otherBirth = hostProcessIdentity(b.pid!); assert.ok(otherBirth);
     assert.equal(signalHostProcessIdentity(own, { ...found, identity: "0:0" }, "SIGKILL"), false);
     assert.equal(signalHostProcessIdentity(other, found, "SIGKILL"), false);
     process.kill(a.pid!, 0); process.kill(b.pid!, 0);
-    signalHostProcessScope(own, "SIGKILL"); await aDone;
+    assert.equal(signalHostProcessIdentity(own,found,"SIGKILL"),true); await aDone;
     assert.equal(hostProcessIdentity(a.pid!), undefined);
     assert.deepEqual(inspectHostProcessScope(own), { complete: false, processes: [] });
     assert.notEqual(b.exitCode, 0); assert.equal(b.signalCode, null); process.kill(b.pid!, 0);
     assert.equal(hostProcessIdentity(b.pid!), otherBirth);
-    signalHostProcessScope(other, "SIGTERM"); await bDone;
+    assert.equal(signalHostProcessIdentity(other,foundOther,"SIGTERM"),true); await bDone;
     assert.equal(hostProcessIdentity(b.pid!), undefined);
     assert.deepEqual(inspectHostProcessScope(other), { complete: false, processes: [] });
     assert.equal(hostProcessIdentity(restricted.pid!), restrictedBirth);
   } finally {
-    for (const scope of [own, other]) for (const owned of inspectHostProcessScope(scope).processes) signalHostProcessIdentity(scope, owned, "SIGKILL");
+    if (birthA) signalHostProcessLeader(a.pid!,birthA,"SIGKILL");
+    if (birthB) signalHostProcessLeader(b.pid!,birthB,"SIGKILL");
     if (restrictedBirth) signalHostProcessLeader(restricted.pid!, restrictedBirth, "SIGKILL");
     await Promise.all([aDone, bDone, restrictedDone]);
   }
