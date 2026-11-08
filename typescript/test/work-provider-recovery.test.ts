@@ -144,7 +144,6 @@ test("provider recovery never creates a second exec or replays a confirmed exit"
     const target={owner,location:{hostId:"host",daemonId:"daemon"},containerId:"owned"};
     const adapter=()=>new ContainerAgentProcess(runtime,workspaces,new GitTagArchive());
     const create=t.mock.method(EngineProcess.prototype,"create",async()=>{throw Error("lost create reply");});
-    const start=t.mock.method(EngineProcess.prototype,"start",async()=>{throw Error("unexpected replay");});
     const inspect=t.mock.method(EngineProcess.prototype,"observe",async()=>({running:false,exitCode:17}));
     const plan={target,role:"evaluator" as const,agent:{provider:"codex" as const},prompt:"fixture",job:{executionId:randomUUID()}};
     assert.equal(await adapter().handle(plan,false),undefined);
@@ -162,12 +161,16 @@ test("provider recovery never creates a second exec or replays a confirmed exit"
     assert.equal(create.mock.callCount(),2);
     assert.equal((await adapter().drive(next,"handle",false)).state,"awaiting-resume");
     const root=join(directory,"runtime","executions",owner.ledgerId,next.job.executionId);
+    const assertUndispatched=()=>{
+      for (const receipt of ["dispatch-protocol","bridge.json"]) assert.equal(existsSync(join(root,receipt)),false);
+    };
+    assertUndispatched();
     writeFileSync(join(root,"result.json"),JSON.stringify({handle:"handle",exitCode:17}),{mode:0o600});
     const ended={state:"complete",exitCode:17};
     assert.deepEqual(await adapter().drive(next,"handle",false),ended);
     assert.deepEqual(await adapter().drive(next,"handle",true),ended);
     assert.equal(inspect.mock.callCount(),1);
-    assert.equal(start.mock.callCount(),0);
+    assertUndispatched();
   } finally {
     if (previous===undefined) delete process.env.GROUNDS_DATA_HOME;else process.env.GROUNDS_DATA_HOME=previous;
     rmSync(directory,{recursive:true,force:true});
