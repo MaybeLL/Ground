@@ -325,7 +325,8 @@ async function grade(args: ParsedArgs, action: string, app: WorkApplication, dep
     case "evaluator-status":
     case "test-status": {
       const ctx = unwrap(await app.tests.context(grading()));
-      return {gradingId:ctx.grading.id, status:ctx.grading.status,...(ctx.protocol ? {protocol:ctx.protocol} : {}), ...(ctx.sandbox ? {sandboxPhase:ctx.sandbox.phase} : {}),
+      return {gradingId:ctx.grading.id, status:ctx.grading.status,...("protocol" in ctx.grader ? {protocol:ctx.protocol,agentRevision:ctx.grader.agent,environmentRevision:ctx.grader.environment,
+          ...(ctx.grading.evaluator?.kind==="agent" ? {executionId:ctx.grading.evaluator.executionId} : {})} : {}), ...(ctx.sandbox ? {sandboxPhase:ctx.sandbox.phase} : {}),
         ...(ctx.observation ? {host:ctx.observation} : {})};
     }
     case "define-agent": {

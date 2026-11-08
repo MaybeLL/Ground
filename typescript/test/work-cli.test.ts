@@ -2183,6 +2183,8 @@ test("managed evaluator runs the built-in gate blind before reading the author's
         await new Promise(resolve=>setTimeout(resolve,250));
       } while (Date.now()<deadline);
       assert.equal(status.sandboxPhase,"released",JSON.stringify(status));
+      assert.equal(status.agentRevision.revisionId,agent.revisionId);
+      assert.equal(status.environmentRevision.revisionId,env.revisionId);
       assert.deepEqual(status.protocol.map((p:{stage:string})=>p.stage),title==="alter findings" ? ["blind","freeze","reconcile"] : ["blind","freeze","reconcile","handoff","submit"]);
       const grading=ok(await h.cli("grade","show","--grading",gradingId));
       assert.equal(grading.status,title==="alter findings" ? "grader_fault" : "completed",JSON.stringify(grading));
@@ -2190,6 +2192,7 @@ test("managed evaluator runs the built-in gate blind before reading the author's
       const final=ok(await h.cli("grade","evaluator-evidence","--grading",gradingId,"--stream","output","--chunk","0"));
       assert.equal(blind.executionId,grading.evaluator.executionId);
       assert.equal(final.executionId,blind.executionId);
+      assert.equal(final.executionId,status.executionId);
       assert.equal(blind.ref.digest,status.protocol[1].blindDigest);
       assert.equal(JSON.parse(Buffer.from(blind.base64,"base64").toString()).findings.length,2);
       assert.equal(ok(await h.cli("work","run","--run",runId)).acceptance,title==="alter findings" ? "pending" : "accepted");

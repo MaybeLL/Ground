@@ -177,6 +177,7 @@ export class Grading {
       if (!grading) return fail("not-found", `grading ${input.gradingId} does not exist`);
       if (grading.strategy === "test") return fail("forbidden","a test grade is computed from its frozen commands");
       const evaluator = grading.evaluator;
+      if (evaluator?.kind==="agent" || (await r.intents.listForSubject("run-agent-grader","grading_record",grading.id)).length) return fail("forbidden","a managed evaluation accepts only its owned provider result");
       if (grading.status === "running" && grading.purpose === "gate" && evaluator?.kind === "external" && evaluator.sessionId === input.sessionId
         && !(evaluator.protocol ?? []).some(p => p.stage === "freeze")) return fail("conflict", "freeze the blind assessment before submitting the verdict");
       const prior = grading.origin.type === "gate" ? await r.gradings.listForTaskRun(grading.origin.taskRunId) : [];

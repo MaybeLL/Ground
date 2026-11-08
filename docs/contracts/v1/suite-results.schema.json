@@ -566,6 +566,9 @@
         "status": {
           "$ref": "work-results.schema.json#/$defs/GradingStatus"
         },
+        "executionId": {"$ref":"work-results.schema.json#/$defs/Id"},
+        "agentRevision": {"$ref":"work-results.schema.json#/$defs/RevisionRef"},
+        "environmentRevision": {"$ref":"work-results.schema.json#/$defs/RevisionRef"},
         "protocol": {"type":"array","items":{"$ref":"work-results.schema.json#/$defs/ProtocolRecord"}},
         "sandboxPhase": {
           "type": "string"

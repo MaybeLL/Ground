@@ -77,6 +77,7 @@ export class ManagedEvaluators {
       if (!g?.binding || g.purpose!=="gate" || g.status!=="running" || g.cancelIntent || g.evaluator?.kind!=="agent" ||
           g.evaluator.executionId!==executionId || exec?.stage!=="running" || exec.cancelIntent) return fail("conflict","gate can no longer freeze findings");
       const findings=blindFindings(output.message,g.binding.expectedCriteria);
+      if (output.output.digest!=="sha256:"+this.ctx.hash(output.message)) return fail("invalid","blind evidence differs from the provider message");
       if (!findings) return fail("invalid","blind evaluation must provide one independent finding per frozen criterion");
       const prior=await r.intents.findByRequest("gate-blind-"+executionId);
       if (prior) return (prior.payload as {blindDigest:string}).blindDigest===output.output.digest ? succeed({}) : fail("conflict","blind output has already been frozen");
