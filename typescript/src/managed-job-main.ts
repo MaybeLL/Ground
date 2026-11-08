@@ -14,8 +14,22 @@ async function supervise(job: HostJob, name: string, observeOnly: boolean) {
     const fallback = join(hostDirectory("recovery-status"), job.executionId);
     if (existsSync(fallback)) removePrivateFile(fallback);
     const app = composeWork(opened.store);
-    const context = await app.workers.context(job.runId);
-    if (!context.ok || context.value.exec.id !== job.executionId) throw new Error("execution identity changed");
+    const test = job.kind === "test-grading";
+    const status = async () => {
+      if (test) {
+        const current = await app.tests.context(job.executionId);
+        if (!current.ok || current.value.plan.runId !== job.runId) throw new Error("evaluator job identity changed");
+        return {cancelled:!!current.value.grading.cancelIntent || current.value.grading.status === "cancelled",
+          stopped:current.value.sandbox?.phase === "released"};
+      }
+      const current = await app.workers.context(job.runId);
+      if (!current.ok || current.value.exec.id !== job.executionId) throw new Error("worker execution identity changed");
+      return {cancelled:!!current.value.run.cancelIntent || current.value.run.status === "cancelled",
+        stopped:["verified","idle"].includes(current.value.exec.stop)};
+    };
+    const drive = (live:boolean) => test ? app.testDriver.drive(job.executionId,live) : app.driver.drive(job.runId,live);
+    const note = (state:string,detail?:string) => test ? app.tests.note(job.executionId,state,detail) : app.workers.note(job.runId,state,detail);
+    await status();
     const slot = join(hostDirectory("slots"), job.executionId);
     const ticket = join(hostDirectory("waiting"), job.executionId);
     const issued = join(hostDirectory("issued"), name);
@@ -29,9 +43,7 @@ async function supervise(job: HostJob, name: string, observeOnly: boolean) {
         await launchManaged("host");
         let nextWake = Date.now() + 5000;
         while (!existsSync(slot)) {
-          const current = await app.workers.context(job.runId);
-          if (!current.ok) throw new Error("run no longer available");
-          if (current.value.run.cancelIntent || current.value.run.status === "cancelled") { live = false; break; }
+          if ((await status()).cancelled) { live = false; break; }
           if (Date.now() >= nextWake) { await launchManaged("host"); nextWake = Date.now() + 5000; }
           await delay(250);
         }
@@ -41,15 +53,14 @@ async function supervise(job: HostJob, name: string, observeOnly: boolean) {
         atomicPrivateWrite(issued, job.executionId);
       }
       for (;;) {
-        const result = await app.driver.drive(job.runId, live);
+        const result = await drive(live);
         const state = result.ok ? result.value.state : "blocked";
-        await app.workers.note(job.runId, state, result.ok ? result.value.detail : result.error.message);
+        await note(state, result.ok ? result.value.detail : result.error.message);
         if (state === "running") {
           await delay(250);
           continue;
         }
-        const current = await app.workers.context(job.runId);
-        if (result.ok && result.value.providerStopped || current.ok && ["verified", "idle"].includes(current.value.exec.stop)) {
+        if (result.ok && result.value.providerStopped || (await status()).stopped) {
           await ticketLock(async () => {
             if (existsSync(ticket)) removePrivateFile(ticket);
             if (existsSync(slot)) removePrivateFile(slot);
@@ -58,7 +69,7 @@ async function supervise(job: HostJob, name: string, observeOnly: boolean) {
         break;
       }
     } catch {
-      await app.workers.note(job.runId, "blocked", "host observation failed; inspect the run and resume explicitly");
+      await note("blocked", "host observation failed; inspect the run and resume explicitly");
     } finally {
       await ticketLock(async () => { if (existsSync(ticket)) removePrivateFile(ticket); });
     }

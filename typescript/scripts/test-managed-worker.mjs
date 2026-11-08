@@ -13,7 +13,7 @@ try {
   built = true;
   const env = {...process.env, GROUNDS_DATA_HOME: root, GROUNDS_TEST_MANAGED_AGENT: image};
   for (const key of ["OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]) delete env[key];
-  const test = spawnSync(process.execPath, ["--import", "tsx", "--test", "--test-name-pattern", "managed worker runs", "test/work-cli.test.ts"], {
+  const test = spawnSync(process.execPath, ["--import", "tsx", "--test", "--test-name-pattern", "managed worker runs|test grading runs", "test/work-cli.test.ts"], {
     stdio: "inherit", env,
   });
   process.exitCode = test.status ?? 1;

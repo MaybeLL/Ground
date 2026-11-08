@@ -133,6 +133,7 @@ export class Grading {
     return once<GradingState>(this.context, { requestId: input.requestId, kind: "submit-grade", input: input as unknown as JsonValue, subject: { type: "grading", id: input.gradingId } }, async r => {
       const grading = await r.gradings.get(input.gradingId, { lock: true });
       if (!grading) return fail("not-found", `grading ${input.gradingId} does not exist`);
+      if (grading.strategy === "test") return fail("forbidden","a test grade is computed from its frozen commands");
       const evaluator = grading.evaluator;
       if (grading.status === "running" && grading.purpose === "gate" && evaluator?.kind === "external" && evaluator.sessionId === input.sessionId
         && !(evaluator.protocol ?? []).some(p => p.stage === "freeze")) return fail("conflict", "freeze the blind assessment before submitting the verdict");

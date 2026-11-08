@@ -887,3 +887,53 @@ test("managed worker runs a refinement in its retained workspace with the origin
     }
   });
 });
+
+test("test grading runs ordered commands in its own sandbox and releases the private checkout", {skip:!process.env.GROUNDS_TEST_MANAGED_AGENT}, async () => {
+  await withHarness(async h => {
+    const docker = (...args:string[]) => execFileSync("docker",args,{encoding:"utf8"}).trim();
+    const image = process.env.GROUNDS_TEST_MANAGED_AGENT!;
+    const digest = docker("image","inspect","--format","{{.Id}}",image);
+    const config = join(h.directory,"grader-container.json"), commands = join(h.directory,"commands.json"), cases = join(h.directory,"cases.json");
+    writeFileSync(config, JSON.stringify({image,workspaceFolder:"/work",overrideCommand:false}));
+    const env = ok(await h.cli("work","define-environment","--name","evaluation","--devcontainer",config,"--image-digest",digest));
+    const task = ok(await h.cli("task","create","--title","produce answer","--criterion","correct","--repo-remote",h.remote,"--baseline",h.baseline));
+    const deliver = async () => {
+      const run = ok(await h.cli("work","start","--task",task.taskId,"--mode","none"));
+      const {delivery} = ok(await h.cli("work","deliver","--run",run.runId,"--repo",h.repo,"--commit","HEAD"));
+      return {runId:run.runId,deliveryId:delivery.id};
+    };
+    const target = await deliver();
+    writeFileSync(join(h.repo,"check.sh"),'test "$(cat app.txt)" = v0 && test ! -e check.sh && ! (echo rewrite >> /grounds-grader/check.sh)\n');
+    git(h.repo,"add","check.sh");git(h.repo,"commit","-qm","private evaluator material");
+    const curator = await deliver();
+    writeFileSync(commands, JSON.stringify([["sh","/grounds-grader/check.sh"],["sh","-c","exit 7"]]));
+    const grader = ok(await h.cli("grade","define-test","--name","private checks","--commands",commands,"--environment",env.environmentId,"--environment-revision",env.revisionId,"--pass","accept","--fail","reject"));
+    writeFileSync(cases, JSON.stringify([{key:"example",...target,bindings:[{key:"tests",grader:{definitionId:grader.graderId,revisionId:grader.revisionId},
+      hiddenTestPaths:["check.sh"],materialSource:curator}]}]));
+    const suite = ok(await h.cli("suite","publish","--name","private suite","--cases-file",cases));
+    const args = ["suite","measure","--suite",suite.suiteId,"--revision","1","--case","example","--run",target.runId,"--delivery",target.deliveryId,"--operation-id",newUUIDv7()];
+    const ledger = ok(await h.cli("db","status")).database_id;
+    try {
+      const admitted = ok(await h.cli(...args));
+      assert.deepEqual(ok(await h.cli(...args)),admitted);
+      const deadline = Date.now() + 90_000;
+      let status;
+      do {
+        status = ok(await h.cli("grade","test-status","--grading",admitted.gradingId));
+        if (["terminal","blocked","awaiting-resume"].includes(status.host?.state)) break;
+        await new Promise(resolve => setTimeout(resolve,250));
+      } while (Date.now() < deadline);
+      assert.equal(status.host?.state,"terminal",JSON.stringify(status));
+      assert.equal(status.sandboxPhase,"released");
+      const record = ok(await h.cli("grade","show","--grading",admitted.gradingId));
+      assert.deepEqual(record.grade,{form:"category",category:"reject"});
+      assert.deepEqual(record.commandSteps.map((step:{exitCode:number})=>step.exitCode),[0,7]);
+      assert.equal(docker("ps","-aq","--filter","label=dev.grounds.ledger="+ledger),"");
+      assert.equal(existsSync(join(dataLayout().workspaces,"sandboxes",ledger,record.sandboxId)),false);
+      assert.equal(ok(await h.cli("work","run","--run",target.runId)).run.status,"delivered");
+      await withRuntimeLock(join(dataLayout().runtime,"managed-host"),"execution-"+admitted.gradingId,async()=>{},10_000);
+    } finally {
+      for (const id of docker("ps","-aq","--filter","label=dev.grounds.ledger="+ledger).split("\n").filter(Boolean)) docker("rm","-f",id);
+    }
+  });
+});

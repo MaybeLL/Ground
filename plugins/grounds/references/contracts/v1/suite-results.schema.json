@@ -469,6 +469,68 @@
         "runId",
         "deliveryId"
       ]
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "gradingId"
+      ],
+      "properties": {
+        "command": {
+          "const": "grade.resume-test"
+        },
+        "result_type": {
+          "const": "grounds.result.grade.resume-test/v1"
+        },
+        "gradingId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "gradingId",
+        "status"
+      ],
+      "properties": {
+        "command": {
+          "const": "grade.test-status"
+        },
+        "result_type": {
+          "const": "grounds.result.grade.test-status/v1"
+        },
+        "gradingId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "status": {
+          "$ref": "work-results.schema.json#/$defs/GradingStatus"
+        },
+        "sandboxPhase": {
+          "type": "string"
+        },
+        "host": {
+          "type": "object",
+          "required": [
+            "state"
+          ],
+          "properties": {
+            "state": {
+              "type": "string"
+            },
+            "detail": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     }
   ],
   "$defs": {

@@ -11,7 +11,7 @@ import type { Outcome, WorkApplication } from "../application/index.js";
 
 export const WORK_GROUPS = ["task", "work", "grade", "suite"] as const;
 export const WORK_WRITE_ACTIONS = new Set([
-  "grade:measure", "grade:define-test", "grade:define-rule", "suite:publish", "suite:measure",
+  "grade:measure", "grade:resume-test", "grade:define-test", "grade:define-rule", "suite:publish", "suite:measure",
   "work:resume-managed", "work:define-agent", "work:import-trace", "work:prepare-sandbox", "work:pause-sandbox", "work:release-sandbox", "work:define-environment", "task:create", "task:revise",
   "work:start", "work:continue", "work:branch", "work:select", "work:close", "work:register", "work:transcript", "work:deliver", "work:repair", "work:stop", "work:cancel",
   "grade:request", "grade:register", "grade:stage", "grade:command", "grade:submit", "grade:stop", "grade:cancel",
@@ -194,6 +194,12 @@ async function grade(args: ParsedArgs, action: string, app: WorkApplication, dep
       return unwrap(await app.suites.measureDirect({ requestId: requestId(args), runId: need(args, "run"), deliveryId: need(args, "delivery"),
         grader: { definitionId: need(args, "grader"), revisionId: need(args, "grader-revision") }, answerPath: need(args, "answer-path"),
         ...(reference ? { reference } : {}) }, text(args, "repo") ?? deps.cwd));
+    }
+    case "resume-test": return unwrap(await app.tests.resume(grading(),requestId(args)));
+    case "test-status": {
+      const ctx = unwrap(await app.tests.context(grading()));
+      return {gradingId:ctx.grading.id, status:ctx.grading.status, ...(ctx.sandbox ? {sandboxPhase:ctx.sandbox.phase} : {}),
+        ...(ctx.observation ? {host:ctx.observation} : {})};
     }
     case "define-test": {
       let commands: unknown;

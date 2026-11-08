@@ -425,6 +425,16 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
         }
         if(id) await notifyManaged({config:configPath(value(args,"config")),ledgerId:opened.config.database.expected_database_id,runId:data.runId,executionId:id,allowStart:action!=="cancel"},value(args,"operation-id"));
       }
+      if (typeof data.gradingId === "string" && (group === "suite" && action === "measure" && data.status === "accepted" ||
+          group === "grade" && (action === "cancel" || action === "resume-test"))) {
+        const test = await app.tests.context(data.gradingId);
+        if (test.ok) await notifyManaged({kind:"test-grading", config:configPath(value(args,"config")), ledgerId:opened.config.database.expected_database_id,
+          runId:test.value.plan.runId, executionId:data.gradingId, allowStart:action !== "cancel"}, value(args,"operation-id"));
+      }
+      if (group === "grade" && action === "test-status" && typeof data.gradingId === "string") {
+        const observation = await observeManagedHost(data.gradingId, opened.config.database.expected_database_id);
+        if (observation) data.host = observation;
+      }
       if (group === "work" && action === "managed-status" && typeof data.executionId === "string") {
         const observation = await observeManagedHost(data.executionId, opened.config.database.expected_database_id);
         if (observation) data.host = observation;

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { dataLayout } from "./data-layout.js";
 import { atomicPrivateWrite, privateDirectory, removePrivateFile, safeRead, withRuntimeLock } from "./runtime-files.js";
 
-export type HostJob = {config: string; ledgerId: string; runId: string; executionId: string; allowStart: boolean};
+export type HostJob = {kind?: "test-grading"; config: string; ledgerId: string; runId: string; executionId: string; allowStart: boolean};
 export const managedId = /^[a-f0-9-]{36}$/;
 export const queueRoot = () => privateDirectory(join(dataLayout().runtime, "managed-host"));
 export const hostDirectory = (name: string) => privateDirectory(join(queueRoot(), name));

@@ -450,7 +450,7 @@ for (const backend of backends) test(backend + ": test grader admission freezes 
     const env = value(await app.environments.publish({requestId:"env", name:"evaluator", expectedSeq:0,
       config:'{"image":"fixture"}', imageDigest:"sha256:" + "1".repeat(64)}));
     const grader = value(await app.rules.publishTest({requestId:"test-grader", name:"check result", expectedSeq:0,
-      environmentId:env.environmentId, environmentRevisionId:env.revisionId, pass:"pass", fail:"fail", commands:[["sh", "check.sh"]]}));
+      environmentId:env.environmentId, environmentRevisionId:env.revisionId, pass:"pass", fail:"fail", commands:[["sh", "/grounds-grader/check.sh"], ["sh","-c","exit 3"]]}));
     const task = value(await app.tasks.createTask({requestId:"task",summary:"produce a result",criteria:[{statement:"correct result"}],repository:{remote,baseline}}));
     const worker = value(await app.exec.startWork({requestId:"work",taskDefinitionId:task.taskId,workerMode:"none"}));
     writeFileSync(join(repo,"check.sh"), "test -e result.txt\n");
@@ -471,6 +471,22 @@ for (const backend of backends) test(backend + ": test grader admission freezes 
     assert.equal(record?.materials.length,1);
     const snapshot = value(await app.suites.show(suite.suiteId,1));
     assert.equal(JSON.stringify(snapshot).includes("base64"),false);
+    const {TestExecution} = await import("../src/work/application/test-execution.js");
+    const execution = new TestExecution({units,newId:newUUIDv7,now:()=>new Date().toISOString(),hash:s=>createHash("sha256").update(s).digest("hex")});
+    const id = accepted.gradingId;
+    const allocated = value(await execution.allocate(id,{hostId:"host",daemonId:"daemon"}));
+    assert.equal(value(await execution.allocate(id,{hostId:"host",daemonId:"daemon"})).sandboxId, allocated.sandboxId);
+    value(await execution.ready(id, "container"));
+    const first = value(await execution.beginStep(id,0));
+    assert.deepEqual(value(await execution.beginStep(id,0)),first);
+    assert.equal((await execution.beginStep(id,1)).ok,false);
+    assert.equal((await execution.stopped(id,0,first.token + 1,0)).ok,false);
+    assert.equal(value(await execution.stopped(id,0,first.token,0)).status,"running");
+    assert.equal((await app.grading.submitGrade({requestId:"fabricate",gradingId:id,sessionId:"foreign",grade:{form:"category",category:"pass"}})).ok,false);
+    const second = value(await execution.beginStep(id,1));
+    assert.ok(second.token > first.token);
+    assert.equal(value(await execution.stopped(id,1,second.token,3)).status,"completed");
+    assert.deepEqual(value(await execution.context(id)).grading.grade,{form:"category",category:"fail"});
     assert.equal(value(await app.exec.getRun(worker.runId)).run.status,"delivered");
   },backend);
 });
