@@ -1,5 +1,5 @@
 import type { Attribution } from "./domain.js";
-import type { VerificationSetSummary } from "./review.js";
+import type { VerificationSetSummary } from "./verification-page.js";
 
 /** Mutable decision; never part of the immutable Candidate or blind subject. */
 export interface SelectionRecord {

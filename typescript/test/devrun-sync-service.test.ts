@@ -17,7 +17,6 @@ import { SQLStore } from "../src/sql-store.js";
 import { runCLI } from "../src/cli.js";
 import { captureCommittedCandidate } from "../src/development-branch.js";
 import { captureArtifact } from "../src/git.js";
-import { renderReviewMarkdown } from "../src/review.js";
 import { withRuntimeDirectories, withRuntimeLock, directoryRegistryRoot } from "../src/runtime-files.js";
 import { reservePhysicalDirectory, releasePhysicalDirectory, physicalClaims, physicalIdentity, assertPhysicalDirectoryFree } from "../src/physical-directory.js";
 
@@ -138,10 +137,6 @@ test("conflicted sync is recognized, blocks capture/cleanup/abandon and complete
   x.git(x.path, "add", "feature"); x.git(x.path, "commit", "-qm", "fixed feature after sync");
   const fixed = captureCommittedCandidate(x.path, x.target);
   const candidate = await x.f.module.submitCandidate({ ...actor(), dev_run_id: x.runId, expected_version: 3, submission, ...fixed, ...x.f.gitCandidateFields(fixed.artifact, x.target, fixed.source) });
-  const review = await x.f.module.reviewCandidate(candidate.candidate_id);
-  assertContract("query-results.schema.json", review);
-  assert.equal(review.trace.sync_records![0]!.decisions[0]!.explanation, explanation);
-  assert.match(renderReviewMarkdown(review), /采用上游实现/);
   const blind = await x.f.module.verificationContext(candidate.candidate_id, "blind");
   assert.doesNotMatch(JSON.stringify(blind), /采用上游实现|sync_records/);
 });

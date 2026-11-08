@@ -12,7 +12,6 @@ import { newUUIDv7 } from "../src/identity.js";
 import { SQLStore } from "../src/sql-store.js";
 import { Module } from "../src/module.js";
 import { snapshotRelation } from "../src/integration-history.js";
-import { renderReviewMarkdown } from "../src/review.js";
 import { captureArtifact, diffTrees, materializeCandidateWorktree } from "../src/git.js";
 import { assertTargetBase } from "../src/target-branch.js";
 import { blindContextDigestFor, blindContextDigestMatches, blindSubjectFor } from "../src/projections.js";
@@ -101,10 +100,6 @@ test("Candidate base different from snapshot survives capture, SQL, blind contex
   const unknown = (await unavailable.verificationContext(id, "blind")).context;
   assert.ok(unknown.phase === "blind");
   assert.deepEqual(unknown.snapshot_relation, { kind: "unknown" });
-  const review = await x.f.module.reviewCandidate(id);
-  assert.equal(review.trace.artifact.base_commit, x.base);
-  assert.equal(review.trace.baseline.git_oid, x.snapshot);
-  assertContract("query-results.schema.json", review);
   const material = await x.f.module.loadCandidateMaterialization(id);
   assert.equal(material.baseline.git_oid, x.base);
   {
@@ -143,7 +138,7 @@ test("target rewrite rejects an old base without changing the worktree", async t
   assert.equal(x.git("rev-parse", "HEAD"), x.base.slice(5));
 });
 
-test("cross-base refinement Review and pairwise comparison separate upstream from author changes", async t => {
+test("cross-base refinement and pairwise comparison separate upstream from author changes", async t => {
   const x = await fixture(t);
   const local = new Module(x.f.store, newUUIDv7, async (left, right) => diffTrees(x.cwd, left, right));
   const submit = async (runId: string, base: string, expected_version = 1) => {
@@ -167,24 +162,8 @@ test("cross-base refinement Review and pairwise comparison separate upstream fro
   x.git("checkout", "--detach", x.base.slice(5));
   writeFileSync(join(x.cwd, "feature"), "child\n");
   const child = await submit(childRun.result.context.dev_run.id, x.base, 2);
-  const review = await local.reviewCandidate(child.candidate_id, { include_patch: true });
-  const upstream = review.trace.upstream_changes!;
-  assert.equal(upstream.status, "available");
-  assert.equal(upstream.role, "base_changes_not_candidate_changes");
-  assert.equal(upstream.left_base_commit, x.snapshot); assert.equal(upstream.right_base_commit, x.base);
-  assert.match(upstream.diff!.unified_diff!, /upstream/); assert.doesNotMatch(upstream.diff!.unified_diff!, /feature/);
-  assert.equal(review.trace.artifact.file_manifest.length, 1);
-  assertContract("query-results.schema.json", review);
-  assert.match(renderReviewMarkdown(review), /Upstream base changes \(not Candidate changes\)/);
-  const summary = await local.reviewSummary(child.candidate_id);
-  assert.equal(summary.trace.upstream_changes!.diff!.diff_state, "not_requested");
-  assertContract("query-results.schema.json", summary);
   const comparison = await local.compareCandidates([parent.candidate_id, child.candidate_id], { pairwise_pairs: [[parent.candidate_id, child.candidate_id]] });
   assert.equal(comparison.pairwise_diffs[0]!.upstream_changes!.diff!.stats.files, 1);
   assert.deepEqual(comparison.candidates.map(candidate => candidate.diff_from_baseline.files), [1, 1]);
   assertContract("query-results.schema.json", comparison);
-  const unavailable = await x.f.module.reviewCandidate(child.candidate_id);
-  assert.equal(unavailable.trace.upstream_changes!.status, "unavailable");
-  assert.equal(unavailable.trace.upstream_changes!.diff, undefined);
-  assertContract("query-results.schema.json", unavailable);
 });

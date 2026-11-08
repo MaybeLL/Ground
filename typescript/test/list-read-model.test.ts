@@ -179,7 +179,7 @@ for (const backend of ["sqlite", "mysql", "postgres"] as const) {
         version: 2, updated_at: await tx.now(), attribution: testAgent }, 1);
     });
     const cleared = await status();
-    assert.equal(cleared.board?.status, "candidates_available"); assert.equal(cleared.board?.next_action, "review_candidates");
+    assert.equal(cleared.board?.status, "candidates_available"); assert.equal(cleared.board?.next_action, null);
     assert.deepEqual(cleared.board?.selection, { state: "unselected", version: 2 });
     assert.equal((await f.module.listIssues("", { status: "candidate_selected" })).resources.length, 0);
     assert.equal((await f.module.listCandidates(s.selected.issue_revision_id)).resources[0].is_selected, false);

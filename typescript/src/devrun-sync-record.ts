@@ -24,23 +24,6 @@ export interface DevRunSync {
   finished_at?: string;
   finished_by?: Attribution;
 }
-export interface SyncReview {
-  id: string;
-  original_base: string;
-  target: string;
-  outcome: "completed" | "abandoned";
-  conflicts: string[];
-  decisions: { path: string; explanation: string }[];
-  created_at: string;
-  finished_at: string;
-  started_by: Attribution;
-  finished_by: Attribution;
-}
-export function syncReview(row: RuntimeRecord): SyncReview {
-  const data = syncData(row);
-  if (!syncTerminal(data)) throw validation("sync", "a Candidate cannot refer to an unfinished sync");
-  return { id: row.id, original_base: data.original_base, target: data.target, outcome: data.phase as "completed" | "abandoned", conflicts: data.conflicts ?? [], decisions: data.decisions ?? [], created_at: data.created_at, finished_at: data.finished_at!, started_by: data.attribution, finished_by: data.finished_by ?? data.attribution };
-}
 export const SYNC_FORMAT = "grounds.devrun-sync/v1";
 export function isSyncRecord(row: RuntimeRecord): boolean {
   return row.kind === "runtime_operation" && row.data.format === SYNC_FORMAT;

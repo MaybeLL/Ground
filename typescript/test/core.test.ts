@@ -145,7 +145,7 @@ test("issue board exposes the next resumable workflow action", async () => {
     });
     assert.equal((await fixture.module.showIssue(fixture.issue.issue_id)).board.next_action, "resume_devrun");
     await fixture.submitCandidate();
-    assert.equal((await fixture.module.showIssue(fixture.issue.issue_id)).board.next_action, "review_candidates");
+    assert.equal((await fixture.module.showIssue(fixture.issue.issue_id)).board.next_action, null);
   } finally { await fixture.close(); }
 });
 

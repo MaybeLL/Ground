@@ -56,15 +56,6 @@
           }
         }
       }
-    },
-    "review": {
-      "type": "object", "additionalProperties": false,
-      "required": ["id", "original_base", "target", "outcome", "conflicts", "decisions", "created_at", "finished_at", "started_by", "finished_by"],
-      "properties": {
-        "id": { "$ref": "common.schema.json#/$defs/id" }, "original_base": { "$ref": "common.schema.json#/$defs/gitOid" }, "target": { "$ref": "common.schema.json#/$defs/gitOid" },
-        "outcome": { "enum": ["completed", "abandoned"] }, "conflicts": { "type": "array", "items": { "type": "string" } }, "decisions": { "$ref": "#/$defs/decisions" },
-        "created_at": { "$ref": "common.schema.json#/$defs/timestamp" }, "finished_at": { "$ref": "common.schema.json#/$defs/timestamp" }, "started_by": { "$ref": "common.schema.json#/$defs/attribution" }, "finished_by": { "$ref": "common.schema.json#/$defs/attribution" }
-      }
     }
   }
 }

@@ -756,7 +756,6 @@
       "enum": [
         "start_devrun",
         "resume_devrun",
-        "review_candidates",
         null
       ]
     },

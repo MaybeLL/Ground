@@ -7,10 +7,9 @@ import { join } from "node:path";
 import { decodeCandidateSubmission, summarizeSelfVerification, type SelfVerification } from "../src/domain.js";
 import { LedgerFixture } from "./fixture.js";
 import { SQLStore, SCHEMA_VERSION } from "../src/sql-store.js";
-import { renderReviewMarkdown, renderReviewTrace } from "../src/review.js";
 import { assertContract } from "./schema-fixture.js";
 
-test("self verification survives persistence and Review but is withheld from blind verification", async () => {
+test("self verification survives persistence but is withheld from blind verification", async () => {
   const f = await LedgerFixture.create();
   try {
     const legacy = await f.submitCandidate("legacy");
@@ -20,18 +19,12 @@ test("self verification survives persistence and Review but is withheld from bli
       assertContract("candidate-submission.schema.json", c.submission);
       const stored = await f.store.read(tx => tx.getCandidate(c.candidate.candidate_id));
       assert.deepEqual(stored.candidate.submission.claims[0].criteria[0].self_verification, check);
-      const trace = await f.module.reviewCandidate(c.candidate.candidate_id);
-      assertContract("query-results.schema.json", trace);
-      assertContract("query-results.schema.json", await f.module.reviewSummary(c.candidate.candidate_id));
       assertContract("query-results.schema.json", await f.module.compareCandidates([legacy.candidate.candidate_id, c.candidate.candidate_id]));
-      assert.equal(trace.trace.submission.claims[0].self_verification_summary?.[status], 1);
-      for (const output of [renderReviewTrace(trace), renderReviewMarkdown(trace)]) assert.match(output, new RegExp(`Self-verification.*${status}`));
       const blind = await f.module.verificationContext(c.candidate.candidate_id, "blind");
       assert.equal(JSON.stringify(blind).includes('"self_verification"'), false);
       const reconcile = await f.module.verificationContext(c.candidate.candidate_id, "reconcile");
       assertContract("verification-context.schema.json", reconcile.context);
       assert.match(JSON.stringify(reconcile), /self_verification/);
-      assert.equal(trace.trace.verification_set.standing, "unverified");
     }
   } finally { await f.close(); }
 });
@@ -52,7 +45,6 @@ test("self verification rejects unsupported, ungrounded and contradictory checks
     }
     assert.deepEqual(decodeCandidateSubmission(Buffer.from(JSON.stringify(c.submission))), c.submission);
     assert.equal(summarizeSelfVerification([{},{ self_verification: { status: "not_verified", explanation: "No environment" } }]).not_recorded, 1);
-    assert.match(renderReviewMarkdown(await f.module.reviewCandidate(c.candidate.candidate_id)), /未记录/);
   } finally { await f.close(); }
 });
 

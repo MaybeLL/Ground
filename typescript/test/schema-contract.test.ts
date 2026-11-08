@@ -50,7 +50,6 @@ test("core lifecycle command, context, and query projections satisfy v1 schemas"
       await fixture.module.showIssue(fixture.issue.issue_id),
       await fixture.module.showDevRun(candidate.run.context.dev_run.id),
       await fixture.module.showCandidate(candidate.candidate.candidate_id),
-      await fixture.module.reviewCandidate(candidate.candidate.candidate_id),
       await fixture.module.showVerification(verification.verification_id),
       await fixture.module.listLedger(),
     ]) assertContract("query-results.schema.json", query);

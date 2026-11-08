@@ -166,12 +166,6 @@ backendTest("ultra verification stores both signed parts as one report and takes
   assert.equal(page.verifications[0].mode, "ultra");
   assert.equal(page.verifications[0].quality_verdict, "rejected");
   assertContract("query-results.schema.json", page);
-
-  const review = await fixture.module.reviewCandidate(second.candidate.candidate_id, {});
-  const entry = review.trace.verification_set.verifications[0];
-  assert.equal(entry.mode, "ultra");
-  assert.equal(entry.quality?.overall_verdict, "rejected");
-  assertContract("query-results.schema.json", review);
 });
 
 backendTest("an ultra rejection beside an earlier normal pass makes the Candidate disputed", async (fixture) => {

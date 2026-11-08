@@ -13,7 +13,6 @@ import { isRouteLeased } from "./env-route-lease.js";
 import { safeRead } from './runtime-files.js';
 import { runtimeError } from "./runtime-record.js";
 import type { RuntimeRecord } from "./runtime-record.js";
-import { prepareReviewMarkdown, PreparedReviewMarkdown } from "./review-export.js";
 import { execFileSync } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, readSync } from "node:fs";
 import { resolve } from "node:path";
@@ -25,7 +24,7 @@ import { assertTargetBase } from "./target-branch.js";
 import { snapshotRelation, readCommit } from "./integration-history.js";
 import { DevRunSyncService } from "./devrun-sync-service.js";
 import { PreflightService, observationData, assessmentData, type AssessInput } from "./preflight.js";
-import { assertReviewWorktreeCandidateArtifact, captureArtifact, discoverRepository, matchingRemoteNames, materializeCandidateWorktree, normalizeRemote, readReviewWorktreeMarker, resolveBaseline, selectRemote, diffTrees, type ReviewWorktreeMarker, type WorktreeMode } from "./git.js";
+import { captureArtifact, discoverRepository, matchingRemoteNames, materializeCandidateWorktree, normalizeRemote, resolveBaseline, selectRemote, diffTrees, type ReviewWorktreeMarker, type WorktreeMode } from "./git.js";
 import { isUUIDv7, newUUIDv7 } from "./identity.js";
 import { Module, type PairwiseOptions, type SuccessEnvelope, type Warning } from "./module.js";
 import { listUncommittedWork, reconcileDevRun, uncommittedReminder } from "./reconcile-service.js";
@@ -46,7 +45,6 @@ import { executeWorkCommand, WORK_GROUPS, WORK_WRITE_ACTIONS, workHelp } from ".
 import { previewExternalWorkspace, captureWorkspaceArtifact } from "./workspace-provider.js";
 import { DevWorktreeModule, commonRepositoryRoot } from "./dev-worktree.js";
 import { ReviewSessions, writeMaterial, type ReviewPhase, type ReviewRole } from "./review-session.js";
-import { renderReviewMarkdown, renderReviewTrace, renderReviewSummary, type ReviewSummaryResult, type ReviewLocationRequest, type ReviewTraceResult } from "./review.js";
 
 export interface ParsedArgs { positionals: string[]; values: Record<string, string | boolean | string[]> }
 
@@ -62,7 +60,7 @@ export interface CLIIO {
 const stdout = (io: CLIIO, line: string): void => (io.stdout ?? ((value) => process.stdout.write(value + "\n")))(line);
 const stderr = (io: CLIIO, line: string): void => (io.stderr ?? ((value) => process.stderr.write(value + "\n")))(line);
 
-const booleanOptionKeys = new Set(["early", "pinned", "allow-cached", "legacy-fixed","preview","parallel-route","tty", "summary", "paged", "json", "markdown", "reconfigure", "allow-submitted", "non-interactive", "confirm-initialize", "help", "link", "dry-run", "discard-changes", "include-diff", "refresh", "declare-stop"]);
+const booleanOptionKeys = new Set(["early", "pinned", "allow-cached", "legacy-fixed","preview","parallel-route","tty", "summary", "paged", "json", "reconfigure", "allow-submitted", "non-interactive", "confirm-initialize", "help", "link", "dry-run", "discard-changes", "refresh", "declare-stop"]);
 
 export const parseArgs = (argv: string[]): ParsedArgs => {
   const positionals: string[] = []; const values: Record<string, string | boolean | string[]> = {};
@@ -92,7 +90,7 @@ export const parseArgs = (argv: string[]): ParsedArgs => {
 const knownOptionKeys = new Set(["development-mode", "early", "pinned", "retention-days", "plan-digest", "allow-cached", "configuration", "data-root", "instance", "issue-slug", "view", "observation-time", "landing-record", "archive-policy","legacy-fixed","policy", "expected-head", "choice", "preview","plan", "parallel-route", "definition-commit", "target-remote", "target-branch",
   "workspace", "output", "format", "sync", "target-commit", "observation",
   "external-directory", "input-digest", "directory", "status", "state", "sort", "has-open-devrun", "standing", "selected", "verdict",
-  "issue-version", "summary", "paged", "cursor", "after", "agent-id", "agent-name", "allow-submitted", "at", "baseline", "base-commit", "baseline-policy", "branch", "brief", "brief-file", "canonical-remote", "candidate", "ca-file", "confirm-initialize", "config", "content-language", "language-override-reason", "context", "cwd", "database", "dev-run", "discard-changes", "driver", "dry-run", "event", "refresh", "expected-version", "exploration-brief", "file", "handoff", "help", "host", "include-diff", "include-patch", "include-verification", "issue", "issues-cursor", "json", "limit", "link", "manifest-cursor", "markdown", "mode", "name", "non-interactive", "operation-id", "pairwise", "password-source", "path", "phase", "port", "preflight", "reason", "reconfigure", "refines-candidate", "remote", "remote-url", "repository", "requirement", "side", "skills-path", "subject-id", "subject-type", "tls", "tls-mode", "username", "verifications-cursor", "version", "role", "quality-handoff", "independent-digest", "out", "review-session",
+  "issue-version", "summary", "paged", "cursor", "after", "agent-id", "agent-name", "allow-submitted", "baseline", "base-commit", "baseline-policy", "branch", "brief", "brief-file", "canonical-remote", "candidate", "ca-file", "confirm-initialize", "config", "content-language", "language-override-reason", "context", "cwd", "database", "dev-run", "discard-changes", "driver", "dry-run", "event", "refresh", "expected-version", "exploration-brief", "file", "handoff", "help", "host", "include-patch", "include-verification", "issue", "issues-cursor", "json", "limit", "link", "manifest-cursor", "mode", "name", "non-interactive", "operation-id", "pairwise", "password-source", "path", "phase", "port", "preflight", "reason", "reconfigure", "refines-candidate", "remote", "remote-url", "repository", "requirement", "skills-path", "subject-id", "subject-type", "tls", "tls-mode", "username", "verifications-cursor", "version", "role", "quality-handoff", "independent-digest", "out", "review-session",
   "run", "stage", "entry", "started-at", "ended-at", "exit-code", "identity", "asset", "lease", "hit", "copy-path", "report-digest",
 ]);
 
@@ -108,7 +106,6 @@ const commandOptionKeys: Record<string, Set<string>> = {
   ...Object.fromEntries(Object.entries(repositoryArchiveCommands).map(([action, spec]) => [`repository:${action}`, new Set<string>(spec.options)])),
   "init:": new Set(["config", "driver", "path", "reconfigure", "baseline-policy", "non-interactive", "confirm-initialize", "host", "port", "database", "username", "tls", "tls-mode", "ca-file", "password-source"]),
   "doctor:": new Set(["skills-path"]),
-  "review:": new Set(["config", "candidate", "at", "side", "include-diff", "markdown", "summary"]),
   "install:skill": new Set(["link"]),
   "config:set-development-mode": new Set(["config", "development-mode"]),
   "config:show": new Set(["config"]), "config:path": new Set(["config"]), "config:validate": new Set(["config"]),
@@ -221,16 +218,13 @@ const optionDocs: Record<string, string> = {
   "help": "Show help for the command (or global help)",
   "host": "MySQL/PostgreSQL host",
   "include-patch": "Include a Candidate's patch in a comparison",
-  "include-diff": "Include the Candidate's unified diff when it is bounded text",
   "include-verification": "Include a Verification ID in a refinement context",
   "issue": "Issue ID",
-  "at": "Review: PATH[:LINE]",
   "issues-cursor": "Opaque page cursor for issue listing",
   "json": "Emit a machine-readable patchledger.cli/v1 envelope",
-  "summary": "Review facts without report bodies; candidate compare: ledger-only summary without local Git",
+  "summary": "Candidate compare: ledger-only summary without local Git",
   "paged": "Read a Candidate-bound Verification directory page",
   "cursor": "Continue a fixed Verification directory (--paged), or a cursor-paged resource list: pass the previous page's next_cursor with the same filters",
-  "markdown": "Render a portable read-only review summary for a Markdown file or PR body",
   "limit": "Maximum results. On list commands it selects paged mode: 1-1000 items per page (default 100 when only --cursor is given). Order: Issue by ID ascending (or latest activity first with --sort activity); DevRun/Requirement/Repository by ID ascending; Candidate/Verification by created_at then ID ascending",
   "link": "Create links to the canonical ~/.agents/skills install instead of copying a second managed copy",
   "manifest-cursor": "Opaque page cursor for a Candidate file manifest",
@@ -264,7 +258,6 @@ const optionDocs: Record<string, string> = {
   "skills-path": "Managed skills root to inspect (default ~/.agents/skills)",
   "subject-id": "Ledger filter by subject ID",
   "subject-type": "Ledger filter by subject type",
-  "side": "Path side to match for a rename: old or new (default new)",
   "tls": "MySQL/PostgreSQL TLS mode",
   "tls-mode": "MySQL/PostgreSQL TLS mode",
   "username": "MySQL/PostgreSQL username",
@@ -283,7 +276,6 @@ const commandDocs: Record<string, string> = {
   ...Object.fromEntries(Object.entries(repositoryArchiveCommands).map(([action, spec]) => [`repository:${action}`, spec.description])),
   "init:": "Initialize a Grounds ledger and write its config file",
   "doctor:": "Check PATH CLI, registry release, and managed skill versions",
-  "review:": "Explain a Candidate from code location back to its historical contract, claims, and verification",
   "install:skill": "Install the bundled Grounds skills into a directory (default ~/.agents/skills)",
   "config:set-development-mode": "Save the default for new DevRuns with --development-mode simple|container",
   "config:show": "Show the resolved configuration",
@@ -374,7 +366,6 @@ const positionalBounds: Record<string, [number, number]> = {
   ...Object.fromEntries(Object.keys(repositoryArchiveCommands).map(action => [`repository:${action}`, [2, 2] as [number, number]])),
   "init:": [1, 1],
   "doctor:": [1, 1],
-  "review:": [1, 2],
   "install:skill": [2, 3],
   "config:set-development-mode": [2, 2],
   "config:show": [2, 2], "config:path": [2, 2], "config:validate": [2, 2],
@@ -442,7 +433,7 @@ const validateHelpArguments = (args: ParsedArgs): void => {
   if (args.positionals[0] === "help") {
     if (args.positionals.length > 2) throw validation("command", "help expects at most one topic");
     const topic = args.positionals[1];
-    if (topic && !Object.hasOwn(actionSets, topic) && !["init", "doctor", "review", "config", "task", "work", "grade", "env"].includes(topic))
+    if (topic && !Object.hasOwn(actionSets, topic) && !["init", "doctor", "config", "task", "work", "grade", "env"].includes(topic))
       throw validation("command", `command is not implemented: ${topic}`);
   }
 };
@@ -456,7 +447,7 @@ const commandHelp = (group: string, action: string): { command: string; descript
   const docs = commandDocs[key] ?? commandDocs[fallbackKey] ?? "";
   const configured = commandOptionKeys[key] ?? commandOptionKeys[fallbackKey] ?? new Set<string>();
   const options = [...new Set(configured).add("cwd")].sort().map((name) => ({ name, description: optionDocs[name] ?? "" }));
-  const command = group === "review" && !action ? "review [candidate-id]" : `${group}${action ? ` ${action}` : ""}`;
+  const command = `${group}${action ? ` ${action}` : ""}`;
   return { command, description: docs, actions: action ? [] : (actionSets[group] ?? []), options };
 };
 
@@ -527,22 +518,6 @@ const resourceID = (args: ParsedArgs, optionKey: string, field: string): string 
   const result = hasPositional ? args.positionals[2] : hasOptionValue ? value(args, optionKey) : "";
   if (!result) throw validation(field, "is required");
   return result;
-};
-const reviewLocation = (args: ParsedArgs): ReviewLocationRequest | undefined => {
-  const raw = value(args, "at");
-  if (!raw) {
-    if (hasOption(args, "at")) throw validation("at", "must not be empty");
-    if (hasOption(args, "side")) throw validation("side", "requires --at");
-    return undefined;
-  }
-  if ([...raw].length > 4112 || raw.includes("\0")) throw validation("at", "must contain a path of at most 4096 characters");
-  const side = value(args, "side", "new");
-  if (side !== "old" && side !== "new") throw validation("side", "must be old or new");
-  const match = raw.match(/^(.*):([1-9][0-9]*)$/);
-  const path = match ? match[1] : raw;
-  const line = match ? parseInteger(match[2], "at.line", 1) : undefined;
-  if (!path || [...path].length > 4096) throw validation("at", "must contain a non-empty path of at most 4096 characters");
-  return { path, side, ...(line === undefined ? {} : { line }) };
 };
 const parseInteger = (raw: string, field: string, minimum?: number): number => {
   if (!/^[+-]?\d+$/.test(raw)) throw validation(field, "must be an integer");
@@ -886,15 +861,15 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
       const helpAction = args.positionals[1] ?? "";
       const specialActions: Record<string, string[]> = { config: ["show", "path", "validate", "set-development-mode"] };
       const actions = actionSets[helpGroup] ?? specialActions[helpGroup];
-      const actionless = helpGroup === "init" || helpGroup === "doctor" || helpGroup === "review";
+      const actionless = helpGroup === "init" || helpGroup === "doctor";
       if ((!actions && !actionless) || (helpAction && !(actions ?? []).includes(helpAction)) || (actionless && helpAction)) {
         throw validation("command", `command is not implemented: ${helpGroup}${helpAction ? ` ${helpAction}` : ""}`);
       }
       return { result_type: "patchledger.result.help/v1", command: "help", usage: formatCommandHelp(commandHelp(helpGroup, helpAction)) };
     }
-    return { result_type: "patchledger.result.help/v1", command: "help", usage: "grounds doctor | task | work | grade | install skill [path] | init | review [candidate-id] | requirement | repository | issue | devrun | preflight | candidate | verification | ledger | env | db | config" };
+    return { result_type: "patchledger.result.help/v1", command: "help", usage: "grounds doctor | task | work | grade | install skill [path] | init | requirement | repository | issue | devrun | preflight | candidate | verification | ledger | env | db | config" };
   }
-  if (!group) throw validation("command", "expected install, init, review, config, db, repository, requirement, issue, devrun, candidate, verification, or ledger");
+  if (!group) throw validation("command", "expected install, init, config, db, repository, requirement, issue, devrun, candidate, verification, or ledger");
   if (group === "doctor") {
     validateCommandArguments(args, group, action);
     if (action) throw validation("command", "doctor does not take an action");
@@ -922,18 +897,15 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
     const target = requestedPath === undefined ? defaultSkillsDirectory() : resolve(cwd, requestedPath);
     return installGroundsSkills(target, bundledPluginRoot(), bool(args, "link"));
   }
-  const isReview = group === "review";
-  if (!isReview && !(group in actionSets)) throw validation("command", `command is not implemented: ${group}`);
-  if (!isReview && (!action || !actionSets[group].includes(action))) throw validation(group, `expected ${actionSets[group].join(", ")}`);
-  validateCommandArguments(args, group, isReview ? "" : action);
+  if (!Object.hasOwn(actionSets, group)) throw validation("command", `command is not implemented: ${group}`);
+  if (!action || !actionSets[group].includes(action)) throw validation(group, `expected ${actionSets[group].join(", ")}`);
+  validateCommandArguments(args, group, action);
   if (group === "preflight" && action === "observe" && !["definition", "start"].includes(required(args, "phase"))) {
     throw validation("phase", "must be definition or start");
   }
-  if (isReview && bool(args, "markdown") && bool(args, "summary")) throw validation("summary", "cannot be combined with --markdown");
   // `--cursor` continues a Candidate-bound Verification page with --paged; the
   // resource lists accept it (with or without --limit) for cursor-paged mode.
   if (hasOption(args, "cursor") && !bool(args, "paged") && !pagedListCommands.has(`${group}:${action}`)) throw validation("cursor", "requires --paged");
-  if (isReview && bool(args, "markdown") && jsonOutputRequested(args)) throw validation("markdown", "cannot be combined with --json");
   // An explicitly supplied config path is never equivalent to the platform
   // default.  Treat `--config=` as a usage error before touching the file
   // system so a typo cannot silently operate on another ledger.
@@ -981,33 +953,9 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
   const preflightCoordinator = preflightService().coordinator({ refresh: bool(args, "refresh"), ...(hasOption(args, "preflight") ? { assessment_id: required(args, "preflight") } : {}) });
   const module = new Module(opened.store, newUUIDv7, async (left, right) => diffTrees(cwd, left, right), (snapshot, base) => snapshotRelation(cwd, snapshot, base), preflightCoordinator);
   const actor = (): Attribution => attribution(args, cwd);
-  let preparedMarkdown: PreparedReviewMarkdown | undefined;
   try {
     return await (async () => {
     if (group === "repository" && Object.hasOwn(repositoryArchiveCommands, action)) return executeRepositoryArchive({ action: action as keyof typeof repositoryArchiveCommands, args, store: opened.store, attribution: actor, operationID: () => operationID(args, io) });
-    if (group === "review") {
-      const positionalCandidate = args.positionals[1];
-      if (positionalCandidate !== undefined && hasOption(args, "candidate")) throw validation("candidate", "use either positional candidate or --candidate, not both");
-      const marker = positionalCandidate === undefined && !hasOption(args, "candidate") ? readReviewWorktreeMarker(cwd) : undefined;
-      const candidateID = positionalCandidate ?? (hasOption(args, "candidate") ? value(args, "candidate") : marker?.candidate_id);
-      if (!candidateID) throw validation("candidate", "is required outside a Grounds review worktree");
-      if (marker && marker.database_id !== opened.config.database.expected_database_id) throw new DomainError("DATABASE_ID_MISMATCH", "review worktree belongs to a different database", false, { reason: "review marker database_id does not match config expected_database_id" });
-      const location = reviewLocation(args);
-      const options = { include_patch: bool(args, "include-diff"), ...(location ? { location } : {}) };
-      const checkMarker = (trace: ReviewTraceResult | ReviewSummaryResult): void => {
-      if (marker) {
-        const facts = trace.trace;
-        if (marker.candidate_id !== facts.candidate.candidate_id || marker.repository_id !== facts.repository.id || marker.baseline_oid !== facts.baseline.git_oid || marker.result_tree_oid !== facts.artifact.result_tree_oid || marker.patch_digest !== facts.artifact.patch_digest) {
-          throw new DomainError("ARTIFACT_INTEGRITY_ERROR", "review worktree metadata does not match the immutable Candidate", false, { resource_id: candidateID, reason: "review marker facts differ from the ledger" });
-        }
-        if (location) assertReviewWorktreeCandidateArtifact(cwd, marker);
-      }
-      };
-      if (bool(args, "markdown")) { preparedMarkdown = await prepareReviewMarkdown(module, candidateID, options, checkMarker); return preparedMarkdown; }
-      const trace = bool(args, "summary") ? await module.reviewSummary(candidateID, options) : await module.reviewCandidate(candidateID, options);
-      checkMarker(trace);
-      return trace;
-    }
     if (group === "devrun" && action === "admit") {
       const runID = resourceID(args, "dev-run", "dev_run");
       const { record, data } = await preflightService().admit({
@@ -1588,15 +1536,12 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
     throw validation("command", `unknown command: ${group} ${action}`);
     })();
   } finally {
-    try { await opened.store.close(); }
-    catch (error) { preparedMarkdown?.dispose(); throw error; }
+    await opened.store.close();
   }
 };
 
-const human = (valueToPrint: unknown, markdown = false): string => {
+const human = (valueToPrint: unknown): string => {
   if (typeof valueToPrint === "string") return valueToPrint;
-  if (valueToPrint && typeof valueToPrint === "object" && (valueToPrint as { result_type?: unknown }).result_type === "patchledger.result.review-trace/v3") return markdown ? renderReviewMarkdown(valueToPrint as ReviewTraceResult) : renderReviewTrace(valueToPrint as ReviewTraceResult);
-  if (valueToPrint && typeof valueToPrint === "object" && (valueToPrint as { result_type?: string }).result_type === "patchledger.result.review-summary/v1") return renderReviewSummary(valueToPrint as ReviewSummaryResult);
   return JSON.stringify(valueToPrint, null, 2);
 };
 /** Offline contract or quality report, told apart by its format string, with what handoff and digest commands need from either. */
@@ -1668,7 +1613,6 @@ export const runCLI = async (argv: string[], io: CLIIO = {}): Promise<number> =>
       throw validation("operation_id", "must be a lowercase UUIDv7");
     }
     const data = await execute(effectiveArgv, io);
-    if (data instanceof PreparedReviewMarkdown) { await data.print(async line => { if (io.stdout) io.stdout(line); else if (!process.stdout.write(line + "\n")) await new Promise<void>(resolve => process.stdout.once("drain", resolve)); }); return 0; }
     const warnings = data && typeof data === "object" && "warnings" in data && Array.isArray((data as { warnings?: unknown }).warnings) ? (data as { warnings: Warning[] }).warnings : [];
     const cleanData = data && typeof data === "object" && !Array.isArray(data) && "warnings" in data
       ? Object.fromEntries(Object.entries(data as Record<string, unknown>).filter(([key]) => key !== "warnings"))
@@ -1683,7 +1627,7 @@ export const runCLI = async (argv: string[], io: CLIIO = {}): Promise<number> =>
     if (jsonMode) stdout(io, JSON.stringify(envelope));
     else {
       if (op) stdout(io, `operation_id: ${op}`);
-      stdout(io, human(cleanData, bool(args, "markdown")));
+      stdout(io, human(cleanData));
     }
     return 0;
   } catch (error) {

@@ -27,11 +27,10 @@ CandidateSubmission v1/v2 的 Criterion Claim 支持可选 `self_verification`�
 | 版本化环境声明 | [`environment-definition.schema.json`](environment-definition.schema.json) | `.grounds/environments/<name>.yaml`；仅非敏感声明 |
 | 本机环境结果（不写业务账本） | [`environment.schema.json`](environment.schema.json) | `grounds env` 成功 `data`；实例与执行记录只在本机运行时目录 |
 | 详情/查询结果 | [`query-results.schema.json`](query-results.schema.json) | show/compare/ledger `data` |
-| 审阅追溯 | [`query-results.schema.json`](query-results.schema.json) `reviewTrace` | CLI → 人/审阅 Agent |
 | 稳定错误 | [`error.schema.json`](error.schema.json), [`errors.md`](errors.md) | CLI 失败 `error` |
 | 历史/固定起点盲验对象 | [`blind-subject.schema.json`](blind-subject.schema.json) | CLI 内部稳定 v1 哈希投影 |
 | 目标 Candidate 盲验对象 | [`blind-subject-v2.schema.json`](blind-subject-v2.schema.json) | 同时绑定契约快照、目标声明与自身基础 |
-| DevRun 可恢复同步 | [`devrun-sync.schema.json`](devrun-sync.schema.json) | CLI 同步状态/记录与 Review 投影 |
+| DevRun 可恢复同步 | [`devrun-sync.schema.json`](devrun-sync.schema.json) | CLI 同步状态/记录 |
 | 历史交付门禁与落地记录 | [`integration.schema.json`](integration.schema.json) | Candidate 查询 → 历史记录 |
 | 目标新鲜度与契约适用性预检 | [`preflight.schema.json`](preflight.schema.json) | `preflight observe/assess/show`、`devrun.admit`、`devrun.show`/`issue.show` 的预检读模型 |
 
@@ -74,7 +73,7 @@ Requirement normalized input 中作者定义的 Outcomes 和 Decisions，以及 
 - VerificationReport 的 target/Criterion 集满足同一规则；
 - target type 与 ID 的真实所有者一致；
 - ultra 验收（`verification submit --mode ultra`）的 QualityReviewReport 必须恰好覆盖 `rubric_version` 的全部维度各一次；某阶段存在 blocking 发现时该阶段该维度结论必须为 `rejected`，没有 blocking 发现时不得为 `rejected`；blocking 发现必须有 `location`，且 `location.path` 须属于 Candidate 的改动文件（由提交时校验，Schema 只约束形状）；
-- ultra 的契约部分与质量部分必须绑定同一 Candidate、result tree 和 blind context digest，开发者、契约验证者、质量评审者的 Agent ID 两两不同，两部分一起写入或都不写入；整体 verdict 取两部分中更保守者；`verification list/show`、Review 与 refinement Context 的 `mode` 为 `normal`（无质量部分，包括所有历史报告）或 `ultra`。Verification 集合 digest 的条目键不因此改变；
+- ultra 的契约部分与质量部分必须绑定同一 Candidate、result tree 和 blind context digest，开发者、契约验证者、质量评审者的 Agent ID 两两不同，两部分一起写入或都不写入；整体 verdict 取两部分中更保守者；`verification list/show` 与 refinement Context 的 `mode` 为 `normal`（无质量部分，包括所有历史报告）或 `ultra`。Verification 集合 digest 的条目键不因此改变；
 - refinement 中每个冻结 Verification 属于父 Candidate，且 ID 不重复。
 - DevRunContext、Verification blind Context、blind-subject 投影和 Issue detail 中的 `issue.requirement` 必须等于同一结构内 Requirement 的稳定 `id` 与公开 `version`；
 - Issue 创建/修订绑定的 RequirementRevision 必须属于该 Issue 不可变的 Requirement。
@@ -102,9 +101,8 @@ OID（Object ID）是 Git 对象标识，Grounds 使用 `sha1:` 加 40 位或 `s
 - blind 与 reconcile VerificationContext 各自序列化后最大 8 MiB。Candidate submit 在提交事务前用固定 RequirementRevision、IssueRevision、Candidate-time canonical remote、artifact manifest/display snapshots 和 CandidateSubmission 预生成两种投影并执行大小门禁；无法保证之后生成 Context 时，以 `ARTIFACT_TOO_LARGE` 拒绝 Candidate，而不是接受一个不能验证的产物。Candidate patch bytes 不内联 Context，仍使用独立的 32 MiB artifact 门禁。
 - Requirement detail 整个 JSON 最大 8 MiB，每页最多内联 1,000 个当前 IssueRevision 摘要；全量 aggregate 不按页截断。未返回全部 Issue 时必须给出 `issues_omitted` 和 opaque next cursor，完整 Goal/Constraint 转由 Issue detail 返回。
 - Candidate detail 和 Candidate comparison 输出各自最大 8 MiB。detail/compare 最多内联 2,000 个 manifest entries 和 256 个 Verification summaries，同时返回总数、完整集合 digest 与显式 `*_omitted`；Candidate detail 提供 opaque next cursor 分页，Comparison 可转到专用 show/list 命令，不静默假装集合完整。
-- Review Trace v3 输出最大 8 MiB，内部遍历全部 Verification 分页并内联每份完整报告；`complete: true` 表示集合完整。超过总大小限制时命令整体失败，不返回看似完整的截断结果。位置查询对 v2 Candidate 返回匹配 Change Unit、作者 Rationale 和 coverage；行查询另以 `line_status` 区分真正 added/deleted 的行、hunk context、hunk 外位置和 file-level 无法定位。历史 v1 Candidate 仍以 `not_recorded` 明示尚无逐变更 rationale。
 - Comparison text preview 是原字符串前 2,048 Unicode code points，并同时返回完整 UTF-8 string digest 与 `truncated`；manifest 先按 raw path bytes 排序后取前 2,000，Verification summary 按数据库时间、Verification ID 排序后取前 256。Candidate patch 和显式 pairwise diff 每份最多 inline 1 MiB，状态字段区分未请求、大小省略和 binary。
-- `candidate materialize --mode existing` 校验已有工作树的 HEAD、结果树及干净状态是否与冻结的 Candidate 一致。`--mode review` 创建 detached 工作树，记录 Candidate 身份供 `grounds review` 读取。省略 `--path` 时 CLI 分配本地审阅会话。
+- `candidate materialize --mode existing` 校验已有工作树的 HEAD、结果树及干净状态是否与冻结的 Candidate 一致。`--mode review` 创建 detached 工作树，记录 Candidate 身份。省略 `--path` 时 CLI 分配本地审阅会话。
 
 这些跨字段限制由 Work Module 校验，不能仅依赖 Schema。
 
@@ -120,7 +118,7 @@ OID（Object ID）是 Git 对象标识，Grounds 使用 `sha1:` 加 40 位或 `s
 
 ## 目标、同步与交付协议
 
-Issue 的可选 `target_branch:{remote,ref}` 随版本封存，remote 最多 256 字符，ref 必须是完整 `refs/heads/...`；发布另核对 Git remote 身份和 fetch 映射。DevRun/Verification Context 保留 `baseline`，目标流程另带 `base_commit` 与派生 `snapshot_relation`。关系为 ahead/diverged/unrelated/unknown；未知不等于相同，关系不证明验收前提仍适用。跨基础 Review/compare 的 `upstream_changes` 区分基础间变化与作者变更，历史不可得标为 unavailable。
+Issue 的可选 `target_branch:{remote,ref}` 随版本封存，remote 最多 256 字符，ref 必须是完整 `refs/heads/...`；发布另核对 Git remote 身份和 fetch 映射。DevRun/Verification Context 保留 `baseline`，目标流程另带 `base_commit` 与派生 `snapshot_relation`。关系为 ahead/diverged/unrelated/unknown；未知不等于相同，关系不证明验收前提仍适用。跨基础 compare 的 `upstream_changes` 区分基础间变化与作者变更，历史不可得标为 unavailable。
 
 同步结果使用 `patchledger.result.devrun-sync/v1`；status 固定当前基础、目标观察、relation 与全部同步记录。同步记录的 phase 为 reserved/prepared/applying/resolving/completing/abandoning/completed/abandoned；开始使用 DevRun 版本，complete/abandon 使用同步记录版本。恢复固定原 host/directory，保留原始 index/文件、冲突 decisions 与后续编辑，未完成同步阻止捕获/清理。数据形状不证明文件已成功恢复；reconcile/show 与原机器材料仍须核对。
 
@@ -143,15 +141,13 @@ IdempotencyRecord 保存首次完成命令的整个 `patchledger.cli/v1` success
 
 Schema 只能验证结构。Candidate Claim 是否真实、Verifier 是否真正保持 blind，以及 Attribution 是否可信，都不由这些文件证明。
 
-<a id="review-summary-and-verification-pages"></a>
+<a id="verification-pages"></a>
 
-## Review 摘要与 Verification 分页
+## Verification 分页
 
-`review --summary --json` 返回 `patchledger.result.review-summary/v1`，内含 `patchledger.review-summary/v1` trace。历史 Candidate 事实和作者材料语义不变；`verification_set` 只含 count、digest、standing、verdict_counts、`reports_included: false`，不含正文或 v3 的 `complete: true`。
 
-`verification list --candidate ID --paged --json` 返回 `patchledger.result.verification-page/v1`。用 `--cursor` 继续，每页最多 256 条；不透明游标绑定 Candidate、集合 digest 和排序键。所有页与摘要必须属于同一集合。变化返回可重试 `VERIFICATION_SET_CHANGED`（exit 4），从摘要和首页重新读。`verification show ID --json` 仍是单报告接口，摘要与单报告仍受 8 MiB 限制。
+`verification list --candidate ID --paged --json` 返回 `patchledger.result.verification-page/v1`。用 `--cursor` 继续，每页最多 256 条；不透明游标绑定 Candidate、集合 digest 和排序键。所有页必须属于同一集合。变化返回可重试 `VERIFICATION_SET_CHANGED`（exit 4），从首页重新读。`verification show ID --json` 仍是单报告接口，分页与单报告仍受 8 MiB 限制。
 
-完整 Review v3、默认文本、不分页列表和 Candidate 详情契约不变。`--summary` 与 `--markdown` 冲突；Candidate 专属目录的 `--cursor` 需 `--paged`，后者需 `--candidate`；下文资源列表可单独使用 `--cursor`。Markdown 先暂存固定目录和逐份渲染报告，再输出 stdout，不再要求整体 v3 JSON。完成导出标识固定集合，不表示永远最新。
 
 <a id="cursor-paged-resource-lists"></a>
 

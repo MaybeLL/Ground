@@ -12,7 +12,6 @@ import { Module } from "../src/module.js";
 import { newUUIDv7 } from "../src/identity.js";
 import { LedgerFixture, testAgent, testBaseline, testVerifier } from "./fixture.js";
 import { assertContract } from "./schema-fixture.js";
-import { renderReviewTrace, renderReviewMarkdown } from "../src/review.js";
 import { createVerificationHandoff, verifyVerificationHandoff } from "../src/verification-handoff.js";
 import { blindContextDigestFor } from "../src/projections.js";
 
@@ -53,7 +52,7 @@ test("Decision authoring supports optional details and rejects invalid nested va
 });
 
 const mysqlEnabled = ["HOST", "DATABASE", "USERNAME", "PASSWORD"].every((key) => Boolean(process.env[`GROUNDS_TEST_MYSQL_${key}`]));
-for (const backend of backends) test(`${backend}: Decision survives publication, historical contexts, review and verification`, { skip: backendSkip(backend) }, async () => {
+for (const backend of backends) test(`${backend}: Decision survives publication, historical contexts and verification`, { skip: backendSkip(backend) }, async () => {
   const fixture = await openLedger(backend);
   try {
     const command = { operation_id: newUUIDv7(), attribution: testAgent, input: input() };
@@ -72,16 +71,6 @@ for (const backend of backends) test(`${backend}: Decision survives publication,
     assertContract("verification-context.schema.json", before.context);
     await fixture.module.reviseRequirement({ operation_id: newUUIDv7(), attribution: testAgent, requirement_id: rid, expected_predecessor_id: version, input: input({ statement: "Use REST" }) });
     assert.deepEqual((await fixture.module.verificationContext(candidate.candidate.candidate_id, "blind")), before);
-    const trace = await fixture.module.reviewCandidate(candidate.candidate.candidate_id);
-    assertContract("query-results.schema.json", trace);
-    for (const output of [renderReviewTrace(trace), renderReviewMarkdown(trace)]) {
-      assert.match(output, /Maintain compatibility rules/); assert.match(output, /Reduce interface drift/); assert.match(output, /grpc.*chosen/);
-    }
-    // A plan-bearing Issue Version reaches BOTH review exports, under the same
-    // non-normative notice the HTML page shows. The trace here carries no plan,
-    // so the notice must be absent — proving the section is driven by input.
-    assert.doesNotMatch(renderReviewMarkdown(trace), /方案说明/);
-    assert.doesNotMatch(renderReviewTrace(trace), /方案说明/);
     const source = await fixture.store.read(async (tx) => ({
       candidate_id: candidate.candidate.candidate_id, repository_id: fixture.repository.repository_id,
       canonical_remote_at_submission: fixture.repository.canonical_remote,
@@ -160,31 +149,4 @@ test("MySQL schema 11 migration preserves Decisions and is repeatable", { skip: 
     assert.deepEqual((await module.showRequirement(created.result.requirement_id)).requirement.decisions, [structuredDecision]);
     assert.equal((await store.inspectIntegrity()).report.valid, true);
   } finally { await store?.close(); await connection.query(`DROP DATABASE IF EXISTS \`${name}\``); await connection.end(); }
-});
-
-test("a plan-bearing Issue Version reaches both review exports under the non-normative notice", async () => {
-  const fixture = await LedgerFixture.create();
-  try {
-    const PLAN = "PLANMARK 方案：先加列，再拆定义。";
-    const created = await fixture.module.createIssue({
-      operation_id: newUUIDv7(), attribution: testAgent,
-      requirement_id: fixture.requirement.requirement_id,
-      requirement_revision_id: fixture.requirement.requirement_revision_id,
-      requirement_revision_explicit: true,
-      repository_id: fixture.repository.repository_id,
-      baseline: testBaseline,
-      input: { format: 1, summary: "Implement", plan: PLAN, goals: [{ statement: "Deliver", criteria: ["Observable"], traces_to: [{ type: "outcome", ordinal: 1 }] }] },
-    });
-    const candidate = await fixture.submitCandidate("plan", undefined, [], false, undefined, created.result);
-    // Both renderers take the whole review result (they read `result.trace`
-    // internally), matching the existing call above.
-    const review = await fixture.module.reviewCandidate(candidate.candidate.candidate_id);
-    assert.equal((review.trace.contract.issue as { plan?: string }).plan, PLAN);
-    for (const output of [renderReviewTrace(review), renderReviewMarkdown(review)]) {
-      assert.match(output, /PLANMARK/, "plan text must appear in the export");
-      assert.match(output, /方案说明（非约束）/, "the non-normative label must appear");
-    }
-  } finally {
-    await fixture.close();
-  }
 });

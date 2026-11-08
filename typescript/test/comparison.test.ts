@@ -162,7 +162,7 @@ test("comparison validates reports beyond its summary page and sees later change
     assert.equal((value.claims[0] as { criteria: { verification_standing: string }[] }).criteria[0].verification_standing, "disputed");
     assert.notEqual(value.verification_digest, beforeValue.verification_digest);
     assert.equal(reads.size, 257); assert.ok([...reads.values()].every(count => count === 1));
-    assert.equal(value.verification_digest, (await fixture.module.reviewSummary(ids[0])).trace.verification_set.digest);
+    assert.equal(value.verification_digest, (await fixture.module.verificationPage(ids[0])).verification_set.digest);
     const raw = new DatabaseSync(path);
     try { raw.prepare("UPDATE verification_assessments SET target_id = ? WHERE verification_id = ?").run(newUUIDv7(), last.verification_id); }
     finally { raw.close(); }

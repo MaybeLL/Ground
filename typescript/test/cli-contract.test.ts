@@ -1,9 +1,7 @@
 import { gitCLICandidate } from "./git-cli-ledger-fixture.js";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { test } from "node:test";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, realpathSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { commandNeedsOperationID, execute, exitCode, parseArgs, runCLI } from "../src/cli.js";
@@ -251,7 +249,7 @@ test("a coordinator can submit a signed verifier handoff without impersonating t
   }
 });
 
-test("review CLI emits a contract-shaped trace and a provenance-oriented human view", async t => {
+test("paged verification list returns the set summary without reports", async t => {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), "grounds-review-cli-")));
   let fixture: LedgerFixture | undefined;
   try {
@@ -261,81 +259,9 @@ test("review CLI emits a contract-shaped trace and a provenance-oriented human v
     fixture = await LedgerFixture.createWithStore(SQLStore.sqlite(database));
     const candidate = await gitCLICandidate(t, directory, config, fixture);
     await fixture.verify(candidate);
-    for (const args of [
-      ["review", candidate.candidate.candidate_id, "--summary", "--include-diff", "--at", "file-one"],
-      ["verification", "list", "--candidate", candidate.candidate.candidate_id, "--paged"],
-    ]) {
-      const response: string[] = [];
-      assert.equal(await runCLI([...args, "--config", config, "--cwd", candidate.repository, "--json"], { stdout: line => response.push(line), stderr: () => {} }), 0);
-      const data = JSON.parse(response[0]).data;
-      assertContract("query-results.schema.json", data);
-      assert.equal((data.trace?.verification_set ?? data.verification_set).reports_included, false);
-    }
-    const databaseDigestBeforeReview = createHash("sha256").update(readFileSync(database)).digest("hex");
-    const directoryEntriesBeforeReview = readdirSync(directory).sort();
-
-    const jsonOutput: string[] = [];
-    assert.equal(await runCLI(["review", candidate.candidate.candidate_id, "--at", "file-one:12", "--include-diff", "--config", config, "--cwd", candidate.repository, "--json"], { stdout: (line) => jsonOutput.push(line), stderr: () => undefined }), 0);
-    const envelope = JSON.parse(jsonOutput[0]) as { data: { result_type: string; trace: { location?: { line?: number }; verification_set: { complete: boolean } } } };
-    assertContract("cli-envelope.schema.json", envelope);
-    assertContract("query-results.schema.json", envelope.data);
-    assert.equal(envelope.data.trace.location?.line, 12);
-    assert.equal(envelope.data.trace.verification_set.complete, true);
-
-    const humanOutput: string[] = [];
-    assert.equal(await runCLI(["review", "--candidate", candidate.candidate.candidate_id, "--config", config, "--cwd", candidate.repository], { stdout: (line) => humanOutput.push(line), stderr: () => undefined }), 0);
-    assert.match(humanOutput.join("\n"), /Historical contract \[ledger fact\]/);
-    assert.match(humanOutput.join("\n"), /Coverage: 0\/1 Change Units explained \(not_recorded\)/);
-
-    const markdownOutput: string[] = [];
-    assert.equal(await runCLI(["review", candidate.candidate.candidate_id, "--markdown", "--config", config, "--cwd", candidate.repository], { stdout: (line) => markdownOutput.push(line), stderr: () => undefined }), 0);
-    const markdown = markdownOutput.join("\n");
-    assert.match(markdown, /^# Grounds Review — Implement the change/);
-    assert.match(markdown, /## Review at a glance/);
-    assert.match(markdown, /## Changes and why/);
-    assert.match(markdown, /<summary>Full historical contract<\/summary>/);
-    assert.match(markdown, /<summary>Complete independent verification<\/summary>/);
-    assert.match(markdown, /Complete set: \*\*1\*\*/);
-    assert.doesNotMatch(markdown, /"format":"patchledger\.cli\/v1"/);
-
-    const markdownWithDiffOutput: string[] = [];
-    assert.equal(await runCLI(["review", candidate.candidate.candidate_id, "--markdown", "--include-diff", "--config", config, "--cwd", candidate.repository], { stdout: (line) => markdownWithDiffOutput.push(line), stderr: () => undefined }), 0);
-    assert.match(markdownWithDiffOutput.join("\n"), /<summary>Unified diff<\/summary>[\s\S]*```diff/);
-    assert.equal(createHash("sha256").update(readFileSync(database)).digest("hex"), databaseDigestBeforeReview);
-    assert.deepEqual(readdirSync(directory).sort(), directoryEntriesBeforeReview);
-    assert.equal(commandNeedsOperationID(parseArgs(["review", candidate.candidate.candidate_id, "--markdown"])), false);
-
-    const conflictOutput: string[] = [];
-    assert.equal(await runCLI(["review", candidate.candidate.candidate_id, "--markdown", "--json"], { stdout: (line) => conflictOutput.push(line), stderr: () => undefined }), 2);
-    assert.equal((JSON.parse(conflictOutput[0]) as { error: { details: { field: string } } }).error.details.field, "markdown");
-
-    const reviewWorktree = join(directory, "review-worktree");
-    execFileSync("git", ["-C", candidate.repository, "worktree", "add", "--detach", reviewWorktree, candidate.candidate.source!.commit.split(":")[1]!], { stdio: "pipe" });
-    const reviewMarker = execFileSync("git", ["-C", reviewWorktree, "rev-parse", "--git-path", "grounds-review.json"], { encoding: "utf8" }).trim();
-    writeFileSync(reviewMarker, JSON.stringify({
-      format: "patchledger.review-worktree/v1",
-      database_id: loadConfig(config).database.expected_database_id,
-      candidate_id: candidate.candidate.candidate_id,
-      repository_id: fixture.repository.repository_id,
-      baseline_oid: candidate.run.context.baseline.git_oid,
-      result_tree_oid: candidate.artifact.result_tree_oid,
-      patch_digest: candidate.artifact.patch_digest,
-    }));
-    const databaseDigestBeforeDiscovery = createHash("sha256").update(readFileSync(database)).digest("hex");
-    const summaryOutput: string[] = [];
-    assert.equal(await runCLI(["review", "--summary", "--cwd", reviewWorktree, "--config", config, "--json"], { stdout: line => summaryOutput.push(line), stderr: () => {} }), 0);
-    assert.equal(JSON.parse(summaryOutput[0]).data.trace.candidate.candidate_id, candidate.candidate.candidate_id);
-    const markerDigestBeforeDiscovery = createHash("sha256").update(readFileSync(reviewMarker)).digest("hex");
-    const worktreeEntriesBeforeDiscovery = readdirSync(reviewWorktree).sort();
-    const discoveredOutput: string[] = [];
-    assert.equal(await runCLI(["review", "--cwd", reviewWorktree, "--config", config, "--json"], { stdout: (line) => discoveredOutput.push(line), stderr: () => undefined }), 0);
-    assert.equal((JSON.parse(discoveredOutput[0]) as { data: { trace: { candidate: { candidate_id: string } } } }).data.trace.candidate.candidate_id, candidate.candidate.candidate_id);
-    const discoveredMarkdownOutput: string[] = [];
-    assert.equal(await runCLI(["review", "--cwd", reviewWorktree, "--config", config, "--markdown"], { stdout: (line) => discoveredMarkdownOutput.push(line), stderr: () => undefined }), 0);
-    assert.equal(discoveredMarkdownOutput.join("\n"), markdown);
-    assert.equal(createHash("sha256").update(readFileSync(database)).digest("hex"), databaseDigestBeforeDiscovery);
-    assert.equal(createHash("sha256").update(readFileSync(reviewMarker)).digest("hex"), markerDigestBeforeDiscovery);
-    assert.deepEqual(readdirSync(reviewWorktree).sort(), worktreeEntriesBeforeDiscovery);
+    const result = await execute(["verification", "list", "--candidate", candidate.candidate.candidate_id, "--paged", "--config", config, "--cwd", candidate.repository]);
+    assertContract("query-results.schema.json", result);
+    assert.equal(result.verification_set.reports_included, false);
   } finally {
     if (fixture) await fixture.close();
     rmSync(directory, { recursive: true, force: true });
@@ -369,16 +295,11 @@ test("command-family help lists actions and link mode explains its behavior", as
   assert.match(install.data.usage, /--link/);
   assert.match(install.data.usage, /canonical/);
 
-  const reviewOutput: string[] = [];
-  assert.equal(await runCLI(["review", "--help", "--json"], { stdout: (line) => reviewOutput.push(line), stderr: () => undefined }), 0);
-  const reviewUsage = (JSON.parse(reviewOutput[0]) as { data: { usage: string } }).data.usage;
-  assert.match(reviewUsage, /^grounds review \[candidate-id\]/);
-  assert.match(reviewUsage, /--markdown/);
-  assert.doesNotMatch(reviewUsage, /review ask/);
-
-  const removedAskOutput: string[] = [];
-  assert.equal(await runCLI(["review", "ask", "why?", "--json"], { stdout: (line) => removedAskOutput.push(line), stderr: () => undefined }), 2);
-  assert.equal((JSON.parse(removedAskOutput[0]) as { error: { details: { field: string } } }).error.details.field, "command");
+  for (const args of [["review"], ["review", "--help"], ["help", "review"], ["review", "--summary"], ["review", "--markdown"]]) {
+    const output: string[] = [];
+    assert.equal(await runCLI([...args, "--json"], { stdout: line => output.push(line) }), 2);
+    assert.equal(JSON.parse(output[0]).error.code, "VALIDATION_ERROR");
+  }
 });
 
 test("--version prints the package version under the stable contract", async () => {

@@ -227,10 +227,9 @@ test("schema v8 Candidate rows migrate as CandidateSubmission v1 without invente
 
     const metadata = await fixture.store.migrate();
     assert.equal(metadata.schema_version, SCHEMA_VERSION);
-    const review = await fixture.module.reviewCandidate(submitted.candidate.candidate_id);
-    assert.equal(review.trace.submission.format, "patchledger.candidate-submission/v1");
-    assert.equal(review.trace.submission.change_rationales.length, 0);
-    assert.equal(review.trace.explanation_coverage.status, "not_recorded");
+    const { candidate } = await fixture.store.read(tx => tx.getCandidate(submitted.candidate.candidate_id));
+    assert.equal(candidate.submission.format, "patchledger.candidate-submission/v1");
+    assert.deepEqual(candidate.submission.change_rationales ?? [], []);
   } finally {
     if (fixture) await fixture.close();
     rmSync(directory, { recursive: true, force: true });
@@ -257,9 +256,8 @@ test("schema v9 Issue rows migrate without inventing Intent Links or changing bl
 
     const metadata = await fixture.store.migrate();
     assert.equal(metadata.schema_version, SCHEMA_VERSION);
-    const review = await fixture.module.reviewCandidate(submitted.candidate.candidate_id);
-    assert.equal(review.trace.contract.issue.goals[0].traces_to, undefined);
-    assert.equal(review.trace.verification_set.complete, true);
+    const { context } = await fixture.module.verificationContext(submitted.candidate.candidate_id, "blind");
+    assert.equal(context.issue.goals[0].traces_to, undefined);
   } finally {
     if (fixture) await fixture.close();
     rmSync(directory, { recursive: true, force: true });
@@ -277,7 +275,7 @@ test("corrupted persisted Change Rationales fail closed as artifact integrity er
     database.close();
 
     await assert.rejects(
-      fixture.module.reviewCandidate(submitted.candidate.candidate_id),
+      fixture.store.read(tx => tx.getCandidate(submitted.candidate.candidate_id)),
       (error: unknown) => error instanceof DomainError && error.code === "ARTIFACT_INTEGRITY_ERROR",
     );
   } finally {

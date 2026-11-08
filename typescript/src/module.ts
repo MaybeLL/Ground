@@ -95,8 +95,8 @@ import {
 } from "./comparison.js";
 import { verificationTemplateFromBlindContext } from "./verification-handoff.js";
 import { canonicalQualityReport, combinedVerdict, parseVerificationRole, qualityBlindContextFrom, qualityOverallVerdict, qualityReconcileContextFrom, qualityTemplateFromBlindContext, validateQualityLocations, validateQualityReviewReport, type QualityBlindContext, type QualityReconcileContext, type QualityReviewReportInput, type Verdict, type VerificationMode } from "./quality-review.js";
-import { isSyncRecord, syncReview, syncData, syncTerminal } from "./devrun-sync-record.js";
-import { locateReviewPath, type ReviewLocationRequest, type ReviewTraceResult, type ReviewSummaryResult, type VerificationPageResult, type VerificationSetSummary } from "./review.js";
+import { isSyncRecord, syncData, syncTerminal } from "./devrun-sync-record.js";
+import { type VerificationPageResult, type VerificationSetSummary } from "./verification-page.js";
 import { isPagedRequest, readListPage, withPagingHint, type ListPageInfo, type ListPageRequest } from "./list-page.js";
 import { indexCandidateChanges, inspectChangeRationaleBindings, type ChangeIndex } from "./change-index.js";
 import { contentDigestFor, enforcePublishGate, enforceStartGate, issueWriteBinding, saveAdmission, savePreparation, type PreflightCoordinator, type PreflightMatch, type PublishGateInput } from "./preflight.js";
@@ -115,7 +115,6 @@ const publicationPreflightFacts = (checks: CheckedPublication[], target: TargetB
     ...(checked.input.reviewed_version ? { preflight_reviewed_version: checked.input.reviewed_version } : {}) };
 };
 export type { CandidateComparisonResult, ComparisonCandidate, PairwiseCandidateDiff, TextPreview } from "./comparison.js";
-export type { ReviewLocationRequest, ReviewTraceResult } from "./review.js";
 
 export interface Warning { code: string; message: string }
 export interface SuccessEnvelope { format: "patchledger.cli/v1"; ok: true; operation_id?: string; data: unknown; warnings: Warning[] }
@@ -132,7 +131,7 @@ export interface VerificationListOptions { verdict?: string }
 export type VerificationRole = "contract" | "quality";
 export interface RepositoryReference { id: string; canonical_remote: string }
 export interface CurrentIssueRevisionReference { id: string; revision_number: number; predecessor_revision_id?: string; requirement_revision_id: string; summary: string }
-export interface IssueBoard { status: string; next_action: "start_devrun" | "resume_devrun" | "review_candidates" | null; completion: CompletionView; selection: SelectionView; open_dev_run_count: number; candidate_count: number }
+export interface IssueBoard { status: string; next_action: "start_devrun" | "resume_devrun" | null; completion: CompletionView; selection: SelectionView; open_dev_run_count: number; candidate_count: number }
 export interface RequirementIssueSummary { issue_id: string; repository: RepositoryReference; baseline: Baseline; current_issue_revision: CurrentIssueRevisionReference; bound_to_selected_revision: boolean; board: IssueBoard }
 export interface RequirementAggregates { repository_count: number; issue_count: number; open_dev_run_count: number; candidate_count: number; bound_to_selected_revision_issue_count: number; other_requirement_revision_issue_count: number; completion_status: "completed" | "incomplete" | "no_issues"; completed_issue_count: number; candidate_standing_counts: Record<string, number> }
 export interface InternalRequirementDetailResult { result_type: string; command: string; requirement_revision: RequirementRevision; issues: RequirementIssueSummary[]; issues_omitted: boolean; issues_next_cursor?: string; aggregates: RequirementAggregates }
@@ -191,7 +190,6 @@ export interface CandidateReplayRequest { dev_run_id: string; expected_version: 
 export interface SubmitVerificationCommand { operation_id: string; report: VerificationReportInput; attribution: Attribution; /** Present only for ultra mode: the separately signed quality part. */ quality?: { report: QualityReviewReportInput; attribution: Attribution } }
 
 export interface PairwiseOptions { include_patch_ids?: string[]; pairwise_pairs?: [string, string][] }
-export interface ReviewCandidateOptions { include_patch?: boolean; location?: ReviewLocationRequest }
 export interface ComparisonTreeDiff { patch: Buffer; files: number; insertions: number; deletions: number; binary: boolean; too_large: boolean }
 export type TreeDiffProvider = (leftTree: string, rightTree: string) => Promise<ComparisonTreeDiff>;
 export interface CandidateMaterialization { git_artifact?: GitCommitArtifact; source?: import("./development-branch.js").SourceIdentity; candidate_id: string; issue_revision_id: string; repository_id: string; canonical_remote: string; baseline: Baseline; result_tree_oid: string; patch_digest: string; patch: Buffer }
@@ -296,7 +294,7 @@ const requireIssueReadyRequirement = (revision: RequirementRevision): void => { 
 const hashableIssueRevision = (revision: IssueRevision): Record<string, unknown> => ({ id: revision.id, issue_id: revision.issue_id, requirement_revision_id: revision.requirement_revision_id, revision_number: revision.revision_number, ...(revision.predecessor_revision_id ? { predecessor_revision_id: revision.predecessor_revision_id } : {}), ...(revision.target_branch ? { target_branch: revision.target_branch } : {}), summary: revision.summary, ...(revision.context ? { context: revision.context } : {}), ...(revision.plan ? { plan: revision.plan } : {}), goals: revision.goals, constraints: revision.constraints });
 const standing = (total: number, qualified: number, rejected: number): string => total === 0 ? "unverified" : qualified > 0 && rejected > 0 ? "disputed" : qualified > 0 ? "qualified" : rejected > 0 ? "rejected" : "inconclusive";
 const deriveIssueBoard = (selectionState: string, candidates: number, open: number, completed = false): { status: string; next_action: IssueBoard["next_action"] } =>
-  completed ? { status: "completed", next_action: null } : selectionState === "selected" ? { status: "candidate_selected", next_action: null } : candidates > 0 ? { status: "candidates_available", next_action: "review_candidates" } : open > 0 ? { status: "exploring", next_action: "resume_devrun" } : { status: "ready", next_action: "start_devrun" };
+  completed ? { status: "completed", next_action: null } : selectionState === "selected" ? { status: "candidate_selected", next_action: null } : candidates > 0 ? { status: "candidates_available", next_action: null } : open > 0 ? { status: "exploring", next_action: "resume_devrun" } : { status: "ready", next_action: "start_devrun" };
 const oneOf = <T extends string>(field: string, value: string | undefined, allowed: readonly T[]): T | undefined => {
   if (value === undefined) return undefined;
   if (!(allowed as readonly string[]).includes(value)) throw validation(field, `must be one of: ${allowed.join(", ")}`);
@@ -423,13 +421,12 @@ export class Module {
     return checked;
   }
 
-  private async upstreamChanges(left: string, right: string, includeDiff = true): Promise<import("./comparison.js").UpstreamChanges> {
+  private async upstreamChanges(left: string, right: string): Promise<import("./comparison.js").UpstreamChanges> {
     const base = { source: "derived_relation" as const, role: "base_changes_not_candidate_changes" as const, left_base_commit: left, right_base_commit: right };
     if (!this.treeDiffProvider) return { ...base, status: "unavailable" };
     try {
       const diff = await this.treeDiffProvider(left, right);
       const { left_candidate_id: _left, right_candidate_id: _right, equivalent: _same, ...projection } = inlineTreeDiff("", "", false, diff.patch, { files: diff.files, insertions: diff.insertions, deletions: diff.deletions }, diff.binary, sha256({ left_base_commit: left, right_base_commit: right }), diff.too_large);
-      if (!includeDiff && projection.diff_state === "inline") { projection.diff_state = "not_requested"; delete projection.unified_diff; }
       return { ...base, status: "available", diff: projection };
     } catch { return { ...base, status: "unavailable" }; }
   }
@@ -1221,15 +1218,6 @@ export class Module {
     });
   }
 
-  async reviewCandidate(candidateId: string, options: ReviewCandidateOptions = {}): Promise<ReviewTraceResult> {
-    return resultSize("Review trace", (await this.buildReview(candidateId, options, true)).result);
-  }
-
-  async reviewSummary(candidateId: string, options: ReviewCandidateOptions = {}): Promise<ReviewSummaryResult> {
-    const { result, summary } = await this.buildReview(candidateId, options, false);
-    return resultSize("Review summary", { result_type: "patchledger.result.review-summary/v1", command: "review", trace: { ...result.trace, format: "patchledger.review-summary/v1", verification_set: summary } });
-  }
-
   async verificationPage(candidateId: string, cursor = ""): Promise<VerificationPageResult> {
     ensureID("candidate_id", candidateId);
     let binding: { version: number; candidate_id: string; digest: string; after: string } | undefined;
@@ -1252,118 +1240,6 @@ export class Module {
       while (Buffer.byteLength(JSON.stringify(result)) > 8 * 1024 * 1024 && rows.length > 1) { rows.pop(); result = make(); }
       return resultSize("Verification page", result);
     });
-  }
-
-  private async buildReview(candidateId: string, options: ReviewCandidateOptions, includeReports: boolean): Promise<{ result: ReviewTraceResult; summary: VerificationSetSummary }> {
-    ensureID("candidate_id", candidateId);
-    if (options === null || typeof options !== "object" || Array.isArray(options)) throw validation("options", "must be an object");
-    if (options.include_patch !== undefined && typeof options.include_patch !== "boolean") throw validation("include_patch", "must be boolean");
-    const locationRequest = options.location;
-    if (locationRequest !== undefined) {
-      if (locationRequest === null || typeof locationRequest !== "object" || Array.isArray(locationRequest)) throw validation("location", "must be an object");
-      if (typeof locationRequest.path !== "string" || !locationRequest.path || [...locationRequest.path].length > 4096 || locationRequest.path.includes("\0")) throw validation("location.path", "must be a non-empty path of at most 4096 characters");
-      if (locationRequest.side !== "old" && locationRequest.side !== "new") throw validation("location.side", "must be old or new");
-      if (locationRequest.line !== undefined && (typeof locationRequest.line !== "number" || !Number.isSafeInteger(locationRequest.line) || locationRequest.line < 1)) throw validation("location.line", "must be a positive safe integer");
-    }
-    const result = await this.store.read(async (tx) => {
-      const record = await tx.getCandidate(candidateId);
-      const issueRevision = await tx.getIssueRevisionById(record.candidate.issue_revision_id);
-      const issue = await tx.getIssue(issueRevision.issue_id);
-      const requirementRevision = await tx.getRequirementRevision(issue.requirement_id, issueRevision.requirement_revision_id);
-      validateCandidateBindings(record, issue, issueRevision, requirementRevision);
-      let upstream: import("./comparison.js").UpstreamChanges | undefined;
-      if (record.refines_candidate_id) {
-        const parent = await tx.getCandidate(record.refines_candidate_id);
-        if (parent.candidate.issue_revision_id !== issueRevision.id) throw new DomainError("ARTIFACT_INTEGRITY_ERROR", "refinement parent belongs to another Issue Version");
-        const left = parent.candidate.base_commit ?? issueRevision.baseline.git_oid;
-        const right = record.candidate.base_commit ?? issueRevision.baseline.git_oid;
-        if (left !== right) upstream = await this.upstreamChanges(left, right, options.include_patch === true);
-      }
-      const rationaleInspection = inspectChangeRationaleBindings(record.candidate.submission, issueRevision, record.artifact);
-      const repository = await tx.getRepository(issue.repository_id);
-      const summary = await verificationSetSummary(tx, candidateId);
-      const standingValue = includeReports ? await tx.candidateStanding(candidateId) : summary.standing;
-      const verificationDigest = summary.digest;
-      const verifications: ReviewTraceResult["trace"]["verification_set"]["verifications"] = [];
-      let cursor = "";
-      while (includeReports) {
-        const page = await tx.listVerificationSummariesPage(candidateId, cursor, 256);
-        for (const summary of page.rows) {
-          const loaded = await tx.getVerification(summary.id);
-          if (loaded.verification.candidate_id !== candidateId || loaded.verification.overall_verdict !== summary.overall_verdict) {
-            throw new DomainError("ARTIFACT_INTEGRITY_ERROR", "stored Verification summary is inconsistent", false, { resource_id: summary.id, reason: "Verification detail does not match its Candidate summary" });
-          }
-          verifications.push({ source: "verifier_finding", verification_id: loaded.verification.id, mode: loaded.quality ? "ultra" : "normal", overall_verdict: loaded.verification.overall_verdict, created_at: loaded.verification.created_at, attribution: loaded.verification.attribution, report: loaded.report, ...(loaded.quality ? { quality: toQualityDetail(loaded.quality) } : {}) });
-        }
-        if (!page.more) break;
-        if (!page.rows.length) throw new DomainError("ARTIFACT_INTEGRITY_ERROR", "verification page omitted without a cursor");
-        cursor = encodeVerificationCursor(page.rows[page.rows.length - 1]);
-      }
-      const verificationCount = summary.count;
-      if (includeReports && verificationCount !== verifications.length) throw new DomainError("ARTIFACT_INTEGRITY_ERROR", "stored Verification set is inconsistent", false, { resource_id: candidateId, reason: "Verification count does not match the complete paged set" });
-      const patchProjection = inlinePatch(record.artifact.patch, options.include_patch === true);
-      const syncRecords = record.candidate.base_commit ? (await tx.listRuntimeRecords("runtime_operation", record.candidate.dev_run_id)).filter(isSyncRecord).map(syncReview) : [];
-      const result = {
-        result_type: "patchledger.result.review-trace/v3",
-        command: "review",
-        trace: {
-          format: "patchledger.review-trace/v3",
-          ...await candidateHistoryProjection(tx, record),
-          comparison_basis: { left_commit: record.candidate.base_commit ?? issueRevision.baseline.git_oid, ...(record.candidate.source ? { right_commit: record.candidate.source.commit } : {}), right_tree: record.candidate.result_tree_oid, purpose: "candidate_changes" as const, generator_version: "grounds.canonical-git-diff/v1" as const, diff_state: patchProjection.patch_state },
-          candidate: {
-            source: "ledger_fact",
-            candidate_id: record.candidate.id,
-            dev_run_id: record.candidate.dev_run_id,
-            created_at: record.candidate.created_at,
-            attribution: record.candidate.attribution,
-            standing: standingValue,
-            ...(record.exploration_brief ? { exploration_brief: record.exploration_brief } : {}),
-            ...(record.refines_candidate_id ? { refines_candidate_id: record.refines_candidate_id } : {}),
-          },
-          repository: { source: "ledger_fact", id: repository.id, canonical_remote_at_submission: record.candidate.repository_remote_snapshot },
-          baseline: { source: "ledger_fact", ...issueRevision.baseline },
-          contract: { source: "ledger_fact", requirement: requirementVersionForContext(requirementRevision), issue: issueVersionForContext(issueRevision, requirementRevision) },
-          artifact: {
-            ...(record.candidate.git_artifact ? { git_artifact: record.candidate.git_artifact } : {}),
-            source: "ledger_fact",
-            ...(record.candidate.source ? { source_commit: record.candidate.source.commit, source_parents: record.candidate.source.parents } : {}),
-            ...(record.candidate.base_commit ? { base_commit: record.candidate.base_commit } : {}),
-            format: record.candidate.artifact_format,
-            result_tree_oid: record.candidate.result_tree_oid,
-            patch_digest: record.candidate.patch_digest,
-            uncompressed_size: record.artifact.uncompressed_size,
-            file_manifest: record.artifact.files,
-            ...patchProjection,
-          },
-          ...(upstream ? { upstream_changes: upstream } : {}),
-          ...(syncRecords.length ? { sync_records: syncRecords } : {}),
-          change_index: { source: "derived_relation", ...rationaleInspection.change_index },
-          ...(locationRequest ? { location: locateReviewPath(record.artifact, rationaleInspection.change_index, record.candidate.submission, locationRequest) } : {}),
-          submission: {
-            source: "author_claim",
-            format: record.candidate.submission.format,
-            explanation: record.candidate.submission.explanation,
-            claims: claimRecords(record.candidate.submission.claims),
-            change_rationales: record.candidate.submission.format === "patchledger.candidate-submission/v2" ? record.candidate.submission.change_rationales : [],
-          },
-          verification_set: { source: "derived_relation", count: verificationCount, digest: verificationDigest, standing: standingValue, complete: true, verifications },
-          explanation_coverage: {
-            source: "derived_relation",
-            status: rationaleInspection.change_index.change_units.length === 0 ? "not_applicable" : record.candidate.submission.format === "patchledger.candidate-submission/v1" ? "not_recorded" : "complete",
-            total_change_units: rationaleInspection.change_index.change_units.length,
-            explained_change_units: rationaleInspection.explained_change_unit_ids.length,
-            unexplained_change_unit_ids: rationaleInspection.unexplained_change_unit_ids,
-            ...(rationaleInspection.change_index.change_units.length === 0
-              ? { reason: "candidate_has_no_changes" as const }
-              : record.candidate.submission.format === "patchledger.candidate-submission/v1"
-                ? { reason: "candidate_submission_v1_has_no_change_rationales" as const }
-                : {}),
-          },
-        },
-      } satisfies ReviewTraceResult;
-      return { result, summary };
-    });
-    return result;
   }
 
   private candidateResources = async (tx: ReadTx, items: CandidateListItem[], filter: CandidateListFilter): Promise<Resource[]> => {

@@ -7,7 +7,7 @@ export * from "./git.js";
 export * from "./identity.js";
 export * from "./module.js";
 export * from "./projections.js";
-export * from "./review.js";
+export * from "./verification-page.js";
 export * from "./sql-store.js";
 export * from "./store-types.js";
 export * from "./selection.js";

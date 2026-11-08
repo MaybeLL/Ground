@@ -2,7 +2,7 @@ import type { Attribution, TargetBranch } from "./domain.js";
 import type { DegradedMergeBinding, GateInput, GateDecision, LandingDecision, LandingSource } from "./integration-gate.js";
 import type { LandingTargetPredecessor } from "./integration-history.js";
 import type { BranchObservation } from "./integration-observation.js";
-import type { VerificationSetSummary } from "./review.js";
+import type { VerificationSetSummary } from "./verification-page.js";
 
 export interface AdoptionBinding {
   format: "grounds.adoption-binding/v1";
