@@ -1116,6 +1116,7 @@ test("experiment runs two pinned agents on one suite and adopts only member regr
           const {ExperimentGrading} = await import("../src/work/application/experiment-grading.js");
           const {SqlWorkUnitOfWork,GitTagArchive} = await import("../src/work/adapters/index.js");
           const app = composeWork(interruptedStore.store);
+          assert.equal(await app.members.note(launch.batchId,"running"),"terminal","late host observation cannot reopen a finished batch");
           let entered!:()=>void, release!:()=>void;
           const inside = new Promise<void>(resolve=>{entered=resolve;}), gate = new Promise<void>(resolve=>{release=resolve;});
           const blocked = new class extends GitTagArchive {

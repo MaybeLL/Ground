@@ -102,6 +102,8 @@ export class ExperimentMembers {
       const batch = await r.experiments.get(batchId,{lock:true});
       const [job] = await r.intents.listForSubject("drive-experiment","experiment_run",batchId);
       if (!batch || !job) return "blocked";
+      // Only admission of a new grading can reopen a completed batch.
+      if (job.state === "completed") return "terminal";
       if (state === "terminal") {
         const current = await this.readSchedule(r,batchId);
         if (!current.ok) throw new Error(current.error.message);
