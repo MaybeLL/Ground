@@ -5,6 +5,7 @@ const task = JSON.parse(readFileSync(0,"utf8"));
 if (task.role==="independent-verifier") {
   const fs=require("node:fs"),assert=require("node:assert/strict");
   const dir="/grounds-delivery",material="/grounds-grader/author";
+  if (task.task.summary.endsWith("reveal resume")) fs.appendFileSync(".provider-calls",task.phase+"\n");
   const dirs=fs.readdirSync(dir);
   if (task.task.kind==="coding") {
     assert.deepEqual(dirs,["candidate-1"]);

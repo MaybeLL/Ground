@@ -1,8 +1,8 @@
 # 0002 通用 Agent 执行与评测：实现方案
 
 - 日期：2026-11-02，第二版。第一版（自建沙箱与驱动、Pi Durable 优先）按 [项目愿景](../vision.md) 修订，原稿见本文件的 Git 历史。
-- 状态：**已接受，待实现**（2026-11-02，用户确认第 12 节全部决定；D148 依据复审补充同步驱动、P3 / P4 的测试评分划分、批量执行边界与各阶段验收清单）。
-- 实现进度：P0、P1a、P1b、P1c 已完成（用例、gate 与外部评价者协议、任务定义、Git 标签归档、`task` / `work` / `grade` 命令，见 [架构](../architecture.md)）。D149：不做数据迁移，P0 里写的迁移代码已删除；旧模型被替代的部分直接删除（第 9 节）。
+- 状态：设计已接受。第 3 节列出交付阶段，第 11 节列出验收条件。
+- 实现与验收入口见文末。各 PR 的检查与合并状态可在对应交付记录中查看。
 - 依据：[项目愿景](../vision.md)；[目标模型](0001-target-model.md)（D129–D148）。
 - 范围：一期的交付顺序、代码组织、存储、沙箱集成、Agent 接入、旧模型的退出、测试方式。本文不改变业务规则。
 
@@ -20,13 +20,13 @@
 
 | 现有 | 在新结构中的位置 |
 | --- | --- |
-| SQL 账本（`sql-*.ts`，当前 schema v24，三种数据库） | 新表已并入同一账本，沿用事务、方言与三后端测试夹具；旧表按 D149 待删除 |
-| `module.ts`、`cli.ts` 中 DevRun / Candidate / Verification 的命令 | 新代码交付已通过 `work` 用例和 Git 标签适配器实现，不写旧 Candidate；旧业务命令与服务仍待 P1d 删除，不保留只读兼容 |
+| SQL 账本 | 沿用事务、方言和三后端测试夹具。工作账本的当前版本见 [SQL schema](../../typescript/src/sql-schema.ts)。 |
+| 旧 DevRun / Candidate / Verification 命令 | P1d 已随依赖服务退役。开发、交付和验收分别通过 `task`、`work` 和 `grade` 进入。 |
 | `plugins/grounds/skills/grounds` 的开发与验收工作流 | **外部执行的主要入口**：skill 引导自带 Agent 领取 Workspace、提交清单；协调者拉起全新会话做独立验收。改为调用新的 `work` 命令 |
 | 旧 `code-workspace*.ts`（配置、缓存、基线、worktree、清理） | 已按 D149 退役，不直接复用旧实例/路线；外部执行使用新 `work/adapters/git/worktrees.ts`，托管 Sandbox 在 P4 实现 |
 | 旧 `code-route-docker.ts`、`repository-environment.ts`、`development-image-*.ts` | 已按 D149 整链退役，不保留旧配置只读兼容；P4 重新实现 devcontainer 路径。独立 `env-*` 保留 |
 | 旧 `verification-run.ts`、`submitVerification` | 新外部评价者协议与独立性校验已在 `work` 领域/应用层实现；旧 Verification 服务随旧业务退役，不作为新 gate 的依赖 |
-| 旧评测模块 | 业务服务、CLI、QA 草稿/线索、TUI 评测及其 skill 已在 P1d 整链退役。仅 `evaluation.ts`、`eval-qa.ts`、`eval-environment.ts` 仍供旧 SQL 完整性校验使用，随存储批次删除；新评测资产按 P3 实现 |
+| 旧评测模块 | P1d 已删除旧业务入口、评测 TUI、旧存储及其专用校验器。P3 以历史 TaskRun、冻结交付与评分依据生成评测资产。 |
 
 ## 3. 交付阶段
 
@@ -36,12 +36,12 @@
 
 | 阶段 | 交付 | 对应愿景 | 完成标准 |
 | --- | --- | --- | --- |
-| **P0 领域与存储** | `work/domain` 的 9 个聚合（含外部执行登记）；schema v24；仓储 | 基础 | 不变量与竞态测试（取消先后、移交预留、工作头 CAS、失败类别优先级、外部停止声明）；三后端一致性测试 |
-| **P1 契约开发闭环（自带 Agent）** | TaskExecution、Work、外部执行的登记与提交、gate 加外部评价者、内置独立验收协议、`work` 命令、skill 改造、删除被替代的旧模型 | 价值 1 | 见第 10 节 P1 验收清单 |
+| **P0 领域与存储** | `work/domain` 的 9 个聚合（含外部执行登记）；P0 起步时沿用 schema v24；仓储 | 基础 | 不变量与竞态测试（取消先后、移交预留、工作头 CAS、失败类别优先级、外部停止声明）；三后端一致性测试 |
+| **P1 契约开发闭环（自带 Agent）** | TaskExecution、Work、外部执行的登记与提交、gate 加外部评价者、内置独立验收协议、`work` 命令、skill 改造、删除被替代的旧模型 | 价值 1 | 见第 11 节 P1 验收清单 |
 | **P2 本地低摩擦** | **首要目标：消除安装时对编译工具链的依赖**（为常见平台发布预编译的原生模块，能用 Node 内置能力替代的尽量替代）；默认 SQLite；归档改为“推送标签加读回核对”（D147）；`grounds init` 一步完成 | 价值 3 | 一台只装了 Node 和 Git 的机器，在 5 分钟内完成首个任务的契约、提交与验收（以实测为准） |
-| **P3 评测资产** | 从历史 TaskRun 沉淀评测项；补充评分依据（从被采纳的 Candidate 派生隐藏测试、参考答案，先作为材料保存）；规则评分；评测集与快照 | 价值 2 | 见第 10 节 P3 验收清单 |
-| **P4 托管执行与沙箱集成** | devcontainer 环境定义与 SandboxProvisioning；测试评分（命令步骤，需要 Sandbox）；命令行 Agent 适配器；AgentExecutionService；后台宿主 | 价值 2、4 | 见第 10 节 P4 验收清单 |
-| **P5 实验与对比** | ExperimentExecution、重复次数、批次结果查询与按标尺汇总 | 价值 2 | 见第 10 节 P5 验收清单 |
+| **P3 评测资产** | 从历史 TaskRun 沉淀评测项；补充评分依据（从被采纳的 Candidate 派生隐藏测试、参考答案，先作为材料保存）；规则评分；评测集与快照 | 价值 2 | 见第 11 节 P3 验收清单 |
+| **P4 托管执行与沙箱集成** | devcontainer 环境定义与 SandboxProvisioning；测试评分（命令步骤，需要 Sandbox）；命令行 Agent 适配器；AgentExecutionService；后台宿主 | 价值 2、4 | 见第 11 节 P4 验收清单 |
+| **P5 实验与对比** | ExperimentExecution、重复次数、批次结果查询与按标尺汇总 | 价值 2 | 见第 11 节 P5 验收清单 |
 | **旧 P6 退役（D149 已提前到 P1d）** | 删除被替代的旧路径及表；不保留只读兼容层 | — | 没有新代码引用旧接口；文档与 skill 同步更新 |
 
 P0 结束后，P1 与 P2 可以并行；P3 只依赖 P1（测试评分需要 Sandbox，放在 P4）；P4 是第一个需要容器与后台宿主的阶段。每个阶段单独提交 PR，可以独立发布和回退。
@@ -138,9 +138,9 @@ D147/D148 查询批次在工作头、单次执行和评分旁展示实时归档�
 
 **共享 env 的核心退役前置条件（D150，已实现待审查）：** 用户选择独立 env + 显式仓库授权，不在本批接入新 TaskRun 准入。CLI 已移除旧 Repository / DevRun 回调，由 `env-repository.ts` 解析实际 Git common directory 的路径及设备/inode 身份；凭据和共享服务匹配显式 `repository` 授权，准备与启动前重查。`env repository` 可在无账本时查询授权身份。旧 DevRun 绑定及不可核验旧授权明确拒绝、不迁移。目录占用、损坏标记和旧路线拒绝保护保留，不自动回收资源。审查修复补齐损坏预约完整检查、只读查询无副作用和共用目录注册锁的占用发布；聚焦 103/103、0 skip；修复后完整 CLI 最近重跑 1122 pass / 1 fail / 261 skip，macOS 停止观察 unknown/confirmed 失败尚未解决，不能称完整验证通过；真实 Docker 未执行，待独立审查及后续验证。详见 [D150](0001-unified-agent-evaluation.md#d150旧核心退役后env-独立运行并使用显式仓库授权已实现待独立审查)。
 
-**P1d 当前删除进度：** 已先删除无业务调用方的旧品牌/数据目录迁移工具（`migrate patchledger`、`migrate data`）、路径搬运与绑定修复、旧配置读取和迁移门禁。命令不会搬动、转换或清理历史文件。一次删除全部旧 CLI 会同时破坏仍在使用它构造数据的 eval、容器路线及验收测试；因此业务入口、调用方及对应表按依赖一起退役，而不是先删表或批量跳过测试。随后删除了 Python 包装器、实验协调器、Codex 采集器、容器准备代理和仓库快照适配，以及专用测试；分发清单与安装/包测试同步收敛。开发 skill 改为直接调用 task/work/grade，并要求主 agent 在交付冻结后启动全新子 agent 盲验；eval/知识改进入口明确自动实验暂不可用，不保留临时 runner。下一批已整链删除旧 TypeScript eval 服务/CLI/评分执行、QA 草稿与来源线索、TUI 评测界面及其客户端、评测与知识改进 skill、旧格式的纯文件材料工具和对应公开 schema/专用测试；随后用户确认先退役剩余旧 TUI 包，而不是本批重写界面：移除候选审阅/legacy 两个入口、客户端、专用测试/PTY、安装/发布及开发镜像依赖，保留 CLI 与 skill。新版工作模型 TUI 单独设计，当前未实现。共享 env 保留。之后整链退役 code-workspace 实例/路线、容器执行和 Git/sync 路由、服务/卷回收、Repo 环境默认、配方/镜像准备，连同 CLI、七个公开 schema 和专用测试；DevRun/Candidate 的这些调用方改为只走仍保留的宿主 worktree。保留独立 env 与只读目录占用拒绝检查，不执行或清理旧容器/卷/目录，不增加替代 runner。SQL 操作完整性校验仍留在存储批次处理。剩余旧开发命令/表尚未删除，也未重编号 schema；旧评测类型/校验器及事务接口仍由 SQL 完整性检查引用，随存储收敛一起删除，不是公开兼容入口；独立 env 仓库授权已合并。旧 draft/workspace 发布及其 preflight CLI、契约编辑与静态渲染、草稿格式转换和对应分发资产已移除。SQL 操作完整性校验保留至存储批次，旧草稿留在原目录。随后退役旧 Candidate 选择、Issue 完成登记、交付工作树以及依赖选择的集成授权与落地流程。旧 delivery-link 登记、撤回、查询和基于代码行的 trace 已退役，公开 schema 和分发副本同步移除。其余历史只读投影及 SQL 完整性校验保留至存储批次。旧 Candidate review 的完整追溯、摘要与 Markdown 导出已移除。Verification 分页以及用于独立验证的审阅工作树和会话保留。task/work/grade 的结果与外部评价者评分文件已有公开 schema，随插件分发。2026-11-08 在本机以 Claude Code 2.1.303 和 Codex CLI 0.167.0 各完成一次外部工作者冒烟：两个独立临时仓库均完成远端标签读回，冻结后分别启动全新评价会话，两项任务标准逐项通过，两个 Work 均以 accepted 结束。测试采用本机 bare Git 远端，未涉及托管执行。
+P1d 按依赖顺序退役了旧评测与 TUI、代码工作区、草稿发布和契约编辑渲染、候选选择与追溯，最后删除旧开发服务和存储。历史文件留在原目录。真实外部 Agent 验收记录见 [PR #45](https://github.com/MaybeLL/Ground/pull/45)。
 
-本批将剩余旧业务命令、服务及表作为依赖闭包一起删除。新工作账本使用协议 2、schema 1；初始化仅接受空目标或同协议同身份账本，旧库不迁移。独立 env 保留原有授权、占用与停止校验。
+新工作账本使用协议 2、schema 2。初始化会核对协议和账本身份。独立 env 保留仓库授权、占用与停止校验。
 
 P1 按下面四步切分，每步一个 PR，可独立评审和回退：
 
@@ -205,9 +205,13 @@ P1 按下面四步切分，每步一个 PR，可独立评审和回退：
 - **devcontainers CLI 的缺口**：它还没实现 stop / down，生命周期需要直接调用 Docker。应对：用标签管理资源归属，只回收带 Grounds 标签的资源。
 - **归档从“防篡改”降为“可发现篡改”**（D147）：有推送权限的人或 Agent 可以删除或移动未受保护的标签。这是为了降低门槛做的明确取舍；完整性检查必须能发现这类改动，并在结果中注明保护等级。
 - **SQLite 重建表的迁移风险**与**旧入口体量大**，同第一版的分析。
+## 实现与验收入口
 
-### P4 环境与沙箱准备进度
-
-已接入版本化 devcontainer 配置、受理时的 TaskRun 环境解析、按账本和 Sandbox 标签识别 Docker 资源，以及准备完成回执的核对。运行结束后，Work 关闭事务预留资源释放。真实 CLI 夹具同时创建三个 TaskRun，故障注入覆盖容器准备完成后账本写入中断，并在真实初始化步骤中终止 CLI，验证独立启动进程继续完成且初始化只执行一次。宿主监管、托管 Agent、测试评分和跨外部操作的完整故障矩阵继续按 §11 验收。
-
-P4 轨迹批次实现 Codex 与 Claude Code 的 JSONL 事件适配、保留原始记录与源行引用、分块内容寻址及外部会话导入。受管宿主与终止判定通过独立的执行协议推进。
+| 阶段 | 可复核的证据 |
+| --- | --- |
+| P0 | [依赖方向](../../typescript/test/work-architecture.test.ts)、[聚合与竞态](../../typescript/test/work-scenarios.test.ts)、[SQL 后端一致性](../../typescript/test/work-storage.test.ts)。 |
+| P1 | [CLI 工作与验收流程](../../typescript/test/work-cli.test.ts)、[Git 发布与读回](../../typescript/test/work-tag-archive.test.ts)。[PR #45](https://github.com/MaybeLL/Ground/pull/45) 记录当时使用真实 Claude Code 和 Codex 的外部开发与独立验收。 |
+| P2 | [PR #47](https://github.com/MaybeLL/Ground/pull/47) 记录安装包在各目标平台完成首个任务的计时，以及使用专用 GitHub 远端的实测。 |
+| P3 | [历史运行生成评测集的 CLI 测试](../../typescript/test/work-cli.test.ts) 使用 20 个历史 TaskRun；[评分用例](../../typescript/test/work-grading-usecases.test.ts) 核对评分依据与结果。 |
+| P4 | [真实 Docker 生命周期](../../typescript/test/work-devcontainer-docker.test.ts)、[执行恢复](../../typescript/test/work-provider-recovery.test.ts)、[轨迹契约](../../typescript/test/work-provider-contract.test.ts) 和 [托管 CLI 测试](../../typescript/test/work-cli.test.ts)。容器内的 Agent 使用确定性协议夹具。 |
+| P5 | [批次选择和汇总](../../typescript/test/work-experiment.test.ts)、[双 Agent 的真实容器批次](../../typescript/test/work-cli.test.ts) 和 [归档不可用时的选择规则](../../typescript/test/work-code-delivery.test.ts)。 |

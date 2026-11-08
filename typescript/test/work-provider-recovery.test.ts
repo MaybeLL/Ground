@@ -171,6 +171,21 @@ test("provider recovery never creates a second exec or replays a confirmed exit"
     assert.deepEqual(await adapter().drive(next,"handle",true),ended);
     assert.equal(inspect.mock.callCount(),1);
     assertUndispatched();
+
+    const commit="a".repeat(40);
+    const exportPlan={...plan,role:"worker" as const,job:{executionId:randomUUID(),runId:randomUUID(),repositoryPath:directory,baseline:commit,remote:null}};
+    create.mock.mockImplementation(async()=>{throw Error("export create reply lost");});
+    assert.equal(await adapter().exportCandidate(exportPlan,commit,false),"awaiting-resume");
+    await assert.rejects(adapter().exportCandidate(exportPlan,commit,true),/export create reply lost/);
+    assert.equal(await adapter().exportCandidate(exportPlan,commit,false),"awaiting-resume");
+    assert.equal(await adapter().exportCandidate(exportPlan,commit,true),"interrupted");
+    assert.equal(create.mock.callCount(),3);
+    const spool=join(directory,"runtime","executions",owner.ledgerId,exportPlan.job.executionId,"export");
+    writeFileSync(join(spool,"handle"),"export-handle",{mode:0o600});
+    writeFileSync(join(spool,"result.json"),JSON.stringify({handle:"export-handle",exitCode:0}),{mode:0o600});
+    for (const allowStart of [false,true]) assert.equal(await adapter().exportCandidate(exportPlan,commit,allowStart),"ready");
+    assert.equal(create.mock.callCount(),3);
+    assert.equal(existsSync(join(spool,"bridge.json")),false);
   } finally {
     if (previous===undefined) delete process.env.GROUNDS_DATA_HOME;else process.env.GROUNDS_DATA_HOME=previous;
     rmSync(directory,{recursive:true,force:true});
