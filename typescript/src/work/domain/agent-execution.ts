@@ -30,6 +30,7 @@ export interface AgentExecution extends Versioned {
   readonly runner?: { readonly id: Id; readonly epoch: number };
   readonly lastEpoch: number;
   readonly sessionRef?: string;
+  readonly infrastructureFailure?: string;
   readonly providerOutcome?: "succeeded" | "failed";
   readonly receipts: { readonly output?: string; readonly trajectory?: string; readonly deliveryClaim?: string };
   readonly archiveBlockedReason?: string;
@@ -163,7 +164,7 @@ export function confirmExecutionStopped(e: AgentExecution, command: { at: Timest
   if (!isTimestamp(command.at)) return invalid("at is required");
   if (isExecutionTerminal(e)) return late(e, "stop", command.at, `stop confirmed after ${e.stage}`);
   if (!e.capabilities.verifiableStop) return reject("unsupported", "this provider cannot verify that a process stopped");
-  if (e.stop === "verified") return advance(e, {}, [], "applied");
+  if (e.stop === "verified") return settle(e, {}, [], command.at);
   if (e.stop === "idle") return conflict("the execution never started");
   return settle(e, { stop: "verified" }, [{ type: "stop", executionId: e.id, state: "verified", at: command.at }], command.at);
 }
@@ -174,6 +175,15 @@ export function reportExecutionStopUnknown(e: AgentExecution, command: { at: Tim
   if (e.stop === "verified" || e.stop === "idle") return conflict("there is nothing running whose stop could be unknown");
   if (e.stop === "unknown") return advance(e, {}, [], "applied");
   return advance(e, { stop: "unknown" }, [{ type: "stop", executionId: e.id, state: "unknown", at: command.at }], "applied");
+}
+
+/** Infrastructure can fail before launch or after the owned process has
+ * demonstrably stopped. It never supplies a fictitious provider outcome. */
+export function failExecutionInfrastructure(e:AgentExecution,command:{detail:string;at:Timestamp}):Step {
+  if(!isText(command.detail,1024)||!isTimestamp(command.at)) return invalid("an infrastructure failure needs a reason and time");
+  if(isExecutionTerminal(e)) return advance(e,{},[],"already-terminal");
+  if(e.stop!=="idle" && e.stop!=="verified") return conflict("worker stop must be verified before infrastructure failure");
+  return advance(e,{stage:"failed",infrastructureFailure:command.detail,terminalAt:command.at,runner:undefined,archiveBlockedReason:undefined},[stageEvent(e,"failed",command.at)],"applied");
 }
 
 /** The host driving the execution was lost: nobody drives it any more and its stop cannot be assumed. */
@@ -253,7 +263,7 @@ export function executionViolations(e: AgentExecution): string[] {
   if (terminal !== (e.terminalAt !== undefined)) problems.push("terminalAt is set exactly when the execution is finished");
   if (terminal && e.runner) problems.push("a finished execution has no runner");
   if (e.stage === "succeeded" && !(e.receipts.output && e.receipts.trajectory && e.stop === "verified" && e.providerOutcome === "succeeded")) problems.push("success needs a verified stop and both receipts");
-  if (e.stage === "failed" && (e.stop !== "verified" || e.providerOutcome !== "failed")) problems.push("failure of the provider is recorded and its stop verified");
+  if (e.stage === "failed" && (e.infrastructureFailure ? (!isText(e.infrastructureFailure,1024) || !["verified","idle"].includes(e.stop)) : (e.stop !== "verified" || e.providerOutcome !== "failed"))) problems.push("failure of the provider is recorded and its stop verified");
   if (e.stage === "interrupted" && (e.stop !== "verified" || e.capabilities.resume)) problems.push("only a non-resumable provider is interrupted, after a verified stop");
   if (e.stage === "cancelled" && (!e.cancelIntent || (e.stop !== "verified" && e.stop !== "idle"))) problems.push("cancellation completes after a stop was verified");
   if (e.stage === "accepted" && (e.stop !== "idle" || e.runner)) problems.push("an execution that has not started has nothing running");

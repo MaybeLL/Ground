@@ -5,8 +5,9 @@ import { protocolStages, type CommandObservation, type ProtocolRecord, type Prot
 
 export type Purpose = "gate" | "measure";
 export type TargetRef = { readonly type: "candidate" | "artifact" | "trajectory"; readonly id: Id; readonly digest: Digest };
+export type MeasurementArchive = { readonly archiveId: Id; readonly archiveReceipt: string; readonly originalReceipt: string };
 export type GradingOrigin =
-  | { readonly type: "standalone" }
+  | { readonly type: "standalone"; readonly direct?: { readonly archive: MeasurementArchive; readonly taskRunId: Id; readonly answerPath: string; readonly actualDigest: Digest | null; readonly reference?: { readonly archive: MeasurementArchive; readonly taskRunId: Id; readonly deliveryId: Id; readonly path: string; readonly digest: Digest } }; readonly historical?: { readonly taskRunId: Id; readonly suite: RevisionRef; readonly caseKey: Id; readonly bindingKey: Id } }
   | { readonly type: "gate"; readonly taskRunId: Id }
   | { readonly type: "member"; readonly experimentRunId: Id; readonly caseKey: string; readonly repeatIndex: number; readonly requirementKey: string };
 
@@ -17,10 +18,21 @@ export interface GateBinding {
   readonly manifestDigest: Digest;
   readonly graderRevision: RevisionRef;
   readonly materialsDigest: Digest;
+  readonly archivedEvidenceDigest?: Digest;
   readonly expectedCriteria: readonly Id[];
 }
 export const sameBinding = (a: GateBinding, b: GateBinding): boolean => a.taskRevision.revisionId === b.taskRevision.revisionId && a.criteriaDigest === b.criteriaDigest && a.manifestDigest === b.manifestDigest
-  && a.graderRevision.revisionId === b.graderRevision.revisionId && a.materialsDigest === b.materialsDigest && a.expectedCriteria.length === b.expectedCriteria.length && a.expectedCriteria.every(id => b.expectedCriteria.includes(id));
+  && a.graderRevision.revisionId === b.graderRevision.revisionId && a.materialsDigest === b.materialsDigest && a.archivedEvidenceDigest===b.archivedEvidenceDigest && a.expectedCriteria.length === b.expectedCriteria.length && a.expectedCriteria.every(id => b.expectedCriteria.includes(id));
+/** Earlier releases sorted material IDs in host locale order. When the
+ * stored digests differ, compare the complete frozen ID/digest sets. */
+export function sameFrozenGate(a: Pick<GradingRecord,"binding"|"materials">, b: Pick<GradingRecord,"binding"|"materials">): boolean {
+  if (!a.binding || !b.binding) return false;
+  if (sameBinding(a.binding,b.binding)) return true;
+  if (!sameBinding(a.binding,{...b.binding,materialsDigest:a.binding.materialsDigest}) || a.materials.length!==b.materials.length) return false;
+  const byId=new Map(a.materials.map(m=>[m.id,m.digest]));
+  if (byId.size!==a.materials.length) return false;
+  return b.materials.every(m=>byId.get(m.id)===m.digest && byId.delete(m.id));
+}
 /** What a verdict is about, ignoring who judged and with which materials: the unit an acceptance conclusion is read over. */
 const sameSubject = (a: GateBinding, b: GateBinding): boolean => a.taskRevision.revisionId === b.taskRevision.revisionId && a.criteriaDigest === b.criteriaDigest && a.manifestDigest === b.manifestDigest;
 
@@ -57,7 +69,9 @@ export type Evaluator =
   };
 
 export type StepState = "running" | "stop_requested" | "stop_unknown" | "stopped_result" | "stopped_no_result";
-export interface CommandStep { readonly ordinal: number; readonly specDigest: Digest; readonly state: StepState; readonly exitCode?: number; readonly startedAt: Timestamp; readonly stoppedAt?: Timestamp }
+export type CommandOutputRef = {digest:Digest;byteLength:number;chunkCount:number;complete:boolean;observedBytes?:number};
+export type CommandOutput = {stdout?:CommandOutputRef;stderr?:CommandOutputRef};
+export interface CommandStep { readonly output?:CommandOutput; readonly ordinal: number; readonly specDigest: Digest; readonly state: StepState; readonly exitCode?: number; readonly startedAt: Timestamp; readonly stoppedAt?: Timestamp }
 
 export type GradingStatus = "running" | "completed" | "grader_fault" | "cancelled";
 export interface GradingLate { readonly kind: "grade" | "fault" | "step"; readonly at: Timestamp; readonly detail: string }
@@ -109,7 +123,7 @@ export const isGradingTerminal = (g: GradingRecord): boolean => g.status !== "ru
 const isTarget = (t: unknown): t is TargetRef => !!t && typeof t === "object" && ["candidate", "artifact", "trajectory"].includes((t as TargetRef).type) && isId((t as TargetRef).id) && isDigest((t as TargetRef).digest);
 const isBinding = (b: unknown): b is GateBinding => {
   const x = b as GateBinding;
-  return !!x && typeof x === "object" && isRevisionRef(x.taskRevision, "task") && isRevisionRef(x.graderRevision, "grader") && isDigest(x.criteriaDigest) && isDigest(x.manifestDigest) && isDigest(x.materialsDigest)
+  return !!x && typeof x === "object" && isRevisionRef(x.taskRevision, "task") && isRevisionRef(x.graderRevision, "grader") && isDigest(x.criteriaDigest) && isDigest(x.manifestDigest) && isDigest(x.materialsDigest) && (x.archivedEvidenceDigest===undefined || isDigest(x.archivedEvidenceDigest))
     && Array.isArray(x.expectedCriteria) && x.expectedCriteria.length > 0 && x.expectedCriteria.every(isId) && unique(x.expectedCriteria);
 };
 
@@ -130,6 +144,13 @@ export function createGrading(command: {
   } else {
     if (origin.type === "gate") return invalid("a measure is not run for a task run's acceptance");
     if (command.binding !== undefined) return invalid("only a gate has a binding");
+    if (origin.type === "standalone" && origin.direct) {
+      const direct = origin.direct, reference = direct.reference;
+      const validArchive = (a: MeasurementArchive) => !!a && isId(a.archiveId) && isText(a.archiveReceipt,1024) && isText(a.originalReceipt,1024);
+      if (!validArchive(direct.archive) || origin.historical || !isId(direct.taskRunId) || !isText(direct.answerPath) || (direct.actualDigest !== null && !isDigest(direct.actualDigest)) ||
+          (reference && !(validArchive(reference.archive) && isId(reference.taskRunId) && isId(reference.deliveryId) && isText(reference.path) && isDigest(reference.digest)))) return invalid("invalid standalone measurement basis");
+    }
+    if (origin.type === "standalone" && origin.historical && !(isId(origin.historical.taskRunId) && isId(origin.historical.caseKey) && isId(origin.historical.bindingKey) && isRevisionRef(origin.historical.suite, "suite"))) return invalid("historical measurement requires an exact suite, case and task run");
     if (origin.type === "member" && !(isId(origin.experimentRunId) && isText(origin.caseKey, 256) && isNonNegativeInteger(origin.repeatIndex) && isText(origin.requirementKey, 256))) return invalid("a member origin names its run, case, repeat and requirement");
   }
   const state: GradingRecord = {
@@ -293,7 +314,7 @@ export function stepStopUnknown(g: GradingRecord, command: { ordinal: number; at
  * result is unknown, which makes the grading a grader fault unless cancellation
  * was requested first, in which case cancellation wins and the unknown is only kept as a diagnostic.
  */
-export function stepStopped(g: GradingRecord, command: { ordinal: number; exitCode?: number; at: Timestamp }): Step {
+export function stepStopped(g: GradingRecord, command: { ordinal: number; exitCode?: number; output?:CommandOutput; at: Timestamp }): Step {
   const bad = firstInvalid([["ordinal", isNonNegativeInteger(command.ordinal)], ["exitCode", command.exitCode === undefined || Number.isSafeInteger(command.exitCode)], ["at", isTimestamp(command.at)]]);
   if (bad) return bad;
   if (isGradingTerminal(g)) return late(g, "step", command.at, `command step ${command.ordinal} stopped after the grading finished`);
@@ -301,7 +322,7 @@ export function stepStopped(g: GradingRecord, command: { ordinal: number; exitCo
   if (!step) return conflict("no such command step");
   if (step.state === "stopped_result" || step.state === "stopped_no_result") return conflict("the command already stopped");
   const state: StepState = command.exitCode === undefined ? "stopped_no_result" : "stopped_result";
-  const commandSteps = changeStep(g, command.ordinal, { state, stoppedAt: command.at, ...(command.exitCode !== undefined ? { exitCode: command.exitCode } : {}) })!;
+  const commandSteps = changeStep(g, command.ordinal, { state, stoppedAt: command.at, ...(command.output ? {output:command.output} : {}), ...(command.exitCode !== undefined ? { exitCode: command.exitCode } : {}) })!;
   const event: GradingEvent = { type: "command-step", gradingId: g.id, ordinal: command.ordinal, state, at: command.at };
   if (g.cancelIntent) return settleCancel(g, { commandSteps }, [event], command.at, "cancel-wins");
   if (state === "stopped_no_result") return advance(g, { commandSteps, status: "grader_fault", fault: `command step ${command.ordinal} stopped without a trustworthy exit result`, terminalAt: command.at }, [event, { type: "grader-fault", gradingId: g.id, at: command.at }], "applied");
@@ -334,16 +355,21 @@ export function validateGrade(grade: Grade, scale: Scale, binding?: GateBinding)
 }
 
 /** Verify that every taken-over verdict comes from a completed gate with the identical binding that found it satisfied. */
-function reuseIsSound(grade: Grade, binding: GateBinding | undefined, prior: readonly GradingRecord[]): Result<void> {
-  if (grade.form !== "criteria" || !binding) return ok(undefined);
+function reuseIsSound(grade: Grade, grading: GradingRecord, prior: readonly GradingRecord[]): Result<void> {
+  if (grade.form !== "criteria" || !grading.binding) return ok(undefined);
   for (const item of grade.items) {
     if (item.reusedFrom === undefined) continue;
     const source = prior.find(r => r.id === item.reusedFrom);
-    if (!source || source.purpose !== "gate" || source.status !== "completed" || !source.binding || !sameBinding(source.binding, binding)) return conflict(`criterion ${item.criterionId} cannot be taken over: the earlier record's binding differs`);
+    if (!source || source.purpose !== "gate" || source.status !== "completed" || !sameFrozenGate(source, grading)) return conflict(`criterion ${item.criterionId} cannot be taken over: the earlier record's binding differs`);
     const earlier = source.grade?.form === "criteria" ? source.grade.items.find(i => i.criterionId === item.criterionId) : undefined;
     if (!earlier || earlier.final !== "satisfied") return conflict(`criterion ${item.criterionId} was not satisfied in the earlier record`);
   }
   return ok(undefined);
+}
+
+export function validateGradingSubmission(grade:Grade,g:GradingRecord,priorGates:readonly GradingRecord[]) {
+  const valid=validateGrade(grade,g.scale,g.binding);
+  return valid.ok ? reuseIsSound(grade,g,priorGates) : valid;
 }
 
 export function submitGrade(g: GradingRecord, command: { grade: Grade; sessionId?: Id; at: Timestamp }, context: { priorGates?: readonly GradingRecord[] } = {}): Step {
@@ -361,10 +387,8 @@ export function submitGrade(g: GradingRecord, command: { grade: Grade; sessionId
     const record: GradingLate = { kind: "grade", at: command.at, detail: "grade submitted after cancellation was requested" };
     return settleCancel(g, { ...base, lateRecords: [...g.lateRecords, record] }, [...declared, { type: "late-record", gradingId: g.id, kind: "grade", at: command.at }], command.at, "cancel-wins");
   }
-  const valid = validateGrade(command.grade, g.scale, g.binding);
+  const valid=validateGradingSubmission(command.grade,g,context.priorGates ?? []);
   if (!valid.ok) return valid;
-  const sound = reuseIsSound(command.grade, g.binding, context.priorGates ?? []);
-  if (!sound.ok) return sound;
   if (g.strategy === "test") {
     if (g.commandSteps.length === 0) return conflict("a test grader runs at least one command");
     if (g.commandSteps.some(s => s.state !== "stopped_result")) return conflict("every command must have stopped with a result");
@@ -413,7 +437,7 @@ export function acceptanceOf(records: readonly GradingRecord[], subject: { taskR
 
 /** Digest of everything that makes up the materials a grading used, for binding. */
 export function materialsDigest(materials: readonly { id: Id; digest: Digest }[], hash: Hasher): Result<Digest> {
-  return digestOf([...materials].sort((a, b) => a.id.localeCompare(b.id)).map(m => ({ id: m.id, digest: m.digest })), hash);
+  return digestOf([...materials].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0).map(m => ({ id: m.id, digest: m.digest })), hash);
 }
 
 export function gradingViolations(g: GradingRecord): string[] {

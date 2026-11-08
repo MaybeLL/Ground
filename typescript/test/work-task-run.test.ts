@@ -208,6 +208,13 @@ test("cancelling an external round waits for a stop declaration; a submission af
   assert.deepEqual(taskRunViolations(lateSubmission.state), []);
 });
 
+test("a stored transcript descriptor cannot redirect a run to a different digest",()=>{
+  const run=withExternalWorker();
+  assert.ok(run.worker?.kind==="external");
+  const entry={ref:"sql-evidence:"+digest,digest,coverage:"partial" as const,importedAt:at(),raw:{digest:"sha256:"+"f".repeat(64),byteLength:5,chunkCount:1}};
+  assert.match(taskRunViolations({...run,worker:{...run.worker,registration:{...run.worker.registration,transcripts:[entry]}}}).join(" "),/bound raw digest/);
+});
+
 test("transcripts are imported for the registered session only, once, and may arrive after delivery", () => {
   const delivered = accept(submitManifest(withExternalWorker(), externalSubmission())).state;
   const imported = accept(importTranscript(delivered, { sessionId: "sess-1", ref: "blob:t1", digest, coverage: "partial", at: at() }));

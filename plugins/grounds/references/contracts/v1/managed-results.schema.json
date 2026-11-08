@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/managed-results.schema.json",
+  "title": "Managed worker commands",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "result_type",
+        "agentId",
+        "revisionId",
+        "seq",
+        "digest"
+      ],
+      "properties": {
+        "command": {
+          "const": "work.define-agent"
+        },
+        "result_type": {
+          "const": "grounds.result.work.define-agent/v1"
+        },
+        "agentId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "revisionId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "result_type",
+        "runId",
+        "executionId",
+        "stage",
+        "stop",
+        "status",
+        "agent",
+        "receipts"
+      ],
+      "properties": {
+        "command": {
+          "const": "work.managed-status"
+        },
+        "result_type": {
+          "const": "grounds.result.work.managed-status/v1"
+        },
+        "runId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "executionId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "stage": {
+          "enum": [
+            "accepted",
+            "preparing",
+            "running",
+            "archiving",
+            "archive_blocked",
+            "succeeded",
+            "failed",
+            "interrupted",
+            "cancelled"
+          ]
+        },
+        "stop": {
+          "enum": [
+            "idle",
+            "active",
+            "requested",
+            "verified",
+            "unknown"
+          ]
+        },
+        "status": {
+          "$ref": "work-results.schema.json#/$defs/TaskRunStatus"
+        },
+        "agent": {
+          "$ref": "work-results.schema.json#/$defs/RevisionRef"
+        },
+        "receipts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "output": {
+              "type": "string"
+            },
+            "trajectory": {
+              "type": "string"
+            },
+            "deliveryClaim": {
+              "type": "string"
+            }
+          }
+        },
+        "host": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state"
+          ],
+          "properties": {
+            "state": {
+              "enum": [
+                "running",
+                "starting",
+                "unknown",
+                "blocked",
+                "terminal",
+                "awaiting-resume"
+              ]
+            },
+            "detail": {
+              "type": "string"
+            }
+          }
+        },
+        "trace": {
+          "$ref": "trace-results.schema.json#/$defs/Trace"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "result_type",
+        "runId",
+        "executionId"
+      ],
+      "properties": {
+        "command": {
+          "const": "work.resume-managed"
+        },
+        "result_type": {
+          "const": "grounds.result.work.resume-managed/v1"
+        },
+        "runId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "executionId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        }
+      }
+    }
+  ]
+}

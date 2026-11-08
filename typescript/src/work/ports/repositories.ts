@@ -68,6 +68,7 @@ export interface GradingRepository extends AggregateRepository<GradingRecord> {
   findByEvaluatorExecution(executionId: Id): Promise<GradingRecord | undefined>;
 }
 export interface ExperimentRepository extends AggregateRepository<ExperimentRun> {
+  memberProgress(batchId:Id):Promise<{key:string;runId:string|null;status:TaskRun["status"]|null}[]>;
   /** The batch member whose task run was requested under this identity. */
   findMemberByRequest(taskRunRequestId: Id): Promise<{ experimentRunId: Id; key: string } | undefined>;
 }
@@ -85,6 +86,8 @@ export interface IntentRecord extends Versioned {
   readonly state: IntentState;
   readonly payload: JsonValue;
   readonly result?: JsonValue;
+  /** A candidate tag was read back at the reserved commit. Historical intents may omit this fact. */
+  readonly publicationConfirmed?: true;
   readonly createdAt: Timestamp;
   readonly updatedAt: Timestamp;
 }
@@ -93,6 +96,7 @@ export interface IntentRepository extends AggregateRepository<IntentRecord> {
   register(intent: IntentRecord): Promise<{ intent: IntentRecord; created: boolean }>;
   findByRequest(requestId: string): Promise<IntentRecord | undefined>;
   listByState(state: IntentState, limit: number): Promise<IntentRecord[]>;
+  listForSubject(kind: string, type: string, id: Id): Promise<IntentRecord[]>;
   listChildren(parentIntentId: Id): Promise<IntentRecord[]>;
 }
 
@@ -115,10 +119,13 @@ export interface CompletionEventRepository {
   markDelivered(id: Id, at: Timestamp): Promise<void>;
 }
 
+export const GRADING_REQUEST_COUNTER = "grading-request";
+
 /** A counter that only grows, used for the order in which gradings were requested. */
 export interface SequenceRepository { next(name: string): Promise<number> }
 
 export interface WorkRepositories {
+  readonly evidence: import("./evidence.js").EvidenceRepository;
   readonly definitions: DefinitionRepository;
   readonly works: WorkRepository;
   readonly taskRuns: TaskRunRepository;
@@ -133,5 +140,6 @@ export interface WorkRepositories {
 
 /** Everything inside `run` commits together or not at all. A read unit rejects writes. */
 export interface WorkUnitOfWork {
+  verifyEvidence(ref:import("./evidence.js").EvidenceRef):Promise<void>;
   run<T>(mode: "read" | "write", work: (repositories: WorkRepositories) => Promise<T>): Promise<T>;
 }

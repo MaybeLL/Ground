@@ -45,6 +45,32 @@ for (const backend of backends) {
     assert.deepEqual(view.work.headHistory.map(h => h.reason), ["start", "continue"]);
   });
 
+  scenario("standalone cancellation, retry and refinement preserve the original Work boundary",async t=>{
+    const input={requestId:"solo",taskDefinitionId:"task-1",workerMode:"external" as const};
+    for (const field of ["refines","taskRevisionId","environmentRevisionId"]) {
+      refused(await t.exec.startRun({...input,[field]:""}),"invalid");
+    }
+    refused(await t.exec.startRun({...input,workerMode:"managed",agent:{definitionId:"agent",revisionId:"",repositoryPath:"."}}),"invalid");
+    const first=value(await t.exec.startRun(input));
+    assert.deepEqual(value(await t.exec.startRun(input)),first);
+    refused(await t.exec.startRun({...input,workerMode:"none"}),"request-conflict");
+    const session=value(await t.exec.registerExternalWorker({requestId:"register",runId:first.runId,agent:{id:"coder"}}));
+    const child={...input,requestId:"child",refines:first.runId,workerMode:"none" as const};
+    refused(await t.exec.startRun(child),"conflict");
+    value(await t.exec.cancel({requestId:"cancel",runId:first.runId}));
+    assert.equal(value(await t.exec.declareStop({requestId:"stop",runId:first.runId,sessionId:session.sessionId,reason:"human"})).status,"cancelled");
+    const next=value(await t.exec.startRun(child));
+    value(await t.exec.submit({requestId:"deliver",runId:next.runId,items}));
+    assert.equal(value(await t.exec.getRun(next.runId)).run.workId,undefined);
+    assert.equal((await t.listWorks()).length,0);
+    const owned=value(await t.exec.startWork({...input,requestId:"owned",workerMode:"none"}));
+    value(await t.exec.submit({requestId:"finish-owned",runId:owned.runId,items}));
+    refused(await t.exec.startRun({...child,requestId:"cross",refines:owned.runId}),"conflict");
+    assert.equal(value(await t.exec.getWork(owned.workId)).work.head,owned.runId);
+    value(await t.exec.closeWork({requestId:"close",workId:owned.workId}));
+    refused(await t.exec.continueWork({requestId:"closed-managed",workId:owned.workId,expectedHead:owned.runId,workerMode:"managed"}),"conflict");
+  });
+
   scenario("a request is applied once: a replay returns the first answer, other input under the same identity is a conflict", async t => {
     const first = value(await t.exec.startWork({ requestId: "rq-1", taskDefinitionId: "task-1", workerMode: "external" }));
     const replay = value(await t.exec.startWork({ requestId: "rq-1", taskDefinitionId: "task-1", workerMode: "external" }));
@@ -79,12 +105,41 @@ for (const backend of backends) {
     assert.equal(value(await t.exec.getRun(run.runId)).run.manifest?.origin, "caller");
   });
 
+  scenario("recovers the original submission after interruption during the first receipt read", async t => {
+    const {runId} = value(await t.exec.startWork({requestId:"start", taskDefinitionId:"task-1", workerMode:"external"}));
+    const {sessionId} = value(await t.exec.registerExternalWorker({requestId:"register",runId,agent:{id:"writer"}}));
+    const input = {requestId:"submit", runId, sessionId, items};
+    t.receipts.interrupt = true;
+    await assert.rejects(t.exec.submit(input), /interrupted receipt read/);
+    const {run} = value(await t.exec.getRun(runId));
+    assert.equal(run.pendingManifest?.operationId,input.requestId);
+    assert.equal(run.worker?.kind==="external" && run.worker.registration.stop?.reason,"submitted");
+    assert.equal(run.blocked,undefined);
+    assert.equal(value(await t.exec.reconcileSubmission(runId))?.status,"delivered");
+    assert.equal(value(await t.exec.submit(input)).status,"delivered");
+  });
+
   scenario("an archive that cannot be checked holds the round open; one that does not match fails it", async t => {
     const held = value(await t.exec.startWork({ requestId: "rq-1", taskDefinitionId: "task-1", workerMode: "none" }));
     t.receipts.result = "unavailable";
     const waiting = value(await t.exec.submit({ requestId: "rq-2", runId: held.runId, items }));
     assert.equal(waiting.status, "running");
     assert.equal(waiting.blocked, "receipt-unavailable");
+    refused(await t.exec.submit({requestId:"replace-pending",runId:held.runId,items}),"conflict");
+    t.receipts.result="accepted";
+    const [replayed,reconciled]=await Promise.all([t.exec.submit({requestId:"rq-2",runId:held.runId,items}),t.exec.reconcileSubmission(held.runId)]);
+    assert.equal(value(replayed).status,"delivered");
+    assert.ok(value(reconciled)===null || value(reconciled)?.status==="delivered");
+    assert.equal(value(await t.exec.getRun(held.runId)).run.manifest?.operationId,"rq-2");
+    const external=value(await t.exec.startWork({requestId:"external",taskDefinitionId:"task-1",workerMode:"external"}));
+    const session=value(await t.exec.registerExternalWorker({requestId:"register-ext",runId:external.runId,agent:{id:"writer"}}));
+    const delivery={requestId:"pending-external",runId:external.runId,sessionId:session.sessionId,items};
+    t.receipts.result="unavailable";
+    assert.equal(value(await t.exec.submit(delivery)).blocked,"receipt-unavailable");
+    value(await t.exec.cancel({requestId:"cancel-ext",runId:external.runId}));
+    t.receipts.result="accepted";
+    assert.equal(value(await t.exec.submit(delivery)).status,"cancelled");
+    assert.equal(value(await t.exec.getRun(external.runId)).run.manifest,undefined);
     const bad = value(await t.exec.startWork({ requestId: "rq-3", taskDefinitionId: "task-1", workerMode: "none" }));
     t.receipts.result = "rejected";
     const failed = value(await t.exec.submit({ requestId: "rq-4", runId: bad.runId, items }));
@@ -181,15 +236,15 @@ for (const backend of backends) {
 
 interface Harness {
   readonly exec: TaskExecution;
-  readonly receipts: { result: ReceiptCheck };
+  readonly receipts: { result: ReceiptCheck; interrupt?: boolean };
   publishTask(id: string): Promise<void>;
   listWorks(): Promise<unknown[]>;
   listRuns(workId: string): Promise<unknown[]>;
 }
 
 async function harness(units: SqlWorkUnitOfWork): Promise<Harness> {
-  const receipts = { result: "accepted" as ReceiptCheck };
-  const exec = new TaskExecution({ units, clock: { now: clock() }, ids: { next: ids("id") }, receipts: { check: async () => receipts.result }, hash });
+  const receipts = { interrupt:false, result: "accepted" as ReceiptCheck };
+  const exec = new TaskExecution({ units, clock: { now: clock() }, ids: { next: ids("id") }, receipts: { check: async () => { if (receipts.interrupt) { receipts.interrupt=false; throw new Error("interrupted receipt read"); } return receipts.result; } }, hash });
   const createTask = (id: string, published: boolean) => units.run("write", async (r: WorkRepositories) => {
     const created = createDefinition({ id, kind: "task", name: id, at: "2026-01-01T00:00:00.000Z" });
     assert.ok(created.ok);

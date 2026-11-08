@@ -71,6 +71,9 @@ test("live log snapshots redact credentials split across output chunks", async (
     assert.equal(readFileSync(join(result.directory, "output.log"), "utf8"), "[REDACTED]\n");
   } finally {
     await started.done;
+    // A completed log writer can exit before the next complete host census.
+    for (let i=0;i<150 && reconcileRun(started.run.id).termination!=="confirmed";i++) await wait(30);
+    assert.equal(reconcileRun(started.run.id).termination,"confirmed");
     environmentDown(environment.id);
   }
 }));

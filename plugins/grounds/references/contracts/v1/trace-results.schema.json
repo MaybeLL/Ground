@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/trace-results.schema.json",
+  "title": "Archived provider trajectories",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "runId",
+        "trace"
+      ],
+      "properties": {
+        "command": {
+          "const": "work.import-trace"
+        },
+        "result_type": {
+          "const": "grounds.result.work.import-trace/v1"
+        },
+        "runId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "trace": {
+          "$ref": "#/$defs/Trace"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "runId",
+        "stream",
+        "ordinal",
+        "ref",
+        "base64"
+      ],
+      "properties": {
+        "command": {
+          "const": "work.trace"
+        },
+        "result_type": {
+          "const": "grounds.result.work.trace/v1"
+        },
+        "runId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "stream": {
+          "enum": [
+            "raw",
+            "events"
+          ]
+        },
+        "ordinal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ref": {
+          "$ref": "#/$defs/Blob"
+        },
+        "base64": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 87384
+        }
+      },
+      "additionalProperties": false
+    }
+  ],
+  "$defs": {
+    "Blob": {
+      "type": "object",
+      "required": [
+        "digest",
+        "byteLength",
+        "chunkCount"
+      ],
+      "properties": {
+        "digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "chunkCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "Trace": {
+      "type": "object",
+      "required": [
+        "format",
+        "provider",
+        "raw",
+        "events",
+        "records",
+        "convertedRecords",
+        "eventCount",
+        "omissions"
+      ],
+      "properties": {
+        "format": {
+          "const": "grounds.provider-trace/v1"
+        },
+        "provider": {
+          "enum": [
+            "codex",
+            "claude-code"
+          ]
+        },
+        "raw": {
+          "$ref": "#/$defs/Blob"
+        },
+        "events": {
+          "$ref": "#/$defs/Blob"
+        },
+        "records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "convertedRecords": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "eventCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "omissions": {
+          "type": "object",
+          "required": [
+            "invalidUtf8",
+            "invalidJson",
+            "oversized",
+            "unknownRecords",
+            "unknownParts",
+            "unserializableParts"
+          ],
+          "properties": {
+            "invalidUtf8": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "invalidJson": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "oversized": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unknownRecords": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unknownParts": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unserializableParts": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

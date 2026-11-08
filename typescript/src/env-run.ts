@@ -2,7 +2,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { readEnvironment, environmentPrivateDirectory, saveEnvironment, assertEnvironmentExecution, type EnvironmentRecord } from "./env-environment.js";
-import { createHostProcessScope, hostProcessEnvironment, inspectHostProcessScope, signalHostProcessScope, hostProcessIdentity, signalHostProcessLeader, processIdentity, type HostProcessScope } from "./env-process.js";
+import { localHostScope, createHostProcessScope, hostProcessEnvironment, inspectHostProcessScope, signalHostProcessScope, hostProcessIdentity, signalHostProcessLeader, processIdentity, type HostProcessScope } from "./env-process.js";
 import { acquireRouteLease, type RouteLease } from "./env-route-lease.js";
 import { inspectTaskGit, type RouteReport } from "./env-route-exit.js";
 import { validation, stateConflict } from "./errors.js";
@@ -97,7 +97,7 @@ export const reconcileRun=(runId:string):RunRecord=>{
   if(matches.length===1){record.container_id=matches[0];record.termination="unknown";saveRun(record);}
   else if(!record.pid){record.termination="confirmed";record.state=stateFrom(record,null);record.cleanup="complete";record.finished_at??=new Date().toISOString();saveRun(record);}
  }
- if(record.termination==="confirmed"&&(environment.backend!=="host"||record.host_scope)){return record;}
+ if(record.termination==="confirmed"&&(environment.backend!=="host"||record.host_scope && localHostScope(record.host_scope) && (process.platform!=="linux" || record.host_scope.linuxBoot))){return record;}
  try{
   if(record.container_id){
    const actual=inspectOwnedContainer(record.container_id,environment.id);
@@ -200,12 +200,12 @@ const startRunUnlocked=(input:{environmentId:string;argv:string[];timeoutMs?:num
 const terminateRun=(record:RunRecord):void=>{
  if(record.container_id){stopOwnedContainer(record.container_id,record.environment_id);return;}
  if(!record.host_scope)throw stateConflict("run",record.id,"host task identity unavailable; retaining resources");
- if(record.pid&&record.host_process_identity)signalHostProcessLeader(record.pid,record.host_process_identity,"SIGTERM");
+ if(record.pid&&record.host_process_identity)signalHostProcessLeader(record.pid,record.host_process_identity,"SIGTERM",record.host_scope);
  signalHostProcessScope(record.host_scope,"SIGTERM",hostLeader(record));
  // Keep this controller alive through escalation, including standalone cancel
  // calls. An unref'ed timer could otherwise exit before stopping descendants.
  setTimeout(()=>{
-  if(record.pid&&record.host_process_identity)signalHostProcessLeader(record.pid,record.host_process_identity,"SIGKILL");
+  if(record.pid&&record.host_process_identity)signalHostProcessLeader(record.pid,record.host_process_identity,"SIGKILL",record.host_scope);
   signalHostProcessScope(record.host_scope!,"SIGKILL",hostLeader(record));
  },2000);
 };

@@ -89,4 +89,12 @@ npm install -g @maybell/grounds@0.2.53 --registry=https://registry.npmjs.org/
 grounds --help
 ```
 
-Replace `0.2.53` with the version being verified. Installation requires Node.js 22.13 or later; the CLI's native modules may require Python 3 and local C/C++ build tools. Test npm installation in a fresh prefix or environment so a source checkout's dependencies cannot hide missing package contents.
+Replace `0.2.53` with the version being verified. Installation requires Node.js 22.13 or later; the assembled CLI includes Node-API binaries for macOS and glibc Linux on x64 and arm64. Source builds use node-gyp. Test npm installation in a fresh prefix or environment so a source checkout's dependencies cannot hide missing package contents.
+
+The validation workflow installs the staged tarball with only Node, npm and Git on PATH. It records repository setup time and the elapsed time from installation through an accepted work. Its four native jobs exercise Linux and macOS on x64 and arm64. The assembled package is verified again before the release workflow can publish it.
+
+For a manual hosted acceptance, set `GROUNDS_ACCEPTANCE_GITHUB_TOKEN` in the environment with contents-write access to a dedicated fixture repository. Run the following from the repository root after building. The check creates a unique delivery tag in that repository and compares the remote tag with the worktree commit. Use a fresh output directory for each run.
+
+```sh
+node scripts/release-artifacts.mjs /tmp/grounds-hosted-acceptance --github-remote https://github.com/OWNER/FIXTURE.git
+```

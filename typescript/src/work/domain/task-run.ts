@@ -20,7 +20,9 @@ export interface Manifest {
   readonly frozenAt: Timestamp;
 }
 
-export interface TranscriptImport { readonly ref: string; readonly digest: Digest; readonly coverage: "full" | "partial" | "unknown"; readonly importedAt: Timestamp }
+export type TraceBlob = {digest: Digest; byteLength: number; chunkCount: number};
+export type FrozenTrace = { format: "grounds.provider-trace/v1"; provider: "claude-code" | "codex"; raw: TraceBlob; events: TraceBlob; records: number; convertedRecords: number; eventCount: number; omissions: { invalidUtf8:number; invalidJson:number; oversized:number; unknownRecords:number; unknownParts:number; unserializableParts:number } };
+export interface TranscriptImport { readonly raw?: TraceBlob; readonly trace?: FrozenTrace; readonly ref: string; readonly digest: Digest; readonly coverage: "full" | "partial" | "unknown"; readonly importedAt: Timestamp }
 export interface ExternalRegistration {
   /** Issued by Grounds at registration; every submission must present it. */
   readonly sessionId: Id;
@@ -66,7 +68,7 @@ export type TaskRunEvent =
   | { readonly type: "worker-stopped"; readonly runId: Id; readonly verified: boolean; readonly at: Timestamp }
   | { readonly type: "transcript-imported"; readonly runId: Id; readonly digest: Digest; readonly at: Timestamp }
   | { readonly type: "manifest-frozen"; readonly runId: Id; readonly digest: Digest; readonly origin: ManifestOrigin; readonly at: Timestamp }
-  | { readonly type: "manifest-unavailable"; readonly runId: Id; readonly operationId: Id; readonly at: Timestamp }
+  | { readonly type: "manifest-registered" | "manifest-unavailable"; readonly runId: Id; readonly operationId: Id; readonly at: Timestamp }
   | { readonly type: "delivered"; readonly runId: Id; readonly at: Timestamp }
   | { readonly type: "failed"; readonly runId: Id; readonly class: FailureClass; readonly at: Timestamp }
   | { readonly type: "cancel-requested"; readonly runId: Id; readonly at: Timestamp }
@@ -91,11 +93,12 @@ export function quiescent(run: TaskRun): boolean {
 export interface RefinesFacts { readonly id: Id; readonly status: TaskRunStatus; readonly taskDefinitionId: Id; readonly workId?: Id }
 
 export function createTaskRun(
-  command: { id: Id; taskRevision: RevisionRef; workId?: Id; refines?: Id; workerMode: WorkerMode; retention: Retention; at: Timestamp },
+  command: { id: Id; taskRevision: RevisionRef; environment?: ResolvedEnvironment; workId?: Id; refines?: Id; workerMode: WorkerMode; retention: Retention; at: Timestamp },
   facts?: { refines?: RefinesFacts },
 ): Result<Decision<TaskRun, TaskRunEvent>> {
   const bad = firstInvalid([
     ["id", isId(command.id)], ["taskRevision", isRevisionRef(command.taskRevision, "task")],
+    ["environment", command.environment === undefined || (isRevisionRef(command.environment.revision, "environment") && ["latest","specified","inherited"].includes(command.environment.source))],
     ["workId", command.workId === undefined || isId(command.workId)], ["refines", command.refines === undefined || isId(command.refines)],
     ["workerMode", ["managed", "external", "none"].includes(command.workerMode)], ["retention", command.retention === "release" || command.retention === "keep"],
     ["at", isTimestamp(command.at)],
@@ -109,11 +112,17 @@ export function createTaskRun(
     if (target.workId !== command.workId) return conflict("a refinement must belong to the same work");
   }
   const state: TaskRun = {
-    id: command.id, version: 1, taskRevision: command.taskRevision, ...(command.workId ? { workId: command.workId } : {}),
+    id: command.id, version: 1, taskRevision: command.taskRevision, ...(command.environment ? { environment: command.environment } : {}), ...(command.workId ? { workId: command.workId } : {}),
     ...(command.refines ? { refines: command.refines } : {}), workerMode: command.workerMode, retention: command.retention,
     status: "pending", lateRecords: [], createdAt: command.at,
   };
   return ok({ state, events: [{ type: "created", runId: state.id, ...(state.refines ? { refines: state.refines } : {}), at: command.at }], outcome: undefined });
+}
+
+/** A caller-run refinement can start from the task baseline when its parent produced no manifest. */
+export function canRefineFromBaseline(parent:TaskRun):boolean {
+  return !parent.manifest && (parent.status==="cancelled" || parent.status==="failed") &&
+    (parent.workerMode==="external" || parent.workerMode==="none" && !parent.workId);
 }
 
 const terminalRefusal = (run: TaskRun, what: string) => conflict(`the run is already ${run.status}; ${what}`);
@@ -177,13 +186,23 @@ export function registerExternalWorker(run: TaskRun, command: { sessionId: Id; a
 }
 
 /** A transcript may be imported at any time, even after delivery; it never changes a finished round. */
-export function importTranscript(run: TaskRun, command: { sessionId: Id; ref: string; digest: Digest; coverage: TranscriptImport["coverage"]; at: Timestamp }): Step {
+export function importTranscript(run: TaskRun, command: { sessionId: Id; ref: string; digest: Digest; coverage: TranscriptImport["coverage"]; raw?:TraceBlob; trace?: FrozenTrace; at: Timestamp }): Step {
   const bad = firstInvalid([["ref", isText(command.ref, 1024)], ["digest", isDigest(command.digest)], ["coverage", ["full", "partial", "unknown"].includes(command.coverage)], ["at", isTimestamp(command.at)]]);
   if (bad) return bad;
   if (run.worker?.kind !== "external") return conflict("only an external worker has an imported transcript");
   if (run.worker.registration.sessionId !== command.sessionId) return reject("forbidden", "the session identity does not match this registration");
-  if (run.worker.registration.transcripts.some(t => t.digest === command.digest)) return advance(run, {}, [], "applied");
-  const registration = { ...run.worker.registration, transcripts: [...run.worker.registration.transcripts, { ref: command.ref, digest: command.digest, coverage: command.coverage, importedAt: command.at }] };
+  if (command.raw && (command.raw.digest!==command.digest || !Number.isSafeInteger(command.raw.byteLength) || command.raw.byteLength<0 ||
+      !Number.isSafeInteger(command.raw.chunkCount) || command.raw.chunkCount<0)) return invalid("raw transcript descriptor does not match its source");
+  if (command.trace && (command.trace.raw.digest !== command.digest || command.trace.format !== "grounds.provider-trace/v1" ||
+      !isDigest(command.trace.events.digest) || !["claude-code","codex"].includes(command.trace.provider))) return invalid("transcript descriptor does not match its raw source");
+  const matches = run.worker.registration.transcripts.filter(t => t.digest === command.digest);
+  const existing = matches.find(t => t.trace) ?? matches.find(t=>t.raw) ?? matches[0];
+  if (existing?.trace && command.trace && (existing.trace.events.digest !== command.trace.events.digest || existing.trace.provider !== command.trace.provider)) return conflict("these bytes already have a different frozen interpretation");
+  const duplicate=matches.some(entry=>entry.ref===command.ref && entry.coverage===command.coverage &&
+    (command.trace ? !!entry.trace : command.raw ? !!entry.raw : !entry.trace && !entry.raw));
+  if (duplicate) return advance(run, {}, [], "applied");
+  const record: TranscriptImport = { ref: command.ref, digest: command.digest, coverage: command.coverage, ...(command.raw ? {raw:command.raw} : {}), ...(command.trace ? {trace:command.trace} : {}), importedAt: command.at };
+  const registration = { ...run.worker.registration, transcripts: [...run.worker.registration.transcripts, record] };
   return advance(run, { worker: { kind: "external", registration } }, [{ type: "transcript-imported", runId: run.id, digest: command.digest, at: command.at }], "applied");
 }
 
@@ -251,7 +270,7 @@ function failNow(run: TaskRun, cls: FailureClass, detail: string, at: Timestamp,
 export interface ManifestSubmission {
   origin: ManifestOrigin;
   operationId: Id;
-  check: ReceiptCheck;
+  check: ReceiptCheck | "pending";
   at: Timestamp;
   items?: readonly DeliveryItem[];
   trajectoryReceipt?: string;
@@ -271,12 +290,13 @@ const originFor: Record<WorkerMode, readonly ManifestOrigin[]> = { managed: ["to
  */
 export function submitManifest(run: TaskRun, command: ManifestSubmission): Step {
   const bad = firstInvalid([["operationId", isId(command.operationId)], ["origin", ["tool", "contract", "external", "caller"].includes(command.origin)],
-    ["check", ["accepted", "rejected", "unavailable"].includes(command.check)], ["at", isTimestamp(command.at)]]);
+    ["check", ["accepted", "rejected", "unavailable", "pending"].includes(command.check)], ["at", isTimestamp(command.at)]]);
   if (bad) return bad;
   if (isTerminal(run)) return recordLate(run, "manifest", command.at, `${command.origin} manifest after ${run.status}`);
   if (run.status !== "running") return conflict("the round has not started");
   if (!originFor[run.workerMode].includes(command.origin)) return conflict(`a ${run.workerMode} round cannot take a ${command.origin} manifest`);
   if (run.manifest) return conflict("a round has one manifest");
+  if (run.pendingManifest && run.pendingManifest.operationId!==command.operationId) return conflict("the frozen pending submission must be reconciled");
 
   let worker = run.worker;
   const events: TaskRunEvent[] = [];
@@ -294,6 +314,15 @@ export function submitManifest(run: TaskRun, command: ManifestSubmission): Step 
     const late: LateRecord = { kind: "manifest", at: command.at, detail: `${command.origin} manifest submitted after cancellation was requested` };
     return settleCancel(run, { ...base, lateRecords: [...run.lateRecords, late] }, [...events, { type: "late-record", runId: run.id, kind: "manifest", at: command.at }], command.at, "cancel-wins");
   }
+  const items = command.items ?? [];
+  if (command.check === "accepted" || command.check === "pending") {
+    if (!items.length) return invalid("a manifest lists at least one delivery");
+    if (!items.every(item => (item.type === "candidate" || item.type === "artifact") && isId(item.id) && isText(item.receipt, 1024))) return invalid("every delivery needs a type, an id and an archive receipt");
+    if (!unique(items, item => `${item.type}:${item.id}`)) return invalid("deliveries must be unique");
+  }
+  if (command.check === "pending") {
+    return advance(run, { ...base, pendingManifest: { operationId: command.operationId, origin: command.origin } }, [...events, { type: "manifest-registered", runId: run.id, operationId: command.operationId, at: command.at }], "applied");
+  }
   if (command.check === "unavailable") {
     const wasBlocked = run.blocked?.reason === "receipt-unavailable";
     return advance(run, { ...base, pendingManifest: { operationId: command.operationId, origin: command.origin }, blocked: { reason: "receipt-unavailable", at: wasBlocked ? run.blocked!.at : command.at } },
@@ -303,10 +332,6 @@ export function submitManifest(run: TaskRun, command: ManifestSubmission): Step 
   if (worker?.kind === "managed" && worker.stop !== "verified") return conflict("the managed worker's stop is not verified");
   if (command.check === "rejected") return failNow(run, "agent-output", "the delivery was rejected by the receiving check", command.at, events, base);
 
-  const items = command.items ?? [];
-  if (items.length === 0) return invalid("a manifest lists at least one delivery");
-  if (!items.every(item => (item.type === "candidate" || item.type === "artifact") && isId(item.id) && isText(item.receipt, 1024))) return invalid("every delivery needs a type, an id and an archive receipt");
-  if (!unique(items, item => `${item.type}:${item.id}`)) return invalid("deliveries must be unique");
   if (worker?.kind === "managed" && !isText(command.trajectoryReceipt, 1024)) return invalid("a managed round needs its trajectory archived");
   if (!isDigest(command.digest)) return invalid("digest is missing or malformed");
   const manifest: Manifest = { origin: command.origin, items, ...(command.trajectoryReceipt ? { trajectoryReceipt: command.trajectoryReceipt } : {}), digest: command.digest, operationId: command.operationId, frozenAt: command.at };
@@ -361,6 +386,12 @@ export function taskRunViolations(run: TaskRun): string[] {
   if (run.status === "cancelled" && (!run.cancelIntent || !quiescent(run))) problems.push("a cancelled run was asked to cancel and has nothing running");
   if (terminal && (run.blocked || run.pendingManifest)) problems.push("a finished run is neither blocked nor waiting for receipts");
   if (run.status === "pending" && (run.worker || run.manifest)) problems.push("a run that has not started has no worker or manifest");
+  if (run.worker?.kind==="external") for (const entry of run.worker.registration.transcripts) {
+    if ((entry.raw || entry.trace) && (entry.ref!=="sql-evidence:"+entry.digest ||
+        entry.raw && entry.raw.digest!==entry.digest || entry.trace && entry.trace.raw?.digest!==entry.digest)) {
+      problems.push("archived transcript must refer to its bound raw digest");
+    }
+  }
   if (run.worker && run.worker.kind !== run.workerMode) problems.push("the worker matches the configured mode");
   if (run.manifest && !originFor[run.workerMode].includes(run.manifest.origin)) problems.push("the manifest origin matches the mode");
   return problems;

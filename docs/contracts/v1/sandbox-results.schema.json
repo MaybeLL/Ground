@@ -1,0 +1,283 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchledger.dev/contracts/v1/sandbox-results.schema.json",
+  "title": "Managed sandbox and environment results",
+  "oneOf": [
+    {"type":"object","required":["command","result_type","runId","sandboxId","instanceId","workspace","argvPrefix"],"properties":{"command":{"const":"work.sandbox-context"},"result_type":{"const":"grounds.result.work.sandbox-context/v1"},"runId":{"$ref":"work-results.schema.json#/$defs/Id"},"sandboxId":{"$ref":"work-results.schema.json#/$defs/Id"},"instanceId":{"type":"string","pattern":"^[a-f0-9]{64}$"},"workspace":{"type":"string","minLength":1},"argvPrefix":{"type":"array","minItems":2,"items":{"type":"string","minLength":1}}},"additionalProperties":false},
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "environmentId",
+        "revisionId",
+        "seq",
+        "digest"
+      ],
+      "properties": {
+        "command": {
+          "const": "work.define-environment"
+        },
+        "result_type": {
+          "const": "grounds.result.work.define-environment/v1"
+        },
+        "environmentId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "revisionId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "environmentId",
+        "revisionId",
+        "seq",
+        "digest"
+      ],
+      "properties": {
+        "command": {
+          "const": "work.build-environment"
+        },
+        "result_type": {
+          "const": "grounds.result.work.build-environment/v1"
+        },
+        "environmentId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "revisionId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "digest": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "revision",
+        "content"
+      ],
+      "properties": {
+        "command": {
+          "const": "work.environment"
+        },
+        "result_type": {
+          "const": "grounds.result.work.environment/v1"
+        },
+        "revision": {
+          "$ref": "work-results.schema.json#/$defs/RevisionRef"
+        },
+        "content": {
+          "type": "object",
+          "required": [
+            "format",
+            "config",
+            "lockfile",
+            "lockfileDigest",
+            "imageDigest"
+          ],
+          "properties": {
+            "format": {
+              "const": "grounds.devcontainer/v1"
+            },
+            "config": {
+              "type": "string",
+              "minLength": 1
+            },
+            "lockfile": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "lockfileDigest": {
+              "anyOf": [
+                {
+                  "$ref": "common.schema.json#/$defs/sha256"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "build": {
+              "type":"object",
+              "required":["commit","path","source"],
+              "properties":{"commit":{"type":"string","pattern":"^(?:[a-f0-9]{40}|[a-f0-9]{64})$"},"path":{"type":"string","minLength":1},"source":{"type":"string","minLength":1}},
+              "additionalProperties":false
+            },
+            "imageDigest": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "runId",
+        "sandboxId",
+        "environmentRevisionId",
+        "commit",
+        "phase",
+        "instanceId"
+      ],
+      "properties": {
+        "command": {
+          "const": "work.prepare-sandbox"
+        },
+        "result_type": {
+          "const": "grounds.result.work.prepare-sandbox/v1"
+        },
+        "runId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "sandboxId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "environmentRevisionId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "commit": {
+          "type": ["string","null"],
+          "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+        },
+        "phase": {
+          "const": "ready"
+        },
+        "instanceId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "runId",
+        "sandboxId",
+        "environmentRevisionId",
+        "commit",
+        "phase",
+        "instanceId"
+      ],
+      "properties": {
+        "command": {
+          "const": "work.reconcile-sandbox"
+        },
+        "result_type": {
+          "const": "grounds.result.work.reconcile-sandbox/v1"
+        },
+        "runId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "sandboxId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "environmentRevisionId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "commit": {
+          "type": ["string","null"],
+          "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+        },
+        "phase": {
+          "const": "ready"
+        },
+        "instanceId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "runId",
+        "sandboxId",
+        "phase"
+      ],
+      "properties": {
+        "command": {
+          "const": "work.pause-sandbox"
+        },
+        "result_type": {
+          "const": "grounds.result.work.pause-sandbox/v1"
+        },
+        "runId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "sandboxId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "phase": {
+          "enum": [
+            "paused",
+            "blocked"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "runId",
+        "sandboxId",
+        "phase"
+      ],
+      "properties": {
+        "command": {
+          "const": "work.release-sandbox"
+        },
+        "result_type": {
+          "const": "grounds.result.work.release-sandbox/v1"
+        },
+        "runId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "sandboxId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "phase": {
+          "const": "released"
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

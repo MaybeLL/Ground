@@ -3,7 +3,6 @@ import type { WorkRepositories } from "../ports/index.js";
 import { fail, fromRejection, succeed, type Outcome } from "./outcome.js";
 
 /** Named so the ledger's request-order counter for gradings has one name everywhere. */
-export const GRADING_REQUEST_COUNTER = "grading-request";
 
 /**
  * The one grader behind independent acceptance: an evaluator that judges every
@@ -14,14 +13,25 @@ export const BUILTIN_VERIFICATION_GRADER_CONTENT = { strategy: "agent", scale: {
 
 /** The built-in grader's revision, created on first use. A different definition under the same id is a conflict, not something to overwrite. */
 export async function ensureVerificationGrader(r: WorkRepositories, hash: Hasher, at: Timestamp): Promise<Outcome<RevisionRef>> {
-  const existing = await r.definitions.getRevision(BUILTIN_VERIFICATION_GRADER.definitionId, BUILTIN_VERIFICATION_GRADER.revisionId);
-  const expected = digestOf(BUILTIN_VERIFICATION_GRADER_CONTENT, hash);
+  return ensureBuiltin(r, hash, at, BUILTIN_VERIFICATION_GRADER, "Independent verification", BUILTIN_VERIFICATION_GRADER_CONTENT);
+}
+
+export const FILE_MATCH_GRADER = { definitionId: "builtin.file-match", revisionId: "builtin.file-match.r1" };
+export const FILE_MATCH_CONTENT = { strategy: "rule", scale: { form: "category", categories: ["match", "mismatch"] }, operation: "equal-file-bytes" } as const;
+
+export function ensureFileMatchGrader(r: WorkRepositories, hash: Hasher, at: Timestamp) {
+  return ensureBuiltin(r, hash, at, FILE_MATCH_GRADER, "Exact file match", { ...FILE_MATCH_CONTENT, scale: { form: "category", categories: [...FILE_MATCH_CONTENT.scale.categories] } });
+}
+
+async function ensureBuiltin(r: WorkRepositories, hash: Hasher, at: Timestamp, identity: {definitionId: string; revisionId: string}, name: string, content: import("../domain/index.js").JsonValue): Promise<Outcome<RevisionRef>> {
+  const existing = await r.definitions.getRevision(identity.definitionId, identity.revisionId);
+  const expected = digestOf(content, hash);
   if (!expected.ok) return fromRejection(expected.error);
-  if (existing) return existing.digest === expected.value ? succeed(refOf(existing)) : fail("conflict", "the built-in verification grader was changed");
-  if (await r.definitions.get(BUILTIN_VERIFICATION_GRADER.definitionId)) return fail("conflict", "the built-in verification grader has no first revision");
-  const created = createDefinition({ id: BUILTIN_VERIFICATION_GRADER.definitionId, kind: "grader", name: "Independent verification", at });
+  if (existing) return existing.digest === expected.value ? succeed(refOf(existing)) : fail("conflict", "the built-in grader was changed");
+  if (await r.definitions.get(identity.definitionId)) return fail("conflict", "the built-in grader has no first revision");
+  const created = createDefinition({ id: identity.definitionId, kind: "grader", name, at });
   if (!created.ok) return fromRejection(created.error);
-  const published = publishRevision(created.value.state, { revisionId: BUILTIN_VERIFICATION_GRADER.revisionId, expectedSeq: 0, content: BUILTIN_VERIFICATION_GRADER_CONTENT, at }, hash);
+  const published = publishRevision(created.value.state, { revisionId: identity.revisionId, expectedSeq: 0, content, at }, hash);
   if (!published.ok) return fromRejection(published.error);
   await r.definitions.create(created.value.state);
   await r.definitions.save(published.value.state, created.value.state.version);

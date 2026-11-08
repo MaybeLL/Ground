@@ -898,7 +898,7 @@ flowchart LR
 | 独立可写开发目录 | [CodeWorkspaceRoutes](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-workspace-route.ts) 准备独立开发 worktree；准备代码不等于授予执行权限。[DockerRouteEngine](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-docker.ts) 在开发模式挂载可写 `/workspace`，基线与 Git 元数据只读。 |
 | 问答材料空间 | [当时的评测环境脚本（已退役）](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_environment.py) 校验 workspace/materials，保存文件清单并将准备后的材料设为只读；包含 code/doc/fixture 材料角色。 |
 | 运行条件独立定义 | [RepositoryEnvironmentConfiguration](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/repository-environment.ts) 描述镜像和依赖服务；[RouteExecution](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-execution.ts) 组合代码路径、基线和运行环境。当前两条路径尚未统一治理。 |
-| 其他同名概念 | [当时的 WorkspaceModule](https://github.com/MaybeLL/Ground/blob/5217f5d2f75d9d9d260356f7d02e80a11a0ca518/typescript/src/workspace.ts) 用于需求与 Issue 的 Markdown 编辑发布，不能直接当作 Agent 文件空间；[WorkspaceLease](../../typescript/src/workspace-provider.ts) 区分 managed/external 目录归属，统一时应保留这种所有权差异。 |
+| 其他同名概念 | [当时的 WorkspaceModule](https://github.com/MaybeLL/Ground/blob/5217f5d2f75d9d9d260356f7d02e80a11a0ca518/typescript/src/workspace.ts) 用于需求与 Issue 的 Markdown 编辑发布，不能直接当作 Agent 文件空间；[WorkspaceLease](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/workspace-provider.ts) 区分 managed/external 目录归属，统一时应保留这种所有权差异。 |
 
 **建议边界：** 保留 Workspace（执行工作空间）作为可识别的领域概念，纳入统一环境治理。EnvironmentSpec / EnvironmentInstance 表达运行条件和运行实例；Workspace 表达 Agent 实际可见的文件材料、来源版本、读写范围及工作区域。Task 声明材料需求，Workspace 记录实际准备出来的文件绑定，两者不重复拥有需求定义。AgentExecution 关联所使用的环境实例与工作空间；环境实例绑定或承载文件空间。图中的箭头表示关联，不预先确定聚合所有权、数量关系或事务边界。
 
@@ -958,7 +958,7 @@ Agent Judge 所需运行条件同样由通用执行路径处理，不重新塞�
 
 用户认可前述 Agent Judge 基于通用执行的关系，继续要求厘清 Task 是否为基本概念、Requirement / Issue 是否为其实现，以及接口、继承等技术如何选择。此处不将用户的探索性问题自动转为已确认继承结构。
 
-**现有源码：** [RequirementInput / RequirementRevision](../../typescript/src/domain.ts) 表达需求摘要、背景、预期成果、决策与开放问题；IssueRevision 引用确切 RequirementRevision，并携带仓库基线、目标、约束和验收条目。[CreateIssueCommand 及需求下 Issue 规则](../../typescript/src/module.ts) 也表明 Issue 在需求与仓库上下文中形成，两者不是并列的可执行类型。[TaskDraft / EvalTask](../../typescript/src/evaluation.ts) 当前包含 Issue 或 QA 引用及 graders，更接近未来 EvaluationCase，而非通用执行任务；[QADraft](../../typescript/src/eval-qa.ts) 还混合问题输入、评分标准与可选参考答案，迁移时应按公开任务输入和评分依据拆分，不能把全部字段直接暴露给被测 Agent。
+**现有源码：** [RequirementInput / RequirementRevision](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/domain.ts) 表达需求摘要、背景、预期成果、决策与开放问题；IssueRevision 引用确切 RequirementRevision，并携带仓库基线、目标、约束和验收条目。[CreateIssueCommand 及需求下 Issue 规则](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/module.ts) 也表明 Issue 在需求与仓库上下文中形成，两者不是并列的可执行类型。[TaskDraft / EvalTask](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/evaluation.ts) 当前包含 Issue 或 QA 引用及 graders，更接近未来 EvaluationCase，而非通用执行任务；[QADraft](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/eval-qa.ts) 还混合问题输入、评分标准与可选参考答案，迁移时应按公开任务输入和评分依据拆分，不能把全部字段直接暴露给被测 Agent。
 
 **建议的领域含义：** Task 是“可交给执行能力完成的一份工作说明”的公共契约。它不等于一次运行，不拥有实验或 Grader，也不自行启动 Agent。一次任务可执行多次，每次产生独立 AgentExecution；公共描述需要明确工作目标、允许材料 / 工作空间要求、所需环境和交付要求，并能固定来源版本。共同字段是读取视图或经验证的描述，不要求所有业务系统再复制一份权威数据。
 
@@ -988,7 +988,7 @@ WorkingTask 表达问答、资料分析、报告等工作，其公开目标与�
 
 用户指出 D81 若只包一层 Task 而保留 DevRun 与其他任务各自的运行体系，仍未实现统一；要求所有任务共用一套领域 / 应用核心，编码、抓取以及未来任务是特化，并支持配置或便于开发者扩展。此目标修订 D81 中可能被理解为长期保留两套完整生命周期的表述。编码的仓库、候选、验收规则继续保留，但不因此单独拥有通用启动、恢复、取消和资源回收机制。
 
-**代码事实与不能直接合并的粒度：** [DevRun](../../typescript/src/domain.ts) 固定 IssueRevision、代码基线、开发身份与 refinement 来源，状态为 open / submitted / abandoned；[startDevRunInTransaction](../../typescript/src/devrun-lifecycle.ts) 创建开发尝试并登记事件，单独调用它不等于已经运行 Agent。Candidate 绑定 dev_run_id 及 issue_revision_id；实际容器执行又由 [RouteExecution](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-execution.ts) 记录。因此 DevRun 与 AgentExecution 不是同粒度对象，直接重命名会把“交付候选”误当成“Agent 会话结束”，并可能破坏人工 / 外部执行的现有来源记录。
+**代码事实与不能直接合并的粒度：** [DevRun](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/domain.ts) 固定 IssueRevision、代码基线、开发身份与 refinement 来源，状态为 open / submitted / abandoned；[startDevRunInTransaction](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/devrun-lifecycle.ts) 创建开发尝试并登记事件，单独调用它不等于已经运行 Agent。Candidate 绑定 dev_run_id 及 issue_revision_id；实际容器执行又由 [RouteExecution](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-execution.ts) 记录。因此 DevRun 与 AgentExecution 不是同粒度对象，直接重命名会把“交付候选”误当成“Agent 会话结束”，并可能破坏人工 / 外部执行的现有来源记录。
 
 **推荐的统一核心（新的提案，不视为已确认实体清单）：**
 
@@ -1148,7 +1148,7 @@ Requirement 继续表达上游需求意图；一项需求可由具体编码任�
 
 用户明确 Coding 的可写业务工作目录为 Worktree，其他声明材料按只读使用；任务所需代码结果最终通过 Git Candidate 保存，因此不为 Workspace 另建一套起止快照系统。Coding 如有附加报告、数据等产物，则走既定 Artifact 存取能力，Candidate 与 Artifact 保持并列。通用执行协调并记录已有存储机制的成功回执，不再复制完整工作区作为另一份交付事实。
 
-源码核对：[submitCandidate](../../typescript/src/module.ts) 要求固定 Git 来源及 Git 归档，拒绝新增仅 patch 的候选；[GitArchiveBinding](../../typescript/src/candidate-git-archive.ts) 固定 source_commit、result_tree、base_commit 与 archive_ref，并提供归档核对；[DockerRouteEngine](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-docker.ts) 在开发模式开放工作目录写入，同时将基线和 Git 元数据挂为只读。这些是现有机制证据，不表示 TaskRun 等新模型已接入，也不构成当前运行的归档或灾难恢复测试。
+源码核对：[submitCandidate](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/module.ts) 要求固定 Git 来源及 Git 归档，拒绝新增仅 patch 的候选；[GitArchiveBinding](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/candidate-git-archive.ts) 固定 source_commit、result_tree、base_commit 与 archive_ref，并提供归档核对；[DockerRouteEngine](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-docker.ts) 在开发模式开放工作目录写入，同时将基线和 Git 元数据挂为只读。这些是现有机制证据，不表示 TaskRun 等新模型已接入，也不构成当前运行的归档或灾难恢复测试。
 
 **保存保证的准确范围：** 代码交付必须进入固定提交并完成 Candidate 所要求的归档确认，附加必需产物必须完成 Artifact 保存，之后才满足 D83 的成功交付条件。只在本地执行 git commit 不等于全部交付已经可靠归档。未提交修改、未纳入提交的必要文件及未声明的临时输出不因使用 Git 自动保存；中途环境丢失也不承诺恢复任意未提交现场。需要交付的内容须进入 Candidate 或 Artifact，缓存和中间态不默认归档。
 
@@ -1256,11 +1256,11 @@ Agent Judge 自己执行评分任务产生的 TaskRun / AgentExecution 由对应
 
 **源码核对（阅读代码与测试，未执行行为测试）：**
 
-- [领域定义](../../typescript/src/domain.ts) 的 IssueRevision 按 Goal / Constraint 包含带独立 ID 的 Criterion；CriterionClaimInput 按 criterion_id 保存说明、证据和可选 SelfVerification，自检区分满足、部分满足、不满足、无法判断与未检查。计划文字明确不是验收义务。
+- [领域定义](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/domain.ts) 的 IssueRevision 按 Goal / Constraint 包含带独立 ID 的 Criterion；CriterionClaimInput 按 criterion_id 保存说明、证据和可选 SelfVerification，自检区分满足、部分满足、不满足、无法判断与未检查。计划文字明确不是验收义务。
 - 同一文件的 VerificationCriterionAssessmentInput 按条目保留独立判断、与开发声明的核对以及最终结论；报告绑定 candidate_id 与 result_tree_oid，结论针对确切交付，不是裸任务的一项永久勾选状态。
-- [查询与汇总](../../typescript/src/module.ts) 的 comparisonClaims、comparisonVerificationFacts 和 standing 展示逐项验证状态；支持 unverified / qualified / rejected / inconclusive / disputed，多份相反验收不会被单次通过直接覆盖。refinementContext 也为后续开发携带逐项状态与相关报告。
-- [自检测试](../../typescript/test/self-verification.test.ts) 断言自检可持久化并在 Review 展示，但不使独立验收从 unverified 自动变为通过；[比较测试](../../typescript/test/comparison.test.ts) 覆盖逐项状态与候选总体状态的区别。这里是测试源码证据，不声称本轮测试运行通过。
-- [CompletionRecord](../../typescript/src/completion.ts) 记录采纳、落地提交和发布等事实，不能直接作为新 TaskRun 的交付契约完成记录迁移。
+- [查询与汇总](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/module.ts) 的 comparisonClaims、comparisonVerificationFacts 和 standing 展示逐项验证状态；支持 unverified / qualified / rejected / inconclusive / disputed，多份相反验收不会被单次通过直接覆盖。refinementContext 也为后续开发携带逐项状态与相关报告。
+- [自检测试](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/test/self-verification.test.ts) 断言自检可持久化并在 Review 展示，但不使独立验收从 unverified 自动变为通过；[比较测试](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/test/comparison.test.ts) 覆盖逐项状态与候选总体状态的区别。这里是测试源码证据，不声称本轮测试运行通过。
+- [CompletionRecord](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/completion.ts) 记录采纳、落地提交和发布等事实，不能直接作为新 TaskRun 的交付契约完成记录迁移。
 
 **推荐的最小抽象：** TaskType 定义契约条目的结构与检查能力，TaskRevision 固定本任务的具体条目、必需性和可定位身份；TaskRun 关联本次确切交付及其逐项检查证据。应用查询派生“契约完成情况”，不新增第二个可以任意修改的任务完成状态机。检查记录至少能定位任务修订、条目、被检查的交付引用、结果、理由、证据与检查来源；名称和字段尚未定稿，沿用现有 Criterion / Claim / Verification 的信息区分而非机械复制所有编码流程。
 
@@ -1298,7 +1298,7 @@ TaskRun 宣布成功时固定采用的交付及验收依据，成功判定还包
 
 用户询问是否可删除 RequirementRevision。建议先从通用任务执行与评测的核心必需概念中移出 Requirement / RequirementRevision；通用 TaskRevision 只需固定任务输入与契约，不要求有一个独立需求实体才能执行。此前总图把上游可选需求直接放在核心区域，容易误读为所有任务的固有依赖；确认后应改为外部可选业务来源或不在核心图展示。
 
-“移出通用核心”与“删除全产品的需求管理能力”需区分。现有 [RequirementRevision / validateIssueIntentLinks](../../typescript/src/domain.ts) 保存 outcomes、decisions、open_questions，并校验任务目标 / 约束追溯到该需求版本的具体条目；多个编码任务可共享同一需求意图。这些语义不能仅凭已有 TaskRevision 就认定重复并删除。
+“移出通用核心”与“删除全产品的需求管理能力”需区分。现有 [RequirementRevision / validateIssueIntentLinks](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/domain.ts) 保存 outcomes、decisions、open_questions，并校验任务目标 / 约束追溯到该需求版本的具体条目；多个编码任务可共享同一需求意图。这些语义不能仅凭已有 TaskRevision 就认定重复并删除。
 
 推荐需求管理若仍有独立价值，则作为上游业务模块保留，编码任务通过固定来源引用使用，通用执行不依赖该实体。如果一期也明确取消独立需求管理，需求正文可作为固定版本的输入材料（例如已保存的 Artifact）由 TaskRevision 引用，但必须迁移既有意图、决策、未决问题与追溯依据，明确哪些需求管理行为不再提供，不能只重命名字段。分析或拆解需求的动作可建模为 Task，需求描述本身不因此必须成为可执行任务。
 
@@ -1356,7 +1356,7 @@ TaskRevision 包含 WorkspaceSpec，实际 Workspace 按该规格准备；运行
 - 当前实例、route 与 DevRun 仍引用 Issue / RequirementRevision。迁到 TaskRevision / TaskRun 时，需要替换业务绑定并保留旧来源及准入约束；这是通用任务接入工作，不是重做缓存、组装和清理机制。具体绑定字段尚未定稿。
 - 现有执行器有容器暂停 / 恢复 / 停止能力，但不代表新 TaskRun 等待策略已实现，也不保证所有依赖服务一起暂停。统一评测与开发的环境治理目标仍需后续接通。
 
-**源码阅读范围：** [配置、实例、准备与恢复](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-workspace.ts)、[开发路线与 DevRun 绑定](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-workspace-route.ts)、[路线所有权与暂停围栏](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-fence.ts)、[容器执行生命周期](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-execution.ts)、[Docker 挂载适配](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-docker.ts)、[受限 Git 视图](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-git-view.ts)、[结束与清理](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-workspace-cleanup.ts)，以及 CLI 的 code-workspace 入口。另核对 [外部工作区提供器](../../typescript/src/workspace-provider.ts)：其租约与 Git 身份验证不是上述受管实例的另一套配置定义，不因同名混并。
+**源码阅读范围：** [配置、实例、准备与恢复](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-workspace.ts)、[开发路线与 DevRun 绑定](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-workspace-route.ts)、[路线所有权与暂停围栏](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-fence.ts)、[容器执行生命周期](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-execution.ts)、[Docker 挂载适配](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-docker.ts)、[受限 Git 视图](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-git-view.ts)、[结束与清理](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-workspace-cleanup.ts)，以及 CLI 的 code-workspace 入口。另核对 [外部工作区提供器](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/workspace-provider.ts)：其租约与 Git 身份验证不是上述受管实例的另一套配置定义，不因同名混并。
 
 本项决定只更新设计文档与图，不改生产代码。配置、准备、路线隔离和清理的验证结果见第 5 节；真实 Docker、线上 Agent 和新 Task 模型迁移不在本次验证范围。
 
@@ -1451,9 +1451,9 @@ flowchart TD
 4. 原有验收中的独立判断、盲验依据、逐项证据和矛盾结论应保留；共享能力不等于将完整 VerificationReport 压成一个 Grade。验收汇总与 GradingRecord 的持久化复用方式仍待定，不能复制两份同义的评价事实，也不能丢掉验收特有依据。
 5. Agent Judge 使用普通执行能力产生评价输出；其任务完成可由确定性的输出结构、标尺范围及归档检查闭合，不默认再调用一个 Judge 验收 Judge。格式有效只证明可作为评价结果读取，不证明判断客观正确；后者属于评分质量与校准问题。
 
-**源码依据：** [evaluation.ts](../../typescript/src/evaluation.ts) 的 GraderBase 已支持 criterion 范围与 decision / score 标尺，GraderSubmission 将 error 与质量结果分开，说明“评价契约条目”和“评价质量”确有共通输入 / 输出知识；[当时的 EvalModule.reserveGrader / submitGrader（已退役）](https://github.com/MaybeLL/Ground/blob/00a231e225c83328d9fdad0c3e939fc1ba289849/typescript/src/eval-module.ts) 当前仍要求 EvalRun 并验证其选定 Grader，不能直接让通用任务验收依赖这套入口。需抽出独立评分用例，旧评测调用它，而非通用任务反向依赖评测。
+**源码依据：** [evaluation.ts](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/evaluation.ts) 的 GraderBase 已支持 criterion 范围与 decision / score 标尺，GraderSubmission 将 error 与质量结果分开，说明“评价契约条目”和“评价质量”确有共通输入 / 输出知识；[当时的 EvalModule.reserveGrader / submitGrader（已退役）](https://github.com/MaybeLL/Ground/blob/00a231e225c83328d9fdad0c3e939fc1ba289849/typescript/src/eval-module.ts) 当前仍要求 EvalRun 并验证其选定 Grader，不能直接让通用任务验收依赖这套入口。需抽出独立评分用例，旧评测调用它，而非通用任务反向依赖评测。
 
-[VerificationReportInput](../../typescript/src/domain.ts) 包含逐条独立判断、对照与最终结论；[VerificationRun](../../typescript/src/verification-run.ts) 记录 blind / freeze / reconcile 等阶段且不承载第二份验收结论；[候选 standing 汇总](../../typescript/src/module.ts) 保留 disputed。它们说明共享测试 / Agent 执行机制不能抹掉验收协议及矛盾证据。
+[VerificationReportInput](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/domain.ts) 包含逐条独立判断、对照与最终结论；[VerificationRun](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/verification-run.ts) 记录 blind / freeze / reconcile 等阶段且不承载第二份验收结论；[候选 standing 汇总](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/module.ts) 保留 disputed。它们说明共享测试 / Agent 执行机制不能抹掉验收协议及矛盾证据。
 
 本次为源码与设计评审，未修改生产代码，未运行功能测试。该建议等待用户确认，不将现有 EvalModule 视为已解耦的公共 Grading 服务。
 
@@ -1461,7 +1461,7 @@ flowchart TD
 
 用户澄清希望保留现有体验：交付候选后启动独立验证 Agent，由它读取固定交付与验收标准，自主选择测试或代码推理方法，形成逐项结论并通过工具提交，不要求用户提前为每条标准编写测试或配置单独 Grader。
 
-现有 [独立验证工作流](../../plugins/grounds/skills/grounds/references/workflows/verify.md) 正是由宿主协调新验证者，提供固定候选、契约与受限材料，先独立盲验、再固定结果并对照作者材料。CLI 本身不会因 Candidate 提交就自动拉起 Agent。验证者填写逐项报告并生成交接，协调者调用提交工具落库；[submitVerification](../../typescript/src/module.ts) 检查身份区别、Candidate / tree / context 绑定及条目覆盖，新增 Verification，候选验收情况由记录派生。它不是直接修改 Candidate 内部的一组布尔值，也不是逐条任意改写已提交结果。测试不能改变被验收的固定候选，所需临时文件应与固定代码身份分开。
+现有 [独立验证工作流](../../plugins/grounds/skills/grounds/references/workflows/verify.md) 正是由宿主协调新验证者，提供固定候选、契约与受限材料，先独立盲验、再固定结果并对照作者材料。CLI 本身不会因 Candidate 提交就自动拉起 Agent。验证者填写逐项报告并生成交接，协调者调用提交工具落库；[submitVerification](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/module.ts) 检查身份区别、Candidate / tree / context 绑定及条目覆盖，新增 Verification，候选验收情况由记录派生。它不是直接修改 Candidate 内部的一组布尔值，也不是逐条任意改写已提交结果。测试不能改变被验收的固定候选，所需临时文件应与固定代码身份分开。
 
 **修正建议：** 保留整个独立验收工作流作为一个完整能力。若适配公共 Grader，应由一个 Agent 型实现封装整轮验收，而不是将每个 Criterion 拆成一个 Grader / Agent；Agent 仍可自主选择验证方法。调用方只提供确切交付、固定契约及允许材料，已有默认验证者配置可由用例选择，不因接口复用强制创建 Experiment / EvalRun 或逐任务手工定义 Grader。参数名称与默认配置机制仍待实施设计。
 
@@ -2297,7 +2297,7 @@ TaskRun 图已按 D102 区分 succeeded / failed / cancelled 三种已确认终�
 | Workspace 配置版本、CodeWorkspaceInstance 与 CodeWorkspaceRoute | 按 D109 复用现有模型与准备、缓存、清理机制，接入通用任务 | 不复制 WorkspaceDefinition / Revision 新体系，不实施 D108；迁移 Issue / DevRun 绑定时保留版本、基线、准入与资源归属。 |
 | 评测环境与代码路线环境 | 单一环境定义、实例与 Workspace 治理 | 保留资源所有权、占用、未知状态处理、固定材料和归档；按 D114 不设计运行中旧 DevRun 的资源接管。 |
 
-对应源码依据：[domain.ts](../../typescript/src/domain.ts)、[DevRun 生命周期](../../typescript/src/devrun-lifecycle.ts)、[evaluation.ts](../../typescript/src/evaluation.ts)、[QA 定义](../../typescript/src/eval-qa.ts)、[代码路线执行](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-execution.ts)。本表基于源码职责审阅，不是实际数据库迁移结果。
+对应源码依据：[domain.ts](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/domain.ts)、[DevRun 生命周期](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/devrun-lifecycle.ts)、[evaluation.ts](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/evaluation.ts)、[QA 定义](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/eval-qa.ts)、[代码路线执行](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-execution.ts)。本表基于源码职责审阅，不是实际数据库迁移结果。
 
 建议分四步实施：①确定版本与身份映射、迁移校验和兼容读取；②让一个编码和一个非编码案例共用 TaskRun / Execution / 环境主线；③迁移评分、批次和旧 CLI 入口，确认同一事实源；④再移除重复生命周期路径。按 D114 不设计运行中接管或新旧任务并行收尾；必要的历史读取适配不形成两套权威运行状态。尚未确认的旧数据映射应报待处理，不依据记录名称或时间猜造受管执行历史。
 
@@ -2594,7 +2594,7 @@ Artifact 来源在新受管执行中关联 AgentExecution；历史或已有外�
 | 轨迹、工具响应及其他已提交的证据文件 | 清单记录文件名、大小和内容摘要；文件字节经压缩分块存于 `eval_blobs` / `eval_blob_chunks`，按摘要读取并校验。 |
 | Agent 临时会话、工作目录中的输出 | 属于采集阶段；提交成功后的权威产物是上述持久记录和已保存的附件，不能只保留临时路径。 |
 
-具体实现：[QAArtifact](../../typescript/src/eval-qa.ts)、[当时的提交与文件读取（已退役）](https://github.com/MaybeLL/Ground/blob/00a231e225c83328d9fdad0c3e939fc1ba289849/typescript/src/eval-module.ts)、[SQL 持久化](../../typescript/src/sql-tx-core.ts)、[表结构](../../typescript/src/sql-schema.ts)。
+具体实现：[QAArtifact](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/eval-qa.ts)、[当时的提交与文件读取（已退役）](https://github.com/MaybeLL/Ground/blob/00a231e225c83328d9fdad0c3e939fc1ba289849/typescript/src/eval-module.ts)、[SQL 持久化](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/sql-tx-core.ts)、[表结构](../../typescript/src/sql-schema.ts)。
 
 例子：任务问“退款期限是多少？”，Agent 的产物可以包括“签收后七天内”的回答、支持该回答的引用片段，以及文档章节定位。Judge 读取这一次已冻结的回答及允许访问的证据评分；再次评分不必再次调用被测 Agent。轨迹另行记录它当时查了什么、调用了哪些工具，与最终答案分别表达。
 
@@ -2658,8 +2658,8 @@ Artifact 来源在新受管执行中关联 AgentExecution；历史或已有外�
 
 源码入口：
 
-- [领域模型与验证](../../typescript/src/evaluation.ts)、[当时的评测业务流程](https://github.com/MaybeLL/Ground/blob/00a231e225c83328d9fdad0c3e939fc1ba289849/typescript/src/eval-module.ts)、[CLI](https://github.com/MaybeLL/Ground/blob/00a231e225c83328d9fdad0c3e939fc1ba289849/typescript/src/eval-cli.ts)（已退役）。
-- [问答产物与证据](../../typescript/src/eval-qa.ts)、[环境契约](../../typescript/src/eval-environment.ts)。
+- [领域模型与验证](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/evaluation.ts)、[当时的评测业务流程](https://github.com/MaybeLL/Ground/blob/00a231e225c83328d9fdad0c3e939fc1ba289849/typescript/src/eval-module.ts)、[CLI](https://github.com/MaybeLL/Ground/blob/00a231e225c83328d9fdad0c3e939fc1ba289849/typescript/src/eval-cli.ts)（已退役）。
+- [问答产物与证据](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/eval-qa.ts)、[环境契约](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/eval-environment.ts)。
 - [当时的批次协调器](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_run.py)、[Codex 采集器](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_capture.py)、[受管协调](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_managed.py)（均已按 D149 退役）。
 - [当时的容器调度适配（已退役）](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_runtime.py)、[当时的评分进程执行（已退役）](https://github.com/MaybeLL/Ground/blob/00a231e225c83328d9fdad0c3e939fc1ba289849/typescript/src/eval-process.ts)。
 - [Code Workspace 执行](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-execution.ts)、[Docker 实现](https://github.com/MaybeLL/Ground/blob/a1c20e0fc2102023aab5a416d6e0195868c58981/typescript/src/code-route-docker.ts)、[路由租约边界](../../typescript/src/env-route-lease.ts)。
@@ -2740,7 +2740,7 @@ Pi Durable 是独立的 Agent harness，不等同于 Pi Coding Agent SDK。两�
 - `decodeGrader` 对 QA 明确要求 Agent、diagnostic 和 `qa_decision`。因此即使公共类型中有数值分数，QA 仍不能直接使用任意数值标尺或规则评分；是否扩展、怎样兼容应作为具体开发项确认。
 - 受管问答已有配置冻结和独立环境校验，Coordinator 也会对未知启动阻塞；需要的是公共化与验证衔接，不是移除这些机制来简化接口。
 
-源码依据：[类型与评分器验证](../../typescript/src/evaluation.ts)、[当时的运行创建、预留评分与结果关闭（已退役）](https://github.com/MaybeLL/Ground/blob/00a231e225c83328d9fdad0c3e939fc1ba289849/typescript/src/eval-module.ts)、[当时的冻结执行配置核对](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_managed.py)、[启动意图与恢复](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_run.py)（均已按 D149 退役）。
+源码依据：[类型与评分器验证](https://github.com/MaybeLL/Ground/blob/1ebcba62fd3760837f7f22729c524ee7d3bb09ce/typescript/src/evaluation.ts)、[当时的运行创建、预留评分与结果关闭（已退役）](https://github.com/MaybeLL/Ground/blob/00a231e225c83328d9fdad0c3e939fc1ba289849/typescript/src/eval-module.ts)、[当时的冻结执行配置核对](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_managed.py)、[启动意图与恢复](https://github.com/MaybeLL/Ground/blob/83d5a62c3033a9716a7d406f3f6778d6484d8ff3/plugins/grounds/scripts/grounds_eval_run.py)（均已按 D149 退役）。
 
 建议用四个具体用例评审这些边界：同题新作答与原产物重评；一个产物同时交给多个独立 Judge；Agent 完成但提交回执丢失；混合编程与问答并发且其中一个任务中断。逐项确定身份、状态、允许重试的操作和证据归属之后，再据此落具体字段和测试。当前图可以继续作为概念导览，不应直接当作完整的状态机、聚合设计或事务设计。
 

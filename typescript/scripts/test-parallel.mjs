@@ -20,7 +20,7 @@ import { spawn } from "node:child_process";
 import { readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { cpus } from "node:os";
 import { join } from "node:path";
-import { workerEnvironment, createWorkerHome, createIsolatedMysqlDatabase } from "./test-environment.mjs";
+import { workerEnvironment, createWorkerHome, removeWorkerHome, createIsolatedMysqlDatabase } from "./test-environment.mjs";
 
 const args = process.argv.slice(2);
 const value = (flag, fallback) => {
@@ -62,7 +62,9 @@ const runFile = async (file, worker) => {
     exit = await new Promise((resolve) => {
       const child = spawn(
         process.execPath,
-        ["--import", "tsx", "--test", "--test-concurrency=1", ...reporter, file],
+        file==="test/env-process.test.ts" && process.env.GROUNDS_CI_ISOLATE_PROCESS_SCOPE==="true"
+          ? ["scripts/test-macos-process-scope.mjs",...reporter]
+          : ["--import", "tsx", "--test", "--test-concurrency=1", ...reporter, file],
         { cwd: repository, env: workerEnvironment(home, database?.environment ?? process.env), stdio: ["ignore", "pipe", "pipe"] },
       );
       child.stdout.on("data", chunk => { output += chunk; });
@@ -80,8 +82,11 @@ const runFile = async (file, worker) => {
   } finally {
     try { await database?.cleanup(); }
     catch (error) { exit = 1; recordFailure(file, exit, output + `\nWorker database cleanup failed: ${error.stack ?? error}`); }
-    if (exit === 0) rmSync(home, { recursive: true, force: true });
-    else process.stderr.write(`Retained failed worker home: ${home}\n`);
+    if (exit===0) {
+      try {removeWorkerHome(home);}
+      catch (error) {exit=1;recordFailure(file,exit,output+"\nWorker home cleanup failed: "+error.stack);}
+    }
+    if (exit!==0) process.stderr.write(`Retained failed worker home: ${home}\n`);
   }
   process.stdout.write(`test-parallel: file=${file} exit=${exit} duration=${Math.round((Date.now() - started) / 1000)}s\n`);
 };

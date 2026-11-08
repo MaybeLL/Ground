@@ -1,5 +1,4 @@
 import { dataLayout } from "./data-layout.js";
-import { validateDevelopmentMode, type DevelopmentMode } from "./development-mode.js";
 import { chmodSync, closeSync, existsSync, fsyncSync, linkSync, mkdirSync, openSync, readSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -33,7 +32,6 @@ export interface DatabaseConfig {
 }
 
 export interface Config {
-  development?: { default_mode: DevelopmentMode };
   version: 2;
   database: DatabaseConfig;
 }
@@ -61,11 +59,8 @@ const rejectUnknown = (value: unknown, allowed: string[], field: string): void =
 
 export const validateConfig = (value: unknown): void => {
   if (!isRecord(value)) throw validation("config", "must be an object");
-  rejectUnknown(value, ["version", "database", "development"], "config");
-  if (value.development !== undefined) {
-    rejectUnknown(value.development, ["default_mode"], "config.development");
-    validateDevelopmentMode((value.development as Record<string, unknown>).default_mode, "config.development.default_mode");
-  }
+  rejectUnknown(value, ["version", "database"], "config");
+
   if (value.version !== 2) throw validation("version", "must equal 2");
   const db = value.database;
   if (!isRecord(db)) throw validation("database", "must be an object");
@@ -155,7 +150,7 @@ const loadConfigDocument = (filePath: string): unknown => {
 export const loadConfig = (filePath: string): Config => {
   const parsed = loadConfigDocument(filePath);
   rejectNulls(parsed, "config");
-  rejectUnknown(parsed, ["version", "database", "development"], "config");
+  rejectUnknown(parsed, ["version", "database"], "config");
   const raw = parsed as Record<string, unknown>;
   rejectUnknown(raw.database, ["driver", "path", "host", "port", "database", "username", "tls", "password", "expected_database_id"], "config.database");
   if (raw.database && typeof raw.database === "object") {

@@ -38,6 +38,49 @@ async function failure(promise: Promise<unknown>): Promise<StorageFailure> {
 }
 
 for (const backend of backends) {
+  test(`${backend}: retrying interrupted initialization produces one complete ledger`, { skip: backendSkip(backend) }, async () => {
+    const fixture = await openLedger(backend, false);
+    const store = fixture.store as unknown as { acquireClient(): Promise<import("../src/sql-client.js").SQLClient> };
+    const acquire = store.acquireClient.bind(store);
+    let interrupted = false;
+    store.acquireClient = async () => {
+      const client = await acquire();
+      return new Proxy(client, { get(target, key) {
+        if (key === "exec") return async (sql: string) => {
+          if (!interrupted && sql.includes("CREATE TABLE IF NOT EXISTS work_works")) {
+            interrupted = true;
+            throw new Error("injected initialization failure");
+          }
+          return target.exec(sql);
+        };
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      } });
+    };
+    try {
+      await assert.rejects(fixture.store.initialize("warn"));
+      assert.equal(interrupted, true);
+      const target = await fixture.store.classifyTarget();
+      if (backend === "mysql") {
+        assert.equal(target.state, "initialized");
+        if (target.state === "initialized") assert.equal(target.metadata.migration_state, "in_progress");
+        await assert.rejects(fixture.store.open(), { code: "MIGRATION_DIRTY" });
+      } else assert.equal(target.state, "empty");
+      const { metadata } = await fixture.store.initialize("warn");
+      if (target.state === "initialized") assert.equal(metadata.database_id, target.metadata.database_id);
+      assert.equal((await fixture.store.inspectIntegrity()).report.valid, true);
+    } finally { await fixture.close(); }
+  });
+  if (backend !== "sqlite") test(`${backend}: initialization refuses an unrelated object in a table-free target`, { skip: backendSkip(backend) }, async () => {
+    const fixture = await openLedger(backend, false);
+    const store = fixture.store as unknown as { acquireClient(): Promise<import("../src/sql-client.js").SQLClient> };
+    const client = await store.acquireClient();
+    try {
+      await client.exec(backend === "postgres" ? "CREATE SEQUENCE accounting_ids" : "CREATE PROCEDURE accounting_ping() SELECT 1");
+      assert.equal((await fixture.store.classifyTarget()).state, "unrecognized");
+      await assert.rejects(fixture.store.initialize("warn"), { code: "SCHEMA_INCOMPATIBLE" });
+    } finally { await client.close(); await fixture.close(); }
+  });
   const check = (name: string, run: (store: SQLStore, uow: SqlWorkUnitOfWork) => Promise<void>) => test(`${backend}: work storage ${name}`, { skip: backendSkip(backend) }, async () => {
     const fixture = await openLedger(backend);
     try { await run(fixture.store, new SqlWorkUnitOfWork(fixture.store)); } finally { await fixture.close(); }
@@ -45,22 +88,75 @@ for (const backend of backends) {
   const write = <T>(uow: SqlWorkUnitOfWork, work: (r: WorkRepositories) => Promise<T>) => uow.run("write", work);
   const read = <T>(uow: SqlWorkUnitOfWork, work: (r: WorkRepositories) => Promise<T>) => uow.run("read", work);
 
-  check("schema 24 creates every table, and an older ledger gains them on migration", async store => {
-    assert.equal(SCHEMA_VERSION, 24);
-    assert.equal((await store.inspect()).schema_version, 24);
-    const count = (table: string) => store.transaction(false, async client => Number((await client.get<{ n: unknown }>(`SELECT COUNT(*) AS n FROM ${table}`))!.n));
-    for (const table of workTables) assert.equal(await count(table), 0, table);
-    // Pretend the ledger is at schema 23: no work tables yet.
-    await store.transaction(true, async client => {
-      for (const table of workTables) await client.exec(`DROP TABLE IF EXISTS ${table}`);
-      await client.run("UPDATE schema_metadata SET schema_version = 23 WHERE singleton = 1");
+  check("initializes only work-model tables and rejects an old ledger without modifying it", async store => {
+    const metadata = await store.open();
+    assert.equal(metadata.schema_version, SCHEMA_VERSION);
+    assert.equal(metadata.protocol_version, 2);
+    await store.transaction(false, async client => {
+      for (const table of workTables) {
+        const row = await client.get<{ n: unknown }>(`SELECT COUNT(*) AS n FROM ${table}`);
+        assert.equal(Number(row!.n), 0, table);
+      }
+      const count = await client.get<{ total: unknown }>(backend === "sqlite" ? "SELECT COUNT(*) AS total FROM sqlite_master WHERE type = 'table' AND name NOT GLOB 'sqlite_*'" : `SELECT COUNT(*) AS total FROM information_schema.tables WHERE table_schema = ${backend === "mysql" ? "DATABASE()" : "current_schema()"}`);
+      assert.equal(Number(count!.total), workTables.length + 1);
     });
-    const migrated = await store.migrate();
-    assert.equal(migrated.schema_version, 24);
-    for (const table of workTables) assert.equal(await count(table), 0, `${table} after migration`);
-    const uow = new SqlWorkUnitOfWork(store);
-    await write(uow, r => r.taskRuns.create(aRun("run-after-migration")));
-    assert.equal((await read(uow, r => r.taskRuns.get("run-after-migration")))?.status, "pending");
+    await store.transaction(true, client => client.run("UPDATE schema_metadata SET protocol_version = 1"));
+    await assert.rejects(store.open(), { code: "SCHEMA_INCOMPATIBLE" });
+    await assert.rejects(store.initialize("warn"), { code: "SCHEMA_INCOMPATIBLE" });
+    assert.equal((await store.inspect()).protocol_version, 1);
+  });
+
+  check("status detects an indexed field changed outside the work repository", async (store, uow) => {
+    await write(uow, r => r.taskRuns.create(aRun("integrity-run")));
+    assert.equal((await store.inspectIntegrity()).report.valid, true);
+    await store.transaction(true, client => client.run("UPDATE work_task_runs SET status = 'delivered' WHERE id = ?", ["integrity-run"]));
+    const { report } = await store.inspectIntegrity();
+    assert.equal(report.valid, false);
+    assert.match(report.issues[0].reason, /status column differs/);
+  });
+
+  check("status diagnoses orphan members, damaged events and invalid sequence state", async (store, uow) => {
+    await write(uow, async r => {
+      await r.gradings.create(aGate("gate-1", await r.sequences.next("grading-request")));
+      await r.events.append({ id: "event-1", parentIntentId: "intent-1", type: "finished", subject: { type: "work", id: "work-1" }, payload: {}, createdAt: at() });
+    });
+    assert.equal((await store.inspectIntegrity()).report.valid, true);
+    await store.transaction(true, async client => {
+      await client.run("DELETE FROM work_counters WHERE name = ?", ["grading-request"]);
+      await client.run("INSERT INTO work_counters (name, value) VALUES (?, ?)", ["negative", -1]);
+      await client.run("UPDATE work_completion_events SET parent_intent_id = ?", ["incorrect"]);
+      await client.run("INSERT INTO work_experiment_members (experiment_run_id, member_key, ordinal, case_key, repeat_index, task_run_request_id) VALUES (?, ?, 0, ?, 0, ?)", ["missing", "m", "case", "missing-request"]);
+    });
+    const { report } = await store.inspectIntegrity();
+    assert.equal(report.valid, false);
+    assert.deepEqual(report.issues.map(issue => issue.check).sort(), ["experiment_members", "grading_sequence", "work_counters", "work_record"]);
+  });
+
+  check("status reports malformed persisted event JSON and SQLite counter values", async (store, uow) => {
+    await write(uow, r => r.events.append({ id: "bad-event", parentIntentId: "intent", type: "done", subject: { type: "work", id: "work" }, payload: {}, createdAt: at() }));
+    await store.transaction(true, async client => {
+      await client.run("UPDATE work_completion_events SET body_json = 'null'");
+      if (backend === "sqlite") await client.run("INSERT INTO work_counters (name, value) VALUES ('grading-request', 'broken')");
+    });
+    const { report } = await store.inspectIntegrity();
+    assert.equal(report.valid, false);
+    assert.ok(report.issues.some(issue => issue.check === "work_record"));
+    if (backend === "sqlite") assert.ok(report.issues.some(issue => issue.check === "work_counters"));
+  });
+
+  if (backend === "sqlite") check("status catches a revision left orphaned outside FK enforcement", async (store, uow) => {
+    const definition = ok(createDefinition({ id: "def", kind: "task", name: "Task", at: at() }));
+    const content = { kind: "coding", schemaVersion: 1, summary: "Task", criteria: [{ id: "c", statement: "works" }] };
+    const published = publishRevision(definition, { revisionId: "rev", expectedSeq: 0, content, at: at() }, hash);
+    assert.ok(published.ok);
+    await write(uow, async r => { await r.definitions.create(definition); await r.definitions.save(published.value.state, definition.version); await r.definitions.addRevision(published.value.outcome); });
+    const client = await (store as unknown as { acquireClient(): Promise<import("../src/sql-client.js").SQLClient> }).acquireClient();
+    await client.exec("PRAGMA foreign_keys = OFF");
+    try { await client.run("DELETE FROM work_definitions WHERE id = 'def'"); }
+    finally { await client.exec("PRAGMA foreign_keys = ON"); }
+    const { report } = await store.inspectIntegrity();
+    assert.equal(report.valid, false);
+    assert.ok(report.issues.some(issue => issue.check === "revision_definition"));
   });
 
   check("definitions keep their head and immutable, numbered revisions", async (_store, uow) => {
@@ -289,3 +385,130 @@ for (const backend of backends) {
     assert.equal((await read(uow, r => r.taskRuns.get("run-case"))), undefined, "identifiers compare exactly, case included");
   });
 }
+
+for (const backend of backends) test(`${backend}: a frozen image build reserves one operation and publishes one immutable environment revision`,{skip:backendSkip(backend)},async()=>{
+  const fixture=await openLedger(backend);
+  try {
+    const {EnvironmentDefinitions}=await import("../src/work/application/environment-definitions.js");
+    const {newUUIDv7}=await import("../src/identity.js");
+    const calls:string[]=[];
+    const definitions=new EnvironmentDefinitions({units:new SqlWorkUnitOfWork(fixture.store),hash,now:clock(),newId:newUUIDv7},()=>{},async id=>{
+      calls.push(id);
+      return calls.length===1 ? {status:"unavailable",reason:"simulated interruption"} : {status:"built",image:{
+        config:'{"image":"built"}',imageDigest:d("a"),source:'{"build":{"dockerfile":"Dockerfile"}}',lockfile:"{}"}};
+    });
+    const input={requestId:"build",name:"frozen",repository:"/fixture",commit:"a".repeat(40),path:".devcontainer/devcontainer.json",expectedSeq:0};
+    assert.equal((await definitions.build(input)).ok,false);
+    assert.equal((await definitions.build({...input,commit:"b".repeat(40)})).ok,false);
+    const published=await definitions.build(input);
+    assert.ok(published.ok);
+    assert.deepEqual(await definitions.build(input),published);
+    assert.equal(calls.length,2);
+    assert.equal(calls[0],calls[1]);
+    const shown=await definitions.show(published.value.environmentId,1);
+    assert.ok(shown.ok);
+    assert.equal((shown.value.content as {build:{commit:string}}).build.commit,input.commit);
+    assert.equal((await definitions.build({...input,requestId:"stale",definitionId:published.value.environmentId})).ok,false);
+    assert.equal(calls.length,2);
+  } finally {await fixture.close();}
+});
+
+for (const backend of backends) test(`${backend}: raw transcript imports freeze chunks and bind only the registered session`,{skip:backendSkip(backend)},async()=>{
+  const fixture=await openLedger(backend);
+  try {
+    const {composeWork}=await import("../src/work/composition.js");
+    const {createHash}=await import("node:crypto");
+    const app=composeWork(fixture.store);
+    const task=await app.tasks.createTask({requestId:"task",summary:"Read evidence",criteria:[{statement:"auditable"}]});
+    assert.ok(task.ok);
+    const start=await app.exec.startRun({requestId:"run",taskDefinitionId:task.value.taskId,workerMode:"external"});
+    assert.ok(start.ok);
+    const runId=start.value.runId;
+    const registration=await app.exec.registerExternalWorker({requestId:"worker",runId,agent:{id:"writer"}});
+    assert.ok(registration.ok);
+    const bytes=Buffer.from("trace\n".repeat(15000));
+    const digest="sha256:"+createHash("sha256").update(bytes).digest("hex");
+    const input={requestId:"raw",runId,sessionId:registration.value.sessionId,digest,coverage:"full" as const};
+    let captures=0,disposals=0;
+    const capture=async()=>{
+      captures++;
+      return {source:{digest,byteLength:bytes.length,async *open(){yield bytes;}},async dispose(){disposals++;}};
+    };
+    assert.equal((await app.traces.importRaw({...input,sessionId:"wrong"},capture)).ok,false);
+    const first=await app.traces.importRaw(input,capture);
+    assert.ok(first.ok);
+    assert.deepEqual(await app.traces.importRaw(input,capture),first);
+    assert.deepEqual([captures,disposals],[1,1]);
+    const last=await app.traces.read(runId,digest,"raw",1);
+    assert.ok(last.ok);
+    assert.deepEqual(Buffer.from(last.value.data),bytes.subarray(65536));
+    assert.equal((await fixture.store.inspectIntegrity()).report.valid,true);
+  } finally {await fixture.close();}
+});
+
+for (const backend of backends) test(`${backend}: upgrade a populated work ledger and atomically store verifiable binary evidence`, {skip:backendSkip(backend)}, async () => {
+  const fixture = await openLedger(backend);
+  const {store} = fixture;
+  const units = new SqlWorkUnitOfWork(store);
+  try {
+    const identity = (await store.open()).database_id;
+    await units.run("write",r=>r.taskRuns.create(aRun("retain-me")));
+    await store.transaction(true,async c=>{
+      // DDL is committed independently on MySQL; this fixture owns its whole database.
+      await c.exec("DROP TABLE work_evidence_chunks"); await c.exec("DROP TABLE work_evidence");
+      await c.run("UPDATE schema_metadata SET schema_version = 1");
+    });
+    await assert.rejects(store.upgrade("wrong-id"),{code:"DATABASE_ID_MISMATCH"});
+    assert.equal((await store.inspect()).schema_version,1);
+    await assert.rejects(store.open(),{code:"SCHEMA_INCOMPATIBLE"});
+    const rawStore = store as unknown as { acquireClient(): Promise<import("../src/sql-client.js").SQLClient> };
+    const client = await rawStore.acquireClient();
+    try {
+      await client.exec("CREATE TABLE work_evidence_chunks (dummy INTEGER)");
+      await assert.rejects(store.upgrade(identity),{code:"SCHEMA_INCOMPATIBLE"});
+      assert.equal((await store.inspect()).migration_state,"clean");
+      await client.exec("DROP TABLE work_evidence_chunks");
+      if (backend === "mysql") {
+        await client.run("UPDATE schema_metadata SET migration_state='in_progress'");
+        const {evidenceSchemaStatements} = await import("../src/work/adapters/sql/schema.js");
+        for (const ddl of evidenceSchemaStatements(client.dialect)) await client.exec(ddl + client.dialect.tableSuffix);
+        await client.exec("ALTER TABLE work_evidence_chunks ADD UNIQUE KEY stray_ordinal (ordinal)");
+        await assert.rejects(store.upgrade(identity),{code:"SCHEMA_INCOMPATIBLE"});
+        await client.exec("ALTER TABLE work_evidence_chunks DROP KEY stray_ordinal");
+        await client.exec("CREATE TRIGGER reject_evidence BEFORE INSERT ON work_evidence_chunks FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='fixture'");
+        await assert.rejects(store.upgrade(identity),{code:"SCHEMA_INCOMPATIBLE"});
+        // The restricted recovery account can inspect and update ledger data
+        // but its TRIGGERS view hides the administrator's existing trigger.
+        if (process.env.GROUNDS_TEST_MYSQL_DISPOSABLE_SERVER === "1") {
+          const {randomBytes} = await import("node:crypto");
+          const username = "trace_test_" + randomBytes(5).toString("hex"), password = randomBytes(16).toString("hex");
+          const database = String((await client.get("SELECT DATABASE() AS db"))!.db);
+          await client.exec(`CREATE USER '${username}'@'%' IDENTIFIED BY '${password}'`);
+          try {
+            await client.exec(`GRANT SELECT, UPDATE, CREATE ON \`${database}\`.* TO '${username}'@'%'`);
+            const limited = SQLStore.mysql({host:process.env.GROUNDS_TEST_MYSQL_HOST!,port:Number(process.env.GROUNDS_TEST_MYSQL_PORT),database,username,password,caFile:process.env.GROUNDS_TEST_MYSQL_CA_FILE});
+            try { await assert.rejects(limited.upgrade(identity),/cannot verify triggers/); } finally { await limited.close(); }
+          } finally { await client.exec(`DROP USER '${username}'@'%'`); }
+        }
+        await client.exec("DROP TRIGGER reject_evidence");
+      }
+    } finally { if (backend !== "sqlite") await client.close(); }
+    assert.equal((await store.upgrade(identity)).schema_version,SCHEMA_VERSION);
+    assert.equal((await store.upgrade(identity)).database_id,identity);
+    assert.equal((await units.run("read",r=>r.taskRuns.get("retain-me")))!.id,"retain-me");
+    const bytes = Buffer.alloc(65536*2+137);
+    for (let i=0;i<bytes.length;i++) bytes[i]=i%256;
+    const {createHash} = await import("node:crypto");
+    const digest = "sha256:"+createHash("sha256").update(bytes).digest("hex");
+    const source = {digest,byteLength:bytes.length,open:async function*() { yield bytes.subarray(0,17); yield bytes.subarray(17); }};
+    await assert.rejects(units.run("write",r=>r.evidence.put({...source,byteLength:bytes.length+1})),/changed during capture/);
+    assert.equal(await units.run("read",r=>r.evidence.describe(digest)),undefined);
+    const ref = await units.run("write",r=>r.evidence.put(source));
+    assert.equal(ref.chunkCount,3);
+    assert.deepEqual(await units.run("write",r=>r.evidence.put(source)),ref);
+    assert.deepEqual(Buffer.from((await units.run("read",r=>r.evidence.chunk(digest,1)))!),bytes.subarray(65536,131072));
+    assert.equal((await store.inspectIntegrity()).report.valid,true);
+    await store.transaction(true,c=>c.run("UPDATE work_evidence_chunks SET bytes = ? WHERE digest = ? AND ordinal = 1",[Buffer.from("replaced"),digest]));
+    assert.equal((await store.inspectIntegrity()).report.valid,false);
+  } finally {await fixture.close();}
+});

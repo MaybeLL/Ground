@@ -15,7 +15,7 @@ try {
   const entries = execFileSync("tar", ["-tf", tarball], { encoding: "utf8" }).split(/\r?\n/).filter(Boolean);
   for (const name of ["LICENSE", "THIRD_PARTY_NOTICES.md"]) if (!entries.includes(`package/dist/${name}`)) throw new Error(`tarball is missing ${name}`);
   if (!entries.includes("package/native/host-process.c")) throw new Error("tarball is missing trusted-host process inspection source");
-  for (const required of ["package/dist/src/bin.js", "package/dist/src/safe-tree.js", "package/binding.gyp", "package/native/peercred.c", "package/native/safe-tree.c", "package/dist/assets/grounds/skills/grounds/references/workflows/verify.md", "package/README.md"]) {
+  for (const required of [`package/prebuilds/${process.platform}-${process.arch}/peercred.node`, "package/dist/src/bin.js", "package/binding.gyp", "package/native/peercred.c", "package/dist/assets/grounds/skills/grounds/references/workflows/verify.md", "package/README.md"]) {
     if (!entries.includes(required)) throw new Error(`tarball is missing ${required}`);
   }
   if (entries.includes("package/vendor/mermaid.min.js")) throw new Error("tarball contains the retired contract renderer");
@@ -71,15 +71,13 @@ try {
     }
   }
 
-  for (const required of ["package/dist/src/repository-archive-github.js", "package/dist/assets/grounds/skills/grounds/references/github-archive-onboarding.md", "package/dist/src/gitlab-api.js", "package/dist/src/gitlab-tag-policy.js", "package/dist/src/repository-archive-access.js", "package/dist/src/repository-archive-cli.js", "package/dist/assets/grounds/skills/grounds/references/gitlab-archive-onboarding.md", "package/dist/assets/grounds/skills/grounds/references/contracts/v1/repository-archive.schema.json"]) {
-    if (!entries.includes(required)) throw new Error(`tarball is missing ${required}`);
-  }
-  // Exercise the extracted package's public executable, not source imports, for
-  // every CLI step of the GitLab binding and Candidate archive workflow.
-  const archiveSmoke = execFileSync(process.execPath, ["--import", "tsx", "--test", "--test-concurrency=1", "--test-name-pattern", "GitLab onboarding", "test/candidate-archive-cli.test.ts"], {
-    cwd: root, encoding: "utf8", timeout: 600_000, maxBuffer: 4 * 1024 * 1024,
-    env: { ...process.env, GROUNDS_ARCHIVE_TEST_CLI: join(output, "package/dist/src/bin.js"), GROUNDS_ARCHIVE_TEST_TRANSCRIPT: process.env.GROUNDS_ARCHIVE_TEST_TRANSCRIPT ?? join(output, "archive-api-transcript.json") },
-  });
-  process.stdout.write(archiveSmoke);
-  console.log(`package-test: ${packed[0].filename} exposes only grounds, contains the Grounds Skill bundle and passes packaged GitLab onboarding and Candidate archival.`);
+  const config = join(output, "config.yaml");
+  const cli = (...args) => JSON.parse(execFileSync(process.execPath, [join(output, "package/dist/src/bin.js"), ...args, "--config", config, "--json"], {
+    cwd: output, encoding: "utf8", env: { ...process.env, GROUNDS_DATA_HOME: join(output, "data") },
+  })).data;
+  cli("init", "--non-interactive", "--driver", "sqlite", "--path", join(output, "ledger.sqlite"));
+  const task = cli("task", "create", "--title", "Package acceptance", "--criterion", "Runs from the tarball");
+  const started = cli("work", "start", "--task", task.taskId, "--mode", "none");
+  if (cli("work", "show", "--work", started.workId).work.head !== started.runId) throw new Error("packaged work head does not match its run");
+  console.log(`package-test: ${packed[0].filename} installed its skill and started a work from the packaged CLI.`);
 } finally { rmSync(output, { recursive: true, force: true }); }

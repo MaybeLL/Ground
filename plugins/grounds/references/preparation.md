@@ -17,7 +17,7 @@
 
 新闭环的写命令会返回并打印 `operation_id`；保存原始参数及该标识。需要安全重试时传回同一 `--operation-id`，保持参数和提交 commit 不变。不要为了避开冲突换一个 ID，也不要把未知启动结果当作未启动。读回 `work run`、`work show` 或 `grade show` 后决定下一步。
 
-CLI 当前不会验证新结果的全部 JSON schema；按具体命令返回内容核对状态、版本和身份，不能套用旧 Candidate 结果类型。协议 schema 位于[分发契约](contracts/v1/README.md)；新结果 schema 尚在 P1d 补齐中。
+CLI 当前不会验证新结果的全部 JSON schema；按具体命令返回内容核对状态、版本和身份，不能套用旧 Candidate 结果类型。结果与 `grade submit --grade-file` 的输入格式见[分发契约](contracts/v1/README.md)。
 
 ## 证据边界
 

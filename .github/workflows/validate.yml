@@ -39,6 +39,8 @@ jobs:
       - run: npm run build
         working-directory: typescript
       - run: npm test
+        env:
+          GROUNDS_CI_ISOLATE_PROCESS_SCOPE: ${{ runner.os == 'macOS' }}
         working-directory: typescript
       - run: node --test scripts/*.test.mjs
       - run: node scripts/check-docs.mjs
@@ -55,6 +57,65 @@ jobs:
           path: typescript/test-worker-*.log
           if-no-files-found: ignore
           retention-days: 7
+
+  native:
+    name: Native package (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-22.04, target: linux-x64 }
+          - { runner: ubuntu-22.04-arm, target: linux-arm64 }
+          - { runner: macos-15-intel, target: darwin-x64 }
+          - { runner: macos-15, target: darwin-arm64 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - run: npm ci && npm run build
+        working-directory: typescript
+      - run: node scripts/release-artifacts.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-${{ matrix.target }}
+          path: typescript/prebuilds/${{ matrix.target }}/peercred.node
+          if-no-files-found: error
+
+  assembled:
+    name: Install assembled four-platform package
+    needs: native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - run: npm ci --registry=https://registry.npmjs.org && npm run build
+        working-directory: typescript
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: native-*
+          path: native-artifacts
+      - name: Assemble the four verified Node-API binaries
+        run: |
+          for platform in darwin-x64 darwin-arm64 linux-x64 linux-arm64; do
+            mkdir -p "typescript/prebuilds/$platform"
+            cp "native-artifacts/native-$platform/peercred.node" "typescript/prebuilds/$platform/peercred.node"
+          done
+      - run: node scripts/release-artifacts.mjs --all-platforms
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: tested-package
+          path: output/release/*
+          if-no-files-found: error
 
   integration:
     name: Integration (MySQL, PostgreSQL, SQLite)
@@ -78,5 +139,16 @@ jobs:
       - run: npm ci --registry=https://registry.npmjs.org && npm run build
         working-directory: typescript
       - name: Run TLS database conformance on all stores
-        run: node scripts/test-runtime-postgres.mjs node scripts/test-runtime-mysql.mjs node --import tsx --test --test-concurrency=1 test/runtime-store.test.ts test/mysql-conformance.test.ts test/postgres-conformance.test.ts test/list-paging.test.ts test/list-read-model.test.ts test/delivery-link-store.test.ts
+        run: node scripts/test-runtime-postgres.mjs node scripts/test-runtime-mysql.mjs node --import tsx --test --test-concurrency=1 test/postgres-conformance.test.ts test/work-code-delivery.test.ts test/work-storage.test.ts test/work-task-definitions.test.ts test/work-task-execution.test.ts test/work-grading-usecases.test.ts
         working-directory: typescript
+      - name: Verify managed work, test graders and batch comparisons with fixture agents
+        working-directory: typescript
+        run: node scripts/test-managed-worker.mjs
+      - name: Verify independent devcontainers and recover interrupted TaskRun preparation
+        working-directory: typescript
+        run: |
+          docker pull alpine:3.22
+          export GROUNDS_TEST_CONTAINER_IMAGE=alpine:3.22
+          export GROUNDS_TEST_DEVCONTAINER="$PWD/node_modules/.bin/devcontainer"
+          export GROUNDS_DATA_HOME="$RUNNER_TEMP/grounds-sandbox-data"
+          node --import tsx --test --test-concurrency=1 --test-name-pattern 'three devcontainers|three ledger-backed|killing the preparing CLI|verified local image' test/work-devcontainer-docker.test.ts test/work-cli.test.ts

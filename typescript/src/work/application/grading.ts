@@ -3,10 +3,12 @@
 // graders arrive with phase P4; measures with phase P3.
 import {
   createGrading, criteriaDigest, declareExternalEvaluatorStop, digestOf, isId, materialsDigest, parseTaskContent, recordEvaluatorCommand, recordEvaluatorStage, registerExternalEvaluator,
-  requestGradingCancel, submitGrade, type CommandObservation, type Digest, type GradingRecord, type Grade, type Hasher, type Id, type JsonValue, type ProtocolStage, type TargetRef,
+  requestGradingCancel, sameFrozenGate, submitGrade, type CommandObservation, type Digest, type GradingRecord, type Grade, type Hasher, type Id, type JsonValue, type ProtocolStage, type TargetRef, type TaskRun, type TraceBlob,
 } from "../domain/index.js";
 import type { Clock, IdSource, WorkRepositories, WorkUnitOfWork } from "../ports/index.js";
-import { ensureVerificationGrader, GRADING_REQUEST_COUNTER } from "./builtin-grader.js";
+import { GRADING_REQUEST_COUNTER, StorageFailure } from "../ports/index.js";
+import {selectManagedGate} from "./managed-gates.js";
+import { ensureVerificationGrader } from "./builtin-grader.js";
 import { fail, failureOf, fromRejection, succeed, type Outcome } from "./outcome.js";
 import { once, type RequestContext } from "./requests.js";
 
@@ -17,6 +19,28 @@ export type EvaluatorRegistered = { gradingId: Id; sessionId: Id };
 export type GradingState = { gradingId: Id; status: GradingRecord["status"]; outcome: string };
 
 const needId = (name: string, value: unknown) => isId(value) ? undefined : fail("invalid", `${name} is missing or malformed`);
+
+export async function gateEvidence(r:WorkRepositories,run:TaskRun) {
+  const evidence = new Map<string,TraceBlob>();
+  if (run.worker?.kind === "external") for (const entry of run.worker.registration.transcripts) {
+    const raw=entry.trace?.raw ?? entry.raw;
+    if (raw) evidence.set("transcript:" + entry.digest,raw);
+    if (entry.trace) evidence.set("events:" + entry.digest,entry.trace.events);
+  }
+  if(run.worker?.kind==="managed"){
+    const job=(await r.intents.listForSubject("managed-worker","task_run",run.id))[0];
+    const recorded=job?.payload as {executionId?:string;trace?:import("../domain/index.js").FrozenTrace}|undefined;
+    if(recorded?.executionId===run.worker.executionId && recorded.trace){
+      evidence.set("transcript:"+recorded.trace.raw.digest,recorded.trace.raw);
+      evidence.set("events:"+recorded.trace.raw.digest,recorded.trace.events);
+    }
+  }
+  return evidence;
+}
+
+function evidenceFingerprint(evidence:Map<string,TraceBlob>,hash:Hasher) {
+  return digestOf([...evidence].sort(([a],[b])=>a.localeCompare(b)).map(([id,ref])=>({id,...ref})),hash);
+}
 
 export class Grading {
   private readonly context: RequestContext;
@@ -30,11 +54,29 @@ export class Grading {
    * the exact task revision, criteria, manifest, grader and materials, and is
    * numbered by the ledger so the latest request is the one that counts.
    */
-  requestGate(input: { requestId: string; taskRunId: Id; materials?: { id: Id; digest: Digest }[] }): Promise<Outcome<GateRequested>> {
+  async requestGate(input: { requestId: string; taskRunId: Id; materials?: { id: Id; digest: Digest }[] }): Promise<Outcome<GateRequested>> {
     const early = needId("requestId", input.requestId) ?? needId("taskRunId", input.taskRunId);
     if (early) return Promise.resolve(early);
+    const snapshot=await this.deps.units.run("read",async r=>{
+      if (await r.intents.findByRequest(input.requestId)) return succeed(null);
+      const run=await r.taskRuns.get(input.taskRunId);
+      if (!run) return fail("not-found","task run does not exist");
+      if (run.status!=="delivered") return fail("conflict","only a delivered run can be accepted");
+      const evidence=await gateEvidence(r,run);
+      return succeed(evidence);
+    });
+    if (!snapshot.ok) return snapshot;
+    const checked=snapshot.value ?? new Map<string,TraceBlob>();
+    try {
+      for (const ref of checked.values()) await this.deps.units.verifyEvidence(ref);
+    } catch (error) {
+      if (error instanceof StorageFailure && error.reason==="integrity") return fail("unavailable","archived transcript evidence is incomplete");
+      throw error;
+    }
+    const checkedFingerprint=evidenceFingerprint(checked,this.deps.hash);
+    if (!checkedFingerprint.ok) return fromRejection(checkedFingerprint.error);
     return once<GateRequested>(this.context, { requestId: input.requestId, kind: "request-gate", input: input as unknown as JsonValue, subject: { type: "task_run", id: input.taskRunId } }, async r => {
-      const run = await r.taskRuns.get(input.taskRunId);
+      const run = await r.taskRuns.get(input.taskRunId,{lock:true});
       if (!run) return fail("not-found", `run ${input.taskRunId} does not exist`);
       if (run.status !== "delivered" || !run.manifest) return fail("conflict", `run ${run.id} is ${run.status}; only a delivered run can be accepted`);
       const revision = await r.definitions.getRevision(run.taskRevision.definitionId, run.taskRevision.revisionId);
@@ -43,7 +85,19 @@ export class Grading {
       const criteria = criteriaDigest(task.value, this.deps.hash);
       if (!criteria.ok) return fromRejection(criteria.error);
       if (task.value.criteria.length === 0) return fail("conflict", "the task has no criteria to judge");
-      const materials = input.materials ?? [];
+      const materials = [...(input.materials ?? [])];
+      if (new Set(materials.map(m=>m.id)).size !== materials.length) return fail("invalid","grading material identities must be unique");
+      const evidence=await gateEvidence(r,run);
+      const fingerprint=evidenceFingerprint(evidence,this.deps.hash);
+      if (!fingerprint.ok) return fromRejection(fingerprint.error);
+      if (fingerprint.value!==checkedFingerprint.value) return fail("stale","the run's transcript evidence changed during verification");
+      if (materials.some(m=>/^(transcript|events):/.test(m.id) && !evidence.has(m.id))) return fail("invalid","transcript materials must refer to evidence archived for this run");
+      for (const [id,ref] of evidence) {
+        const digest=ref.digest;
+        const supplied = materials.find(m=>m.id === id);
+        if (supplied && supplied.digest !== digest) return fail("invalid","explicit material conflicts with frozen transcript evidence");
+        if (!supplied) materials.push({id,digest});
+      }
       const materialsFingerprint = materialsDigest(materials, this.deps.hash);
       if (!materialsFingerprint.ok) return fromRejection(materialsFingerprint.error);
       const targets: TargetRef[] = [];
@@ -55,17 +109,24 @@ export class Grading {
       const at = this.deps.clock.now();
       const grader = await ensureVerificationGrader(r, this.deps.hash, at);
       if (!grader.ok) return grader;
+      const binding = { taskRevision: run.taskRevision, criteriaDigest: criteria.value, manifestDigest: run.manifest.digest, graderRevision: grader.value, materialsDigest: materialsFingerprint.value, ...(evidence.size ? {archivedEvidenceDigest:fingerprint.value} : {}), expectedCriteria: task.value.criteria.map(c => c.id) };
+      const summary = {taskRunId:run.id, criteria:task.value.criteria.map(c=>({id:c.id,statement:c.statement}))};
+      const existing = (await r.gradings.listForTaskRun(run.id)).reverse().find(g=>
+        g.purpose==="gate" && g.status==="running" && sameFrozenGate(g,{binding,materials}));
+      if (existing) return succeed({...summary,gradingId:existing.id,requestSeq:existing.requestSeq});
       const requestSeq = await r.sequences.next(GRADING_REQUEST_COUNTER);
       const gradingId = this.deps.ids.next();
       const created = createGrading({
         id: gradingId, purpose: "gate", origin: { type: "gate", taskRunId: run.id }, requestSeq, targets, graderRevision: grader.value, grader: { strategy: "agent", scale: { form: "criteria" } }, materials,
-        binding: { taskRevision: run.taskRevision, criteriaDigest: criteria.value, manifestDigest: run.manifest.digest, graderRevision: grader.value, materialsDigest: materialsFingerprint.value, expectedCriteria: task.value.criteria.map(c => c.id) }, at,
+        binding, at,
       });
       if (!created.ok) return fromRejection(created.error);
       await r.gradings.create(created.value.state);
-      return succeed({ gradingId, requestSeq, taskRunId: run.id, criteria: task.value.criteria.map(c => ({ id: c.id, statement: c.statement })) });
+      return succeed({ ...summary, gradingId, requestSeq });
     });
   }
+
+  selectManaged(input:Parameters<typeof selectManagedGate>[1]) {return selectManagedGate(this.context,input);}
 
   /**
    * A fresh session of the caller's agent takes the evaluation. The session is
@@ -80,6 +141,7 @@ export class Grading {
       if (!grading) return fail("not-found", `grading ${input.gradingId} does not exist`);
       const run = grading.origin.type === "gate" ? await r.taskRuns.get(grading.origin.taskRunId) : undefined;
       if (!run?.manifest) return fail("conflict", "the graded run has no frozen delivery");
+      if ((await r.intents.listForSubject("run-agent-grader","grading_record",grading.id)).length) return fail("conflict","a managed evaluator already owns this gate");
       const at = this.deps.clock.now();
       const sessionId = this.deps.ids.next();
       const next = registerExternalEvaluator(grading, {
@@ -113,7 +175,9 @@ export class Grading {
     return once<GradingState>(this.context, { requestId: input.requestId, kind: "submit-grade", input: input as unknown as JsonValue, subject: { type: "grading", id: input.gradingId } }, async r => {
       const grading = await r.gradings.get(input.gradingId, { lock: true });
       if (!grading) return fail("not-found", `grading ${input.gradingId} does not exist`);
+      if (grading.strategy === "test") return fail("forbidden","a test grade is computed from its frozen commands");
       const evaluator = grading.evaluator;
+      if (evaluator?.kind==="agent" || (await r.intents.listForSubject("run-agent-grader","grading_record",grading.id)).length) return fail("forbidden","a managed evaluation accepts only its owned provider result");
       if (grading.status === "running" && grading.purpose === "gate" && evaluator?.kind === "external" && evaluator.sessionId === input.sessionId
         && !(evaluator.protocol ?? []).some(p => p.stage === "freeze")) return fail("conflict", "freeze the blind assessment before submitting the verdict");
       const prior = grading.origin.type === "gate" ? await r.gradings.listForTaskRun(grading.origin.taskRunId) : [];

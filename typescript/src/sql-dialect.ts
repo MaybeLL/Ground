@@ -157,7 +157,7 @@ export interface SqlDialect {
   columnExistsSql(table: string, column: string): string;
 
   /** Statement returning `total` = number of user (non-catalog) base tables. */
-  readonly userTableCountSql: string;
+  readonly userObjectCountSql: string;
 
   /** Statement returning `present` = 1 when the named constraint exists. */
   constraintExistsSql(table: string, constraint: string): string;

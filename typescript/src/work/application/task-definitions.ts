@@ -1,7 +1,7 @@
 // The tasks work is done against: a stable identity with immutable, numbered
 // revisions. Changing what a task asks for is a new revision, never an edit, so
 // every run and every gate stays tied to the wording it was done against.
-import { createDefinition, isId, publishRevision, type Hasher, type Id, type JsonValue, type Revision } from "../domain/index.js";
+import { defaultWorkingOutputs, createDefinition, isId, publishRevision, type Hasher, type Id, type JsonValue, type Revision, type TaskKind, type OutputSlot, type MaterialRepository } from "../domain/index.js";
 import type { Clock, IdSource, WorkUnitOfWork } from "../ports/index.js";
 import { fail, failureOf, fromRejection, succeed, type Outcome } from "./outcome.js";
 import { once, type RequestContext } from "./requests.js";
@@ -10,7 +10,11 @@ export interface TaskDefinitionsDependencies { readonly units: WorkUnitOfWork; r
 
 export type TaskCriterion = { id?: Id; statement: string };
 export type TaskSpec = {
+  kind?: TaskKind;
+  outputs?: OutputSlot[];
+  materialRepositories?: MaterialRepository[];
   summary: string;
+  environmentDefinitionId?: string;
   criteria: TaskCriterion[];
   context?: string;
   /** Where the code lives and what the work starts from. */
@@ -37,6 +41,7 @@ export class TaskDefinitions {
       const taskId = this.deps.ids.next(), revisionId = this.deps.ids.next();
       const created = createDefinition({ id: taskId, kind: "task", name: (input.name ?? input.summary).slice(0, 256), at });
       if (!created.ok) return fromRejection(created.error);
+      if (input.environmentDefinitionId !== undefined && (await r.definitions.get(input.environmentDefinitionId))?.kind !== "environment") return fail("not-found", "environment definition does not exist");
       const content = this.content(input, undefined);
       if (!content.ok) return content;
       const published = publishRevision(created.value.state, { revisionId, expectedSeq: 0, content: content.value.json, at }, this.deps.hash);
@@ -59,6 +64,7 @@ export class TaskDefinitions {
     return once<TaskPublished>(this.context, { requestId: input.requestId, kind: "revise-task", input: input as unknown as JsonValue, subject: { type: "task", id: input.taskId } }, async r => {
       const definition = await r.definitions.get(input.taskId, { lock: true });
       if (!definition || definition.kind !== "task") return fail("not-found", `task ${input.taskId} does not exist`);
+      if (input.environmentDefinitionId !== undefined && (await r.definitions.get(input.environmentDefinitionId))?.kind !== "environment") return fail("not-found", "environment definition does not exist");
       const content = this.content(input, definition.head.seq > 0 ? await r.definitions.getRevision(definition.id, definition.head.revisionId!) : undefined);
       if (!content.ok) return content;
       const revisionId = this.deps.ids.next();
@@ -91,7 +97,7 @@ export class TaskDefinitions {
     return { taskId: definition.id, name: definition.name, seq: definition.head.seq, revision: revision ? { id: revision.id, seq: revision.seq, digest: revision.digest, content: revision.content, publishedAt: revision.publishedAt } : null };
   }
 
-  /** The content of a coding task. Identities already used by the previous revision are kept; new ones are issued. */
+  /** The content of a task revision. Identities already used by the previous revision are kept; new ones are issued. */
   private content(spec: TaskSpec, previous: Revision | undefined): Outcome<{ json: JsonValue; criteria: { id: Id; statement: string }[] }> {
     if (!Array.isArray(spec.criteria) || spec.criteria.length === 0) return fail("invalid", "a task needs at least one criterion");
     const known = new Set(((previous?.content as { criteria?: { id: Id }[] } | undefined)?.criteria ?? []).map(c => c.id));
@@ -100,8 +106,11 @@ export class TaskDefinitions {
       if (c.id !== undefined && !known.has(c.id)) return fail("invalid", `criterion ${c.id} was not in the previous revision; leave its identity out to add a new one`);
       criteria.push({ id: c.id ?? this.deps.ids.next(), statement: c.statement });
     }
-    const json: Record<string, JsonValue> = { kind: "coding", schemaVersion: 1, summary: spec.summary, criteria,
-      ...(spec.context ? { context: spec.context } : {}), ...(spec.repository ? { repository: { remote: spec.repository.remote, baseline: spec.repository.baseline } } : {}) };
+    const kind = spec.kind ?? (previous?.content as {kind?:TaskKind} | undefined)?.kind ?? "coding";
+    const materialRepositories = spec.materialRepositories ?? (previous?.content as {materialRepositories?:MaterialRepository[]} | undefined)?.materialRepositories;
+    const outputs = spec.outputs ?? (previous?.content as {outputs?:OutputSlot[]} | undefined)?.outputs ?? (kind === "working" ? defaultWorkingOutputs() : undefined);
+    const json: Record<string, JsonValue> = { kind, ...(materialRepositories ? {materialRepositories} : {}), ...(outputs ? {outputs} : {}), schemaVersion: 1, summary: spec.summary, criteria,
+      ...(spec.environmentDefinitionId ? { environmentDefinitionId: spec.environmentDefinitionId } : {}), ...(spec.context ? { context: spec.context } : {}), ...(spec.repository ? { repository: { remote: spec.repository.remote, baseline: spec.repository.baseline } } : {}) };
     return succeed({ json, criteria });
   }
 }

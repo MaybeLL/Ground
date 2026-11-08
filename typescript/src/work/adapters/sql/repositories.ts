@@ -11,6 +11,7 @@ import {
 import type { SQLClient } from "../../../sql-client.js";
 import type { SQLStore } from "../../../sql-store.js";
 import { isDuplicateKeyError, isolateStatement } from "../../../sql-shared.js";
+import { SqlEvidence } from "./evidence.js";
 import { AggregateTable, asStorageFailure, canonicalBody, digestText, textOf, type TableSpec } from "./aggregate-table.js";
 
 const owner = (o: { type: string; id: Id }) => ["owner_type = ? AND owner_id = ?", [o.type, o.id]] as const;
@@ -33,7 +34,7 @@ const executionSpec: TableSpec<AgentExecution> = { table: "work_executions", kin
 const gradingSpec: TableSpec<GradingRecord> = {
   table: "work_gradings", kind: "grading record", violations: gradingViolations,
   columns: g => ({
-    purpose: g.purpose, origin_type: g.origin.type, task_run_id: g.origin.type === "gate" ? g.origin.taskRunId : null,
+    purpose: g.purpose, origin_type: g.origin.type, task_run_id: g.origin.type === "gate" ? g.origin.taskRunId : g.origin.type === "standalone" ? g.origin.historical?.taskRunId ?? g.origin.direct?.taskRunId ?? null : null,
     experiment_run_id: g.origin.type === "member" ? g.origin.experimentRunId : null, case_key: g.origin.type === "member" ? g.origin.caseKey : null,
     repeat_index: g.origin.type === "member" ? g.origin.repeatIndex : null, request_seq: g.requestSeq, evaluator_execution_id: g.evaluator?.kind === "agent" ? g.evaluator.executionId : null, status: g.status,
   }),
@@ -79,7 +80,7 @@ class SqlDefinitions extends SqlRepository<Definition> implements DefinitionRepo
     const body = textOf(row.body_json);
     let revision: Revision;
     try { revision = JSON.parse(body) as Revision; } catch { throw new StorageFailure("integrity", `stored revision ${subject} is damaged: its body is not valid JSON`, subject); }
-    if (canonicalBody(revision) !== body || digestText(body) !== textOf(row.record_digest) || revision.id !== subject || revision.definitionId !== textOf(row.definition_id)
+    if (!revision || typeof revision !== "object" || revision.kind !== textOf(row.kind) || canonicalBody(revision) !== body || digestText(body) !== textOf(row.record_digest) || revision.id !== subject || revision.definitionId !== textOf(row.definition_id)
       || revision.seq !== Number(row.seq) || revision.digest !== textOf(row.content_digest) || revisionViolations(revision).length > 0)
       throw new StorageFailure("integrity", `stored revision ${subject} is damaged`, subject);
     return revision;
@@ -116,6 +117,19 @@ class SqlGradings extends SqlRepository<GradingRecord> implements GradingReposit
 
 class SqlExperiments implements ExperimentRepository {
   constructor(private readonly table: AggregateTable<ExperimentRun>, private readonly client: SQLClient, private readonly writable: boolean) {}
+
+  async memberProgress(batchId:Id) {
+    const rows = await this.client.all<Record<string, unknown>>(
+      `SELECT m.member_key, i.id AS admission, i.kind, i.subject_type, t.id AS run_id, t.status
+       FROM work_experiment_members m LEFT JOIN work_intents i ON i.request_id=m.task_run_request_id
+       LEFT JOIN work_task_runs t ON t.id=i.subject_id WHERE m.experiment_run_id=? ORDER BY m.ordinal`, [batchId]);
+    return rows.map(row => {
+      if (row.admission && (row.kind !== "start-experiment-member" || row.subject_type !== "task_run" || !row.run_id)) {
+        throw new StorageFailure("integrity","experiment member admission does not identify its task run",batchId);
+      }
+      return {key:textOf(row.member_key),runId:row.run_id ? textOf(row.run_id) : null,status:row.status as TaskRun["status"]|null};
+    });
+  }
 
   private async members(experimentRunId: Id): Promise<Member[]> {
     const rows = await this.client.all<Record<string, unknown>>("SELECT * FROM work_experiment_members WHERE experiment_run_id = ? ORDER BY ordinal", [experimentRunId]);
@@ -165,6 +179,7 @@ class SqlIntents extends SqlRepository<IntentRecord> implements IntentRepository
 
   async findByRequest(requestId: string) { return (await this.table.select("request_id = ?", [requestId]))[0]; }
   listByState(state: IntentState, limit: number) { return this.table.select("state = ?", [state], "id", limit); }
+  listForSubject(kind: string, type: string, id: Id) { return this.table.select("kind = ? AND subject_type = ? AND subject_id = ?", [kind, type, id], "id"); }
   listChildren(parentIntentId: Id) { return this.table.select("parent_intent_id = ?", [parentIntentId], "id"); }
 
   async register(intent: IntentRecord): Promise<{ intent: IntentRecord; created: boolean }> {
@@ -181,17 +196,18 @@ class SqlIntents extends SqlRepository<IntentRecord> implements IntentRepository
   }
 }
 
+export function decodeCompletionEvent(row: Record<string, unknown>): CompletionEvent {
+  const subject = textOf(row.id);
+  const body = textOf(row.body_json);
+  let event: CompletionEvent;
+  try { event = JSON.parse(body) as CompletionEvent; } catch { throw new StorageFailure("integrity", `stored completion event ${subject} is damaged: its body is not valid JSON`, subject); }
+  if (!event || typeof event !== "object" || event.parentIntentId !== textOf(row.parent_intent_id) || event.type !== textOf(row.event_type) || event.createdAt !== textOf(row.created_at)
+    || canonicalBody(event) !== body || digestText(body) !== textOf(row.record_digest) || event.id !== subject) throw new StorageFailure("integrity", `stored completion event ${subject} is damaged`, subject);
+  return row.delivered_at === null || row.delivered_at === undefined ? event : { ...event, deliveredAt: textOf(row.delivered_at) };
+}
+
 class SqlEvents implements CompletionEventRepository {
   constructor(private readonly client: SQLClient, private readonly writable: boolean) {}
-
-  private decode(row: Record<string, unknown>): CompletionEvent {
-    const subject = textOf(row.id);
-    const body = textOf(row.body_json);
-    let event: CompletionEvent;
-    try { event = JSON.parse(body) as CompletionEvent; } catch { throw new StorageFailure("integrity", `stored completion event ${subject} is damaged: its body is not valid JSON`, subject); }
-    if (canonicalBody(event) !== body || digestText(body) !== textOf(row.record_digest) || event.id !== subject) throw new StorageFailure("integrity", `stored completion event ${subject} is damaged`, subject);
-    return row.delivered_at === null || row.delivered_at === undefined ? event : { ...event, deliveredAt: textOf(row.delivered_at) };
-  }
 
   async append(event: CompletionEvent): Promise<{ created: boolean }> {
     if (!this.writable) throw new StorageFailure("read-only", "completion events cannot be appended in a read unit");
@@ -211,7 +227,7 @@ class SqlEvents implements CompletionEventRepository {
 
   async listUndelivered(limit: number): Promise<CompletionEvent[]> {
     const rows = await this.client.all<Record<string, unknown>>(`SELECT * FROM work_completion_events WHERE delivered_at IS NULL ORDER BY seq LIMIT ${Math.max(0, Math.floor(limit))}`);
-    return rows.map(row => this.decode(row));
+    return rows.map(decodeCompletionEvent);
   }
 
   async markDelivered(id: Id, at: string): Promise<void> {
@@ -240,6 +256,7 @@ class SqlSequences implements SequenceRepository {
 
 export function repositoriesOver(client: SQLClient, writable: boolean): WorkRepositories {
   return {
+    evidence:new SqlEvidence(client,writable),
     definitions: new SqlDefinitions(new AggregateTable(client, definitionSpec, writable), client, writable),
     works: new SqlWorks(new AggregateTable(client, workSpec, writable)),
     taskRuns: new SqlTaskRuns(new AggregateTable(client, taskRunSpec, writable)),
@@ -256,6 +273,9 @@ export function repositoriesOver(client: SQLClient, writable: boolean): WorkRepo
 /** The work model's unit of work over the ledger's SQL store: one transaction, retried by the store on transient failures. */
 export class SqlWorkUnitOfWork implements WorkUnitOfWork {
   constructor(private readonly store: SQLStore) {}
+  verifyEvidence(ref:import("../../ports/index.js").EvidenceRef) {
+    return SqlEvidence.verifyPages(ref.digest,fn=>this.store.transaction(false,client=>fn(new SqlEvidence(client,false))),ref);
+  }
   run<T>(mode: "read" | "write", work: (repositories: WorkRepositories) => Promise<T>): Promise<T> {
     return this.store.transaction(mode === "write", client => work(repositoriesOver(client, mode === "write")));
   }
