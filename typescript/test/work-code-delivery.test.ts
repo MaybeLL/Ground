@@ -453,12 +453,13 @@ for (const backend of backends) test(backend + ": test grader admission freezes 
       environmentId:env.environmentId, environmentRevisionId:env.revisionId, pass:"pass", fail:"fail", commands:[["sh", "/grounds-grader/check.sh"], ["sh","-c","exit 3"]]}));
     const task = value(await app.tasks.createTask({requestId:"task",summary:"produce a result",criteria:[{statement:"correct result"}],repository:{remote,baseline}}));
     const worker = value(await app.exec.startWork({requestId:"work",taskDefinitionId:task.taskId,workerMode:"none"}));
-    writeFileSync(join(repo,"check.sh"), "test -e result.txt\n");
-    git(repo,"add","check.sh"); git(repo,"commit","-qm","private check");
+    const hiddenPath = "a".repeat(129) + ".sh";
+    writeFileSync(join(repo,hiddenPath), "test -e result.txt\n");
+    git(repo,"add",hiddenPath); git(repo,"commit","-qm","private check");
     const delivered = value(await app.delivery.deliver({requestId:"deliver",runId:worker.runId,repositoryPath:repo,commit:"HEAD"}));
     const source = {runId:worker.runId,deliveryId:delivered.delivery.id};
     const suite = value(await app.suites.publish({requestId:"suite",name:"cases",expectedSeq:0,cases:[{...source,key:"case",bindings:[{
-      key:"private",grader:{definitionId:grader.graderId,revisionId:grader.revisionId},hiddenTestPaths:["check.sh"],
+      key:"private",grader:{definitionId:grader.graderId,revisionId:grader.revisionId},hiddenTestPaths:[hiddenPath],
     }]}]},repo));
     const input = {requestId:"measure",suiteId:suite.suiteId,seq:1,caseKey:"case",...source};
     const accepted = value(await app.suites.measure(input,repo));

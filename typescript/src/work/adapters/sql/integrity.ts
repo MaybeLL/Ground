@@ -28,7 +28,12 @@ export async function inspectWorkIntegrity(client: SQLClient): Promise<Integrity
     }],
     ["work_sandboxes", row => r.sandboxes.get(String(row.id))],
     ["work_executions", row => r.executions.get(String(row.id))],
-    ["work_gradings", row => r.gradings.get(String(row.id))],
+    ["work_gradings", async row => {
+      const grading = await r.gradings.get(String(row.id));
+      for (const step of grading?.commandSteps ?? []) {
+        for (const ref of Object.values(step.output ?? {})) await verifyRef(ref);
+      }
+    }],
     ["work_experiment_runs", row => r.experiments.get(String(row.id))],
     ["work_intents", async row => {
       const intent = await r.intents.get(String(row.id));

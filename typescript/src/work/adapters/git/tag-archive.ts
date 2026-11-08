@@ -245,7 +245,7 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
     });
   }
 
-  private async withTree<T>(repositoryPath: string, item: { id: string; receipt: string }, read: (scratch: string, commit: string) => Promise<T>): Promise<T | Exclude<ArchivedFile, { status: "read" }>> {
+  async withTree<T>(repositoryPath: string, item: { id: string; receipt: string }, read: (scratch: string, commit: string) => Promise<T>): Promise<T | Exclude<ArchivedFile, { status: "read" }>> {
     const receipt = decodeReceipt(item.receipt);
     if (!receipt || deliveryIdOf(receipt) !== item.id || !stableRemote(receipt.remote)) return { status: "invalid", reason: "invalid frozen delivery receipt" };
     const seen = await this.observe(receipt.remote, receipt.ref, repositoryPath, true);
@@ -268,12 +268,12 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
     finally { await rm(scratch, { recursive: true, force: true }); }
   }
 
-  private async blobAt(scratch: string, commit: string, path: string): Promise<{ status: "found"; blob: string } | Exclude<ArchivedFile, { status: "read" }>> {
+  private async blobAt(scratch: string, commit: string, path: string): Promise<{ status: "found"; blob: string; executable:boolean } | Exclude<ArchivedFile, { status: "read" }>> {
     const entry = await this.isolatedGit(scratch, ["--literal-pathspecs", "ls-tree", "-z", commit, "--", path]);
     if (!entry) return { status: "missing", reason: "the delivery has no file at the material path" };
     const blob = /^(?:100644|100755) blob ([0-9a-f]+)\t/.exec(entry)?.[1];
     if (!blob || !OID.test(blob)) return { status: "invalid", reason: "material must be a regular file" };
-    return { status: "found", blob };
+    return { status: "found", blob, executable:entry.startsWith("100755 ") };
   }
 
   private async readBlob(scratch: string, commit: string, path: string): Promise<ArchivedFile> {
@@ -283,7 +283,7 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
     const limit = 1024 * 1024;
     if (Number(await this.isolatedGit(scratch, ["cat-file", "-s", blob])) > limit) return { status: "invalid", reason: "material exceeds 1 MiB" };
     const result = await run("git", ["cat-file", "blob", blob], { cwd: scratch, env: inspectionEnvironment(), encoding: "buffer", maxBuffer: limit + 1, timeout: this.options.timeoutMs ?? 60_000 });
-    return { status: "read", commit, blob, bytes: result.stdout };
+    return { status: "read", commit, blob, bytes: result.stdout, ...(entry.executable ? {executable:true} : {}) };
   }
 
   /** A repair publishes another tag. Its identity is derived from the saved intent;

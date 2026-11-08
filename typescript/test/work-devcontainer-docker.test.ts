@@ -68,8 +68,10 @@ test("evaluator runs frozen hidden tests against its own target checkout with a 
     assert.equal(archived.status,"confirmed");
     if (archived.status !== "confirmed") throw new Error("missing fixture receipt");
     await writeFile(join(checkout,"result"),"different");
+    git(remote,"update-ref","-d","refs/tags/grounds/deliveries/target");
+    assert.equal((await archive.inspect(checkout,{id:"target",receipt:archived.receipt})).status,"ref-changed");
     const adapter = new EvaluatorWorkspaces(new ManagedWorkspaces(shared),archive);
-    const workspace = await adapter.prepare(owner,{commit,receipt:archived.receipt},{
+    const workspace = await adapter.prepare(owner,{commit,archiveId:"target",receipt:archived.receipt,repository:checkout},{
       imageDigest:image.split("@")[1]!,config:JSON.stringify({image,workspaceFolder:"/work"}),lockfile:null,
     },[{path:"check.sh", digest:"sha256:"+createHash("sha256").update(bytes).digest("hex"), base64:bytes.toString("base64")}]);
     const instance = await runtime.up(owner,workspace);

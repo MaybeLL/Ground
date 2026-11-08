@@ -1,8 +1,8 @@
 import {
   acquireLease, attachGradingSandbox, authorizeBridge, digestOf, isGradingTerminal, markReady, refOf,
-  completeRelease, faultGrader, markBlocked, reserve, requestSandbox, returnLease, sameRef, startCommandStep, stepStopped, submitGrade, type GradingRecord,
+  completeRelease, faultGrader, markBlocked, reserve, requestSandbox, returnLease, sameRef, startCommandStep, stepStopped, submitGrade, type GradingRecord, type CommandOutput,
 } from "../domain/index.js";
-import type { RuntimeLocation, WorkRepositories } from "../ports/index.js";
+import type { RuntimeLocation, WorkRepositories, TestStreams } from "../ports/index.js";
 import { once, type RequestContext } from "./requests.js";
 import type { EnvironmentContent } from "./environment-definitions.js";
 import type { TestPlan } from "./test-measurements.js";
@@ -105,7 +105,7 @@ export class TestExecution {
     });
   }
 
-  async stopped(id: string, ordinal: number, token: number, exitCode?: number) {
+  async stopped(id: string, ordinal: number, token: number, exitCode?: number, streams?:TestStreams) {
     return this.ctx.units.run("write", async r => {
       const grading = await r.gradings.get(id,{lock:true});
       if (!grading || grading.strategy !== "test") return fail("not-found","test grading is missing");
@@ -114,7 +114,15 @@ export class TestExecution {
       const at = this.ctx.now();
       const lease = returnLease(sandbox,{holder:holder(id,ordinal),token,stop:"verified",at});
       if (!lease.ok) return fromRejection(lease.error);
-      const step = stepStopped(grading,{ordinal,exitCode,at});
+      const output:CommandOutput = {};
+      for (const channel of ["stdout","stderr"] as const) {
+        const stream = streams?.[channel];
+        if (!stream) continue;
+        const ref = {digest:stream.source.digest,byteLength:stream.source.byteLength,chunkCount:Math.ceil(stream.source.byteLength / 65536)};
+        output[channel] = {...ref,complete:stream.observedBytes === ref.byteLength,
+          ...(stream.observedBytes === undefined ? {} : {observedBytes:stream.observedBytes})};
+      }
+      const step = stepStopped(grading,{ordinal,exitCode,...(streams ? {output} : {}),at});
       if (!step.ok) return fromRejection(step.error);
       let final = step.value.state;
       if (!isGradingTerminal(final)) {
@@ -128,12 +136,26 @@ export class TestExecution {
           final = grade.value.state;
         }
       }
+      for (const stream of Object.values(streams ?? {})) await r.evidence.put(stream.source);
       await r.sandboxes.save(lease.value.state,sandbox.version);
       await r.gradings.save(step.value.state,grading.version);
       if (final !== step.value.state) await r.gradings.save(final,step.value.state.version);
       return succeed({status:final.status});
     });
   }
+  async readOutput(id:string,ordinal:number,channel:string,chunk:number) {
+    return this.ctx.units.run("read",async r => {
+      if (channel !== "stdout" && channel !== "stderr") return fail("invalid","select stdout or stderr");
+      const grading = await r.gradings.get(id);
+      const ref = grading?.commandSteps[ordinal]?.output?.[channel];
+      if (grading?.strategy !== "test" || !ref) return fail("not-found","no output for this grading, ordinal and stream");
+      if (chunk >= ref.chunkCount) return fail("not-found","no such evaluator output chunk");
+      const bytes = await r.evidence.chunk(ref.digest,chunk);
+      if (!bytes) return fail("unavailable","evaluator output is missing");
+      return succeed({gradingId:id,ordinal,stream:channel,chunk,...ref,bytes});
+    });
+  }
+
   async fault(id:string, detail:string) {
     return this.ctx.units.run("write", async r => {
       const grading = await r.gradings.get(id,{lock:true});

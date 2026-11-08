@@ -9,8 +9,8 @@ import { atomicPrivateWrite, safeRead, withRuntimeLock } from "../../../runtime-
 import { EngineProcess, type ProcessTarget } from "./engine-process.js";
 import { DevcontainerRuntime } from "./runtime.js";
 
-export type BridgePlan = {target:ProcessTarget;handle:string;prompt:string};
-export type BridgeResult = {exitCode:number;handle:string};
+export type BridgePlan = {target:ProcessTarget;handle:string;prompt:string;boundedTestOutput?:boolean};
+export type BridgeResult = {exitCode:number;handle:string;byteCounts?:{stdout:number;stderr:number}};
 export const resultFile = (root:string) => join(root,"result.json");
 export function bridgeResult(root:string):BridgeResult|undefined {
   if (!existsSync(resultFile(root))) return;
@@ -37,9 +37,9 @@ export async function collectProvider(root:string) {
     atomicPrivateWrite(join(root,"start-attempt"),plan.handle);
     try {
       const engine=new EngineProcess(new DevcontainerRuntime());
-      const observed=await engine.start(plan.target,plan.handle,plan.prompt,join(root,"stdout.jsonl"),join(root,"stderr"));
+      const observed=await engine.start(plan.target,plan.handle,plan.prompt,join(root,"stdout.jsonl"),join(root,"stderr"),plan.boundedTestOutput ? 1024*1024 : undefined);
       if(observed.running || observed.exitCode===null) throw new Error("exit not confirmed");
-      atomicPrivateWrite(resultFile(root),JSON.stringify({handle:plan.handle,exitCode:observed.exitCode} satisfies BridgeResult));
+      atomicPrivateWrite(resultFile(root),JSON.stringify({handle:plan.handle,exitCode:observed.exitCode,...(observed.byteCounts ? {byteCounts:observed.byteCounts} : {})} satisfies BridgeResult));
     } catch { atomicPrivateWrite(join(root,"bridge-failed"),plan.handle); }
   });
 }

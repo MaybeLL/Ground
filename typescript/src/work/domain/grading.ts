@@ -58,7 +58,9 @@ export type Evaluator =
   };
 
 export type StepState = "running" | "stop_requested" | "stop_unknown" | "stopped_result" | "stopped_no_result";
-export interface CommandStep { readonly ordinal: number; readonly specDigest: Digest; readonly state: StepState; readonly exitCode?: number; readonly startedAt: Timestamp; readonly stoppedAt?: Timestamp }
+export type CommandOutputRef = {digest:Digest;byteLength:number;chunkCount:number;complete:boolean;observedBytes?:number};
+export type CommandOutput = {stdout?:CommandOutputRef;stderr?:CommandOutputRef};
+export interface CommandStep { readonly output?:CommandOutput; readonly ordinal: number; readonly specDigest: Digest; readonly state: StepState; readonly exitCode?: number; readonly startedAt: Timestamp; readonly stoppedAt?: Timestamp }
 
 export type GradingStatus = "running" | "completed" | "grader_fault" | "cancelled";
 export interface GradingLate { readonly kind: "grade" | "fault" | "step"; readonly at: Timestamp; readonly detail: string }
@@ -301,7 +303,7 @@ export function stepStopUnknown(g: GradingRecord, command: { ordinal: number; at
  * result is unknown, which makes the grading a grader fault unless cancellation
  * was requested first, in which case cancellation wins and the unknown is only kept as a diagnostic.
  */
-export function stepStopped(g: GradingRecord, command: { ordinal: number; exitCode?: number; at: Timestamp }): Step {
+export function stepStopped(g: GradingRecord, command: { ordinal: number; exitCode?: number; output?:CommandOutput; at: Timestamp }): Step {
   const bad = firstInvalid([["ordinal", isNonNegativeInteger(command.ordinal)], ["exitCode", command.exitCode === undefined || Number.isSafeInteger(command.exitCode)], ["at", isTimestamp(command.at)]]);
   if (bad) return bad;
   if (isGradingTerminal(g)) return late(g, "step", command.at, `command step ${command.ordinal} stopped after the grading finished`);
@@ -309,7 +311,7 @@ export function stepStopped(g: GradingRecord, command: { ordinal: number; exitCo
   if (!step) return conflict("no such command step");
   if (step.state === "stopped_result" || step.state === "stopped_no_result") return conflict("the command already stopped");
   const state: StepState = command.exitCode === undefined ? "stopped_no_result" : "stopped_result";
-  const commandSteps = changeStep(g, command.ordinal, { state, stoppedAt: command.at, ...(command.exitCode !== undefined ? { exitCode: command.exitCode } : {}) })!;
+  const commandSteps = changeStep(g, command.ordinal, { state, stoppedAt: command.at, ...(command.output ? {output:command.output} : {}), ...(command.exitCode !== undefined ? { exitCode: command.exitCode } : {}) })!;
   const event: GradingEvent = { type: "command-step", gradingId: g.id, ordinal: command.ordinal, state, at: command.at };
   if (g.cancelIntent) return settleCancel(g, { commandSteps }, [event], command.at, "cancel-wins");
   if (state === "stopped_no_result") return advance(g, { commandSteps, status: "grader_fault", fault: `command step ${command.ordinal} stopped without a trustworthy exit result`, terminalAt: command.at }, [event, { type: "grader-fault", gradingId: g.id, at: command.at }], "applied");

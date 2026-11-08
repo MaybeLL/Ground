@@ -894,7 +894,7 @@ test("test grading runs ordered commands in its own sandbox and releases the pri
     const image = process.env.GROUNDS_TEST_MANAGED_AGENT!;
     const digest = docker("image","inspect","--format","{{.Id}}",image);
     const config = join(h.directory,"grader-container.json"), commands = join(h.directory,"commands.json"), cases = join(h.directory,"cases.json");
-    writeFileSync(config, JSON.stringify({image,workspaceFolder:"/work",overrideCommand:false}));
+    writeFileSync(config, JSON.stringify({image,workspaceFolder:"/work",overrideCommand:false,remoteEnv:{GRADER_FLAG:"from-devcontainer"}}));
     const env = ok(await h.cli("work","define-environment","--name","evaluation","--devcontainer",config,"--image-digest",digest));
     const task = ok(await h.cli("task","create","--title","produce answer","--criterion","correct","--repo-remote",h.remote,"--baseline",h.baseline));
     const deliver = async () => {
@@ -903,10 +903,11 @@ test("test grading runs ordered commands in its own sandbox and releases the pri
       return {runId:run.runId,deliveryId:delivery.id};
     };
     const target = await deliver();
-    writeFileSync(join(h.repo,"check.sh"),'test "$(cat app.txt)" = v0 && test ! -e check.sh && ! (echo rewrite >> /grounds-grader/check.sh)\n');
+    writeFileSync(join(h.repo,"check.sh"),'#!/bin/sh\ntest "$(cat app.txt)" = v0 && test ! -e check.sh && test "$GRADER_FLAG" = from-devcontainer && ! (echo rewrite >> /grounds-grader/check.sh)\n');
     git(h.repo,"add","check.sh");git(h.repo,"commit","-qm","private evaluator material");
+    git(h.repo,"update-index","--chmod=+x","check.sh");git(h.repo,"commit","-qm","freeze executable bit");
     const curator = await deliver();
-    writeFileSync(commands, JSON.stringify([["sh","/grounds-grader/check.sh"],["sh","-c","exit 7"]]));
+    writeFileSync(commands, JSON.stringify([["/grounds-grader/check.sh"],["sh","-c","head -c 1100000 /dev/zero; echo failure >&2; exit 7"]]));
     const grader = ok(await h.cli("grade","define-test","--name","private checks","--commands",commands,"--environment",env.environmentId,"--environment-revision",env.revisionId,"--pass","accept","--fail","reject"));
     writeFileSync(cases, JSON.stringify([{key:"example",...target,bindings:[{key:"tests",grader:{definitionId:grader.graderId,revisionId:grader.revisionId},
       hiddenTestPaths:["check.sh"],materialSource:curator}]}]));
@@ -926,11 +927,53 @@ test("test grading runs ordered commands in its own sandbox and releases the pri
       assert.equal(status.host?.state,"terminal",JSON.stringify(status));
       assert.equal(status.sandboxPhase,"released");
       const record = ok(await h.cli("grade","show","--grading",admitted.gradingId));
+      assert.equal(record.commandSteps[1].output.stdout.complete,false);
+      assert.equal(record.commandSteps[1].output.stdout.byteLength,1048576);
+      assert.equal(record.commandSteps[1].output.stdout.observedBytes,1100000);
+      const diagnostic = ok(await h.cli("grade","test-output","--grading",admitted.gradingId,"--step","1","--stream","stderr","--chunk","0"));
+      assert.equal(Buffer.from(diagnostic.base64,"base64").toString(),"failure\n");
       assert.deepEqual(record.grade,{form:"category",category:"reject"});
       assert.deepEqual(record.commandSteps.map((step:{exitCode:number})=>step.exitCode),[0,7]);
       assert.equal(docker("ps","-aq","--filter","label=dev.grounds.ledger="+ledger),"");
       assert.equal(existsSync(join(dataLayout().workspaces,"sandboxes",ledger,record.sandboxId)),false);
       assert.equal(ok(await h.cli("work","run","--run",target.runId)).run.status,"delivered");
+      writeFileSync(commands, JSON.stringify([["sh","-c","touch /tmp/grader-command-ready && exec sleep 180"]]));
+      const slow = ok(await h.cli("grade","define-test","--name","interruptible check","--commands",commands,
+        "--environment",env.environmentId,"--environment-revision",env.revisionId,"--pass","yes","--fail","no"));
+      writeFileSync(cases, JSON.stringify([{key:"slow",...target,bindings:[{key:"tests",grader:{definitionId:slow.graderId,revisionId:slow.revisionId}}]}]));
+      const interruptible = ok(await h.cli("suite","publish","--name","fault fixture","--cases-file",cases));
+      for (const interrupt of ["cancel", "lose-collector"]) {
+        const job = ok(await h.cli("suite","measure","--suite",interruptible.suiteId,"--revision","1","--case","slow","--run",target.runId,"--delivery",target.deliveryId));
+        const until = Date.now() + 60_000;
+        let row, ready = false;
+        do {
+          row = ok(await h.cli("grade","show","--grading",job.gradingId));
+          if (row.sandboxId && row.commandSteps.length) {
+            const instance = docker("ps","-q","--filter","label=dev.grounds.sandbox="+row.sandboxId);
+            try { if (instance) { docker("exec",instance,"test","-f","/tmp/grader-command-ready"); ready=true; } }
+            catch { /* Wait for the real process to start. */ }
+          }
+          if (!ready) await new Promise(resolve => setTimeout(resolve,250));
+        } while (!ready && Date.now() < until);
+        assert.ok(ready, "evaluator command reached its barrier");
+        if (interrupt === "cancel") ok(await h.cli("grade","cancel","--grading",job.gradingId));
+        else {
+          const bridge = JSON.parse(readFileSync(join(dataLayout().workspaces,"sandboxes",ledger,row.sandboxId,"test-commands","0-1","bridge-owner"),"utf8"));
+          assert.equal(signalHostProcessLeader(bridge.pid,bridge.birth,"SIGKILL"),true);
+        }
+        do {
+          status = ok(await h.cli("grade","test-status","--grading",job.gradingId));
+          if (status.host?.state === "terminal") break;
+          await new Promise(resolve => setTimeout(resolve,250));
+        } while (Date.now() < until);
+        assert.equal(status.sandboxPhase,"released",JSON.stringify(status));
+        assert.equal(status.status,interrupt === "cancel" ? "cancelled" : "grader_fault");
+        row = ok(await h.cli("grade","show","--grading",job.gradingId));
+        assert.equal(row.commandSteps[0].state,"stopped_no_result");
+        assert.equal(row.grade,undefined);
+        assert.equal(docker("ps","-aq","--filter","label=dev.grounds.sandbox="+row.sandboxId),"");
+        await withRuntimeLock(join(dataLayout().runtime,"managed-host"),"execution-"+job.gradingId,async()=>{},10_000);
+      }
       await withRuntimeLock(join(dataLayout().runtime,"managed-host"),"execution-"+admitted.gradingId,async()=>{},10_000);
     } finally {
       for (const id of docker("ps","-aq","--filter","label=dev.grounds.ledger="+ledger).split("\n").filter(Boolean)) docker("rm","-f",id);

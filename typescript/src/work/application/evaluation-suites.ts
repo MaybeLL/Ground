@@ -12,7 +12,7 @@ type DeliverySelection = { runId: string; deliveryId: string };
 type BindingSource = { key: string; answerPath?: string; grader?: GraderSelection; referencePath?: string; hiddenTestPaths: string[]; materialSource?: DeliverySelection };
 type CaseSource = DeliverySelection & { key: string; bindings: BindingSource[] };
 type Source = DeliverySelection & { manifestDigest: string; receipt: string; archiveId: string; archiveReceipt: string; commit: string };
-type Material = { role: "reference-answer" | "hidden-test"; visibility: "grader"; path: string; blob: string; digest: string; base64: string };
+type Material = { role: "reference-answer" | "hidden-test"; visibility: "grader"; path: string; blob: string; executable?:true; digest: string; base64: string };
 type Binding = { key: string; answerPath?: string; graderRevision: RevisionRef; materialSource: Source; materials: Material[] };
 type FrozenCase = { key: string; taskRevision: RevisionRef; source: Source; bindings: Binding[] };
 type Published = { suiteId: string; revisionId: string; seq: number; digest: string; caseCount: number };
@@ -102,7 +102,7 @@ export class EvaluationSuites {
         if (files.status !== "read") return fail(files.status === "missing" ? "not-found" : files.status, files.reason);
         const materials: Material[] = paths.map((path, i) => {
           const file = files.files.get(path)!;
-          return { role: i === 0 && binding.referencePath ? "reference-answer" : "hidden-test", visibility: "grader", path, blob: file.blob, ...this.deps.capture(file.bytes) };
+          return { role: i === 0 && binding.referencePath ? "reference-answer" : "hidden-test", visibility: "grader", path, blob: file.blob, ...(file.executable ? {executable:true as const} : {}), ...this.deps.capture(file.bytes) };
         });
         bindings.push({ key: binding.key, ...(binding.answerPath ? {answerPath:binding.answerPath} : {}), selection: binding.grader, materialSource: source.value.source, materials });
       }
@@ -235,8 +235,8 @@ export class EvaluationSuites {
     if (test) {
       const source = delivery.value.source;
       const plan = {suite:refOf(revision), caseKey:selected.key, bindingKey:binding.key, runId:input.runId,
-        deliveryId:input.deliveryId, commit:source.commit, receipt:source.archiveReceipt, repository:repo};
-      const materials = binding.materials.map(m => ({id:m.path, digest:m.digest}));
+        deliveryId:input.deliveryId, commit:source.commit, archiveId:source.archiveId, receipt:source.archiveReceipt, repository:repo};
+      const materials = binding.materials.map((m, ordinal) => ({id:"suite-material-" + ordinal, digest:m.digest}));
       return once(this.deps, request, r => admitTestMeasurement(this.deps, r, plan, delivery.value.item, test, binding.graderRevision, materials));
     }
     if (!rule) return fail("unsupported", "the selected rule is unavailable");

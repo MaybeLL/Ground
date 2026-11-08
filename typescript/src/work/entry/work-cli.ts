@@ -196,6 +196,10 @@ async function grade(args: ParsedArgs, action: string, app: WorkApplication, dep
         ...(reference ? { reference } : {}) }, text(args, "repo") ?? deps.cwd));
     }
     case "resume-test": return unwrap(await app.tests.resume(grading(),requestId(args)));
+    case "test-output": {
+      const {bytes,...ref} = unwrap(await app.tests.readOutput(grading(),integer(args,"step"),need(args,"stream"),integer(args,"chunk")));
+      return {...ref,base64:Buffer.from(bytes).toString("base64")};
+    }
     case "test-status": {
       const ctx = unwrap(await app.tests.context(grading()));
       return {gradingId:ctx.grading.id, status:ctx.grading.status, ...(ctx.sandbox ? {sandboxPhase:ctx.sandbox.phase} : {}),

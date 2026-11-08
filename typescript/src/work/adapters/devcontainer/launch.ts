@@ -13,6 +13,8 @@ const marker = (root: string) => join(root, "launch-state");
 export class DurableSandboxLauncher implements SandboxLauncher {
   constructor(private readonly workspaces: ManagedWorkspaces) {}
 
+  dispatched(owner:RuntimeOwner) { return existsSync(join(this.workspaces.setupRoot(owner),"launch.json")); }
+
   async status(owner: RuntimeOwner): Promise<LaunchObservation> {
     const root = this.workspaces.setupRoot(owner);
     if (!existsSync(marker(root))) return "not-started";

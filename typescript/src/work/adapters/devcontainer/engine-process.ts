@@ -110,10 +110,11 @@ export class EngineProcess {
     return this.inspect(socket,api,target,id);
   }
 
-  async start(target:ProcessTarget,id:string,input:string,stdoutPath:string,stderrPath:string) {
+  async start(target:ProcessTarget,id:string,input:string,stdoutPath:string,stderrPath:string,streamLimit?:number) {
     const {socket,api}=await this.endpoint(target);
     const before=await this.inspect(socket,api,target,id);
     if (before.running) throw new Error("Docker exec is already running");
+    const byteCounts = {stdout:0,stderr:0};
     const out=await open(stdoutPath,"wx",0o600);
     try {
       const err=await open(stderrPath,"wx",0o600);
@@ -123,6 +124,10 @@ export class EngineProcess {
           connected.socket.end(Buffer.from(input));
           async function* stream() { if (connected.head.length) yield connected.head; yield* connected.socket; }
           await demultiplex(stream(),async (tag,data)=>{
+            const channel = tag === 1 ? "stdout" : "stderr";
+            const before = byteCounts[channel];
+            byteCounts[channel] += data.length;
+            if (streamLimit !== undefined) data = data.subarray(0, Math.max(0,streamLimit - before));
             const dest=tag===1 ? out : err;
             for (let offset=0;offset<data.length;) {
               const {bytesWritten}=await dest.write(data,offset,data.length-offset);
@@ -134,6 +139,7 @@ export class EngineProcess {
         } finally {connected.socket.destroy();}
       } finally {await err.close();}
     } finally {await out.close();}
-    return this.inspect(socket,api,target,id);
+    const status = await this.inspect(socket,api,target,id);
+    return {...status,...(streamLimit === undefined ? {} : {byteCounts})};
   }
 }

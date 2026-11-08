@@ -864,9 +864,11 @@
       "required": ["stage", "entry", "argvDigest", "state", "at"],
       "additionalProperties": false
     },
+    "CommandOutputRef": {"type": "object", "required": ["digest", "byteLength", "chunkCount", "complete"], "properties": {"digest": {"$ref": "#/$defs/Digest"}, "byteLength": {"type": "integer", "minimum": 0}, "chunkCount": {"type": "integer", "minimum": 0}, "complete": {"type": "boolean"}, "observedBytes": {"type": "integer", "minimum": 0}}, "additionalProperties": false},
     "CommandStep": {
       "type": "object",
       "properties": {
+        "output": {"type":"object","properties":{"stdout":{"$ref":"#/$defs/CommandOutputRef"},"stderr":{"$ref":"#/$defs/CommandOutputRef"}},"additionalProperties":false},
         "ordinal": {"type": "integer", "minimum": 0},
         "specDigest": {"$ref": "#/$defs/Digest"},
         "state": {"$ref": "#/$defs/StepState"},

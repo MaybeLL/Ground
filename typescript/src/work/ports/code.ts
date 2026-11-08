@@ -25,7 +25,7 @@ export type RepairInput = RepairIdentity & { repositoryPath: string; earlierRece
 
 /** Immutable bytes read from a regular file in a frozen delivery, never from the working tree. */
 export type ArchivedFile =
-  | { readonly status: "read"; readonly commit: string; readonly blob: string; readonly bytes: Uint8Array }
+  | { readonly status: "read"; readonly commit: string; readonly blob: string; readonly executable?:true; bytes: Uint8Array }
   | { readonly status: "missing" | "unavailable" | "invalid"; readonly reason: string };
 
 export type ArchivedDigest = { status: "read"; digest: string } | Exclude<ArchivedFile, { status: "read" }>;

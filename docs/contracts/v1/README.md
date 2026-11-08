@@ -93,3 +93,11 @@ When resuming partially created MySQL evidence tables, the upgrade account must 
 
 
 托管精化默认在 `work continue` 接手工作头保留的沙箱。使用 `--sandbox fresh` 可从父交付创建新的工作区。`work branch` 默认新建工作区，可用 `--sandbox inherit` 请求接手。接手保留未提交的文件并继承父运行的环境修订。请求的环境与保留沙箱冲突时，可改选新沙箱。父运行的正式交付提交会作为精化输入提供给工作者。失败或已取消的托管父运行没有交付时，显式选择 fresh 会从该父运行原先固定的基线开始。
+
+### 测试评分器
+
+`grade define-test --name NAME --commands FILE --environment ID --environment-revision REV --pass LABEL --fail LABEL` 固定评价者环境与命令。FILE 是按执行顺序排列的 JSON 参数数组，例如 `[["sh","/grounds-grader/check.sh"]]`。测试绑定使用精确 grader 修订，可指定 `hiddenTestPaths`；`answerPath` 供文件规则使用。评价者在独立沙箱中检出冻结提交，隐藏材料以只读方式挂载到 `/grounds-grader`。
+
+`suite measure` 受理后返回 gradingId。`grade test-status --grading ID` 查询宿主观测，`grade resume-test --grading ID` 显式推进尚未启动的命令，`grade cancel --grading ID` 取消。所有命令都确认停止并有退出码后，全部为零取 pass 标签，否则取 fail 标签。无法取得可信退出码时记录 grader_fault；取消优先。评分终结后释放容器和工作区。
+
+`grade show --grading ID` 显示各命令退出码、输出摘要及内容摘要值。每条命令的 stdout、stderr 各保留前 1 MiB，正常收集时同时记录完整字节数，complete 标明是否完整。`grade test-output --grading ID --step N --stream stdout|stderr --chunk N` 按 64 KiB 分块取回选定评分的证据。

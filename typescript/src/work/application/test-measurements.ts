@@ -6,7 +6,7 @@ import { fromRejection, succeed } from "./outcome.js";
 
 export type TestPlan = {
   suite: RevisionRef; caseKey: string; bindingKey: string; runId: string; deliveryId: string;
-  commit: string; receipt: string; repository: string;
+  commit: string; archiveId:string; receipt: string; repository: string;
 };
 export type AcceptedTest = {
   gradingId: string; suiteId: string; revisionId: string; caseKey: string; bindingKey: string;

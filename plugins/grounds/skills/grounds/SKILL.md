@@ -42,3 +42,5 @@ grounds grade list --run "$RUN_ID" --json
 - `work close` 不等于通过；`accepted` 不等于已合并或已发布。推送交付归档标签是 `work deliver` 的外部副作用，开始前明确授权；合并、部署、清理需要各自授权。
 
 旧 `eval` 命令、评测与知识改进 skill 已退役，不再发布或读取旧评测资产。从历史交付生成新评测集时，使用 `suite publish` 固定来源与评分材料，通过 `suite measure` 运行文件比对规则。命令参数与结果见[评测集契约](../../references/contracts/v1/README.md)。托管执行与批量实验分别在 P4、P5 实现。新结果及评分输入已有分发契约。真实宿主闭环的冒烟范围记录在仓库实现方案第 9 节。
+
+For a command-based suite measurement, publish a test grader with `grade define-test`, its exact evaluator environment revision, an ordered JSON list of argument arrays, and two result labels. Bind the returned grader revision to the case and include any private `hiddenTestPaths`. In the evaluator container these paths are available read-only under `/grounds-grader`. Use `suite measure` to admit the grading, then `grade test-status --grading ID` for progress and `grade show --grading ID` for the result.

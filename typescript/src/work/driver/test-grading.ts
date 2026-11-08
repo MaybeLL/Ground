@@ -53,7 +53,7 @@ export class TestGradingDriver {
     if (!sandbox.runtime) {
       const setup = await launcher.status(owner);
       if (setup === "not-started") {
-        if (!live) return succeed({state:"awaiting-resume",detail:"evaluator setup has not started"});
+        if (!live) return succeed({state:"awaiting-resume",detail:"evaluator setup has not started",providerStopped:launcher.dispatched?.(owner) === false});
         let workspace;
         try { workspace = await process.prepare(owner,plan,environment,materials); }
         catch { return succeed({state:"blocked",detail:"frozen evaluator workspace or target could not be prepared",providerStopped:true}); }
@@ -77,7 +77,12 @@ export class TestGradingDriver {
     const last = grading.commandSteps.at(-1);
     const active = last && last.state !== "stopped_result" && last.state !== "stopped_no_result";
     if (!active) {
-      if (!live) return succeed({state:"awaiting-resume",detail:"next evaluator command has not started",providerStopped:true});
+      if (!live) {
+        const actual = await runtime.observe(owner);
+        if (actual && (actual.id !== sandbox.runtime.instanceId || actual.setupAttempt !== id)) return fail("conflict","evaluator instance identity changed");
+        if (actual && actual.state !== "stopped") await runtime.stop(owner,actual.id);
+        return succeed({state:"awaiting-resume",detail:"next evaluator command has not started",providerStopped:true});
+      }
       const begun = await tests.beginStep(id,grading.commandSteps.length);
       return begun.ok ? this.drive(id,live) : begun;
     }
@@ -88,7 +93,8 @@ export class TestGradingDriver {
     const result = await process.command({owner,location,containerId:sandbox.runtime.instanceId},ordinal,token,grader.commands[ordinal]!,live,!!grading.cancelIntent);
     if (result.state === "running" || result.state === "awaiting-resume") return succeed({state:result.state});
     if (result.state !== "stopped") return fail("unavailable","test command stop is unconfirmed");
-    const ended = await tests.stopped(id,ordinal,token,result.exitCode);
+    const output = await process.output(owner,ordinal,token);
+    const ended = await tests.stopped(id,ordinal,token,result.exitCode,output);
     return ended.ok ? this.drive(id,live) : ended;
   }
 }

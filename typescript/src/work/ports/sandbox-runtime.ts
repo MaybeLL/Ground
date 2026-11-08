@@ -9,6 +9,7 @@ export interface SandboxRuntimePort {
   exclusive<T>(owner: RuntimeOwner, fn: () => Promise<T>): Promise<T>;
   observe(owner: RuntimeOwner): Promise<RuntimeState | null>;
   up(owner: RuntimeOwner, workspace: RuntimeWorkspace): Promise<RuntimeState>;
+  stop(owner: RuntimeOwner, id: string): Promise<void>;
   pause(owner: RuntimeOwner, id: string): Promise<void>;
   resume(owner: RuntimeOwner, id: string): Promise<void>;
   remove(owner: RuntimeOwner, id: string): Promise<void>;
@@ -25,6 +26,7 @@ export interface ManagedWorkspacePort {
 export type LaunchObservation = "not-started" | "active" | "failed" | "completed" | "interrupted";
 /** The launch helper survives the client and owns the lock until its tool exits. */
 export interface SandboxLauncher {
+  dispatched?(owner:RuntimeOwner):boolean;
   start(owner: RuntimeOwner, workspace: RuntimeWorkspace, location: RuntimeLocation): Promise<void>;
   status(owner: RuntimeOwner): Promise<LaunchObservation>;
   cancelPending(owner: RuntimeOwner): Promise<boolean>;

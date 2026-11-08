@@ -531,6 +531,69 @@
         }
       },
       "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "gradingId",
+        "ordinal",
+        "stream",
+        "chunk",
+        "base64",
+        "digest",
+        "byteLength",
+        "chunkCount",
+        "complete"
+      ],
+      "properties": {
+        "command": {
+          "const": "grade.test-output"
+        },
+        "result_type": {
+          "const": "grounds.result.grade.test-output/v1"
+        },
+        "gradingId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "ordinal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stream": {
+          "enum": [
+            "stdout",
+            "stderr"
+          ]
+        },
+        "chunk": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "base64": {
+          "type": "string"
+        },
+        "digest": {
+          "$ref": "work-results.schema.json#/$defs/Digest"
+        },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "chunkCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "observedBytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
     }
   ],
   "$defs": {
@@ -602,6 +665,9 @@
         },
         "digest": {
           "$ref": "work-results.schema.json#/$defs/Digest"
+        },
+        "executable": {
+          "const": true
         }
       },
       "additionalProperties": false

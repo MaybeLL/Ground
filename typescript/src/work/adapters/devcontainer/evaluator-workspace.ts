@@ -1,16 +1,11 @@
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { promisify } from "node:util";
 import type { RuntimeOwner } from "../../ports/index.js";
 import { GitTagArchive } from "../git/tag-archive.js";
-import { inspectionEnvironment } from "../git/inspection-environment.js";
 import { ManagedWorkspaces } from "./workspace.js";
 
-const run = promisify(execFile);
-type Material = {path:string; digest:string; base64:string};
+type Material = {executable?:boolean;path:string; digest:string; base64:string};
 type Environment = {config:string; lockfile:string | null; imageDigest:string};
 
 /** Materialize only the selected delivery in a new evaluator checkout. The
@@ -18,17 +13,13 @@ type Environment = {config:string; lockfile:string | null; imageDigest:string};
 export class EvaluatorWorkspaces {
   constructor(private readonly workspaces:ManagedWorkspaces, private readonly archive:GitTagArchive) {}
 
-  async prepare(owner:RuntimeOwner, target:{commit:string;receipt:string}, environment:Environment, materials:Material[]) {
-    const scratch = await mkdtemp(join(tmpdir(),"grounds-grading-target-"));
-    try {
-      await run("git", ["init","--quiet","--bare","--template=","--object-format=" + (target.commit.length === 64 ? "sha256" : "sha1")],
-        {cwd:scratch, env:inspectionEnvironment()});
-      const fetched = await this.archive.fetch({repositoryPath:scratch, receipt:target.receipt});
-      if (fetched.status !== "fetched" || fetched.commit !== target.commit) throw new Error("the selected evaluation target is unavailable");
-      const workspace = await this.workspaces.prepare(owner, scratch, target.commit, environment);
-      const graderMaterials = await this.materials(owner, materials);
-      return {...workspace, graderMaterials};
-    } finally { await rm(scratch,{recursive:true,force:true}); }
+  async prepare(owner:RuntimeOwner, target:{commit:string;archiveId:string;receipt:string;repository:string}, environment:Environment, materials:Material[]) {
+    const prepared = await this.archive.withTree(target.repository,{id:target.archiveId,receipt:target.receipt},async (scratch,commit) => {
+      if (commit !== target.commit) throw new Error("evaluation target identity changed");
+      return this.workspaces.prepare(owner,scratch,commit,environment);
+    });
+    if ("status" in prepared) throw new Error("the frozen evaluation target is unavailable");
+    return {...prepared,graderMaterials:await this.materials(owner, materials)};
   }
 
   private async materials(owner:RuntimeOwner, materials:Material[]) {
@@ -43,7 +34,7 @@ export class EvaluatorWorkspaces {
         if ("sha256:" + createHash("sha256").update(bytes).digest("hex") !== material.digest) throw new Error("private grading material digest changed");
         const path = join(stage,material.path);
         await mkdir(dirname(path), {recursive:true});
-        await writeFile(path,bytes,{mode:0o444,flag:"wx"});
+        await writeFile(path,bytes,{mode:material.executable ? 0o555 : 0o444,flag:"wx"});
       }
       // The sandbox's private parent is only traversable by its host owner.
       // The mount itself must also be traversable by its container remoteUser.

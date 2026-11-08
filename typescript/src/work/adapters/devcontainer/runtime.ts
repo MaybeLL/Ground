@@ -210,12 +210,28 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
     if (await this.observe(owner)) throw new Error("sandbox removal not confirmed");
   }
 
+  /** Resolve remoteEnv, image metadata and the remote user through the same
+   * devcontainer CLI used for interactive exec. These values stay in memory. */
+  async evaluatorEnvironment(owner:RuntimeOwner, id:string, path:string, configPath:string) {
+    const probe = await this.execInContainer(owner,id,path,configPath,["/bin/sh","-c","command -p id -u && command -p id -g && exec /usr/bin/env -0"]);
+    if (probe.exitCode !== 0) throw new Error("could not resolve evaluator command environment");
+    const fields = /^(\d+)\n(\d+)\n/.exec(probe.stdout);
+    if (!fields) throw new Error("invalid evaluator process identity");
+    const env = probe.stdout.slice(fields[0].length).split("\0");
+    if (env.pop() !== "" || env.some(entry => entry.indexOf("=") < 1)) throw new Error("invalid evaluator environment");
+    return {user:fields[1] + ":" + fields[2],env};
+  }
+
   async execute(owner: RuntimeOwner, id: string, workspace: RuntimeWorkspace, argv: readonly string[]) {
+    return this.execInContainer(owner,id,workspace.path,workspace.imageDigest ? join(dirname(workspace.configPath),"effective","devcontainer.json") : workspace.configPath,argv);
+  }
+
+  private async execInContainer(owner:RuntimeOwner,id:string,path:string,configPath:string,argv:readonly string[]) {
     if ((await this.owned(owner, id)).state !== "running") throw new Error("sandbox is not running");
     if (!argv.length) throw new Error("sandbox command needs an executable");
     try {
-      const result = await this.invoke(this.devcontainer, ["exec", "--docker-path", this.docker, "--workspace-folder", workspace.path,
-        "--config", workspace.imageDigest ? join(dirname(workspace.configPath),"effective","devcontainer.json") : workspace.configPath, "--container-id", id, "--", ...argv], opts);
+      const result = await this.invoke(this.devcontainer, ["exec", "--docker-path", this.docker, "--workspace-folder", path,
+        "--config", configPath, "--container-id", id, "--", ...argv], opts);
       return { stdout: result.stdout, stderr: result.stderr, exitCode: 0 };
     } catch (error) {
       const failure = error as {code?: number | string; killed?: boolean; stdout?: string; stderr?: string};
