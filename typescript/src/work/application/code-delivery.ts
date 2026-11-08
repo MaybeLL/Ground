@@ -55,6 +55,7 @@ export class CodeDelivery {
       previous=await this.deps.units.run("read",r=>r.intents.findByRequest(input.requestId));
     }
     let previousReceipt: string | undefined;
+    let observedPublication=false;
     if (previous) {
       const payload = previous.payload as { items?: { id: Id; receipt: string }[] };
       const item = payload?.items?.[0];
@@ -63,8 +64,11 @@ export class CodeDelivery {
       }
       if (previous.state==="completed") {
         const outcome=(previous.result as Submitted).outcome;
-        if (["cancel-wins","already-terminal"].includes(outcome) && (await this.deps.archive.inspect(input.repositoryPath,item)).tag!=="unchanged") {
-          return fail("conflict","the run ended without a confirmed publication");
+        if (!previous.publicationConfirmed && ["cancel-wins","already-terminal"].includes(outcome)) {
+          const observed=await this.deps.archive.inspect(input.repositoryPath,item);
+          if (observed.tag==="unknown") return fail("unavailable","the candidate publication cannot currently be verified");
+          if (observed.tag!=="unchanged") return fail("conflict","the run ended without a confirmed publication");
+          observedPublication=true;
         }
         previousReceipt = item.receipt;
       }
@@ -77,7 +81,9 @@ export class CodeDelivery {
       if (previous && archived.status === "conflict") return fail("request-conflict", archived.reason);
       return fail(archived.status, archived.reason);
     }
-    const submitted = await this.deps.exec.submit(proposal(archived.receipt));
+    const submission=proposal(archived.receipt);
+    if (!previousReceipt || observedPublication) await this.deps.exec.confirmPublication(submission);
+    const submitted = await this.deps.exec.submit(submission);
     if (!submitted.ok) return submitted;
     return succeed({ delivery: { id: deliveryId, commit: archived.commit, receipt: archived.receipt, protection: input.protection ?? { level: "unknown" } }, submitted: submitted.value });
   }

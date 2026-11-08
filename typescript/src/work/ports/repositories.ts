@@ -86,6 +86,8 @@ export interface IntentRecord extends Versioned {
   readonly state: IntentState;
   readonly payload: JsonValue;
   readonly result?: JsonValue;
+  /** A candidate tag was read back at the reserved commit. Historical intents may omit this fact. */
+  readonly publicationConfirmed?: true;
   readonly createdAt: Timestamp;
   readonly updatedAt: Timestamp;
 }

@@ -377,6 +377,19 @@ test("coding work submits its candidate and required attachment in a single mani
   });
 });
 
+test("late delivery recognizes the same attachment set in a different order",async()=>{
+  await withHarness(async h=>{
+    const task=ok(await h.cli("task","create","--title","Archive","--criterion","includes both reports","--required-output","a","--required-output","b","--repo-remote",h.remote,"--baseline",h.baseline));
+    const {runId}=ok(await h.cli("work","start","--mode","none","--task",task.taskId));
+    const save=async(slot:string)=>ok(await h.cli("work","save-artifact","--run",runId,"--slot",slot,"--file","note=app.txt")).artifact.id;
+    const a=await save("a"), b=await save("b");
+    const deliver=(first:string,second:string)=>h.cli("work","deliver","--run",runId,"--artifact",first,"--artifact",second);
+    assert.equal(ok(await deliver(a,b)).submitted.outcome,"applied");
+    assert.equal(ok(await deliver(b,a)).submitted.outcome,"late");
+    assert.equal(git(h.remote,"tag","--list").split("\n").length,1);
+  });
+});
+
 test("task revisions preserve the chosen workspace kind", async () => {
   await withHarness(async h => {
     const task = ok(await h.cli("task","create","--kind","working","--required-output","report","--optional-output","chart","--title","Summarize changes","--criterion","include evidence"));
@@ -467,6 +480,8 @@ test("cancellation settles an interrupted publication and its original operation
     const recovered=ok(await h.cli("work","reconcile","--run",runId)).submission;
     assert.equal(recovered.outcome,"cancel-wins");
     assert.deepEqual(ok(await h.cli(...delivery)).submitted,recovered);
+    renameSync(h.remote,h.remote+"-offline");
+    try {assert.deepEqual(ok(await h.cli(...delivery)).submitted,recovered);} finally {renameSync(h.remote+"-offline",h.remote);}
     assert.equal(git(h.remote,"show-ref","--tags"),tags);
   });
 });

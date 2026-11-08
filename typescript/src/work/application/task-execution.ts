@@ -42,6 +42,9 @@ export type Closed = { workId: Id; status: "closing" | "closed"; blockedBy: Id[]
 export type WorkView = { work: Work; runs: TaskRun[]; conclusion: WorkConclusion };
 export type RunView = { run: TaskRun; acceptance: AcceptanceConclusion | null };
 
+const manifestDigest = (items:readonly DeliveryItem[],hash:Hasher) =>
+  digestOf([...items].sort((a,b)=>`${a.type}:${a.id}`.localeCompare(`${b.type}:${b.id}`)).map(({type,id,receipt})=>({type,id,receipt})),hash);
+
 const needId = (name: string, value: unknown) => isId(value) ? undefined : fail("invalid", `${name} is missing or malformed`);
 
 export class TaskExecution {
@@ -241,9 +244,8 @@ export class TaskExecution {
       if (!run || run.cancelIntent || run.workerMode==="managed") return false;
       if (run.workerMode==="external" && (run.worker?.kind!=="external" || run.worker.registration.sessionId!==input.sessionId)) return false;
       if (isTerminal(run)) {
-        const recorded=run.manifest?.items;
-        return observeOnly && !!recorded && recorded.length===input.items.length && recorded.every((item,i)=>
-          item.type===input.items[i]?.type && item.id===input.items[i]?.id && item.receipt===input.items[i]?.receipt);
+        const digest=manifestDigest(input.items,this.deps.hash);
+        return observeOnly && digest.ok && run.manifest?.digest===digest.value;
       }
       if (run.pendingManifest && run.pendingManifest.operationId!==input.requestId) return false;
       const prior=await r.intents.findByRequest(input.requestId);
@@ -256,6 +258,19 @@ export class TaskExecution {
         payload:input as unknown as JsonValue,state:"registered",version:1,createdAt:at,updatedAt:at,
         result:{runId:run.id,status:run.status,outcome:"awaiting-publication",blocked:null}});
       return true;
+    });
+  }
+
+  /** A successful readback is durable even if cancellation settles the run before submission. */
+  async confirmPublication(input:SubmissionInput) {
+    const hash=digestOf({kind:"submit",input:input as unknown as JsonValue},this.deps.hash);
+    if (!hash.ok) return;
+    await this.deps.units.run("write",async r=>{
+      await r.taskRuns.get(input.runId,{lock:true});
+      const intent=await r.intents.findByRequest(input.requestId);
+      if (intent?.kind==="submit" && intent.requestHash===hash.value && !intent.publicationConfirmed) {
+        await r.intents.save({...intent,publicationConfirmed:true,updatedAt:this.context.now(),version:intent.version+1},intent.version);
+      }
     });
   }
 
@@ -297,7 +312,7 @@ export class TaskExecution {
         if (!started.ok) return fromRejection(started.error);
         steps.push(started.value.state); current = started.value.state;
       }
-      const digest = digestOf([...input.items].sort((a, b) => `${a.type}:${a.id}`.localeCompare(`${b.type}:${b.id}`)).map(i => ({ type: i.type, id: i.id, receipt: i.receipt })), this.deps.hash);
+      const digest = manifestDigest(input.items,this.deps.hash);
       if (!digest.ok) return fromRejection(digest.error);
       const submitted = submitManifest(current, {
         origin: current.workerMode === "external" ? "external" : "caller", operationId: input.requestId, check, at, items: input.items, digest: digest.value,
@@ -374,6 +389,7 @@ export class TaskExecution {
     if (found.value && "publication" in found.value) {
       const input=found.value.publication;
       if (await this.deps.receipts.check(input.items.filter(item=>item.type==="candidate"))!=="accepted") return fail("unavailable","publication is unconfirmed; retry delivery with its original operation ID");
+      await this.confirmPublication(input);
       return this.submit(input);
     }
     return found.value && "submission" in found.value ? this.submit(found.value.submission) : succeed(null);
