@@ -21,7 +21,7 @@ export interface Manifest {
 }
 
 export type TraceBlob = {digest: Digest; byteLength: number; chunkCount: number};
-export type FrozenTrace = { format: "grounds.provider-trace/v1"; provider: "claude-code" | "codex"; raw: TraceBlob; events: TraceBlob; records: number; convertedRecords: number; eventCount: number };
+export type FrozenTrace = { format: "grounds.provider-trace/v1"; provider: "claude-code" | "codex"; raw: TraceBlob; events: TraceBlob; records: number; convertedRecords: number; eventCount: number; omissions: { invalidUtf8:number; invalidJson:number; oversized:number; unknownRecords:number; unknownParts:number; unserializableParts:number } };
 export interface TranscriptImport { readonly trace?: FrozenTrace; readonly ref: string; readonly digest: Digest; readonly coverage: "full" | "partial" | "unknown"; readonly importedAt: Timestamp }
 export interface ExternalRegistration {
   /** Issued by Grounds at registration; every submission must present it. */

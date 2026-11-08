@@ -401,6 +401,19 @@ for (const backend of backends) test(`${backend}: upgrade a populated work ledge
     await assert.rejects(store.upgrade("wrong-id"),{code:"DATABASE_ID_MISMATCH"});
     assert.equal((await store.inspect()).schema_version,1);
     await assert.rejects(store.open(),{code:"SCHEMA_INCOMPATIBLE"});
+    const rawStore = store as unknown as { acquireClient(): Promise<import("../src/sql-client.js").SQLClient> };
+    const client = await rawStore.acquireClient();
+    try {
+      await client.exec("CREATE TABLE work_evidence_chunks (dummy INTEGER)");
+      await assert.rejects(store.upgrade(identity),{code:"SCHEMA_INCOMPATIBLE"});
+      assert.equal((await store.inspect()).migration_state,"clean");
+      await client.exec("DROP TABLE work_evidence_chunks");
+      if (backend === "mysql") {
+        await client.run("UPDATE schema_metadata SET migration_state='in_progress'");
+        const {evidenceSchemaStatements} = await import("../src/work/adapters/sql/schema.js");
+        for (const ddl of evidenceSchemaStatements(client.dialect)) await client.exec(ddl + client.dialect.tableSuffix);
+      }
+    } finally { if (backend !== "sqlite") await client.close(); }
     assert.equal((await store.upgrade(identity)).schema_version,SCHEMA_VERSION);
     assert.equal((await store.upgrade(identity)).database_id,identity);
     assert.equal((await units.run("read",r=>r.taskRuns.get("retain-me")))!.id,"retain-me");

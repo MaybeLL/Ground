@@ -29,3 +29,25 @@ test("Claude Code stream-json preserves multi-block order and distinguishes tool
   assert.deepEqual(claudeCodeProvider.events({type:"result",subtype:"error_during_execution",result:"broken",is_error:true}),[{kind:"error",message:"broken"},{kind:"provider-ended",outcome:"failed"}]);
   assert.deepEqual(claudeCodeProvider.events({type:"system",subtype:"hook_response"}),[]);
 });
+
+test("trace capture retains malformed and deeply nested raw blocks and preserves the source part index", async () => {
+  const {ProviderTraceCapture} = await import("../src/work/adapters/providers/trace-capture.js");
+  const {mkdtemp,writeFile,rm} = await import("node:fs/promises");
+  const {join} = await import("node:path");
+  const {tmpdir} = await import("node:os");
+  const dir=await mkdtemp(join(tmpdir(),"grounds-provider-conversion-"));
+  try {
+    const path=join(dir,"stream.jsonl");
+    const deep='{"type":"assistant","message":{"content":[{"type":"tool_use","id":"x","name":"Read","input":'+"[".repeat(12000)+"0"+"]".repeat(12000)+"}]}}";
+    const mixed=JSON.stringify({type:"assistant",message:{content:[{type:"thinking"},{type:"text",text:"ok"}]}});
+    const raw=Buffer.concat([Buffer.from(deep+"\n"+mixed+"\n"),Buffer.from([255,10]),Buffer.alloc(8*1024*1024+1,65)]);
+    await writeFile(path,raw);
+    const capture=await new ProviderTraceCapture().capture("claude-code",path);
+    const read=async (s: typeof capture.raw) => {const chunks=[];for await (const chunk of s.open()) chunks.push(chunk);return Buffer.concat(chunks);};
+    try {
+      assert.deepEqual(await read(capture.raw),raw);
+      assert.equal(JSON.parse((await read(capture.events)).toString()).part,1);
+      assert.deepEqual(capture.descriptor.omissions,{invalidUtf8:1,invalidJson:0,oversized:1,unknownRecords:0,unknownParts:1,unserializableParts:1});
+    } finally {await capture.dispose();}
+  } finally {await rm(dir,{recursive:true,force:true});}
+});

@@ -112,7 +112,8 @@ test("every dialect creates the same set of tables", () => {
     .map((statement) => /CREATE TABLE IF NOT EXISTS (\w+)/.exec(statement)?.[1] ?? "")
     .sort();
   const reference = names(sqliteDialect);
-  assert.equal(reference.length, 13);
+  assert.equal(reference.length, 15);
+  assert.ok(reference.includes("work_evidence") && reference.includes("work_evidence_chunks"));
   assert.deepEqual(names(mysqlDialect), reference);
   assert.deepEqual(names(postgresDialect), reference);
 });

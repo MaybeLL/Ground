@@ -39,6 +39,7 @@ export class ProviderTraceCapture implements TraceCapturePort {
       const events = await spool(join(root,"events")); handles.push(events.handle);
       const adapter = commandLineProviders[provider];
       let records = 0, convertedRecords = 0, eventCount = 0, length = 0;
+      const omissions = {invalidUtf8:0,invalidJson:0,oversized:0,unknownRecords:0,unknownParts:0,unserializableParts:0};
       let fragments: Buffer[] = [];
       const add = (part: Buffer) => {
         length += part.length;
@@ -46,15 +47,27 @@ export class ProviderTraceCapture implements TraceCapturePort {
       };
       const finish = async () => {
         records++;
-        if (length > 0 && length <= maxRecord) {
+        if (length > maxRecord) omissions.oversized++;
+        else {
+          let text: string | undefined;
+          try { text = new TextDecoder("utf-8",{fatal:true}).decode(Buffer.concat(fragments,length)); } catch { omissions.invalidUtf8++; }
           let parsed;
-          try { parsed = JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(Buffer.concat(fragments,length))); } catch { /* raw record remains available */ }
+          if (text !== undefined) {
+            try { parsed = JSON.parse(text); } catch { omissions.invalidJson++; }
+          }
           if (parsed !== undefined) {
-            const normalized = adapter.events(parsed);
-            if (normalized.length) convertedRecords++;
-            for (const [part,event] of normalized.entries()) {
-              await events.append(Buffer.from(JSON.stringify({ seq:++eventCount, sourceLine:records, part, event })+"\n"));
+            const decoded = adapter.decode(parsed);
+            const before = eventCount;
+            if (!decoded.events.length) omissions.unknownRecords++;
+            omissions.unknownParts += decoded.unknownParts;
+            for (const {part,event} of decoded.events) {
+              let line;
+              try { line = JSON.stringify({seq:eventCount + 1,sourceLine:records,part,event}); }
+              catch { omissions.unserializableParts++; continue; }
+              await events.append(Buffer.from(line+"\n"));
+              eventCount++;
             }
+            if (eventCount > before) convertedRecords++;
           }
         }
         fragments = []; length = 0;
@@ -76,7 +89,7 @@ export class ProviderTraceCapture implements TraceCapturePort {
       } finally { await input.close(); }
       const rawSource = raw.source(), eventSource = events.source();
       const ref = (s: typeof rawSource) => ({digest:s.digest,byteLength:s.byteLength,chunkCount:Math.ceil(s.byteLength/evidenceChunkBytes)});
-      return { descriptor: {format:"grounds.provider-trace/v1",provider,raw:ref(rawSource),events:ref(eventSource),records,convertedRecords,eventCount},
+      return { descriptor: {format:"grounds.provider-trace/v1",provider,raw:ref(rawSource),events:ref(eventSource),records,convertedRecords,eventCount,omissions},
         raw:rawSource,events:eventSource,dispose:()=>rm(root,{recursive:true,force:true}) };
     } catch (error) { await rm(root,{recursive:true,force:true}); throw error; }
     finally { await Promise.all(handles.map(h=>h.close())); }

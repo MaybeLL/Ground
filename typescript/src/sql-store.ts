@@ -15,6 +15,7 @@ export { SCHEMA_VERSION, PROTOCOL_VERSION, REMOTE_NORMALIZATION_VERSION, MINIMUM
 const CLI_VERSION = "0.2.53";
 import { asText, isMissingTableError, isSchemaShapeError, retryDelay, safeInteger, isSafeTransactionRetry, mapStorageError, compareVersions } from "./sql-shared.js";
 
+import { planEvidenceUpgrade } from "./work/adapters/sql/evidence-upgrade.js";
 import { evidenceSchemaStatements, workTables } from "./work/adapters/sql/schema.js";
 import { inspectWorkIntegrity } from "./work/adapters/sql/integrity.js";
 
@@ -267,9 +268,13 @@ export class SQLStore {
         for (const table of workTables.filter(t => t !== "work_evidence" && t !== "work_evidence_chunks")) {
           await client.get(`SELECT 1 AS found FROM ${table} WHERE 1 = 0`);
         }
+        const missing = await planEvidenceUpgrade(client,current.migration_state === "in_progress");
         await client.run("UPDATE schema_metadata SET migration_state = 'in_progress' WHERE singleton = 1");
         if (!this.dialect.ddlIsTransactional) { await client.commit(); tx = false; }
-        for (const ddl of evidenceSchemaStatements(this.dialect)) await client.exec(ddl + this.dialect.tableSuffix);
+        for (const ddl of evidenceSchemaStatements(this.dialect)) {
+          const table = ddl.split(" (")[0]!.split(" ").at(-1)!;
+          if (missing.has(table)) await client.exec(ddl.replace("IF NOT EXISTS ","") + this.dialect.tableSuffix);
+        }
         if (!tx) { await client.begin(true); tx = true; }
         await client.run("UPDATE schema_metadata SET schema_version = ?, migration_state = 'clean' WHERE singleton = 1 AND database_id = ? AND schema_version = 1", [SCHEMA_VERSION,expectedId]);
         const metadata = await this.metadataFrom(client,this.lifecycleLock);

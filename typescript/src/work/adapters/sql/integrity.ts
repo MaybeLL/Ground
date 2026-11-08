@@ -12,7 +12,18 @@ export async function inspectWorkIntegrity(client: SQLClient): Promise<Integrity
     ["work_definitions", row => r.definitions.get(String(row.id))],
     ["work_revisions", row => r.definitions.getRevision(String(row.definition_id), String(row.id))],
     ["work_works", row => r.works.get(String(row.id))],
-    ["work_task_runs", row => r.taskRuns.get(String(row.id))],
+    ["work_task_runs", async row => {
+      const run = await r.taskRuns.get(String(row.id));
+      if (run?.worker?.kind !== "external") return;
+      for (const {trace} of run.worker.registration.transcripts) {
+        if (!trace) continue;
+        for (const ref of [trace.raw,trace.events]) {
+          const stored = await r.evidence.describe(ref.digest);
+          if (!stored || stored.byteLength !== ref.byteLength || stored.chunkCount !== ref.chunkCount)
+            throw new StorageFailure("integrity","archived transcript refers to missing or conflicting evidence");
+        }
+      }
+    }],
     ["work_sandboxes", row => r.sandboxes.get(String(row.id))],
     ["work_executions", row => r.executions.get(String(row.id))],
     ["work_gradings", row => r.gradings.get(String(row.id))],
@@ -39,6 +50,8 @@ export async function inspectWorkIntegrity(client: SQLClient): Promise<Integrity
       if (rows.length < 256) break;
     }
   }
+  const orphanChunk = await client.get("SELECT c.digest FROM work_evidence_chunks c LEFT JOIN work_evidence e ON e.digest = c.digest WHERE e.digest IS NULL LIMIT 1");
+  if (orphanChunk) report.issues.push({ check:"evidence_manifest", reason:"An evidence chunk refers to a missing manifest" });
   const orphanRevision = await client.get("SELECT r.id FROM work_revisions r LEFT JOIN work_definitions d ON d.id = r.definition_id WHERE d.id IS NULL LIMIT 1");
   if (orphanRevision) report.issues.push({ check: "revision_definition", reason: "A revision refers to a missing definition" });
   const orphan = await client.get("SELECT m.experiment_run_id FROM work_experiment_members m LEFT JOIN work_experiment_runs e ON e.id = m.experiment_run_id WHERE e.id IS NULL LIMIT 1");

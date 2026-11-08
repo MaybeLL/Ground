@@ -16,6 +16,9 @@ export interface AgentProvider {
   readonly capabilities: Capabilities;
   command(model?: string): readonly string[];
   events(record: JsonValue): ProviderEvent[];
+  /** Physical positions in the input record. Multiple normalized events can
+   * share a source part when a provider reports a terminal error. */
+  decode(record: JsonValue): { events: { part: number; event: ProviderEvent }[]; unknownParts: number };
 }
 
 export type ProviderTrace = import("../domain/index.js").FrozenTrace;

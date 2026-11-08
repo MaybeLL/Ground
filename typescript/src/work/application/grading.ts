@@ -44,7 +44,18 @@ export class Grading {
       const criteria = criteriaDigest(task.value, this.deps.hash);
       if (!criteria.ok) return fromRejection(criteria.error);
       if (task.value.criteria.length === 0) return fail("conflict", "the task has no criteria to judge");
-      const materials = input.materials ?? [];
+      const materials = [...(input.materials ?? [])];
+      if (new Set(materials.map(m=>m.id)).size !== materials.length) return fail("invalid","grading material identities must be unique");
+      const evidence = new Map<string,string>();
+      if (run.worker?.kind === "external") for (const entry of run.worker.registration.transcripts) {
+        evidence.set("transcript:" + entry.digest,entry.digest);
+        if (entry.trace) evidence.set("events:" + entry.digest,entry.trace.events.digest);
+      }
+      for (const [id,digest] of evidence) {
+        const supplied = materials.find(m=>m.id === id);
+        if (supplied && supplied.digest !== digest) return fail("invalid","explicit material conflicts with frozen transcript evidence");
+        if (!supplied) materials.push({id,digest});
+      }
       const materialsFingerprint = materialsDigest(materials, this.deps.hash);
       if (!materialsFingerprint.ok) return fromRejection(materialsFingerprint.error);
       const targets: TargetRef[] = [];

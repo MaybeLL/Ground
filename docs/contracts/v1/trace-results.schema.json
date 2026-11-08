@@ -102,7 +102,8 @@
         "events",
         "records",
         "convertedRecords",
-        "eventCount"
+        "eventCount",
+        "omissions"
       ],
       "properties": {
         "format": {
@@ -131,6 +132,44 @@
         "eventCount": {
           "type": "integer",
           "minimum": 0
+        },
+        "omissions": {
+          "type": "object",
+          "required": [
+            "invalidUtf8",
+            "invalidJson",
+            "oversized",
+            "unknownRecords",
+            "unknownParts",
+            "unserializableParts"
+          ],
+          "properties": {
+            "invalidUtf8": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "invalidJson": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "oversized": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unknownRecords": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unknownParts": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unserializableParts": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

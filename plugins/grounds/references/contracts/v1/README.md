@@ -79,3 +79,5 @@ Declare `--environment ID` when authoring a task. `work start`, `continue` and `
 `work import-trace --run RUN --session SESSION --provider codex|claude-code --file FILE --digest SHA256` imports exact JSONL bytes from an external worker. The operation receipt includes two content-addressed streams, raw and normalized. Each stream uses 64 KiB chunks. An event identifies its source line (starting at 1) and block position (starting at 0). Unknown records remain available through the raw stream. Records larger than 8 MiB are retained raw and excluded from normalized output.
 
 `work trace --run RUN --digest RAW_DIGEST --stream raw|events --chunk N` returns one verified chunk as base64. Concatenate decoded chunks in ordinal order and compare the stream's SHA-256. Empty streams have zero chunks. Existing transcript references remain readable. [Trace result contracts](trace-results.schema.json)
+
+The trace descriptor counts invalid UTF-8, malformed JSON, oversized records, unmapped records or parts, and parts that cannot be serialized. Each gate freezes the raw and event digests available when it is requested. Later imports only contribute to subsequent requests.

@@ -10,6 +10,10 @@ export const codexProvider: AgentProvider = {
   // The prompt is read from standard input. The container is the workspace
   // boundary; workspace-write applies the provider's own filesystem policy.
   command: model => ["codex","exec","--json","--ephemeral","--sandbox","workspace-write",...(model ? ["--model",model] : []),"-"],
+  decode(record) {
+    const events = this.events(record).map(event => ({part:0,event}));
+    return {events,unknownParts:events.length ? 0 : 1};
+  },
   events(value) {
     const row = object(value);
     if (!row) return [];
@@ -39,6 +43,21 @@ export const codexProvider: AgentProvider = {
 export const claudeCodeProvider: AgentProvider = {
   name: "claude-code", capabilities,
   command: model => ["claude","-p","--verbose","--output-format","stream-json","--no-session-persistence","--permission-mode","acceptEdits",...(model ? ["--model",model] : [])],
+  decode(record) {
+    const row = object(record), message = object(row?.message);
+    if (!row || !Array.isArray(message?.content) || (row.type !== "assistant" && row.type !== "user")) {
+      const events = this.events(record).map(event=>({part:0,event}));
+      return { events, unknownParts:events.length ? 0 : 1 };
+    }
+    const events: {part:number;event:ProviderEvent}[] = [];
+    let unknownParts = 0;
+    for (const [part,block] of message.content.entries()) {
+      const mapped = this.events({...row,message:{...message,content:[block]}});
+      if (!mapped.length) unknownParts++;
+      for (const event of mapped) events.push({part,event});
+    }
+    return {events,unknownParts};
+  },
   events(value) {
     const row = object(value);
     if (!row) return [];

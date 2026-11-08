@@ -603,9 +603,11 @@ test("verified local image setup failure retains a paused blocked sandbox that W
 
 test("provider trace import preserves exact raw bytes, normalizes known records, and replays after the file is gone", async () => {
   await withHarness(async h => {
-    const task = ok(await h.cli("task","create","--title","Trace","--criterion","reads input"));
+    const task = ok(await h.cli("task","create","--title","Trace","--criterion","reads input","--baseline",h.baseline,"--repo-remote",h.remote));
     const {runId} = ok(await h.cli("work","start","--task",task.taskId,"--mode","external"));
     const {sessionId} = ok(await h.cli("work","register","--run",runId,"--agent","codex"));
+    ok(await h.cli("work","deliver","--run",runId,"--repo",h.repo,"--session",sessionId,"--declare-stop"));
+    const firstGate = ok(await h.cli("grade","request","--run",runId));
     const file = join(h.directory,"session.jsonl");
     const bytes = Buffer.from([
       JSON.stringify({type:"thread.started",thread_id:"session"}),
@@ -621,6 +623,13 @@ test("provider trace import preserves exact raw bytes, normalizes known records,
     const trace = imported.trace;
     assert.equal(trace.records,5); assert.equal(trace.eventCount,3); assert.equal(trace.convertedRecords,3);
     assert.equal(trace.raw.chunkCount,2);
+    assert.equal(trace.omissions.invalidJson,1); assert.equal(trace.omissions.unknownRecords,1);
+    const secondGate = ok(await h.cli("grade","request","--run",runId));
+    const before = ok(await h.cli("grade","show","--grading",firstGate.gradingId));
+    const after = ok(await h.cli("grade","show","--grading",secondGate.gradingId));
+    assert.deepEqual(before.materials,[]);
+    assert.deepEqual(after.materials.map((m: {digest:string})=>m.digest),[trace.raw.digest,trace.events.digest]);
+    assert.notEqual(before.binding.materialsDigest,after.binding.materialsDigest);
     rmSync(file); assert.deepEqual(ok(await h.cli(...args)),imported);
     const read = async (stream: string, n: number) => Buffer.from(ok(await h.cli("work","trace","--run",runId,"--digest",digest,"--stream",stream,"--chunk",String(n))).base64,"base64");
     assert.deepEqual(Buffer.concat([await read("raw",0),await read("raw",1)]),bytes);
@@ -628,6 +637,13 @@ test("provider trace import preserves exact raw bytes, normalizes known records,
     assert.deepEqual(events.map(e=>e.sourceLine),[1,4,5]);
     assert.equal(events[1].event.text,"finished");
     assert.deepEqual(ok(await h.cli("work","run","--run",runId)).run.worker.registration.transcripts[0].trace,trace);
+    const db = new DatabaseSync(join(h.directory,"ledger.db"));
+    try {
+      db.prepare("DELETE FROM work_evidence_chunks WHERE digest=?").run(digest);
+      db.prepare("DELETE FROM work_evidence WHERE digest=?").run(digest);
+    } finally { db.close(); }
+    const status = ok(await h.cli("db","status"));
+    assert.equal(status.integrity.valid,false);
     const other = ok(await h.cli("work","start","--task",task.taskId,"--mode","external"));
     assert.equal((await h.cli("work","trace","--run",other.runId,"--digest",digest,"--stream","raw","--chunk","0")).error.code,"NOT_FOUND");
   });
