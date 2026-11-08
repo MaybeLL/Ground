@@ -4,6 +4,8 @@
 
 先读 `work run --run ID --json`：必须有 `status=delivered` 及冻结 manifest。用该 run 的 `taskRevision.definitionId/seq` 读取确切任务版本，不能取最新任务替代。核对标准 ID、manifest 摘要、归档回执和固定 commit。
 
+有修复记录时，从当前交付的 `archiveIntegrity` 选择 `activeArchiveId` 对应的已确认回执，用其标签和原 commit 完成读回。始终核对同一个任务交付及原始 commit。
+
 ```bash
 grounds grade request --run "$RUN_ID" --json
 ```

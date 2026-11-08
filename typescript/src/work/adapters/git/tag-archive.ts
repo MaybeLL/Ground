@@ -71,21 +71,21 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
     return run("git", args, { ...(cwd ? { cwd } : {}), timeout: this.options.timeoutMs ?? 60_000, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" } }).then(r => r.stdout);
   }
 
-  private inspectGit(cwd: string | undefined, args: string[]): Promise<string> {
+  private isolatedGit(cwd: string | undefined, args: string[]): Promise<string> {
     return run("git", ["-c", "core.hooksPath=/dev/null", "-c", "protocol.ext.allow=never", ...args], {
       ...(cwd ? { cwd } : {}), timeout: this.options.timeoutMs ?? 60_000, maxBuffer: 8 * 1024 * 1024, env: inspectionEnvironment(),
     }).then(r => r.stdout);
   }
 
   private async sameEndpoint(remote: string, cwd?: string): Promise<boolean> {
-    return (await this.inspectGit(cwd, ["ls-remote", "--get-url", "--", remote])).trim() === remote;
+    return (await this.isolatedGit(cwd, ["ls-remote", "--get-url", "--", remote])).trim() === remote;
   }
 
   private async observe(remote: string, ref: string, cwd?: string, inspecting = false): Promise<Observed> {
     try {
       if (inspecting && !await this.sameEndpoint(remote, cwd)) return { state: "unreachable", reason: "the checkout redirects the recorded archive endpoint" };
       const args = ["ls-remote", "--refs", "--", remote, ref];
-      const out = (await (inspecting ? this.inspectGit(cwd, args) : this.git(cwd, args))).trim();
+      const out = (await (inspecting ? this.isolatedGit(cwd, args) : this.git(cwd, args))).trim();
       if (out === "") return { state: "absent" };
       const [commit, name] = out.split(/\s+/);
       return name === ref && OID.test(commit ?? "") ? { state: "present", commit: commit! } : { state: "unreachable", reason: "the remote answered with something unexpected" };
@@ -122,10 +122,10 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
   }
 
   private async archiveRemote(repositoryPath: string, remote: string): Promise<string> {
-    const names = (await this.inspectGit(repositoryPath, ["remote"])).trim().split("\n");
+    const names = (await this.isolatedGit(repositoryPath, ["remote"])).trim().split("\n");
     const urls = names.includes(remote)
-      ? (await this.inspectGit(repositoryPath, ["remote", "get-url", "--push", "--all", remote])).trim().split("\n")
-      : [(await this.inspectGit(repositoryPath, ["ls-remote", "--get-url", "--", remote])).trim()];
+      ? (await this.isolatedGit(repositoryPath, ["remote", "get-url", "--push", "--all", remote])).trim().split("\n")
+      : [(await this.isolatedGit(repositoryPath, ["ls-remote", "--get-url", "--", remote])).trim()];
     if (urls.length !== 1 || !urls[0]) throw new Error("one publication destination is required");
     const url = urls[0];
     if (/^https?:\/\//i.test(url) && (new URL(url).username || new URL(url).password)) throw new Error("use a credential helper for archive authentication");
@@ -133,39 +133,39 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
   }
 
   /** An isolated shallow fetch plus fsck verifies the recorded commit and the contents of its entire tree. */
-  private async retrieve(scratch: string, source: string, ref: string, receipt: GitDeliveryReceipt): Promise<"verified" | "refused" | "unknown"> {
+  private async retrieve(scratch: string, source: string, ref: string, receipt: GitDeliveryReceipt, fullHistory = false): Promise<"verified" | "refused" | "unknown"> {
     try {
       if (!await this.sameEndpoint(source, scratch)) return "unknown";
-      await this.inspectGit(scratch, ["-c", "fetch.fsckObjects=true", "fetch", "--quiet", "--no-tags", "--depth=1", "--", source, ref]);
+      await this.isolatedGit(scratch, ["-c", "fetch.fsckObjects=true", "fetch", "--quiet", "--no-tags", ...(fullHistory ? [] : ["--depth=1"]), "--", source, ref]);
     } catch (error) {
       const message = String((error as { stderr?: string }).stderr ?? "");
       return /not our ref|couldn't find remote ref|unadvertised object|not a valid object/i.test(message) ? "refused" : "unknown";
     }
     try {
-      if ((await this.inspectGit(scratch, ["rev-parse", "--verify", "FETCH_HEAD^{commit}"])).trim() !== receipt.commit) return "unknown";
+      if ((await this.isolatedGit(scratch, ["rev-parse", "--verify", "FETCH_HEAD^{commit}"])).trim() !== receipt.commit) return "unknown";
       const facts = await this.commitFacts(scratch, receipt.commit);
       if (facts.tree !== receipt.tree || facts.parents.join(" ") !== receipt.parents.join(" ")) return "unknown";
-      await this.inspectGit(scratch, ["fsck", "--full", "--no-dangling", "--no-reflogs", "--no-progress", receipt.commit]);
+      await this.isolatedGit(scratch, ["fsck", "--full", "--no-dangling", "--no-reflogs", "--no-progress", receipt.commit]);
       return "verified";
     } catch { return "unknown"; }
   }
 
   /** Export only objects already present in the caller's cache. The temporary
    * repository owns the config, shallow boundary and every ref used by upload-pack. */
-  private async retrieveLocal(repositoryPath: string, scratch: string, receipt: GitDeliveryReceipt): Promise<"verified" | "refused" | "unknown"> {
+  private async retrieveLocal(repositoryPath: string, scratch: string, receipt: GitDeliveryReceipt, fullHistory = false): Promise<"verified" | "refused" | "unknown"> {
     let objects: string;
-    try { objects = (await this.inspectGit(repositoryPath, ["rev-parse", "--path-format=absolute", "--git-path", "objects"])).trimEnd(); }
+    try { objects = (await this.isolatedGit(repositoryPath, ["rev-parse", "--path-format=absolute", "--git-path", "objects"])).trimEnd(); }
     catch (error) { return String((error as { stderr?: string }).stderr).includes("not a git repository") ? "refused" : "unknown"; }
     if (!isAbsolute(objects) || /[\r\n]/.test(objects)) return "unknown";
-    const cache = join(scratch, "local-cache");
+    const cache = join(scratch, fullHistory ? "local-history" : "local-cache");
     await mkdir(cache);
-    await this.inspectGit(cache, ["init", "--bare", "--quiet", "--template=", `--object-format=${receipt.commit.length === 64 ? "sha256" : "sha1"}`]);
+    await this.isolatedGit(cache, ["init", "--bare", "--quiet", "--template=", `--object-format=${receipt.commit.length === 64 ? "sha256" : "sha1"}`]);
     await writeFile(join(cache, "objects/info/alternates"), objects + "\n");
-    try { await this.inspectGit(cache, ["cat-file", "-e", receipt.commit]); }
+    try { await this.isolatedGit(cache, ["cat-file", "-e", receipt.commit]); }
     catch (error) { return (error as { code?: number }).code === 1 ? "refused" : "unknown"; }
-    await writeFile(join(cache, "shallow"), receipt.commit + "\n");
-    await this.inspectGit(cache, ["update-ref", "refs/heads/recorded", receipt.commit]);
-    return this.retrieve(scratch, pathToFileURL(cache).href, "refs/heads/recorded", receipt);
+    if (!fullHistory) await writeFile(join(cache, "shallow"), receipt.commit + "\n");
+    await this.isolatedGit(cache, ["update-ref", "refs/heads/recorded", receipt.commit]);
+    return this.retrieve(scratch, pathToFileURL(cache).href, "refs/heads/recorded", receipt, fullHistory);
   }
 
   async inspect(repositoryPath: string, item: { id: string; receipt: string }): Promise<ArchiveObservation> {
@@ -181,7 +181,7 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
     let scratch: string | undefined;
     try {
       scratch = await mkdtemp(join(tmpdir(), "grounds-archive-check-"));
-      await this.inspectGit(scratch, ["init", "--bare", "--quiet", "--template=", `--object-format=${receipt.commit.length === 64 ? "sha256" : "sha1"}`]);
+      await this.isolatedGit(scratch, ["init", "--bare", "--quiet", "--template=", `--object-format=${receipt.commit.length === 64 ? "sha256" : "sha1"}`]);
       const localResult = await this.retrieveLocal(repositoryPath, scratch, receipt).catch(() => "unknown" as const);
       if (localResult === "verified") return { ...recorded, ...changed, status: "ref-changed" };
       const byOid = await this.retrieve(scratch, receipt.remote, receipt.commit, receipt);
@@ -189,7 +189,7 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
       if (byOid === "refused") {
         // Some servers disallow direct OID fetches. An advertised ref may still supply the object.
         if (!await this.sameEndpoint(receipt.remote, repositoryPath)) return { ...recorded, ...changed, status: null };
-        const refs = (await this.inspectGit(repositoryPath, ["ls-remote", "--refs", "--", receipt.remote])).trim();
+        const refs = (await this.isolatedGit(repositoryPath, ["ls-remote", "--refs", "--", receipt.remote])).trim();
         if (!refs && localResult !== "unknown") return { ...recorded, ...changed, status: "unavailable" };
         const match = refs.split("\n").map(line => line.split("\t")).find(([oid]) => oid === receipt.commit);
         if (match?.[1] && await this.retrieve(scratch, receipt.remote, match[1], receipt) === "verified") return { ...recorded, ...changed, status: "ref-changed" };
@@ -197,6 +197,45 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
       return { ...recorded, ...changed, status: null };
     } catch { return { ...recorded, ...changed, status: null }; }
     finally { if (scratch) await rm(scratch, { recursive: true, force: true }); }
+  }
+
+  /** A repair publishes another tag. Its identity is derived from the saved intent;
+   * a retry first asks the remote whether the earlier push already succeeded. */
+  async repair(input: { repositoryPath: string; originalId: string; originalReceipt: string; archiveId: string; earlierReceipts: readonly string[] }): Promise<ArchiveResult> {
+    const original = decodeReceipt(input.originalReceipt);
+    if (!original || deliveryIdOf(original) !== input.originalId || !stableRemote(original.remote)) return { status: "invalid", reason: "repair needs a frozen receipt with a stable destination" };
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(input.archiveId) || input.archiveId === input.originalId) return { status: "invalid", reason: "repair needs a new archive identity" };
+    const { remote, commit, tree, parents } = original;
+    const ref = REF_NAMESPACE + input.archiveId;
+    const receipt = encodeReceipt({ format: original.format, remote, commit, tree, parents, ref });
+    if (receipt.length > 1024) return { status: "invalid", reason: "repair receipt exceeds the manifest limit" };
+    let scratch: string | undefined;
+    try {
+      scratch = await mkdtemp(join(tmpdir(), "grounds-archive-repair-"));
+      await this.isolatedGit(scratch, ["init", "--bare", "--quiet", "--template=", `--object-format=${commit.length === 64 ? "sha256" : "sha1"}`]);
+      await this.isolatedGit(scratch, ["remote", "add", "destination", remote]);
+      // An explicit push URL overrides pushInsteadOf. Refuse any remaining rewrite.
+      await this.isolatedGit(scratch, ["remote", "set-url", "--push", "destination", remote]);
+      const pushURL = (await this.isolatedGit(scratch, ["remote", "get-url", "--push", "--all", "destination"])).trim();
+      if (pushURL !== remote || !await this.sameEndpoint(remote, scratch)) return { status: "invalid", reason: "the configured Git endpoint redirects the frozen destination" };
+      const before = await this.observe(remote, ref, scratch, true);
+      if (before.state === "unreachable") return { status: "unavailable", reason: "cannot observe the repair destination" };
+      if (before.state === "present") return before.commit === commit ? { status: "confirmed", receipt, commit } : { status: "conflict", reason: "another object occupies the repair tag" };
+
+      let verified = await this.retrieveLocal(input.repositoryPath, scratch, original, true).catch(() => "unknown");
+      for (const prior of [original, ...input.earlierReceipts.map(decodeReceipt)]) {
+        if (verified === "verified") break;
+        if (prior && prior.remote === remote && prior.commit === commit) verified = await this.retrieve(scratch, remote, prior.ref, original, true);
+      }
+      if (verified !== "verified") verified = await this.retrieve(scratch, remote, commit, original, true);
+      if (verified !== "verified") verified = await this.retrieveLocal(input.repositoryPath, scratch, original).catch(() => "unknown");
+      if (verified !== "verified") return { status: "unavailable", reason: "cannot recover and verify the recorded object for repair" };
+      try { await this.isolatedGit(scratch, ["push", "--porcelain", "--", "destination", `${commit}:${ref}`]); }
+      catch { /* Read back the exact tag before deciding whether the push succeeded. */ }
+      const after = await this.observe(remote, ref, scratch, true);
+      if (after.state !== "present") return { status: "unavailable", reason: "the repair tag could not be confirmed" };
+      return after.commit === commit ? { status: "confirmed", receipt, commit } : { status: "conflict", reason: "the repair tag points to a different commit" };
+    } finally { if (scratch) await rm(scratch, { recursive: true, force: true }); }
   }
 
   /** Bring the delivered commit into the repository so the next worker can start from it. The remote is asked now, and must show the commit the receipt names. */

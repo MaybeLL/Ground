@@ -21,6 +21,8 @@
 
 Git 传输不会返回托管服务的标签保护规则。已核对策略的操作者可在交付时使用 `--protection protected|unprotected --protection-evidence REF` 记录来源；省略时保护等级为 `unknown`。保护记录不参与标签推送、读回及验收判定。
 
+运行 `work repair --run RUN --delivery ID --repo PATH` 会对原提交核对 Git 对象、推送新的修复标签并读回。每次显式修复以 operation ID 登记，重复请求使用同一标签与已存回执。存在修复时，`archiveIntegrity` 同时展示原观察、修复事实及当前采用的归档身份；精化工作可从已验证的修复回执取回原提交。
+
 ## 本机环境（grounds env）
 
 [`environment-definition.schema.json`](environment-definition.schema.json) 定义仓库 YAML 的非敏感声明。单仓库、多变体，`repositories` 最多一项且 path 为 `.`；Docker 必须提供 `base.image` 配方。声明可版本化，凭据声明不构成宿主授权。

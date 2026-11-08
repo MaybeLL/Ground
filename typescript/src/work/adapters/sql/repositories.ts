@@ -165,6 +165,7 @@ class SqlIntents extends SqlRepository<IntentRecord> implements IntentRepository
 
   async findByRequest(requestId: string) { return (await this.table.select("request_id = ?", [requestId]))[0]; }
   listByState(state: IntentState, limit: number) { return this.table.select("state = ?", [state], "id", limit); }
+  listForSubject(kind: string, type: string, id: Id) { return this.table.select("kind = ? AND subject_type = ? AND subject_id = ?", [kind, type, id], "id"); }
   listChildren(parentIntentId: Id) { return this.table.select("parent_intent_id = ?", [parentIntentId], "id"); }
 
   async register(intent: IntentRecord): Promise<{ intent: IntentRecord; created: boolean }> {

@@ -10,7 +10,7 @@ import type { Outcome, WorkApplication } from "../application/index.js";
 export const WORK_GROUPS = ["task", "work", "grade"] as const;
 export const WORK_WRITE_ACTIONS = new Set([
   "task:create", "task:revise",
-  "work:start", "work:continue", "work:branch", "work:select", "work:close", "work:register", "work:transcript", "work:deliver", "work:stop", "work:cancel",
+  "work:start", "work:continue", "work:branch", "work:select", "work:close", "work:register", "work:transcript", "work:deliver", "work:repair", "work:stop", "work:cancel",
   "grade:request", "grade:register", "grade:stage", "grade:command", "grade:submit", "grade:stop", "grade:cancel",
 ]);
 
@@ -95,15 +95,16 @@ async function work(args: ParsedArgs, action: string, app: WorkApplication, deps
     case "show": {
       const view = unwrap(await app.exec.getWork(need(args, "work")));
       const head = view.runs.find(run => run.id === view.work.head);
-      return { ...view, archiveIntegrity: head ? await app.delivery.inspectRun(head, text(args, "repo") ?? deps.cwd) : [] };
+      return { ...view, archiveIntegrity: head ? await app.repairs.inspectRun(head, text(args, "repo") ?? deps.cwd) : [] };
     }
     case "run": {
       const view = unwrap(await app.exec.getRun(need(args, "run")));
-      return { ...view, archiveIntegrity: await app.delivery.inspectRun(view.run, text(args, "repo") ?? deps.cwd) };
+      return { ...view, archiveIntegrity: await app.repairs.inspectRun(view.run, text(args, "repo") ?? deps.cwd) };
     }
     case "register": return unwrap(await app.exec.registerExternalWorker({ requestId: requestId(args), runId: need(args, "run"), agent: { id: need(args, "agent"), ...(text(args, "agent-name") ? { name: text(args, "agent-name")! } : {}), ...(text(args, "model") ? { model: text(args, "model")! } : {}) } }));
     case "transcript": return unwrap(await app.exec.importTranscript({ requestId: requestId(args), runId: need(args, "run"), sessionId: need(args, "session"), ref: need(args, "ref"), digest: need(args, "digest"), coverage: need(args, "coverage") as "full" | "partial" | "unknown" }));
     case "workspace": return unwrap(await app.delivery.prepareWorkspace({ runId: need(args, "run"), repositoryPath: text(args, "repo") ?? deps.cwd }));
+    case "repair": return { repair: unwrap(await app.repairs.repair({ requestId: requestId(args), runId: need(args, "run"), deliveryId: need(args, "delivery"), repositoryPath: text(args, "repo") ?? deps.cwd })) };
     case "deliver": return unwrap(await app.delivery.deliver({ protection: archiveProtection(args), requestId: requestId(args), runId: need(args, "run"), repositoryPath: text(args, "repo") ?? deps.cwd, commit: text(args, "commit") ?? "HEAD",
       ...(text(args, "session") ? { sessionId: text(args, "session")! } : {}), ...(text(args, "remote") ? { remote: text(args, "remote")! } : {}), ...(flag(args, "declare-stop") ? { declaresStop: true } : {}) }));
     case "stop": return unwrap(await app.exec.declareStop({ requestId: requestId(args), runId: need(args, "run"), reason: need(args, "reason") as "human" | "abandoned", ...(text(args, "session") ? { sessionId: text(args, "session")! } : {}) }));
@@ -131,12 +132,12 @@ async function grade(args: ParsedArgs, action: string, app: WorkApplication, dep
       const record = unwrap(await app.grading.getGrading(grading()));
       if (record.origin.type !== "gate") return record;
       const { run } = unwrap(await app.exec.getRun(record.origin.taskRunId));
-      return { ...record, archiveIntegrity: await app.delivery.inspectRun(run, text(args, "repo") ?? deps.cwd) };
+      return { ...record, archiveIntegrity: await app.repairs.inspectRun(run, text(args, "repo") ?? deps.cwd) };
     }
     case "list": {
       const runId = need(args, "run");
       const gates = unwrap(await app.grading.listGates(runId));
-      const archiveIntegrity = gates.length ? await app.delivery.inspectRun(unwrap(await app.exec.getRun(runId)).run, text(args, "repo") ?? deps.cwd) : [];
+      const archiveIntegrity = gates.length ? await app.repairs.inspectRun(unwrap(await app.exec.getRun(runId)).run, text(args, "repo") ?? deps.cwd) : [];
       return { gates, archiveIntegrity };
     }
     default: throw validation("action", `unknown grade action: ${action}`);
@@ -151,6 +152,7 @@ export const workHelp = (): string => [
   "grounds work register --run RUN --agent NAME   (prints the session to present when delivering)",
   "grounds work workspace --run RUN [--repo PATH]   (a private worktree: the baseline, or what the refined run delivered)",
   "grounds work deliver --run RUN [--session S] [--repo PATH] [--commit REF] [--remote URL] [--declare-stop] [--protection protected|unprotected --protection-evidence REF]",
+  "grounds work repair --run RUN --delivery ID [--repo PATH]  (record another verified archive tag for the same frozen commit)",
   "grounds work stop --run RUN --reason human|abandoned [--session S] | work cancel --run RUN [--reason TEXT] | work transcript --run RUN --session S --ref REF --digest D --coverage full|partial|unknown",
   "grounds grade request --run RUN [--material ID=DIGEST...] | grade register --grading ID --agent NAME | grade stage --grading ID --session S --stage blind|freeze|reconcile|handoff|submit [--blind-digest D]",
   "grounds grade command --grading ID --session S --stage STAGE --entry NAME --argv-digest D --state succeeded|failed|unknown [--exit-code N]",

@@ -4,6 +4,13 @@
   "title": "Task, work and grade CLI results",
   "oneOf": [
     {
+      "type": "object", "additionalProperties": false, "required": ["command", "result_type", "repair"],
+      "properties": {
+        "command": {"const":"work.repair"}, "result_type": {"const":"grounds.result.work.repair/v1"},
+        "repair": {"$ref":"#/$defs/ArchiveRepair"}
+      }
+    },
+    {
       "type": "object",
       "additionalProperties": false,
       "required": ["command", "result_type", "taskId", "revisionId", "seq", "criteria"],
@@ -341,19 +348,111 @@
         {"type":"object","required":["level","evidence"],"properties":{"level":{"enum":["protected","unprotected"]},"evidence":{"type":"string","minLength":1,"maxLength":256}},"additionalProperties":false}
       ]
     },
+    "ArchiveRepair": {
+      "type":"object","required":["requestId","archiveId","deliveryId","runId","commit","receipt","recordedAt"],
+      "properties":{
+        "requestId":{"$ref":"#/$defs/Id"}, "archiveId":{"$ref":"#/$defs/Id"}, "deliveryId":{"$ref":"#/$defs/Id"},
+        "runId":{"$ref":"#/$defs/Id"}, "commit":{"type":"string","pattern":"^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
+        "receipt":{"type":"string","maxLength":1024}, "recordedAt":{"$ref":"#/$defs/Timestamp"},
+        "observation":{"$ref":"#/$defs/ArchiveObservation"}
+      }, "additionalProperties":false
+    },
+    "ArchiveObservation": {
+      "type": "object",
+      "required": [
+        "id",
+        "status",
+        "tag",
+        "protection"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "status": {
+          "enum": [
+            "intact",
+            "ref-changed",
+            "unavailable",
+            null
+          ]
+        },
+        "protection": {
+          "$ref": "#/$defs/ArchiveProtection"
+        },
+        "tag": {
+          "enum": [
+            "unchanged",
+            "moved",
+            "missing",
+            "unknown"
+          ]
+        },
+        "recordedCommit": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "remoteCommit": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        }
+      }
+    },
     "ArchiveObservations": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "status", "tag", "protection"],
+        "required": [
+          "id",
+          "status",
+          "tag",
+          "protection"
+        ],
         "additionalProperties": false,
         "properties": {
-          "id": {"$ref": "#/$defs/Id"},
-          "status": {"enum": ["intact", "ref-changed", "unavailable", null]},
-          "protection": {"$ref": "#/$defs/ArchiveProtection"},
-          "tag": {"enum": ["unchanged", "moved", "missing", "unknown"]},
-          "recordedCommit": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
-          "remoteCommit": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"}
+          "id": {
+            "$ref": "#/$defs/Id"
+          },
+          "status": {
+            "enum": [
+              "intact",
+              "ref-changed",
+              "unavailable",
+              null
+            ]
+          },
+          "protection": {
+            "$ref": "#/$defs/ArchiveProtection"
+          },
+          "tag": {
+            "enum": [
+              "unchanged",
+              "moved",
+              "missing",
+              "unknown"
+            ]
+          },
+          "recordedCommit": {
+            "type": "string",
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+          },
+          "remoteCommit": {
+            "type": "string",
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+          },
+          "activeArchiveId": {
+            "$ref": "#/$defs/Id"
+          },
+          "original": {
+            "$ref": "#/$defs/ArchiveObservation"
+          },
+          "repairs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/ArchiveRepair"
+            }
+          }
         }
       }
     },

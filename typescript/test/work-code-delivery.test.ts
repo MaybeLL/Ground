@@ -7,20 +7,25 @@ import { test } from "node:test";
 import { composeWork } from "../src/work/composition.js";
 import type { WorkApplication } from "../src/work/application/index.js";
 import { withRuntimeDirectories } from "../src/runtime-files.js";
-import { openLedger } from "./backends.js";
+import { createHash } from "node:crypto";
+import { newUUIDv7 } from "../src/identity.js";
+import type { SQLStore } from "../src/sql-store.js";
+import { GitTagArchive, SqlWorkUnitOfWork } from "../src/work/adapters/index.js";
+import { ArchiveRepairs } from "../src/work/application/archive-repairs.js";
+import { backends, backendSkip, type Backend, openLedger } from "./backends.js";
 import { refused, value } from "./work-application-harness.js";
 
 const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "T", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "T", GIT_COMMITTER_EMAIL: "t@t" } }).trim();
 
-async function scenario(run: (t: { app: WorkApplication; repo: string; remote: string; baseline: string; root: string }) => Promise<void>): Promise<void> {
+async function scenario(run: (t: { app: WorkApplication; store: SQLStore; repo: string; remote: string; baseline: string; root: string }) => Promise<void>, backend: Backend = "sqlite"): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "grounds-delivery-"));
-  const fixture = await openLedger("sqlite");
+  const fixture = await openLedger(backend);
   try {
     const repo = join(root, "repo"), remote = join(root, "remote.git");
     execFileSync("git", ["init", "-q", "--bare", remote]);
     execFileSync("git", ["init", "-q", "-b", "main", repo]);
     writeFileSync(join(repo, "a.txt"), "a\n"); git(repo, "add", "-A"); git(repo, "commit", "-qm", "base");
-    await withRuntimeDirectories({ runtimeHome: join(root, "runtime"), directoryRegistryHome: join(root, "registry") }, () => run({ app: composeWork(fixture.store), repo, remote, baseline: git(repo, "rev-parse", "HEAD"), root }));
+    await withRuntimeDirectories({ runtimeHome: join(root, "runtime"), directoryRegistryHome: join(root, "registry") }, () => run({ app: composeWork(fixture.store), store: fixture.store, repo, remote, baseline: git(repo, "rev-parse", "HEAD"), root }));
   } finally { await fixture.close(); rmSync(root, { recursive: true, force: true }); }
 }
 
@@ -81,4 +86,47 @@ test("a workspace is prepared only for a run that can still do work, from what i
     git(root, "--git-dir", remote, "tag", "-d", `grounds/deliveries/${delivered.delivery.id}`);
     refused(await app.delivery.prepareWorkspace({ runId: refinement.runId, repositoryPath: repo }), "conflict", /no longer shows/);
   });
+});
+
+for (const backend of backends) test(`${backend}: repair resumes after a lost push reply and retains both archive facts`, { skip: backendSkip(backend) }, async () => {
+  await scenario(async ({ app, store, repo, remote, baseline }) => {
+    const task = value(await app.tasks.createTask({ requestId: "task", summary: "repair fixture", criteria: [{ statement: "retain original" }], repository: { remote, baseline } }));
+    const run = value(await app.exec.startWork({ requestId: "start", taskDefinitionId: task.taskId, workerMode: "none" }));
+    const first = value(await app.delivery.deliver({ requestId: "deliver", runId: run.runId, repositoryPath: repo, commit: baseline }));
+    const before = value(await app.exec.getRun(run.runId));
+    const originalRef = `refs/tags/grounds/deliveries/${first.delivery.id}`;
+    writeFileSync(join(repo, "unrelated.txt"), "unrelated\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-qm", "other");
+    const moved = git(repo, "rev-parse", "HEAD");
+    git(repo, "push", "--force", remote, `${moved}:${originalRef}`);
+    const input = { requestId: "recover", runId: run.runId, deliveryId: first.delivery.id, repositoryPath: repo };
+    class Interrupted extends GitTagArchive {
+      override async repair(action: Parameters<GitTagArchive["repair"]>[0]): ReturnType<GitTagArchive["repair"]> {
+        const result = await super.repair(action);
+        assert.equal(result.status, "confirmed");
+        throw new Error("injected interruption after remote confirmation");
+      }
+    }
+    const units = new SqlWorkUnitOfWork(store);
+    const interrupted = new ArchiveRepairs({ units, archive: new Interrupted(), ids: { next: newUUIDv7 }, clock: { now: () => new Date().toISOString() }, hash: text => createHash("sha256").update(text).digest("hex") });
+    await assert.rejects(interrupted.repair(input), /injected interruption/);
+    assert.equal((await units.run("read", r => r.intents.findByRequest("recover")))!.state, "registered");
+    const tags = git(repo, "ls-remote", "--tags", remote);
+    const [a, b] = await Promise.all([app.repairs.repair(input), app.repairs.repair(input)]);
+    const repaired = value(a);
+    assert.deepEqual(value(b), repaired);
+    assert.deepEqual(value(await app.repairs.repair(input)), repaired);
+    assert.equal(git(repo, "ls-remote", "--tags", remote), tags);
+    assert.equal(git(remote, "rev-parse", originalRef), moved);
+    assert.equal(git(remote, "rev-parse", `refs/tags/grounds/deliveries/${repaired.archiveId}`), baseline);
+    assert.deepEqual(value(await app.exec.getRun(run.runId)), before);
+    const [view] = await app.repairs.inspectRun(before.run, repo);
+    assert.equal(view!.id, first.delivery.id);
+    assert.equal(view!.status, "intact");
+    assert.ok("repairs" in view!);
+    assert.equal(view.repairs.length, 1); assert.equal(view.original.tag, "moved"); assert.equal(view.activeArchiveId, repaired.archiveId);
+    const next = value(await app.exec.continueWork({ requestId: "continue", workId: run.workId, expectedHead: run.runId, workerMode: "none" }));
+    const workspace = value(await app.delivery.prepareWorkspace({ runId: next.runId, repositoryPath: repo }));
+    assert.equal(git(workspace.path, "rev-parse", "HEAD"), baseline);
+  }, backend);
 });

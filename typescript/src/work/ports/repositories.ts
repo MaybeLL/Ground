@@ -93,6 +93,7 @@ export interface IntentRepository extends AggregateRepository<IntentRecord> {
   register(intent: IntentRecord): Promise<{ intent: IntentRecord; created: boolean }>;
   findByRequest(requestId: string): Promise<IntentRecord | undefined>;
   listByState(state: IntentState, limit: number): Promise<IntentRecord[]>;
+  listForSubject(kind: string, type: string, id: Id): Promise<IntentRecord[]>;
   listChildren(parentIntentId: Id): Promise<IntentRecord[]>;
 }
 

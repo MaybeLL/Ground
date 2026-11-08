@@ -268,3 +268,26 @@ test("grade input and domain share Unicode length limits for criterion IDs and r
     assert.equal(validateGrade(parseGrade(input), { form: "criteria" }).ok, valid);
   }
 });
+
+test("work repair publishes a separate archive and exposes the original beside the active receipt", async () => {
+  await withHarness(async h => {
+    const task = ok(await h.cli("task", "create", "--title", "Archive fixture", "--criterion", "Preserve commit", "--repo-remote", h.remote, "--baseline", h.baseline));
+    const { workId, runId } = ok(await h.cli("work", "start", "--task", task.taskId, "--mode", "none"));
+    const { delivery } = ok(await h.cli("work", "deliver", "--run", runId, "--repo", h.repo));
+    const gate = ok(await h.cli("grade", "request", "--run", runId));
+    git(h.remote, "update-ref", "-d", `refs/tags/grounds/deliveries/${delivery.id}`);
+    git(h.remote, "reflog", "expire", "--expire=now", "--all"); git(h.remote, "gc", "--prune=now");
+    const args = ["work", "repair", "--run", runId, "--delivery", delivery.id, "--repo", h.repo, "--operation-id", newUUIDv7()];
+    const { repair } = ok(await h.cli(...args));
+    assert.deepEqual(ok(await h.cli(...args)).repair, repair);
+    assert.equal(repair.commit, h.baseline);
+    assert.notEqual(repair.archiveId, delivery.id);
+    for (const data of [ok(await h.cli("work", "show", "--work", workId)), ok(await h.cli("grade", "show", "--grading", gate.gradingId)), ok(await h.cli("grade", "list", "--run", runId))]) {
+      const [current] = data.archiveIntegrity;
+      assert.equal(current.activeArchiveId, repair.archiveId);
+      assert.equal(current.original.tag, "missing");
+      assert.equal(current.status, "intact");
+      assert.equal(current.repairs[0].receipt, repair.receipt);
+    }
+  });
+});

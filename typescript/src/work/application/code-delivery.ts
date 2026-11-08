@@ -2,7 +2,7 @@
 // a git repository and its remote, which is outside the ledger: the archive is
 // written first and is idempotent, so a command that stops half way is simply
 // run again.
-import { isId, parseTaskContent, type Id, type TaskRun } from "../domain/index.js";
+import { isId, parseTaskContent, type Id } from "../domain/index.js";
 import type { ArchiveProtection, RecordedProtection, CodeArchivePort, WorkUnitOfWork, WorktreePort } from "../ports/index.js";
 import { fail, failureOf, succeed, type Outcome } from "./outcome.js";
 import type { Submitted, TaskExecution } from "./task-execution.js";
@@ -16,7 +16,7 @@ const repositoryOf = (content: unknown): { remote?: string; baseline?: string } 
 };
 
 export class CodeDelivery {
-  constructor(private readonly deps: { units: WorkUnitOfWork; exec: TaskExecution; archive: CodeArchivePort; worktrees: WorktreePort }) {}
+  constructor(private readonly deps: { units: WorkUnitOfWork; exec: TaskExecution; archive: CodeArchivePort; worktrees: WorktreePort; repairs: import("./archive-repairs.js").ArchiveRepairs }) {}
 
   /**
    * Archive a commit of the worker's repository and hand it in as the round's
@@ -54,14 +54,6 @@ export class CodeDelivery {
     return succeed({ delivery: { id: deliveryId, commit: archived.commit, receipt: archived.receipt, protection: input.protection ?? { level: "unknown" } }, submitted: submitted.value });
   }
 
-  async inspectRun(run: TaskRun, repositoryPath: string) {
-    const observations = [];
-    for (const item of run.manifest?.items ?? []) {
-      if (item.type === "candidate") observations.push(await this.deps.archive.inspect(repositoryPath, item));
-    }
-    return observations;
-  }
-
   /**
    * A private working copy for a run. A first run starts at the task's
    * baseline; a refinement starts at the commit the run it refines delivered,
@@ -84,7 +76,8 @@ export class CodeDelivery {
       if (found.run.refines) {
         const item = found.parent?.manifest?.items.find(i => i.type === "candidate");
         if (!item) return fail("conflict", `run ${found.run.refines} delivered no code to continue from`);
-        const fetched = await this.deps.archive.fetch({ repositoryPath: input.repositoryPath, receipt: item.receipt });
+        const { receipt } = await this.deps.repairs.current(found.run.refines, item, input.repositoryPath);
+        const fetched = await this.deps.archive.fetch({ repositoryPath: input.repositoryPath, receipt });
         if (fetched.status !== "fetched") return fail(fetched.status === "unavailable" ? "unavailable" : "conflict", fetched.reason);
         base = { commit: fetched.commit, from: "delivery", of: found.run.refines };
       } else {
