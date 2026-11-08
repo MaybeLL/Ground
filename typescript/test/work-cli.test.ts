@@ -1460,6 +1460,9 @@ test("experiment runs rule and sandbox test graders against the selected working
         await new Promise(resolve=>setTimeout(resolve,250));
       } while(Date.now()<end);
       assert.equal(status.status,"grader_fault",JSON.stringify(status));
+      db.prepare("UPDATE work_intents SET record_digest=? WHERE request_id=? AND kind='save-artifact'").run("sha256:"+"0".repeat(64),id);
+      const damaged=ok(await h.cli("experiment","member","--batch",batchId,"--member",report.key)).member;
+      assert.equal(damaged.targetAvailability,"unavailable");assert.equal(damaged.complete,true);
       db.prepare("DELETE FROM work_intents WHERE request_id=? AND kind='save-artifact'").run(id);
       const after=ok(await h.cli("experiment","member","--batch",batchId,"--member",report.key)).member;
       assert.equal(after.targetAvailability,"unavailable");

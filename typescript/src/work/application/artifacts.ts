@@ -45,8 +45,14 @@ export async function archiveFiles(r:WorkRepositories,ctx:RequestContext,owner:{
 }
 
 export async function readArtifact(r:WorkRepositories,id:string):Promise<SavedArtifact|undefined> {
-  const intent = await r.intents.findByRequest(id);
-  if (intent?.kind === "save-artifact" && intent.state === "completed") return intent.result as SavedArtifact;
+  try {
+    const intent = await r.intents.findByRequest(id);
+    if (intent?.kind !== "save-artifact" || intent.state !== "completed") return;
+    const saved=intent.result as SavedArtifact|null;
+    if (saved?.id===id && Array.isArray(saved.files) && saved.files.every(file=>typeof file?.path==="string" && typeof file.content?.digest==="string")) return saved;
+  } catch (error) {
+    if (!(error instanceof StorageFailure && error.reason==="integrity")) throw error;
+  }
 }
 
 export async function verifiedArtifact(r:WorkRepositories,runId:string,id:string,receipt:string,hash:Hasher) {
