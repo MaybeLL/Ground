@@ -3,7 +3,7 @@
 // written first and is idempotent, so a command that stops half way is simply
 // run again.
 import { readArtifact } from "./artifacts.js";
-import { isId, parseTaskContent, type Id } from "../domain/index.js";
+import { isTerminal, isId, parseTaskContent, type Id } from "../domain/index.js";
 import type { ArchiveProtection, RecordedProtection, CodeArchivePort, WorkUnitOfWork, WorktreePort } from "../ports/index.js";
 import { fail, failureOf, succeed, type Outcome } from "./outcome.js";
 import type { Submitted, TaskExecution } from "./task-execution.js";
@@ -48,7 +48,12 @@ export class CodeDelivery {
     const commit = await this.deps.archive.resolveCommit(input.repositoryPath, input.commit);
     if (!commit) return fail("invalid", `${input.commit} is not a commit of ${input.repositoryPath}`);
     const deliveryId = `d-${input.runId}-${commit.slice(0, 12)}`;
-    const previous = await this.deps.units.run("read", r => r.intents.findByRequest(input.requestId));
+    let previous = await this.deps.units.run("read", r => r.intents.findByRequest(input.requestId));
+    if (previous?.state==="registered" && previous.kind==="submit" && previous.subject.id===input.runId && known.terminal) {
+      const settled=await this.deps.exec.reconcileSubmission(input.runId);
+      if (!settled.ok) return settled;
+      previous=await this.deps.units.run("read",r=>r.intents.findByRequest(input.requestId));
+    }
     let previousReceipt: string | undefined;
     if (previous) {
       const payload = previous.payload as { items?: { id: Id; receipt: string }[] };
@@ -56,12 +61,18 @@ export class CodeDelivery {
       if (previous.kind !== "submit" || previous.subject.id !== input.runId || item?.id !== deliveryId || typeof item.receipt !== "string") {
         return fail("request-conflict", `operation ${input.requestId} belongs to a different submission`);
       }
-      if (previous.state==="completed") previousReceipt = item.receipt;
+      if (previous.state==="completed") {
+        const outcome=(previous.result as Submitted).outcome;
+        if (["cancel-wins","already-terminal"].includes(outcome) && (await this.deps.archive.inspect(input.repositoryPath,item)).tag!=="unchanged") {
+          return fail("conflict","the run ended without a confirmed publication");
+        }
+        previousReceipt = item.receipt;
+      }
     }
     const proposal=(receipt:string)=>({requestId:input.requestId,runId:input.runId,...(input.sessionId ? {sessionId:input.sessionId} : {}),
       items:[{type:"candidate" as const,id:deliveryId,receipt},...attachments.value],...(input.declaresStop ? {declaresStop:true} : {})});
-    const archived = await this.deps.archive.archive({ repositoryPath: input.repositoryPath, remote, deliveryId, commit, protection: input.protection, previousReceipt,
-      reservePublication:receipt=>this.deps.exec.reservePublication(proposal(receipt)) });
+    const archived = await this.deps.archive.archive({ observeOnly:known.terminal, repositoryPath: input.repositoryPath, remote, deliveryId, commit, protection: input.protection, previousReceipt,
+      reservePublication:receipt=>this.deps.exec.reservePublication(proposal(receipt),known.terminal) });
     if (archived.status !== "confirmed") {
       if (previous && archived.status === "conflict") return fail("request-conflict", archived.reason);
       return fail(archived.status, archived.reason);
@@ -147,14 +158,14 @@ export class CodeDelivery {
     } catch (error) { const failure = failureOf(error); if (failure) return { ok: false, error: failure }; throw error; }
   }
 
-  private async taskRemote(runId: Id): Promise<{ found: boolean; working?:boolean; outputs?:readonly {key:string;required:boolean}[]; managed?: boolean; remote?: string }> {
+  private async taskRemote(runId: Id): Promise<{ found: boolean; terminal?:boolean; working?:boolean; outputs?:readonly {key:string;required:boolean}[]; managed?: boolean; remote?: string }> {
     return this.deps.units.run("read", async r => {
       const run = await r.taskRuns.get(runId);
       if (!run) return { found: false };
       const revision = await r.definitions.getRevision(run.taskRevision.definitionId, run.taskRevision.revisionId);
       const remote = revision && parseTaskContent(revision.content).ok ? repositoryOf(revision.content).remote : undefined;
       const parsed = parseTaskContent(revision?.content);
-      return { found: true, outputs:parsed.ok ? parsed.value.outputs : undefined, working:(revision?.content as {kind?:string} | undefined)?.kind === "working", managed: run.workerMode === "managed", ...(remote ? { remote } : {}) };
+      return { found: true, terminal:isTerminal(run), outputs:parsed.ok ? parsed.value.outputs : undefined, working:(revision?.content as {kind?:string} | undefined)?.kind === "working", managed: run.workerMode === "managed", ...(remote ? { remote } : {}) };
     });
   }
 }

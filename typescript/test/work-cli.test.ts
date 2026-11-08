@@ -218,6 +218,9 @@ test("a call is safe to repeat with its operation id, and a delivery interrupted
     const run = ok(await h.cli("work", "run", "--run", started.runId)).run;
     assert.equal(run.manifest.items[0].id, delivered.delivery.id);
     assert.equal(run.lateRecords.length, 1);
+    git(h.remote,"update-ref","-d","refs/tags/grounds/deliveries/"+delivered.delivery.id);
+    assert.equal((await h.cli("work","deliver","--run",started.runId,"--repo",space.path)).ok,false);
+    assert.equal(git(h.remote,"tag","--list"),"");
   });
 });
 
@@ -445,6 +448,25 @@ test("an interrupted candidate publication owns its operation across runs and re
     assert.equal((await deliver(second)).ok,false);
     assert.equal(git(h.remote,"show-ref","--tags"),tags);
     assert.equal(ok(await h.cli("work","reconcile","--run",first)).submission.status,"delivered");
+    assert.equal(git(h.remote,"show-ref","--tags"),tags);
+  });
+});
+
+test("cancellation settles an interrupted publication and its original operation can replay",async t=>{
+  await withHarness(async h=>{
+    const {TaskExecution}=await import("../src/work/application/task-execution.js");
+    const task=ok(await h.cli("task","create","--title","Interrupted candidate","--criterion","archive","--repo-remote",h.remote,"--baseline",h.baseline));
+    const {runId}=ok(await h.cli("work","start","--mode","external","--task",task.taskId));
+    const {sessionId}=ok(await h.cli("work","register","--run",runId,"--agent","writer"));
+    const delivery=["work","deliver","--run",runId,"--session",sessionId,"--operation-id",newUUIDv7()];
+    t.mock.method(TaskExecution.prototype,"submit",async()=>{throw new Error("interrupted after push");},{times:1});
+    assert.equal((await h.cli(...delivery)).ok,false);
+    const tags=git(h.remote,"show-ref","--tags");
+    ok(await h.cli("work","cancel","--run",runId));
+    ok(await h.cli("work","stop","--run",runId,"--reason","human"));
+    const recovered=ok(await h.cli("work","reconcile","--run",runId)).submission;
+    assert.equal(recovered.outcome,"cancel-wins");
+    assert.deepEqual(ok(await h.cli(...delivery)).submitted,recovered);
     assert.equal(git(h.remote,"show-ref","--tags"),tags);
   });
 });

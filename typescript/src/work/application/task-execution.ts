@@ -233,13 +233,18 @@ export class TaskExecution {
   }
 
   /** Reserve the exact candidate and attachments before publishing a remote tag. */
-  async reservePublication(input:SubmissionInput) {
+  async reservePublication(input:SubmissionInput,observeOnly=false) {
     const hash=digestOf({kind:"submit",input:input as unknown as JsonValue},this.deps.hash);
     if (!hash.ok) return false;
     return this.deps.units.run("write",async r=>{
       const run=await r.taskRuns.get(input.runId,{lock:true});
-      if (!run || run.cancelIntent || isTerminal(run) || run.workerMode==="managed") return false;
+      if (!run || run.cancelIntent || run.workerMode==="managed") return false;
       if (run.workerMode==="external" && (run.worker?.kind!=="external" || run.worker.registration.sessionId!==input.sessionId)) return false;
+      if (isTerminal(run)) {
+        const recorded=run.manifest?.items;
+        return observeOnly && !!recorded && recorded.length===input.items.length && recorded.every((item,i)=>
+          item.type===input.items[i]?.type && item.id===input.items[i]?.id && item.receipt===input.items[i]?.receipt);
+      }
       if (run.pendingManifest && run.pendingManifest.operationId!==input.requestId) return false;
       const prior=await r.intents.findByRequest(input.requestId);
       if (prior && prior.requestHash!==hash.value) return false;
@@ -341,13 +346,18 @@ export class TaskExecution {
   }
 
   async reconcileSubmission(runId:Id):Promise<Outcome<Submitted|null>> {
-    const found=await this.deps.units.run("read",async r=>{
-      const run=await r.taskRuns.get(runId);
+    const found=await this.deps.units.run("write",async r=>{
+      const run=await r.taskRuns.get(runId,{lock:true});
       if (!run) return fail("not-found","task run does not exist");
       if (!run.pendingManifest) {
         const submissions=await r.intents.listForSubject("submit","task_run",runId);
         const publication=submissions.find(intent=>intent.state==="registered");
-        if (!isTerminal(run) && publication?.state==="registered") return succeed({publication:publication.payload as unknown as SubmissionInput});
+        if (publication) {
+          if (!isTerminal(run)) return succeed({publication:publication.payload as unknown as SubmissionInput});
+          const terminal={runId,status:run.status,outcome:run.status==="cancelled" ? "cancel-wins" : "already-terminal",blocked:null};
+          await r.intents.save({...publication,state:"completed",result:terminal,updatedAt:this.deps.clock.now(),version:publication.version+1},publication.version);
+          return succeed({terminal});
+        }
         if (isTerminal(run) && (run.sandboxId || submissions.length || run.manifest)) return succeed({settle:true});
         return succeed(null);
       }
@@ -356,6 +366,7 @@ export class TaskExecution {
       return succeed({submission:intent.payload as unknown as SubmissionInput});
     });
     if (!found.ok) return found;
+    if (found.value && "terminal" in found.value) return this.afterTerminal(succeed(found.value.terminal));
     if (found.value && "settle" in found.value && this.deps.lifecycle) {
       const settled=await this.deps.lifecycle.settleRun(runId);
       if (!settled.ok) return settled;
