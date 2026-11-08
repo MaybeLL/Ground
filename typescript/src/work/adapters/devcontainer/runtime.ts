@@ -86,6 +86,7 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
   async up(owner: RuntimeOwner, workspace: RuntimeWorkspace): Promise<RuntimeState> {
     const prior = await this.observe(owner);
     if (prior) {
+      await this.verifyComposeReady(owner,workspace,prior.id);
       await this.verifyWorkspace(prior.id, workspace);
       return prior;
     }
@@ -93,16 +94,13 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
     const project=existsSync(this.composeReceipt(owner)) ? this.composeProject(owner) : undefined;
     const result = await this.startTool(["up", "--update-remote-user-uid-default", "never", "--docker-path", this.docker,
       "--workspace-folder", workspace.path, "--config", configPath, "--mount-workspace-git-root=false", ...(workspace.frozenLockfile ? ["--frozen-lockfile"] : []),
-      "--id-label", ledgerLabel + "=" + owner.ledgerId, "--id-label", sandboxLabel + "=" + owner.sandboxId, ...(owner.setupAttempt ? ["--id-label", setupLabel + "=" + owner.setupAttempt] : [])]);
+      "--id-label", ledgerLabel + "=" + owner.ledgerId, "--id-label", sandboxLabel + "=" + owner.sandboxId, ...(owner.setupAttempt ? ["--id-label", setupLabel + "=" + owner.setupAttempt] : [])],project);
     const report = JSON.parse(result.stdout.trim());
     const after = await this.observe(owner);
     if (!after || after.state !== "running" || report.outcome !== "success" || report.containerId !== after.id) throw new Error("devcontainer did not confirm the owned running container");
     if (project) {
       if (report.composeProjectName!==project) throw Error("devcontainer launched an unexpected Compose project");
-      const record=JSON.parse(safeRead(this.composeReceipt(owner),1024*1024).toString());
-      const compose=composeEnvironment(record.service,record.services,true,record.volumes);
-      const {services}=await this.composeInventory(project,compose);
-      if (!Object.keys(compose.services).every(key=>services.has(key))) throw Error("Compose services are missing");
+      await this.verifyComposeReady(owner,workspace,after.id);
     }
     await this.verifyWorkspace(after.id, workspace);
     return after;
@@ -204,17 +202,49 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
     return join(dataLayout().runtime,"compose-projects",this.composeProject(owner)+".json");
   }
 
-  private async composeInventory(project:string,compose:ComposeEnvironment) {
+  private async verifyComposeReady(owner:RuntimeOwner,workspace:RuntimeWorkspace,id:string) {
+    if (!workspace.imageDigest) return;
+    const spec=JSON.parse(await readFile(workspace.configPath,"utf8")).groundsCompose;
+    if (!spec) return;
+    const compose=composeEnvironment(spec.service,spec.services,true,spec.volumes);
+    const receipt=this.composeReceipt(owner);
+    if (safeRead(receipt,1024*1024).toString()!==JSON.stringify(compose)) throw Error("frozen Compose receipt changed");
+    await this.verifyReady(owner,id);
+  }
+
+  async verifyReady(owner:RuntimeOwner,id:string) {
+    const receipt=this.composeReceipt(owner);
+    if (!existsSync(receipt)) return;
+    const record=JSON.parse(safeRead(receipt,1024*1024).toString());
+    const compose=composeEnvironment(record.service,record.services,true,record.volumes);
+    const info=await this.composeInventory(this.composeProject(owner),compose,true);
+    if (info.services.get(compose.service)!==id || !Object.keys(compose.services).every(key=>info.services.has(key))) throw Error("Compose services are missing");
+  }
+
+  private async composeInventory(project:string,compose:ComposeEnvironment,ready=false) {
     const filter="label=com.docker.compose.project="+project;
     const list=async(args:string[]) => (await this.invoke(this.docker,args)).stdout.trim().split(/\s+/).filter(Boolean);
     const containers=await list(["ps","-aq","--no-trunc","--filter",filter]);
-    const services=new Set<string>();
+    const services=new Map<string,string>();
     for (const id of containers) {
       const info=JSON.parse((await this.invoke(this.docker,["inspect","--type","container","--format","{{json .}}",id])).stdout);
       const labels=info.Config.Labels,service=labels["com.docker.compose.service"];
       if (info.Id!==id || labels[composeOwner]!==project || labels["com.docker.compose.project"]!==project ||
           services.has(service) || !Object.hasOwn(compose.services,service) || info.Image!==compose.services[service]!.image) throw Error("Compose project contains an unrelated container");
-      services.add(service);
+      if (ready) {
+        const networks=Object.keys(info.NetworkSettings.Networks);
+        if (!info.State.Running || info.State.Paused || info.State.Restarting || networks.length!==1 || networks[0]!==project+"_default")
+          throw Error("Compose service is not running on the project network");
+        if (service!==compose.service) {
+          const declared=compose.services[service]!.volumes ?? [];
+          if (info.Mounts.length!==declared.length || !declared.every(entry=>{
+            const [source,target,mode]=entry.split(":");
+            return info.Mounts.some((m:{Type:string;Name:string;Destination:string;RW:boolean})=>
+              m.Type==="volume" && m.Name===project+"_"+source && m.Destination===target && m.RW===(mode!=="ro"));
+          })) throw Error("Compose dependency volume binding changed");
+        }
+      }
+      services.set(service,id);
     }
     const networks=await list(["network","ls","--no-trunc","-q","--filter","name=^"+project+"_default$"]);
     for (const id of networks) {
@@ -305,11 +335,12 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
     if (current.state === "paused") await this.invoke(this.docker, ["unpause", id], opts);
     if (current.state === "stopped") await this.invoke(this.docker, ["start", id], opts);
     if ((await this.owned(owner, id)).state !== "running") throw new Error("sandbox resume not confirmed");
+    await this.verifyReady(owner,id);
   }
 
   async remove(owner: RuntimeOwner, id: string) {
     const current = await this.observe(owner);
-    if (!current) return;
+    if (!current) return this.removeDependents(owner);
     if (current.id !== id) throw new Error("recorded container identity differs; cannot release");
     if (current.state === "paused") await this.invoke(this.docker, ["unpause", id], opts);
     if (current.state !== "stopped") await this.invoke(this.docker, ["stop", id], opts);
@@ -336,6 +367,7 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
 
   async externalCommand(owner:RuntimeOwner,id:string,workspace:RuntimeWorkspace) {
     if ((await this.owned(owner,id)).state!=="running" || await realpath(workspace.path)!==workspace.path) throw Error("external sandbox or workspace is no longer available");
+    await this.verifyComposeReady(owner,workspace,id);
     await this.verifyWorkspace(id,workspace);
     const config=workspace.imageDigest ? join(dirname(workspace.configPath),"effective","devcontainer.json") : workspace.configPath;
     return [this.devcontainer,...this.execPrefix(id,workspace.path,config)];

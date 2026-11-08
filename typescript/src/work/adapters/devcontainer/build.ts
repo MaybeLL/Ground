@@ -218,7 +218,8 @@ export class DevcontainerBuilds {
       const volumes=body.volumes ?? {};
       if (typeof volumes!=="object" || Array.isArray(volumes) || Object.values(volumes).some(v=>v!==null && (typeof v!=="object" || Array.isArray(v) || Object.keys(v).length))) throw Error("only project-owned default Compose volumes are supported");
       const dockerfiles=new Map<string,{context:string;dockerfile:string}>();
-      for (const [key,raw] of Object.entries(body.services ?? {})) {
+      const services={...body.services};
+      for (const [key,raw] of Object.entries(services)) {
         const spec=raw as Record<string,unknown>;
         if (!spec || typeof spec!=="object" || !("build" in spec)) continue;
         const build=typeof spec.build==="string" ? {context:spec.build} : spec.build as Record<string,unknown>;
@@ -226,10 +227,10 @@ export class DevcontainerBuilds {
         const context=await sourcePath(repo,dirname(path),build.context ?? ".",true);
         const dockerfile=await sourcePath(repo,context,build.dockerfile ?? "Dockerfile",false);
         dockerfiles.set(key,{context:relative(repo,context),dockerfile:relative(repo,dockerfile)});
-        spec.image="grounds-compose-build";
-        delete spec.build;
+        const {build:ignored,...settings}=spec;
+        services[key]={...settings,image:"grounds-compose-build"};
       }
-      const compose=composeEnvironment(service,body.services,false,Object.keys(volumes));
+      const compose=composeEnvironment(service,services,false,Object.keys(volumes));
       pinnedConfig(JSON.stringify({...launch,image:"grounds-compose"}),"sha256:"+"0".repeat(64));
       return {compose,source,launch,dockerfiles};
     }

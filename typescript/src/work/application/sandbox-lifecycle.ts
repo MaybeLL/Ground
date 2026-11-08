@@ -75,6 +75,7 @@ export class SandboxLifecycle {
         const verified = await this.deps.runtime.observe(owner);
         if (verified && verified.id !== expected?.instanceId) return fail("conflict", "retained instance changed during transfer");
         if (!facts.ended && verified?.state !== "running") return fail("unavailable", "retained container resume is unconfirmed");
+        if (!facts.ended && verified) await this.deps.runtime.verifyReady?.(owner,verified.id);
         const observation = verified?.state ?? "absent";
         return this.deps.units.run("write", async r => {
           const current = await r.sandboxes.get(sandbox.id, {lock: true});

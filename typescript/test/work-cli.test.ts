@@ -2040,13 +2040,16 @@ test("managed evaluator runs in a fresh grading sandbox and returns a numeric ze
   });
 });
 
-test("external sandbox runs a frozen Compose project and releases its own dependency network",{skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async()=>{
+test("external sandbox runs a frozen Compose project and releases its own dependency network",{skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async t=>{
   await withHarness(async h=>{
     const image=process.env.GROUNDS_TEST_MANAGED_AGENT!,folder=join(h.repo,".devcontainer");
     const docker=(...args:string[])=>execFileSync("docker",args,{encoding:"utf8"}).trim();
     mkdirSync(folder);
     writeFileSync(join(folder,"devcontainer.json"),JSON.stringify({dockerComposeFile:"compose.yaml",service:"worker",workspaceFolder:"/task"}));
-    writeFileSync(join(folder,"compose.yaml"),JSON.stringify({services:{worker:{build:".",depends_on:["database"]},database:{image,command:["sleep","infinity"],volumes:["storage:/data"]}},volumes:{storage:{}}}));
+    writeFileSync(join(folder,"compose.yaml"),[
+      "services:", "  worker: &fromRepo", "    build: .", "    depends_on: [database]", "  helper: *fromRepo",
+      "  database:", "    image: "+image, "    command: [sleep, infinity]", "    volumes: [storage:/data]", "volumes: {storage: {}}",
+    ].join("\n"));
     writeFileSync(join(folder,"Dockerfile"),"FROM "+image+"\nCOPY frozen.txt /compose-snapshot\n");
     writeFileSync(join(folder,"frozen.txt"),"frozen");
     git(h.repo,"add",".");git(h.repo,"commit","-qm","two-service environment");
@@ -2057,16 +2060,22 @@ test("external sandbox runs a frozen Compose project and releases its own depend
     const task=ok(await h.cli("task","create","--title","compose workspace","--criterion","reaches database","--repo-remote",h.remote,"--baseline",commit,"--environment",environment.environmentId));
     const definition=ok(await h.cli("work","environment","--environment",environment.environmentId,"--revision","1"));
     const images=Object.values(JSON.parse(definition.content.config).groundsCompose.services) as {image:string}[];
-    const projects:string[]=[];
+    const projects=new Set<string>(),runs:string[]=[],foreignProject="grounds-test-"+newUUIDv7();
+    const ledger=ok(await h.cli("db","status")).database_id;
+    const oldProject=process.env.COMPOSE_PROJECT_NAME;
+    process.env.COMPOSE_PROJECT_NAME=foreignProject;
     try {
       const launch=async()=>{
         const {runId}=ok(await h.cli("work","start-run","--task",task.taskId,"--mode","external","--retention","keep"));
+        runs.push(runId);
         const {sessionId}=ok(await h.cli("work","register","--run",runId,"--agent","external"));
         const {instanceId}=ok(await h.cli("work","prepare-sandbox","--run",runId,"--repo",h.repo));
         assert.equal(docker("exec",instanceId,"cat","/compose-snapshot"),"frozen");
         const project=docker("inspect","--format",'{{index .Config.Labels "dev.grounds.compose-owner"}}',instanceId);
         assert.match(project,/^grounds-[a-f0-9]{32}$/);
-        projects.push(project);
+        projects.add(project);
+        const helper=docker("ps","-q","--filter","label=dev.grounds.compose-owner="+project,"--filter","label=com.docker.compose.service=helper");
+        assert.equal(docker("exec",helper,"cat","/compose-snapshot"),"frozen");
         const dep=docker("ps","-q","--filter","label=dev.grounds.compose-owner="+project,"--filter","label=com.docker.compose.service=database");
         docker("exec",dep,"sh","-ec","echo "+runId+" > /data/sentinel");
         const access=ok(await h.cli("work","sandbox-context","--run",runId,"--session",sessionId));
@@ -2076,6 +2085,7 @@ test("external sandbox runs a frozen Compose project and releases its own depend
       };
       const first=await launch(),second=await launch();
       assert.notEqual(first.project,second.project);
+      assert.equal(docker("ps","-aq","--filter","label=com.docker.compose.project="+foreignProject),"");
       const end=async(run:typeof first)=>{
         ok(await h.cli("work","cancel","--run",run.runId));
         ok(await h.cli("work","stop","--run",run.runId,"--session",run.sessionId,"--reason","abandoned"));
@@ -2090,9 +2100,34 @@ test("external sandbox runs a frozen Compose project and releases its own depend
       assert.equal(docker("network","ls","-q","--filter","label=dev.grounds.compose-owner="+first.project),"");
       assert.equal(docker("volume","ls","-q","--filter","label=dev.grounds.compose-owner="+first.project),"");
       assert.equal(docker("exec",second.dep,"cat","/data/sentinel"),second.runId);
+      docker("stop",second.dep);
+      assert.equal((await h.cli("work","sandbox-context","--run",second.runId,"--session",second.sessionId)).ok,false);
+      docker("start",second.dep);
       await end(second);
-      ok(await h.cli("work","release-sandbox","--run",second.runId));
+      const {DevcontainerRuntime}=await import("../src/work/adapters/devcontainer/runtime.js");
+      const remove=DevcontainerRuntime.prototype.remove;
+      t.mock.method(DevcontainerRuntime.prototype,"remove",async function(this:InstanceType<typeof DevcontainerRuntime>,owner:Parameters<typeof remove>[0],id:string){
+        assert.equal(id,second.instanceId);
+        docker("rm","-f",id,second.dep);
+        docker("volume","rm",second.project+"_storage");
+        docker("volume","create","--label","test.grounds="+foreignProject,second.project+"_storage");
+        return remove.call(this,owner,id);
+      },{times:1});
+      const release=["work","release-sandbox","--run",second.runId,"--operation-id",newUUIDv7()];
+      assert.equal((await h.cli(...release)).ok,false);
+      assert.equal(docker("volume","inspect","-f",'{{index .Labels "test.grounds"}}',second.project+"_storage"),foreignProject);
+      docker("volume","rm",second.project+"_storage");
+      ok(await h.cli(...release));
+      assert.equal(docker("volume","ls","-q","--filter","label=dev.grounds.compose-owner="+second.project),"");
     } finally {
+      if (oldProject===undefined) delete process.env.COMPOSE_PROJECT_NAME;
+      else process.env.COMPOSE_PROJECT_NAME=oldProject;
+      for (const runId of runs) {
+        const stored=await h.cli("work","run","--run",runId);
+        const sandbox=stored.data?.run?.sandboxId;
+        if (sandbox) projects.add("grounds-"+createHash("sha256").update(JSON.stringify([ledger,sandbox])).digest("hex").slice(0,32));
+      }
+      for (const name of docker("volume","ls","-q","--filter","label=test.grounds="+foreignProject).split("\n").filter(Boolean)) docker("volume","rm",name);
       for (const project of projects) {
         const filter="label=dev.grounds.compose-owner="+project;
         for(const id of docker("ps","-aq","--filter",filter).split("\n").filter(Boolean)) docker("rm","-f",id);
