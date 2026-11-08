@@ -273,42 +273,6 @@
         }
       }
     },
-    "comparisonBasis": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "left_commit",
-        "right_tree",
-        "purpose",
-        "generator_version",
-        "diff_state"
-      ],
-      "properties": {
-        "left_commit": {
-          "$ref": "common.schema.json#/$defs/gitOid"
-        },
-        "right_commit": {
-          "$ref": "common.schema.json#/$defs/gitOid"
-        },
-        "right_tree": {
-          "$ref": "common.schema.json#/$defs/gitOid"
-        },
-        "purpose": {
-          "const": "candidate_changes"
-        },
-        "generator_version": {
-          "const": "grounds.canonical-git-diff/v1"
-        },
-        "diff_state": {
-          "enum": [
-            "inline",
-            "not_requested",
-            "omitted_size",
-            "binary"
-          ]
-        }
-      }
-    },
     "lineage": {
       "type": "object",
       "additionalProperties": false,

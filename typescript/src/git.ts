@@ -70,19 +70,6 @@ export const readReviewWorktreeMarker = (worktreePath = "."): ReviewWorktreeMark
   return parsed;
 };
 
-/**
- * A review worktree starts at the fixed Git Candidate. Before treating a
- * current worktree line as a Candidate location, re-capture its content. The marker
- * identifies the materialized Candidate but cannot prove the user has not
- * edited its files since then.
- */
-export const assertReviewWorktreeCandidateArtifact = (worktreePath: string, marker: ReviewWorktreeMarker): void => {
-  const artifact = captureArtifact(worktreePath, marker.baseline_oid);
-  if (artifact.result_tree_oid !== marker.result_tree_oid || artifact.patch_digest !== marker.patch_digest) {
-    throw worktreeMismatch(marker.candidate_id, "review worktree content has drifted from the Candidate artifact; restore it or query the Candidate explicitly");
-  }
-};
-
 const writeReviewWorktreeMarker = (worktreePath: string, marker: ReviewWorktreeMarker): void => {
   if (!validReviewMarker(marker)) throw validation("review_marker", "must match patchledger.review-worktree/v1");
   const path = reviewMarkerPath(worktreePath);

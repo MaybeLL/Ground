@@ -261,7 +261,7 @@ test("paged verification list returns the set summary without reports", async t 
     await fixture.verify(candidate);
     const result = await execute(["verification", "list", "--candidate", candidate.candidate.candidate_id, "--paged", "--config", config, "--cwd", candidate.repository]);
     assertContract("query-results.schema.json", result);
-    assert.equal(result.verification_set.reports_included, false);
+    assert.partialDeepStrictEqual(result, { verification_set: { reports_included: false } });
   } finally {
     if (fixture) await fixture.close();
     rmSync(directory, { recursive: true, force: true });

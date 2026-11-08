@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { assertReviewWorktreeCandidateArtifact, captureArtifact, materializeArtifact, materializeCandidateWorktree, readReviewWorktreeMarker, type ReviewWorktreeMarker } from "../src/git.js";
+import { captureArtifact, materializeArtifact, materializeCandidateWorktree, readReviewWorktreeMarker, type ReviewWorktreeMarker } from "../src/git.js";
 import { DomainError } from "../src/errors.js";
 import { newUUIDv7 } from "../src/identity.js";
 
@@ -62,15 +62,6 @@ test("review materialization records Candidate identity outside the worktree con
     };
     materializeCandidateWorktree({ source_path: fixture.repository, source_commit: fixture.source, target_path: reviewPath, mode: "review", baseline_oid: fixture.baseline, patch: fixture.artifact.patch, expected_tree_oid: fixture.artifact.result_tree_oid, review_marker: marker });
     assert.deepEqual(readReviewWorktreeMarker(reviewPath), marker);
-    assert.doesNotThrow(() => assertReviewWorktreeCandidateArtifact(reviewPath, marker));
-    writeFileSync(join(reviewPath, "file.txt"), "changed after review materialization\n");
-    assert.throws(
-      () => assertReviewWorktreeCandidateArtifact(reviewPath, marker),
-      (error: unknown) => error instanceof DomainError
-        && error.code === "WORKTREE_MISMATCH"
-        && error.details.resource_id === marker.candidate_id
-        && error.details.reason === "review worktree content has drifted from the Candidate artifact; restore it or query the Candidate explicitly",
-    );
     assert.equal(readReviewWorktreeMarker(fixture.repository), undefined);
     assert.doesNotMatch(git(reviewPath, "status", "--short"), /grounds-review/);
   } finally {

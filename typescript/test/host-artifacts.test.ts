@@ -10,7 +10,7 @@ import { DatabaseSync } from "node:sqlite";
 import { execute, runCLI } from "../src/cli.js";
 import { loadConfig } from "../src/config.js";
 import { DevWorktreeModule } from "../src/dev-worktree.js";
-import { assertReviewWorktreeCandidateArtifact, captureArtifact, readReviewWorktreeMarker } from "../src/git.js";
+import { captureArtifact, readReviewWorktreeMarker } from "../src/git.js";
 import { newUUIDv7, isUUIDv7 } from "../src/identity.js";
 import { SCHEMA_VERSION, SQLStore } from "../src/sql-store.js";
 import type { CandidateSubmissionV2Input } from "../src/domain.js";
@@ -281,7 +281,7 @@ test("review session material: one fixed file per phase and role, never inside t
   assert.equal(captureArtifact(one.target_path, w.baseline).result_tree_oid, tree);
   assert.deepEqual(git(one.target_path, "status", "--porcelain=v1", "--untracked-files=all").split("\n").filter((line) => line.startsWith("??")), []);
   const marker = readReviewWorktreeMarker(one.target_path);
-  assert.ok(marker); assert.doesNotThrow(() => assertReviewWorktreeCandidateArtifact(one.target_path, marker!));
+  assert.equal(marker?.result_tree_oid, tree);
 
   // Every phase and role has its own file name; nothing is overwritten.
   for (const [phase, role] of [["blind", "quality"], ["reconcile", "contract"], ["reconcile", "quality"]] as const) {
