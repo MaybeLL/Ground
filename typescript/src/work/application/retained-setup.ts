@@ -45,7 +45,10 @@ export class RetainedSetup {
       const ref = receiver.environment.revision;
       const revision = await r.definitions.getRevision(ref.definitionId, ref.revisionId);
       if (!revision || !allocation || !worker) return;
-      const task=await r.definitions.getRevision(receiver.taskRevision.definitionId,receiver.taskRevision.revisionId);
+      // Reopen the descriptor under which the workspace was actually created.
+      // Transfer already verified the receiver selects the same named inputs.
+      const creator=await r.taskRuns.get(initialRun);
+      const task=creator && await r.definitions.getRevision(creator.taskRevision.definitionId,creator.taskRevision.revisionId);
       const parsed=parseTaskContent(task?.content);
       if (!parsed.ok) return;
       return {materials:parsed.value.materialRepositories,repository: (worker.payload as {repositoryPath:string}).repositoryPath,

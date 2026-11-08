@@ -25,8 +25,8 @@ try {
     // A root container can create Git object directories owned by root on a
     // Linux bind mount. Limit cleanup to this fixture's private directory.
     execFileSync("docker", ["run", "--rm", "--network", "none", "--read-only",
-      "--mount", "type=bind,source=" + root + ",target=/fixture", "--entrypoint", "find", image,
-      "/fixture", "-xdev", "-depth", "-mindepth", "1", "-delete"], {stdio:"inherit"});
+      "--mount", "type=bind,source=" + root + ",target=/fixture", "--entrypoint", "sh", image,
+      "-ec", "find /fixture -xdev -type d -exec chmod u+rwx '{}' '+' && find /fixture -xdev -depth -mindepth 1 -delete"], {stdio:"inherit"});
     rmSync(root, {recursive:true,force:true});
   } finally {
     if (built) execFileSync("docker", ["image", "rm", image], {stdio: "inherit"});

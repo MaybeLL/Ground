@@ -69,4 +69,4 @@ if (process.argv[1].endsWith("claude")) {
   emit({type:"turn.completed"});
 }
 
-if (task.task==="read pinned input") process.exitCode=12;
+if (["read pinned input","concurrent fixture 1"].includes(task.task)) process.exitCode=12;

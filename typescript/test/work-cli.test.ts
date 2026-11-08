@@ -911,7 +911,7 @@ test("managed worker runs in its owned devcontainer after admission and delivers
           await new Promise(resolve => setTimeout(resolve, 250));
         } while (Date.now() < deadline);
         assert.equal(view.status, "delivered", JSON.stringify(view));
-        assert.equal(view.stage, "succeeded");
+        assert.equal(view.stage,title==="concurrent fixture 1" ? "failed" : "succeeded");
         assert.equal(view.stop, "verified");
         const {run} = ok(await h.cli("work", "run", "--run", started.runId));
         assert.equal(run.manifest.origin, "contract");
@@ -981,7 +981,11 @@ test("managed worker runs a refinement in its retained workspace with the origin
       postCreateCommand: "test -f .setup-first || { touch .setup-first; exit 1; }; test -f .setup-second || { touch .setup-second; exit 1; }"}));
     const define = ["work", "define-environment", "--name", "retained", "--devcontainer", config, "--image-digest", digest];
     const environment = ok(await h.cli(...define));
-    const task = ok(await h.cli("task", "create", "--title", "handoff fixture", "--criterion", "use notes", "--environment", environment.environmentId, "--repo-remote", h.remote, "--baseline", h.baseline));
+    const materialFile=join(h.directory,"handoff-materials.json");
+    const inputs=["one","two"].map(name=>({name,repository:h.repo,commit:h.baseline}));
+    writeFileSync(materialFile,JSON.stringify(inputs));
+    const spec=["--title","handoff fixture","--criterion","use notes","--environment",environment.environmentId,"--repo-remote",h.remote,"--baseline",h.baseline,"--materials",materialFile];
+    const task=ok(await h.cli("task","create",...spec));
     const agent = ok(await h.cli("work", "define-agent", "--name", "fixture", "--provider", "codex"));
     const managed = ["--mode", "managed", "--agent", agent.agentId, "--repo", h.repo];
     const ledger = ok(await h.cli("db", "status")).database_id;
@@ -1002,6 +1006,8 @@ test("managed worker runs a refinement in its retained workspace with the origin
       const unprepared = await awaitDelivery(failed.runId, "failed");
       const partial = docker("ps", "-aq", "--filter", "label=dev.grounds.sandbox=" + unprepared.sandboxId);
       assert.ok(partial);
+      writeFileSync(materialFile,JSON.stringify(inputs.reverse()));
+      ok(await h.cli("task","revise","--task",task.taskId,"--expected-seq","1",...spec));
       const retry = ok(await h.cli("work", "continue", "--work", failed.workId, "--expected-head", failed.runId, ...managed));
       const stillBlocked = await awaitDelivery(retry.runId, "failed");
       assert.equal(stillBlocked.sandboxId, unprepared.sandboxId);
