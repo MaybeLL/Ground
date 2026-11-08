@@ -245,13 +245,13 @@ test("failed setup can close and cancellation racing setup pauses the actual own
     const ctx = { units, runtime, hash:(s:string)=>createHash("sha256").update(s).digest("hex"), newId:newUUIDv7, now:()=>new Date().toISOString(), ledgerId:async ()=>(await store.inspect()).database_id };
     const lifecycle = new SandboxLifecycle(ctx);
     const taskExec = new TaskExecution({units,hash:ctx.hash,clock:{now:ctx.now},ids:{next:newUUIDv7},receipts:new GitTagArchive(),lifecycle});
-    let failed = true, stopOnFailure = false;
+    let failed = true, stopOnFailure = false, vanishAfterReceipt = false;
     let entered!: () => void, finish!: () => void;
     const started = new Promise<void>(r=>{entered=r;}), gate = new Promise<void>(r=>{finish=r;});
     const launcher = { cancelPending:async()=>false, status:async()=>failed ? "failed" as const : "completed" as const,
       start:async(owner: Parameters<ManagedWorkspaces["record"]>[0]) => {
         if (failed) { if (stopOnFailure) phase = "stopped"; throw Error("build failed"); }
-        phase = "running"; entered(); await gate; await workspaces.record(owner,id);
+        phase = "running"; entered(); await gate; await workspaces.record(owner,id); if (vanishAfterReceipt) phase = null;
       } };
     const provision = new SandboxProvisioning({...ctx,workspaces,launcher,lifecycle,delivery:app.delivery});
     const first = value(await taskExec.startWork({requestId:"one",workerMode:"external",taskDefinitionId:task.taskId}));
@@ -280,5 +280,10 @@ test("failed setup can close and cancellation racing setup pauses the actual own
     assert.equal(blocked!.phase,"blocked"); assert.equal(blocked!.blockedRuntimeQuiescent,true);
     assert.equal(value(await taskExec.closeWork({requestId:"close-three",workId:third.workId})).status,"closed");
     assert.equal(phase,null);
+    failed = false; vanishAfterReceipt = true;
+    const fourth = value(await taskExec.startWork({requestId:"four",workerMode:"external",taskDefinitionId:task.taskId}));
+    refused(await provision.prepare("prepare-four",fourth.runId,repo),"conflict");
+    assert.equal(value(await taskExec.getRun(fourth.runId)).run.failure?.class,"infrastructure");
+    assert.equal(value(await taskExec.closeWork({requestId:"close-four",workId:fourth.workId})).status,"closed");
   });
 });

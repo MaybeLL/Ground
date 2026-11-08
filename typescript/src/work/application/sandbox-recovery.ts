@@ -73,6 +73,9 @@ export class SandboxRecovery {
           if (!id) return this.failedPreparation(payload, "devcontainer setup ended without a successful completion receipt", observed?.id);
         }
       }
+      if (id && claim.state === "registered" && (!observed || (observed.id === id && observed.state !== "running"))) {
+        return this.failedPreparation(payload, "the completed sandbox was stopped or removed before registration", id);
+      }
       if (!id || observed?.id !== id || observed.state !== "running") return fail("unavailable", "cannot confirm the recorded running sandbox and completed devcontainer setup");
       const result = await this.deps.units.run("write", async r => {
         const intent = await r.intents.get(claim.id, {lock:true});
