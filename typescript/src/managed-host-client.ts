@@ -115,7 +115,8 @@ export async function notifyManaged(job: HostJob, operationId: string) {
     if (existsSync(path)) {
       if (safeRead(path, 32768).toString() !== record) throw new Error("managed request input changed");
       if (managedRequestRunning(job.executionId,operationId)) return;
-      await launchManaged("job", [name, "observe"]);
+      const observer=await launchManaged("job", [name, "observe"]);
+      if (observer) atomicPrivateWrite(path+".owner",JSON.stringify(observer));
       return;
     }
     atomicPrivateWrite(path, record);
