@@ -1596,9 +1596,9 @@ test("experiment runs rule and sandbox test graders against the selected working
     assert.ok(member.gradings.every((g:{targets:{type:string;id:string}[]})=>g.targets[0]?.type==="artifact" && g.targets[0].id!==artifact.id));
     const id=member.gradings[0].targets[0].id, saved=ok(await h.cli("work","artifact","--run",member.runId,"--artifact",id)).artifact;
     const appendix=saved.files.find((file:{path:string})=>file.path==="appendix.txt").content.digest;
-    const db=new DatabaseSync(join(h.directory,"ledger.db"));
+    const {store}=await openStore(join(h.directory,"config.yaml"));
     try {
-      db.prepare("DELETE FROM work_evidence_chunks WHERE digest=?").run(appendix);
+      await store.transaction(true,c=>c.run("DELETE FROM work_evidence_chunks WHERE digest=?",[appendix]));
       const regrade=["experiment","regrade","--batch",batchId,"--member",report.key,"--binding"];
       assert.equal(ok(await h.cli(...regrade,"rule")).status,"grader_fault");
       const accepted=ok(await h.cli(...regrade,"test"));
@@ -1609,16 +1609,16 @@ test("experiment runs rule and sandbox test graders against the selected working
         await new Promise(resolve=>setTimeout(resolve,250));
       } while(Date.now()<end);
       assert.equal(status.status,"grader_fault",JSON.stringify(status));
-      db.prepare("UPDATE work_intents SET record_digest=? WHERE request_id=? AND kind='save-artifact'").run("sha256:"+"0".repeat(64),id);
+      await store.transaction(true,c=>c.run("UPDATE work_intents SET record_digest=? WHERE request_id=? AND kind='save-artifact'",["sha256:"+"0".repeat(64),id]));
       const damaged=ok(await h.cli("experiment","member","--batch",batchId,"--member",report.key)).member;
       assert.equal(damaged.targetAvailability,"unavailable");assert.equal(damaged.complete,true);
-      db.prepare("DELETE FROM work_intents WHERE request_id=? AND kind='save-artifact'").run(id);
+      await store.transaction(true,c=>c.run("DELETE FROM work_intents WHERE request_id=? AND kind='save-artifact'",[id]));
       const after=ok(await h.cli("experiment","member","--batch",batchId,"--member",report.key)).member;
       assert.equal(after.targetAvailability,"unavailable");
       assert.deepEqual(after.requirements.map((v:{adopted:string})=>v.adopted),member.requirements.map((v:{adopted:string})=>v.adopted));
       assert.equal(after.requirements.filter((v:{key:string})=>v.key!=="numeric").every((v:{latestFault?:unknown})=>!!v.latestFault),true);
       assert.equal(ok(await h.cli("experiment","results","--batch",batchId)).counts.fullyGraded,1);
-    } finally {db.close();}
+    } finally {await store.close();}
   });
 });
 
