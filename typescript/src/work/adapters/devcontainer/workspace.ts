@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, lstat, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, lstat, realpath, readFile, rename, rm, writeFile } from "node:fs/promises";
 import {dirname,join} from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -8,7 +8,7 @@ import { atomicPrivateWrite, privateDirectory, withRuntimeLock } from "../../../
 import {MaterialWorkspaces} from "../git/material-workspaces.js";
 import type {MaterialRepository} from "../../domain/index.js";
 import { pinnedConfig } from "./config.js";
-import { dataLayout } from "../../../data-layout.js";
+import { dataLayout, repositoryDataRoot } from "../../../data-layout.js";
 import type { ManagedWorkspacePort, RuntimeOwner } from "../../ports/index.js";
 
 const exec = promisify(execFile);
@@ -34,7 +34,18 @@ export class ManagedWorkspaces implements ManagedWorkspacePort {
     return privateDirectory(join(this.root(owner), "setup-attempts", owner.setupAttempt));
   }
 
-  async prepare(owner: RuntimeOwner, repository: string, commit: string|null, content: { config: string; lockfile: string | null; imageDigest: string }, requireExisting = false,repositories:readonly MaterialRepository[] = [],artifact?:{receipt:string;populate(directory:string):Promise<void>}) {
+  async prepareExternal(owner:RuntimeOwner,runId:string,repository:string,commit:string|null,content:{config:string;lockfile:string|null;imageDigest:string},path:string,repositories:readonly MaterialRepository[]) {
+    if (!/^[a-f0-9-]{36}$/.test(runId)) throw Error("invalid external workspace owner");
+    const expected=commit===null ? join(this.directory,"working",owner.ledgerId,runId,"output") : join(repositoryDataRoot(repository),"work",runId,"worktree");
+    if (path!==expected || await realpath(path)!==expected || !(await lstat(path)).isDirectory()) throw Error("external workspace binding changed");
+    if (commit!==null) {
+      const registered=(await git(["-C",repository,"worktree","list","--porcelain","-z"])).stdout.split("\0");
+      if (!registered.includes("worktree "+expected)) throw Error("external coding workspace is not registered with this repository");
+    }
+    return this.prepare(owner,repository,commit,content,false,repositories,undefined,path);
+  }
+
+  async prepare(owner: RuntimeOwner, repository: string, commit: string|null, content: { config: string; lockfile: string | null; imageDigest: string }, requireExisting = false,repositories:readonly MaterialRepository[] = [],artifact?:{receipt:string;populate(directory:string):Promise<void>},externalPath?:string) {
     const configSource = pinnedConfig(content.config, content.imageDigest);
     const root = this.root(owner);
     if (commit!==null && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(commit)) throw new Error("managed workspace needs a full commit");
@@ -42,7 +53,15 @@ export class ManagedWorkspaces implements ManagedWorkspacePort {
     const dest = join(root, "prepared"), workspace = join(dest, "workspace");
     const selected = repositories.length ? await new MaterialWorkspaces().prepare(owner.ledgerId,owner.sandboxId,repositories) : undefined;
     const taskMaterials=selected && dirname(selected.materials[0]!.path);
-    const descriptor = JSON.stringify({ commit,...(artifact ? {artifactReceipt:artifact.receipt} : {}), ...(repositories.length ? {repositories} : {}), config: content.config, lockfile: content.lockfile, imageDigest: content.imageDigest });
+    const originalDescriptor = JSON.stringify({ commit,...(artifact ? {artifactReceipt:artifact.receipt} : {}), ...(repositories.length ? {repositories} : {}), config: content.config, lockfile: content.lockfile, imageDigest: content.imageDigest });
+    // Existing external sandboxes may already have a private clone with work in progress.
+    let descriptor=originalDescriptor;
+    if (externalPath) {
+      let existing;
+      try {existing=await readFile(join(dest,"source.json"),"utf8");} catch(error) {if (!absent(error)) throw error;}
+      if (existing===originalDescriptor) externalPath=undefined;
+      else descriptor=JSON.stringify({...JSON.parse(originalDescriptor),externalPath});
+    }
     const verified = async () => {
       try { if (await readFile(join(dest, "source.json"), "utf8") !== descriptor) throw new Error("workspace preparation identity conflict"); return true; }
       catch (error) { if (absent(error)) return false; throw error; }
@@ -56,8 +75,8 @@ export class ManagedWorkspaces implements ManagedWorkspacePort {
       try {
         const clone = join(stage, "workspace"), config = join(stage, ".devcontainer");
         await mkdir(config);
-        if (commit===null) {await mkdir(clone);await artifact?.populate(clone);}
-        else {
+        if (!externalPath && commit===null) {await mkdir(clone);await artifact?.populate(clone);}
+        else if (!externalPath && commit!==null) {
           await git(["init", "--quiet", "--template=", "--object-format=" + (commit.length === 64 ? "sha256" : "sha1"), clone]);
           await git(["-C", clone, "-c", "core.hooksPath=/dev/null", "fetch", "--no-tags", "--depth=1", "--", pathToFileURL(repository).href, commit]);
           await git(["-C", clone, "-c", "core.hooksPath=/dev/null", "checkout", "--quiet", "--detach", commit]);
@@ -70,7 +89,7 @@ export class ManagedWorkspaces implements ManagedWorkspacePort {
         try { await rename(stage, dest); } catch (error) { if (!await verified()) throw error; }
       } finally { await rm(stage, { recursive: true, force: true }); }
     }
-    return { path: workspace,...(taskMaterials ? {taskMaterials} : {}), configPath: join(dest, ".devcontainer", "devcontainer.json"), imageDigest: content.imageDigest, containerFolder: configSource.workspaceFolder as string, frozenLockfile: content.lockfile !== null };
+    return { path: externalPath ?? workspace,...(taskMaterials ? {taskMaterials} : {}), configPath: join(dest, ".devcontainer", "devcontainer.json"), imageDigest: content.imageDigest, containerFolder: configSource.workspaceFolder as string, frozenLockfile: content.lockfile !== null };
   }
 
   async receipt(owner: RuntimeOwner) {

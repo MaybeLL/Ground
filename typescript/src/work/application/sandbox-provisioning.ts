@@ -40,6 +40,38 @@ export class SandboxProvisioning {
     return succeed({runId, sandboxId: sb.id, environmentRevisionId: sb.runtime.environmentRevisionId, commit: facts.job.baseline, phase: "ready", instanceId: observed.id});
   }
 
+  /** Resolve the user's direct devcontainer exec invocation for a live external session. */
+  async externalContext(runId:string,sessionId:string) {
+    const authorize=()=>this.deps.units.run("read",async r=>{
+      const run=await r.taskRuns.get(runId);
+      if (!run) return fail("not-found","task run does not exist");
+      if (run.worker?.kind!=="external" || run.worker.registration.sessionId!==sessionId) return fail("forbidden","registered external session required");
+      if (run.status!=="running" || run.cancelIntent || run.worker.registration.stop) return fail("conflict","external run is no longer active");
+      const sb=run.sandboxId && await r.sandboxes.get(run.sandboxId);
+      if (!sb || sb.owner.id!==runId || sb.owner.type!=="task_run" || !sb.runtime || !sb.location || sb.phase!=="ready" || sb.lease || sb.reservation || sb.stopUnknown) return fail("conflict","external sandbox is not ready");
+      const [launch]=await r.intents.listForSubject("launch-devcontainer","sandbox",sb.id);
+      const plan=launch?.payload as {workspace?:string;runId?:string}|undefined;
+      if (launch?.state!=="completed" || plan?.runId!==runId || !plan.workspace) return fail("conflict","no completed sandbox launch for this run");
+      return succeed({sandboxId:sb.id,instanceId:sb.runtime.instanceId,location:sb.location,path:plan.workspace});
+    });
+    const authorized=await authorize();
+    if (!authorized.ok) return authorized;
+    const owner={ledgerId:await this.deps.ledgerId(),sandboxId:authorized.value.sandboxId};
+    try {
+      return await this.deps.runtime.exclusive(owner,async()=>{
+        const {instanceId,location,path}=authorized.value;
+        const current=await this.deps.runtime.location();
+        if (current.daemonId!==location.daemonId || current.hostId!==location.hostId) return fail("conflict","external sandbox belongs to a different host or Docker daemon");
+        const workspace=await this.deps.launcher.workspace(owner,location,path);
+        const argvPrefix=await this.deps.runtime.externalCommand(owner,instanceId,workspace);
+        const active=await authorize();
+        if (!active.ok) return active;
+        if (active.value.instanceId!==instanceId || active.value.sandboxId!==owner.sandboxId) return fail("conflict","sandbox changed while resolving its command");
+        return succeed({runId,sandboxId:owner.sandboxId,instanceId,workspace:path,argvPrefix});
+      });
+    } catch {return fail("unavailable","could not verify the sandbox container, mount and launch configuration");}
+  }
+
   async prepare(requestId: string, runId: string, repository: string): Promise<Outcome<Prepared>> {
     if (!isId(requestId) || !isId(runId)) return fail("invalid", "provide a run and operation identity");
     const authorized = await this.deps.units.run("read", async r => {
@@ -119,7 +151,13 @@ export class SandboxProvisioning {
     const content = known.env.content as EnvironmentContent;
     if (content.format !== "grounds.devcontainer/v1") return fail("unsupported", "unsupported environment revision");
     let workspace;
-    try { workspace = await this.deps.workspaces.prepare(owner, repository, reserved.commit, content,false,known.task.value.materialRepositories); }
+    try {
+      if (known.run.workerMode==="external") {
+        const selected=await this.deps.delivery.workspace({runId,repositoryPath:repository});
+        if (!selected.ok) return selected;
+        workspace=await this.deps.workspaces.prepareExternal(owner,runId,repository,reserved.commit,content,selected.value.path,known.task.value.materialRepositories ?? []);
+      } else workspace=await this.deps.workspaces.prepare(owner,repository,reserved.commit,content,false,known.task.value.materialRepositories);
+    }
     catch { return this.recovery.failedPreparation(reserved, "the frozen sandbox workspace could not be prepared",undefined,false); }
     const winner = await this.deps.units.run("write", async r => {
       const current = await r.taskRuns.get(runId, {lock:true});

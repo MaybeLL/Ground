@@ -12,6 +12,8 @@ grounds work register --run "$RUN_ID" --agent "$AGENT_ID" --json
 
 仓库用 Dockerfile 定义开发环境时，可以运行 `grounds work build-environment --name NAME --repo PATH --commit FULL_OID`。默认读取该提交中的 `.devcontainer/devcontainer.json`，可用 `--devcontainer` 指定仓库内其他路径。把返回的环境定义绑定到任务，并用修订 ID 固定本轮环境。若构建中断，请用同一操作 ID 和相同输入重试。
 
+外部 Agent 需要任务运行环境时，先运行 `work prepare-sandbox --run RUN --repo PATH`，再用已登记的会话运行 `work sandbox-context --run RUN --session SESSION --json`。返回的 `workspace` 是容器实际挂载的宿主目录。将命令和参数逐项追加到 `argvPrefix` 并直接执行。例如在同一 Docker context 下读取 JSON 结果后运行 `subprocess.run(result["argvPrefix"] + ["npm", "test"], check=True)`。宿主使用该目录里的文件完成交付；代码提交在宿主的 Git 工作树中执行。
+
 单独执行一次任务可用 `grounds work start-run --task "$TASK_ID" --mode external`。用返回的 `runId` 登记会话、交付和查询。要从同一任务已结束的独立尝试继续，在 `start-run` 加 `--refines "$RUN_ID"`；托管模式可用 `--sandbox inherit` 接手原沙箱，或用 `--retention release` 在本轮结束时释放沙箱。
 
 真实执行相关测试并保存输出与退出码。不能把命令未执行、超时或基础设施失败写成通过。提交代码前检查未跟踪文件、用户改动与凭据；只提交获准范围。Git commit 和归档标签 push 都必须在授权内。

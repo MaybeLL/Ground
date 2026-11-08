@@ -3,6 +3,7 @@
   "$id": "https://patchledger.dev/contracts/v1/sandbox-results.schema.json",
   "title": "Managed sandbox and environment results",
   "oneOf": [
+    {"type":"object","required":["command","result_type","runId","sandboxId","instanceId","workspace","argvPrefix"],"properties":{"command":{"const":"work.sandbox-context"},"result_type":{"const":"grounds.result.work.sandbox-context/v1"},"runId":{"$ref":"work-results.schema.json#/$defs/Id"},"sandboxId":{"$ref":"work-results.schema.json#/$defs/Id"},"instanceId":{"type":"string","pattern":"^[a-f0-9]{64}$"},"workspace":{"type":"string","minLength":1},"argvPrefix":{"type":"array","minItems":2,"items":{"type":"string","minLength":1}}},"additionalProperties":false},
     {
       "type": "object",
       "required": [

@@ -1243,6 +1243,65 @@ test("repository environment builds reject escaping paths, unpinned nested Featu
   });
 });
 
+test("external sandbox runs a working task against read-only materials and returns its output to the host", {skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async()=>{
+  await withHarness(async h=>{
+    const image=process.env.GROUNDS_TEST_MANAGED_AGENT!,cfg=join(h.directory,"env.json"),sources=join(h.directory,"sources.json");
+    const docker=(...args:string[])=>execFileSync("docker",args,{encoding:"utf8"}).trim();
+    writeFileSync(cfg,JSON.stringify({image,workspaceFolder:"/work",overrideCommand:false}));
+    writeFileSync(sources,JSON.stringify([{name:"input",repository:h.repo,commit:h.baseline}]));
+    const env=ok(await h.cli("work","define-environment","--name","materials","--devcontainer",cfg,"--image-digest",docker("image","inspect","--format","{{.Id}}",image)));
+    const task=ok(await h.cli("task","create","--title","external report","--kind","working","--criterion","matches input","--materials",sources,"--environment",env.environmentId));
+    const {runId}=ok(await h.cli("work","start-run","--task",task.taskId,"--mode","external","--retention","release"));
+    const {sessionId}=ok(await h.cli("work","register","--run",runId,"--agent","external"));
+    const workspace=ok(await h.cli("work","workspace","--run",runId));
+    const ledger=ok(await h.cli("db","status")).database_id;
+    try {
+      ok(await h.cli("work","prepare-sandbox","--run",runId));
+      const access=ok(await h.cli("work","sandbox-context","--run",runId,"--session",sessionId));
+      assert.equal(access.workspace,workspace.path);
+      const [tool,...argv]=access.argvPrefix;
+      execFileSync(tool,[...argv,"sh","-ec","test ! -e .git && cp /grounds-materials/input/app.txt report.txt && ! touch /grounds-materials/input/new"],{stdio:"pipe"});
+      const {artifact}=ok(await h.cli("work","save-artifact","--run",runId,"--session",sessionId,"--slot","result","--file","report.txt="+join(workspace.path,"report.txt")));
+      assert.equal(ok(await h.cli("work","submit-artifacts","--run",runId,"--session",sessionId,"--artifact",artifact.id)).submitted.status,"delivered");
+      assert.equal(readFileSync(join(workspace.path,"report.txt"),"utf8"),"v0\n");
+    } finally {for (const id of docker("ps","-aq","--filter","label=dev.grounds.ledger="+ledger).split("\n").filter(Boolean)) docker("rm","-f",id);}
+  });
+});
+
+test("external sandbox runs commands in the registered task workspace", {skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async()=>{
+  await withHarness(async h=>{
+    const image=process.env.GROUNDS_TEST_MANAGED_AGENT!,config=join(h.directory,"devcontainer.json");
+    const docker=(...args:string[])=>execFileSync("docker",args,{encoding:"utf8"}).trim();
+    writeFileSync(config,JSON.stringify({image,workspaceFolder:"/task",overrideCommand:false}));
+    const environment=ok(await h.cli("work","define-environment","--name","external commands","--devcontainer",config,"--image-digest",docker("image","inspect","--format","{{.Id}}",image)));
+    const task=ok(await h.cli("task","create","--title","external runtime","--criterion","runtime output","--repo-remote",h.remote,"--baseline",h.baseline,"--environment",environment.environmentId));
+    const {runId}=ok(await h.cli("work","start-run","--task",task.taskId,"--mode","external","--retention","release"));
+    const {sessionId}=ok(await h.cli("work","register","--run",runId,"--agent","host-agent"));
+    const {path}=ok(await h.cli("work","workspace","--run",runId,"--repo",h.repo));
+    writeFileSync(join(path,"host-note.txt"),"from the external agent");
+    const ledger=ok(await h.cli("db","status")).database_id;
+    try {
+      const [prepared,context]=["prepare-sandbox","sandbox-context"].map(action=>["work",action,"--run",runId]);
+      const sandbox=ok(await h.cli(...prepared,"--repo",h.repo));
+      assert.equal((await h.cli(...context,"--session",newUUIDv7())).error.code,"AUTH_FAILED");
+      const access=ok(await h.cli(...context,"--session",sessionId));
+      assertContract("sandbox-results.schema.json",access);
+      assert.equal(access.workspace,path);
+      assert.equal(access.instanceId,sandbox.instanceId);
+      const [tool,...argv]=access.argvPrefix;
+      execFileSync(tool,[...argv,"sh","-ec",'test "$(cat host-note.txt)" = "from the external agent" && cp host-note.txt result.txt'],{stdio:"pipe"});
+      assert.equal(readFileSync(join(path,"result.txt"),"utf8"),"from the external agent");
+      git(path,"add","result.txt");git(path,"commit","-qm","capture runtime result");
+      const submitted=ok(await h.cli("work","deliver","--repo",path,"--run",runId,"--session",sessionId));
+      assert.equal(submitted.submitted.status,"delivered");
+      assert.equal(git(h.remote,"show","refs/tags/grounds/deliveries/"+submitted.delivery.id+":result.txt"),"from the external agent");
+      assert.equal((await h.cli(...context,"--session",sessionId)).ok,false);
+      assert.equal(docker("ps","-aq","--filter","label=dev.grounds.sandbox="+sandbox.sandboxId),"");
+      assert.equal(readFileSync(join(path,"result.txt"),"utf8"),"from the external agent");
+    } finally {for (const id of docker("ps","-aq","--filter","label=dev.grounds.ledger="+ledger).split("\n").filter(Boolean)) docker("rm","-f",id);}
+  });
+});
+
 test("managed worker runs with an environment built from an immutable repository snapshot", {skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async()=>{
   await withHarness(async h=>{
     const image=process.env.GROUNDS_TEST_MANAGED_AGENT!;

@@ -198,6 +198,7 @@ async function work(args: ParsedArgs, action: string, app: WorkApplication, deps
       const {data,...metadata} = unwrap(await app.traces.read(need(args,"run"),need(args,"digest"),need(args,"stream"),integer(args,"chunk")));
       return {...metadata,base64:Buffer.from(data).toString("base64")};
     }
+    case "sandbox-context": return unwrap(await app.sandboxes.externalContext(need(args,"run"),need(args,"session")));
     case "prepare-sandbox": return unwrap(await app.sandboxes.prepare(requestId(args), need(args,"run"), resolve(deps.cwd, text(args,"repo") ?? ".")));
     case "reconcile-sandbox": return unwrap(await app.sandboxes.reconcile(need(args,"run")));
     case "pause-sandbox": return unwrap(await app.lifecycle.lifecycle(requestId(args), need(args,"run"), "pause"));
@@ -395,6 +396,7 @@ export const workHelp = (): string => [
   "grounds work import-trace --run RUN --session SESSION --provider codex|claude-code --file FILE --digest SHA256 | work trace --run RUN --digest SHA256 --stream raw|events --chunk N",
   "grounds work prepare-sandbox --run RUN [--repo PATH] | work reconcile-sandbox --run RUN | work pause-sandbox|release-sandbox --run RUN",
   "grounds work define-environment --name NAME --devcontainer FILE --image-digest SHA256 [--lockfile FILE] [--environment ID --expected-seq N] | work environment --environment ID --revision N",
+  "grounds work sandbox-context --run RUN --session SESSION (resolve the host workspace and devcontainer exec argv prefix)",
   "grounds work host-capacity [--slots N] (shared local worker and evaluator Agent slots; default 20)",
   "grounds work build-environment --name NAME --repo PATH --commit FULL_OID [--devcontainer REPO_RELATIVE_PATH] [--environment ID --expected-seq N]",
   "grounds work start-run --task ID --mode external|none|managed [--revision-id REV --environment-revision REV --refines RUN --retention release|keep --sandbox fresh|inherit]; managed requires --agent ID [--agent-revision REV --repo PATH]",

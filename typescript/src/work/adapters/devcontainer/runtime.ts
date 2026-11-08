@@ -231,6 +231,17 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
     return {user:fields[1] + ":" + fields[2],env};
   }
 
+  private execPrefix(id:string,path:string,configPath:string) {
+    return ["exec","--docker-path",this.docker,"--workspace-folder",path,"--config",configPath,"--container-id",id,"--"];
+  }
+
+  async externalCommand(owner:RuntimeOwner,id:string,workspace:RuntimeWorkspace) {
+    if ((await this.owned(owner,id)).state!=="running" || await realpath(workspace.path)!==workspace.path) throw Error("external sandbox or workspace is no longer available");
+    await this.verifyWorkspace(id,workspace);
+    const config=workspace.imageDigest ? join(dirname(workspace.configPath),"effective","devcontainer.json") : workspace.configPath;
+    return [this.devcontainer,...this.execPrefix(id,workspace.path,config)];
+  }
+
   async execute(owner: RuntimeOwner, id: string, workspace: RuntimeWorkspace, argv: readonly string[]) {
     return this.execInContainer(owner,id,workspace.path,workspace.imageDigest ? join(dirname(workspace.configPath),"effective","devcontainer.json") : workspace.configPath,argv);
   }
@@ -239,8 +250,7 @@ export class DevcontainerRuntime implements SandboxRuntimePort {
     if ((await this.owned(owner, id)).state !== "running") throw new Error("sandbox is not running");
     if (!argv.length) throw new Error("sandbox command needs an executable");
     try {
-      const result = await this.invoke(this.devcontainer, ["exec", "--docker-path", this.docker, "--workspace-folder", path,
-        "--config", configPath, "--container-id", id, "--", ...argv], opts);
+      const result = await this.invoke(this.devcontainer, [...this.execPrefix(id,path,configPath),...argv], opts);
       return { stdout: result.stdout, stderr: result.stderr, exitCode: 0 };
     } catch (error) {
       const failure = error as {code?: number | string; killed?: boolean; stdout?: string; stderr?: string};

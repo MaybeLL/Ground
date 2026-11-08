@@ -41,6 +41,14 @@ export class DurableSandboxLauncher implements SandboxLauncher {
     });
   }
 
+  async workspace(owner:RuntimeOwner,location:RuntimeLocation,expectedPath:string) {
+    const plan=JSON.parse(safeRead(join(this.workspaces.setupRoot(owner),"launch.json"),32768).toString()) as Plan;
+    if (plan.owner.ledgerId!==owner.ledgerId || plan.owner.sandboxId!==owner.sandboxId || plan.owner.setupAttempt!==owner.setupAttempt ||
+        plan.location.hostId!==location.hostId || plan.location.daemonId!==location.daemonId || plan.workspace.path!==expectedPath ||
+        plan.workspace.configPath!==join(this.workspaces.root(owner),"prepared",".devcontainer","devcontainer.json")) throw Error("sandbox launch plan identity changed");
+    return plan.workspace;
+  }
+
   async start(owner: RuntimeOwner, workspace: RuntimeWorkspace, location: RuntimeLocation) {
     const root = this.workspaces.setupRoot(owner), path = join(root,"launch.json");
     const contents = JSON.stringify({ owner, workspace, location } satisfies Plan);
