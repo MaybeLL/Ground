@@ -77,8 +77,13 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
     }).then(r => r.stdout);
   }
 
+  private async sameEndpoint(remote: string, cwd?: string): Promise<boolean> {
+    return (await this.inspectGit(cwd, ["ls-remote", "--get-url", "--", remote])).trim() === remote;
+  }
+
   private async observe(remote: string, ref: string, cwd?: string, inspecting = false): Promise<Observed> {
     try {
+      if (inspecting && !await this.sameEndpoint(remote, cwd)) return { state: "unreachable", reason: "the checkout redirects the recorded archive endpoint" };
       const args = ["ls-remote", "--refs", "--", remote, ref];
       const out = (await (inspecting ? this.inspectGit(cwd, args) : this.git(cwd, args))).trim();
       if (out === "") return { state: "absent" };
@@ -130,6 +135,7 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
   /** An isolated shallow fetch plus fsck verifies the recorded commit and the contents of its entire tree. */
   private async retrieve(scratch: string, source: string, ref: string, receipt: GitDeliveryReceipt): Promise<"verified" | "refused" | "unknown"> {
     try {
+      if (!await this.sameEndpoint(source, scratch)) return "unknown";
       await this.inspectGit(scratch, ["-c", "fetch.fsckObjects=true", "fetch", "--quiet", "--no-tags", "--depth=1", "--", source, ref]);
     } catch (error) {
       const message = String((error as { stderr?: string }).stderr ?? "");
@@ -182,6 +188,7 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
       if (byOid === "verified") return { ...recorded, ...changed, status: "ref-changed" };
       if (byOid === "refused") {
         // Some servers disallow direct OID fetches. An advertised ref may still supply the object.
+        if (!await this.sameEndpoint(receipt.remote, repositoryPath)) return { ...recorded, ...changed, status: null };
         const refs = (await this.inspectGit(repositoryPath, ["ls-remote", "--refs", "--", receipt.remote])).trim();
         if (!refs && localResult !== "unknown") return { ...recorded, ...changed, status: "unavailable" };
         const match = refs.split("\n").map(line => line.split("\t")).find(([oid]) => oid === receipt.commit);
@@ -205,7 +212,7 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
   }
 
   /** Archive a commit of the repository at `repositoryPath` under the delivery identity. Repeating it for the same commit is harmless. */
-  async archive(input: { repositoryPath: string; remote: string; deliveryId: string; commit: string; protection?: ArchiveProtection }): Promise<ArchiveResult> {
+  async archive(input: { repositoryPath: string; remote: string; deliveryId: string; commit: string; previousReceipt?: string; protection?: ArchiveProtection }): Promise<ArchiveResult> {
     if (!validProtection(input.protection)) return { status: "invalid", reason: "invalid archive protection evidence" };
     if (!/^[A-Za-z0-9._-]{1,128}$/.test(input.deliveryId)) return { status: "invalid", reason: "the delivery identity is not usable in a reference name" };
     const ref = `${REF_NAMESPACE}${input.deliveryId}`;
@@ -216,6 +223,16 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
     } catch { return { status: "invalid", reason: `the commit and its headers could not be read in ${input.repositoryPath}` }; }
     try { remote = await this.archiveRemote(input.repositoryPath, input.remote); }
     catch { return { status: "invalid", reason: "archive requires one stable remote destination without embedded HTTPS credentials" }; }
+    if (input.previousReceipt !== undefined) {
+      const frozen = decodeReceipt(input.previousReceipt);
+      const sameProtection = frozen?.protection?.level === input.protection?.level && frozen?.protection?.evidence === input.protection?.evidence;
+      if (!frozen || deliveryIdOf(frozen) !== input.deliveryId || frozen.commit !== commit || (frozen.remote !== remote && frozen.remote !== input.remote) || !sameProtection) {
+        return { status: "conflict", reason: "the original operation archived a different delivery" };
+      }
+      // Reuse the frozen bytes (including pre-upgrade shallow parents or relative
+      // destinations). The submission ledger still compares the entire request.
+      return { status: "confirmed", commit, receipt: input.previousReceipt };
+    }
     const receipt = encodeReceipt({ format: "grounds.git-delivery/v1", remote, ref, commit, tree, parents, ...(input.protection ? { protection: input.protection } : {}) });
     if (receipt.length > 1024) return { status: "invalid", reason: "archive receipt exceeds the delivery manifest limit" };
     const before = await this.observe(remote, ref, input.repositoryPath);

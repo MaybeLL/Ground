@@ -33,8 +33,21 @@ export class CodeDelivery {
     const commit = await this.deps.archive.resolveCommit(input.repositoryPath, input.commit);
     if (!commit) return fail("invalid", `${input.commit} is not a commit of ${input.repositoryPath}`);
     const deliveryId = `d-${input.runId}-${commit.slice(0, 12)}`;
-    const archived = await this.deps.archive.archive({ repositoryPath: input.repositoryPath, remote, deliveryId, commit, protection: input.protection });
-    if (archived.status !== "confirmed") return fail(archived.status === "unavailable" ? "unavailable" : archived.status, archived.reason);
+    const previous = await this.deps.units.run("read", r => r.intents.findByRequest(input.requestId));
+    let previousReceipt: string | undefined;
+    if (previous) {
+      const payload = previous.payload as { items?: { id: Id; receipt: string }[] };
+      const item = payload?.items?.[0];
+      if (previous.kind !== "submit" || previous.subject.id !== input.runId || item?.id !== deliveryId || typeof item.receipt !== "string") {
+        return fail("request-conflict", `operation ${input.requestId} belongs to a different submission`);
+      }
+      previousReceipt = item.receipt;
+    }
+    const archived = await this.deps.archive.archive({ repositoryPath: input.repositoryPath, remote, deliveryId, commit, protection: input.protection, previousReceipt });
+    if (archived.status !== "confirmed") {
+      if (previous && archived.status === "conflict") return fail("request-conflict", archived.reason);
+      return fail(archived.status, archived.reason);
+    }
     const submitted = await this.deps.exec.submit({ requestId: input.requestId, runId: input.runId, ...(input.sessionId ? { sessionId: input.sessionId } : {}),
       items: [{ type: "candidate", id: deliveryId, receipt: archived.receipt }], ...(input.declaresStop ? { declaresStop: true } : {}) });
     if (!submitted.ok) return submitted;

@@ -25,7 +25,7 @@ export interface CodeArchivePort {
   /** The full identity of a commit-ish in the repository, or undefined when it names no commit. */
   resolveCommit(repositoryPath: string, commitish: string): Promise<string | undefined>;
   /** Keep the commit on the remote under the delivery identity and read it back. Repeating it for the same commit is harmless. */
-  archive(input: { repositoryPath: string; remote: string; deliveryId: string; commit: string; protection?: ArchiveProtection }): Promise<CodeArchiveResult>;
+  archive(input: { repositoryPath: string; remote: string; deliveryId: string; commit: string; previousReceipt?: string; protection?: ArchiveProtection }): Promise<CodeArchiveResult>;
   /** Bring the commit a receipt describes into the repository, checking it is the one the receipt names. */
   fetch(input: { repositoryPath: string; receipt: string }): Promise<CodeFetchResult>;
 }

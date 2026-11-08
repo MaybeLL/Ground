@@ -207,3 +207,26 @@ test("large commit messages do not turn successful object retrieval into loss", 
   git(r.remote, "update-ref", "-d", decodeReceipt(stored.receipt)!.ref);
   assert.equal((await archive.inspect(r.work, { id: "large", receipt: stored.receipt })).status, "ref-changed");
 });
+
+test("rewriting a frozen endpoint cannot prove a different archive intact", async t => {
+  const r = repository(); t.after(r.cleanup); r.commit("base");
+  const archive = new GitTagArchive();
+  const stored = await archive.archive({ repositoryPath: r.work, remote: r.remote, commit: "HEAD", deliveryId: "policy" });
+  assert.equal(stored.status, "confirmed"); if (stored.status !== "confirmed") return;
+  const frozen = decodeReceipt(stored.receipt)!;
+  const other = join(r.root, "different.git");
+  git(r.root, "clone", "--bare", r.remote, other);
+  git(r.remote, "update-ref", "-d", frozen.ref);
+  git(r.work, "config", `url.${other}.insteadOf`, r.remote);
+  assert.equal((await archive.inspect(r.work, { id: "policy", receipt: stored.receipt })).status, null);
+});
+
+test("a pre-upgrade submission replays its original receipt without a new push", async t => {
+  const r = repository(); t.after(r.cleanup); const commit = r.commit("base");
+  git(r.work, "remote", "add", "origin", r.remote);
+  const archive = new GitTagArchive();
+  const old = encodeReceipt({ format: "grounds.git-delivery/v1", remote: "origin", commit, ref: "refs/tags/grounds/deliveries/replay", parents: [], tree: git(r.work, "rev-parse", "HEAD^{tree}") });
+  const replay = await archive.archive({ repositoryPath: r.work, remote: "origin", deliveryId: "replay", commit, previousReceipt: old });
+  assert.deepEqual(replay, { status: "confirmed", commit, receipt: old });
+  assert.equal(git(r.work, "ls-remote", "--refs", r.remote), "");
+});
