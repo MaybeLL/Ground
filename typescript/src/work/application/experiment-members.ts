@@ -2,7 +2,7 @@ import type { WorkRepositories } from "../ports/index.js";
 import { createTaskRun, digestOf, mayStartMember, requestExperimentCancel } from "../domain/index.js";
 import type { ExperimentGrading } from "./experiment-grading.js";
 import type { AgentDefinitions } from "./agent-definitions.js";
-import { readExperiment } from "./experiment-plans.js";
+import { completionAt, readExperiment } from "./experiment-plans.js";
 import { once, type RequestContext } from "./requests.js";
 import { fail, fromRejection, succeed } from "./outcome.js";
 
@@ -118,7 +118,7 @@ export class ExperimentMembers {
       if (prior?.state === state && prior.detail === detail) return state;
       const payload = job.payload as {batchId:string;firstTerminalAt?:string;firstTerminalState?:"completed"|"cancelled"};
       const firstTerminalAt = payload.firstTerminalAt ?? (state === "terminal" ? this.ctx.now() : undefined);
-      const firstTerminalState = payload.firstTerminalState ?? (batch.cancelIntent ? "cancelled" : "completed");
+      const firstTerminalState = firstTerminalAt && completionAt(firstTerminalAt,payload.firstTerminalState,batch.cancelIntent).state;
       await r.intents.save({...job,state:state === "terminal" ? "completed" : "registered",payload:{batchId,observation,...(firstTerminalAt ? {firstTerminalAt,firstTerminalState} : {})},
         updatedAt:this.ctx.now(),version:job.version+1},job.version);
       return state;

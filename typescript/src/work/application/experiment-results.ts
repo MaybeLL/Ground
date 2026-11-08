@@ -1,5 +1,5 @@
 import {adoptGrading, digestOf, gradingNotStarted, isTerminal, materialsFingerprint, type Grade} from "../domain/index.js";
-import {readExperiment, type ExperimentPlan} from "./experiment-plans.js";
+import {completionAt, readExperiment, type ExperimentPlan} from "./experiment-plans.js";
 import {fail, succeed} from "./outcome.js";
 import type {RequestContext} from "./requests.js";
 
@@ -40,9 +40,9 @@ export class ExperimentResults {
       const progress = new Map((await r.experiments.memberProgress(id)).map(item=>[item.key,item]));
       if (detailKey !== undefined && !progress.has(detailKey)) return fail("not-found","batch member does not exist");
       const [drive] = await r.intents.listForSubject("drive-experiment","experiment_run",id);
-      const saved = drive?.payload as {observation?:{state:string;detail?:string};firstTerminalAt?:string;firstTerminalState?:string} | undefined;
+      const saved = drive?.payload as {observation?:{state:string;detail?:string};firstTerminalAt?:string;firstTerminalState?:"completed"|"cancelled"} | undefined;
       const host = saved?.observation;
-      const completion = saved?.firstTerminalAt && {at:saved.firstTerminalAt,state:saved.firstTerminalState ?? (batch.cancelIntent && batch.cancelIntent.at <= saved.firstTerminalAt ? "cancelled" : "completed")};
+      const completion = saved?.firstTerminalAt && completionAt(saved.firstTerminalAt,saved.firstTerminalState,batch.cancelIntent);
       const groups = new Map<string,Summary>();
       const counts = {planned:batch.members.length, pending:0, active:0, delivered:0, executionErrors:0, failed:0, cancelled:0, fullyGraded:0};
       const members = [], readAt = this.ctx.now();

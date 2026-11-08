@@ -155,3 +155,7 @@ export class ExperimentPlans {
     });
   }
 }
+
+export function completionAt(at:string,state:"completed"|"cancelled"|undefined,cancelIntent?:{at:string}) {
+  return {at,state:state ?? (cancelIntent && cancelIntent.at <= at ? "cancelled" : "completed")};
+}
