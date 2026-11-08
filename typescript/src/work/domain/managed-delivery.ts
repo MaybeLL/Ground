@@ -5,7 +5,7 @@ export type ManagedDeclaration = {commit?:string;artifacts:ArtifactDeclaration[]
 
 const object = (value:unknown):value is Record<string,unknown>=>!!value && typeof value==="object" && !Array.isArray(value);
 export function outputPath(value:unknown):value is string {
-  return typeof value==="string" && !value.includes("\\") && !/[\u0000-\u001f]/u.test(value) &&
+  return typeof value==="string" && !/[\uD800-\uDFFF]/u.test(value) && !value.includes("\\") && !/[\u0000-\u001f]/u.test(value) &&
     value.split("/").every(part=>part!=="" && part!=="." && part!==".." && new TextEncoder().encode(part).length<=255);
 }
 

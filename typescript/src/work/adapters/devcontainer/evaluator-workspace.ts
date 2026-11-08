@@ -19,15 +19,22 @@ export class EvaluatorWorkspaces {
       const files=await this.artifactFiles(target.runId,target.archiveId,target.receipt);
       if (!portableArtifactPaths(files.map(f=>f.path))) throw new TestTargetFault("frozen artifact contains incompatible evaluator paths");
       const prepared=await this.workspaces.prepare(owner,target.repository,null,environment,false,[],{receipt:target.receipt,populate:async directory=>{
-        for (const {path,source} of files) {
-          const dest=join(directory,path);
-          await mkdir(dirname(dest),{recursive:true});
-          const output=await open(dest,"wx"), hash=createHash("sha256");
-          let size=0;
-          try {
-            for await (const bytes of source.open()) {await output.writeFile(bytes);hash.update(bytes);size+=bytes.length;}
-          } finally {await output.close();}
-          if (size!==source.byteLength || "sha256:"+hash.digest("hex")!==source.digest) throw new TestTargetFault("artifact bytes differ from their frozen identity");
+        try {
+          for (const {path,source} of files) {
+            const dest=join(directory,path);
+            await mkdir(dirname(dest),{recursive:true});
+            const output=await open(dest,"wx"), hash=createHash("sha256");
+            let size=0;
+            try {
+              for await (const bytes of source.open()) {await output.writeFile(bytes);hash.update(bytes);size+=bytes.length;}
+            } finally {await output.close();}
+            if (size!==source.byteLength || "sha256:"+hash.digest("hex")!==source.digest) throw new TestTargetFault("artifact bytes differ from their frozen identity");
+          }
+        } catch (error) {
+          if (["ENAMETOOLONG","ENOTDIR","EEXIST","EILSEQ"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+            throw new TestTargetFault("archived paths cannot be materialized on the evaluator filesystem");
+          }
+          throw error;
         }
       }});
       return {...prepared,graderMaterials:await this.materials(owner,materials)};

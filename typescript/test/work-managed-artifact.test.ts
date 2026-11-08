@@ -11,7 +11,7 @@ test("a managed claim binds a candidate and distinct files to required slots",()
   const candidate={commit:"1".repeat(40)}, slots=[{key:"report",required:true}];
   const parse=(files:unknown[])=>parseManagedDeclaration(JSON.stringify({candidate,artifacts:[{slot:"report",files}]}),"coding",slots);
   assert.deepEqual(parse([{path:"doc/report",source:"result"}]),{commit:candidate.commit,artifacts:[{slot:"report",files:[{path:"doc/report",source:"result"}]}]});
-  for(const files of [[],[{path:"a"},{path:"a/b"}],[{path:"../a"}],[{path:"sub/a"},{path:"SUB/b"}],[{path:"é"},{path:"e\u0301"}],[{path:"a",source:"x".repeat(256)}],[{path:"x",source:"/absolute"}]]) assert.equal(parse(files),undefined);
+  for(const files of [[],[{path:"a"},{path:"a/b"}],[{path:"../a"}],[{path:String.fromCharCode(0xd800)}],[{path:"sub/a"},{path:"SUB/b"}],[{path:"é"},{path:"e\u0301"}],[{path:"a",source:"x".repeat(256)}],[{path:"x",source:"/absolute"}]]) assert.equal(parse(files),undefined);
   assert.equal(parseManagedDeclaration(JSON.stringify({candidate}),"working",slots),undefined);
 });
 
