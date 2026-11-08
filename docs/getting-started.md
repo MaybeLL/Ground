@@ -29,7 +29,7 @@ grounds help --json
 
 SQLite is available for a local ledger. MySQL and PostgreSQL provide networked ledger options; CI includes TLS database conformance checks for both alongside SQLite. Use the run results for the exact commit to determine which checks passed.
 
-Run `grounds init --help` before configuring a database. `grounds init` validates the selected SQL connection and pins the database identity before writing canonical local configuration. An empty database requires explicit initialization authorization; an existing ledger must have the current work protocol and schema. See the [configuration contract](contracts/v1/README.md#local-config) for credential sources and safety rules.
+Run `grounds init --help` before configuring a database. `grounds init` validates the selected SQL connection and pins the database identity before writing canonical local configuration. Bare `grounds init` creates the default SQLite ledger without prompting. Empty MySQL and PostgreSQL targets require explicit initialization authorization. An existing ledger must have the current work protocol and schema. See the [configuration contract](contracts/v1/README.md#local-config) for credential sources and safety rules.
 
 The development refactor does not provide brand or data-directory migration (`migrate patchledger` / `migrate data`); historical directories are ignored and never moved or deleted automatically. Use a fresh configuration and data root for this refactor. Old business tables and SQL schema migration remain temporarily while the model cutover is completed; see the [retirement boundary](architecture.md#legacy-retirement).
 
