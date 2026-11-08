@@ -417,6 +417,8 @@ test("a standalone measure scores a historical candidate against an explicit ref
     git(h.repo, "commit", "-qam", "reference");
     const curator = ok(await h.cli("work","start","--task",task.taskId,"--mode","none"));
     const reference = ok(await h.cli("work","deliver","--run",curator.runId,"--repo",h.repo)).delivery;
+    git(h.remote, "update-ref", "-d", "refs/tags/grounds/deliveries/" + reference.id);
+    const { repair } = ok(await h.cli("work","repair","--run",curator.runId,"--delivery",reference.id,"--repo",h.repo));
     args.push("--reference-run", curator.runId, "--reference-delivery", reference.id, "--reference-path", "app.txt");
     const op = newUUIDv7();
     const score = ok(await h.cli(...args, "--operation-id", op));
@@ -425,7 +427,9 @@ test("a standalone measure scores a historical candidate against an explicit ref
     assert.equal(score.expectedDigest, "sha256:" + createHash("sha256").update("curated answer").digest("hex"));
     const saved = ok(await h.cli("grade", "show", "--grading", score.gradingId));
     assert.equal(saved.origin.direct.reference.deliveryId, reference.id);
-    assert.equal(saved.origin.direct.reference.archive.archiveReceipt, reference.receipt);
+    assert.equal(saved.origin.direct.reference.archive.originalReceipt, reference.receipt);
+    assert.equal(saved.origin.direct.reference.archive.archiveId, repair.archiveId);
+    assert.equal(saved.origin.direct.reference.archive.archiveReceipt, repair.receipt);
     assert.equal(saved.origin.direct.archive.archiveReceipt, delivery.receipt);
     assert.equal(saved.origin.direct.reference.digest, score.expectedDigest);
     assert.equal(saved.origin.direct.actualDigest, score.actualDigest);
