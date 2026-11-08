@@ -82,9 +82,9 @@ export class ExperimentMembers {
         }));
         const waitingRules = history.filter(g=>g.strategy === "rule" && g.status === "running").map(g=>g.id);
         const waitingTests = [];
-        for (const grade of history.filter(g=>g.strategy === "test")) {
-          const [test] = await r.intents.listForSubject("run-test-grader","grading_record",grade.id);
-          if (test && test.state !== "completed") waitingTests.push({id:grade.id,status:grade.status,
+        for (const grade of history.filter(g=>g.strategy !== "rule")) {
+          const [test] = await r.intents.listForSubject(grade.strategy==="agent"?"run-agent-grader":"run-test-grader","grading_record",grade.id);
+          if (test && test.state !== "completed") waitingTests.push({id:grade.id,status:grade.status,strategy:grade.strategy,
             host:(test.payload as {observation?:{state:string;detail?:string}}).observation});
         }
         const sandbox = run.sandboxId ? await r.sandboxes.get(run.sandboxId) : undefined;

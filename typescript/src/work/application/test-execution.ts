@@ -6,12 +6,12 @@ import type { RuntimeLocation, WorkRepositories, TestStreams } from "../ports/in
 import { once, type RequestContext } from "./requests.js";
 import type { EnvironmentContent } from "./environment-definitions.js";
 import type { TestPlan } from "./test-measurements.js";
-import { testGrader } from "./rule-definitions.js";
+import { agentGrader,testGrader } from "./rule-definitions.js";
 import { fail, fromRejection, succeed } from "./outcome.js";
 
 const holder = (gradingRecordId: string, ordinal: number) => ({type: "command_step" as const, gradingRecordId, ordinal});
 type Material = {path:string; role:string; digest:string; base64:string};
-type Case = {key:string; bindings:{key:string; materials:Material[]}[]};
+type Case = {key:string;taskRevision:{definitionId:string;revisionId:string}; bindings:{key:string; materials:Material[]}[]};
 
 export class TestExecution {
   constructor(private readonly ctx: RequestContext) {}
@@ -19,25 +19,28 @@ export class TestExecution {
   async context(id: string) {
     return this.ctx.units.run("read", async r => {
       const grading = await r.gradings.get(id);
-      const [intent] = await r.intents.listForSubject("run-test-grader", "grading_record", id);
-      if (!grading || grading.strategy !== "test" || !intent) return fail("not-found", "managed test grading does not exist");
+      const [intent] = await r.intents.listForSubject(grading?.strategy==="agent" ? "run-agent-grader" : "run-test-grader","grading_record",id);
+      if (!grading || !["test","agent"].includes(grading.strategy) || !intent) return fail("not-found", "managed test grading does not exist");
       const plan = intent.payload as unknown as TestPlan;
       const snapshot = await r.definitions.getRevision(plan.suite.definitionId, plan.suite.revisionId);
       const definition = await r.definitions.getRevision(grading.graderRevision.definitionId, grading.graderRevision.revisionId);
-      const grader = definition && testGrader(definition.content);
+      const grader = definition && (testGrader(definition.content) ?? agentGrader(definition.content));
       if (!snapshot || !sameRef(refOf(snapshot), plan.suite) || !grader || !definition ||
           !sameRef(refOf(definition), grading.graderRevision)) return fail("conflict", "frozen suite or test grader is unavailable");
       const environment = await r.definitions.getRevision(grader.environment.definitionId, grader.environmentRevisionId);
-      const binding = (snapshot.content as {cases: Case[]}).cases.find(c => c.key === plan.caseKey)?.bindings.find(b => b.key === plan.bindingKey);
+      const item=(snapshot.content as {cases:Case[]}).cases.find(c=>c.key===plan.caseKey);
+      const binding=item?.bindings.find(b=>b.key===plan.bindingKey);
+      const task=grader.strategy==="agent" && item ? await r.definitions.getRevision(item.taskRevision.definitionId,item.taskRevision.revisionId) : undefined;
+      if (grader.strategy==="agent" && !task) return fail("conflict","frozen task revision is missing");
       if (!environment || !sameRef(refOf(environment), grader.environment) || !binding) return fail("conflict", "frozen evaluator environment or binding is unavailable");
       const sandbox = grading.sandboxId ? await r.sandboxes.get(grading.sandboxId) : undefined;
-      return succeed({grading, plan, observation:(intent.payload as {observation?:{state:string;detail?:string}}).observation, grader, environment:environment.content as EnvironmentContent, materials:binding.materials, sandbox});
+      return succeed({grading, plan,task:task && {summary:(task.content as {summary:string}).summary,criteria:(task.content as {criteria:unknown}).criteria,context:(task.content as {context?:string}).context}, observation:(intent.payload as {observation?:{state:string;detail?:string}}).observation, grader, environment:environment.content as EnvironmentContent, materials:binding.materials, sandbox});
     });
   }
 
   resume(id:string,requestId:string) {
     return once(this.ctx,{requestId,kind:"resume-test-grading",input:{id},subject:{type:"grading_record",id}},async r => {
-      const [job] = await r.intents.listForSubject("run-test-grader","grading_record",id);
+      const [job] = await r.intents.listForSubject((await r.gradings.get(id))?.strategy==="agent" ? "run-agent-grader" : "run-test-grader","grading_record",id);
       if (!job) return fail("not-found","managed test grading is missing");
       return succeed({gradingId:id});
     });
@@ -46,7 +49,7 @@ export class TestExecution {
   async allocate(id: string, location: RuntimeLocation) {
     return this.ctx.units.run("write", async r => {
       const grading = await r.gradings.get(id, {lock:true});
-      if (!grading || grading.strategy !== "test" || isGradingTerminal(grading) || grading.cancelIntent) return fail("conflict", "grading cannot acquire a sandbox");
+      if (!grading || !["test","agent"].includes(grading.strategy) || isGradingTerminal(grading) || grading.cancelIntent) return fail("conflict", "grading cannot acquire a sandbox");
       if (grading.sandboxId) return succeed({sandboxId:grading.sandboxId});
       const sandboxId = this.ctx.newId();
       const created = requestSandbox({id:sandboxId, owner:{type:"grading_record",id}, retention:"release", location, at:this.ctx.now()});
@@ -67,10 +70,10 @@ export class TestExecution {
   async ready(id: string, instanceId: string) {
     return this.ctx.units.run("write", async r => {
       const grading = await r.gradings.get(id, {lock:true});
-      if (!grading || grading.strategy !== "test" || !grading.sandboxId) return fail("conflict", "grading has no sandbox");
+      if (!grading || !["test","agent"].includes(grading.strategy) || !grading.sandboxId) return fail("conflict", "grading has no sandbox");
       const sandbox = await this.owned(r,grading);
       const revision = await r.definitions.getRevision(grading.graderRevision.definitionId, grading.graderRevision.revisionId);
-      const grader = revision && testGrader(revision.content);
+      const grader = revision && (testGrader(revision.content) ?? agentGrader(revision.content));
       if (!sandbox || !grader) return fail("conflict", "grading setup identity changed");
       if (sandbox.runtime) return sandbox.runtime.instanceId === instanceId ? succeed({}) : fail("conflict", "grading runtime changed");
       const ready = markReady(sandbox, {workspace:{ref:sandbox.id,origin:"own"}, runtime:{instanceId,environmentRevisionId:grader.environmentRevisionId}, at:this.ctx.now()});
@@ -204,7 +207,7 @@ export class TestExecution {
 
   async note(id:string,state:string,detail?:string) {
     await this.ctx.units.run("write",async r => {
-      const [intent] = await r.intents.listForSubject("run-test-grader","grading_record",id);
+      const [intent] = await r.intents.listForSubject((await r.gradings.get(id))?.strategy==="agent" ? "run-agent-grader" : "run-test-grader","grading_record",id);
       if (!intent) return;
       const observation = {state,...(detail ? {detail} : {})};
       const payload = intent.payload as Record<string,import("../domain/index.js").JsonValue>;

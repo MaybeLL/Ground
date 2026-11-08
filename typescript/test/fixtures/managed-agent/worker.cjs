@@ -2,6 +2,31 @@
 const { readFileSync, writeFileSync } = require("node:fs");
 const { execFileSync } = require("node:child_process");
 const task = JSON.parse(readFileSync(0,"utf8"));
+if (task.role==="evaluator") {
+  if(task.rubric==="wait to cancel") {
+    writeFileSync("/tmp/grounds-judge-ready","ready",{flag:"wx"});
+    const deadline=Date.now()+90000;
+    while(!require("node:fs").existsSync("/tmp/grounds-judge-release")) {
+      if(Date.now()>deadline) process.exit(3);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,100);
+    }
+  }
+  const report=task.rubric==="exact report";
+  const answer=readFileSync(report ? "report.txt" : "answer.txt","utf8"),expected=readFileSync(report ? "/grounds-grader/report.txt" : "/grounds-grader/reference.txt","utf8");
+  const grade=task.rubric==="invalid grade" ? {form:"numeric",value:999} : {form:"numeric",value:answer===expected ? 5 : 0};
+  const message=JSON.stringify({grade});
+  const emit=event=>process.stdout.write(JSON.stringify(event)+"\n");
+  if(process.argv[1].endsWith("claude")) {
+    emit({type:"system",subtype:"init",session_id:"independent-evaluator"});
+    emit({type:"assistant",message:{content:[{type:"text",text:message}]}});
+    emit({type:"result",subtype:"success",is_error:false});
+  } else {
+    emit({type:"thread.started",thread_id:"independent-evaluator"});
+    emit({type:"item.completed",item:{id:"evaluation",type:"agent_message",text:message}});
+    emit({type:"turn.completed"});
+  }
+  return;
+}
 if (!task.criteria?.length) process.exit(2);
 const { existsSync } = require("node:fs");
 if (task.task === "interrupt fixture") {

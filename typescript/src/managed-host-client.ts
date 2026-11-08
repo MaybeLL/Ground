@@ -7,7 +7,7 @@ import { hostProcessIdentity } from "./env-process.js";
 import { dataLayout } from "./data-layout.js";
 import { atomicPrivateWrite, privateDirectory, removePrivateFile, safeRead, withRuntimeLock } from "./runtime-files.js";
 
-export type HostJob = {kind?: "test-grading" | "experiment"; config: string; ledgerId: string; runId: string; executionId: string; allowStart: boolean};
+export type HostJob = {kind?: "test-grading" | "agent-grading" | "experiment"; config: string; ledgerId: string; runId: string; executionId: string; allowStart: boolean};
 export const managedId = /^[a-f0-9-]{36}$/;
 /** Atomic publication stages records under .<UUID> until rename completes. */
 export function publishedHostEntries(directory:string) {

@@ -1,7 +1,7 @@
 import { createGrading, digestOf, type DeliveryItem, type GradingOrigin, type JsonValue, type RevisionRef } from "../domain/index.js";
 import { GRADING_REQUEST_COUNTER, type WorkRepositories } from "../ports/index.js";
 import type { RequestContext } from "./requests.js";
-import type { TestGrader } from "./rule-definitions.js";
+import type { AgentGrader,TestGrader } from "./rule-definitions.js";
 import { fromRejection, succeed } from "./outcome.js";
 
 export type TestPlan = {
@@ -16,7 +16,7 @@ export type AcceptedTest = {
 /** A command-based evaluator has its own grading and sandbox. Its plan pins
  * the target and suite revision before a worker can inspect hidden material. */
 export async function admitTestMeasurement(ctx: RequestContext, r: WorkRepositories, plan: TestPlan,
-  target: DeliveryItem, grader: TestGrader, revision: RevisionRef, materials: {id:string;digest:string}[], origin?:GradingOrigin) {
+  target: DeliveryItem, grader: TestGrader|AgentGrader, revision: RevisionRef, materials: {id:string;digest:string}[], origin?:GradingOrigin) {
   const targetDigest = digestOf({...target}, ctx.hash);
   if (!targetDigest.ok) return fromRejection(targetDigest.error);
   const at = ctx.now(), gradingId = ctx.newId();
@@ -30,7 +30,7 @@ export async function admitTestMeasurement(ctx: RequestContext, r: WorkRepositor
   if (!hash.ok) return fromRejection(hash.error);
   await r.gradings.create(created.value.state);
   await r.intents.register({id:ctx.newId(), requestId:"test-grading-" + gradingId, requestHash:hash.value,
-    kind:"run-test-grader", subject:{type:"grading_record", id:gradingId}, state:"registered", payload,
+    kind:grader.strategy==="agent" ? "run-agent-grader" : "run-test-grader", subject:{type:"grading_record", id:gradingId}, state:"registered", payload,
     createdAt:at, updatedAt:at, version:1});
   if (origin?.type === "member") await markGradingActive(r,origin.experimentRunId,at);
   return succeed({gradingId, suiteId:plan.suite.definitionId, revisionId:plan.suite.revisionId,

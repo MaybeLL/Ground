@@ -91,7 +91,7 @@ export class ExperimentPlans {
           const parsed = parseGraderContent(revision.content);
           if (!parsed.ok) return fromRejection(parsed.error);
           const reference = binding.materials.find(m=>m.role === "reference-answer");
-          const materials = parsed.value.strategy === "test" ? binding.materials.map((m,ordinal)=>({id:"suite-material-"+ordinal,digest:m.digest})) :
+          const materials = parsed.value.strategy !== "rule" ? binding.materials.map((m,ordinal)=>({id:"suite-material-"+ordinal,digest:m.digest})) :
             [...(reference ? [{id:"reference-answer",digest:reference.digest}] : []),{id:"suite-snapshot",digest:suite.digest}];
           requirements.push({key:binding.key,grader:{...binding.graderRevision},scale:parsed.value.scale.form === "category" ? {form:"category",categories:[...parsed.value.scale.categories]} : {...parsed.value.scale},materials});
         }

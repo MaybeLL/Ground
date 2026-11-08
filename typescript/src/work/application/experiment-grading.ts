@@ -6,7 +6,7 @@ import type {ArchiveRepairs} from "./archive-repairs.js";
 import {casesOf} from "./evaluation-suites.js";
 import {readExperiment} from "./experiment-plans.js";
 import {once,type RequestContext} from "./requests.js";
-import {fileRule,testGrader} from "./rule-definitions.js";
+import {agentGrader,fileRule,testGrader} from "./rule-definitions.js";
 import {admitTestMeasurement,markGradingActive,type AcceptedTest} from "./test-measurements.js";
 import {fail,fromRejection,succeed} from "./outcome.js";
 
@@ -47,7 +47,7 @@ export class ExperimentGrading {
     if (!target && unknown) return fail("unavailable","a frozen member artifact cannot be resolved");
     if (!run || !target || !sameRef(run.taskRevision,item.task)) return fail("conflict","member has no matching delivery");
     const origin:GradingOrigin = {type:"member",experimentRunId:batch.id,caseKey:member.caseKey,repeatIndex:member.repeatIndex,requirementKey:requirement.key};
-    const test = testGrader(revision.content), rule = fileRule(revision.content);
+    const test = testGrader(revision.content) ?? agentGrader(revision.content), rule = fileRule(revision.content);
     if (test) {
       const commit = target.type==="artifact" ? null : this.archive.recordedCommit(target);
       if (commit===undefined) return fail("invalid","member has no Git receipt");

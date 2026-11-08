@@ -64,7 +64,7 @@ export function testGrader(content: JsonValue): TestGrader | undefined {
 export async function resolveSuiteGrader(r: WorkRepositories, ctx: RequestContext, selection?: GraderSelection) {
   if (selection) {
     const revision = await r.definitions.getRevision(selection.definitionId, selection.revisionId);
-    const grader = revision?.kind === "grader" && testGrader(revision.content);
+    const grader = revision?.kind === "grader" && (testGrader(revision.content) ?? agentGrader(revision.content));
     if (grader) return succeed({ref:refOf(revision!), rule:grader});
   }
   return resolveRule(r, ctx, selection);

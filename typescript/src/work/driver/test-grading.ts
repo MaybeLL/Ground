@@ -1,3 +1,4 @@
+import type {AgentGradingDriver} from "./agent-grading.js";
 import {TestTargetFault} from "../ports/index.js";
 import { authorizeBridge, isGradingTerminal } from "../domain/index.js";
 import type { ManagedWorkspacePort, RuntimeOwner, SandboxLauncher, SandboxRuntimePort, TestProcessPort } from "../ports/index.js";
@@ -7,7 +8,7 @@ import type { TestExecution } from "../application/test-execution.js";
 import type { DriveState } from "./managed-task.js";
 
 type Observation = {state:DriveState;detail?:string;providerStopped?:boolean};
-type Dependencies = {tests:TestExecution;repairs:ArchiveRepairs;runtime:SandboxRuntimePort;launcher:SandboxLauncher;workspaces:ManagedWorkspacePort;
+type Dependencies = {tests:TestExecution;agents:AgentGradingDriver;repairs:ArchiveRepairs;runtime:SandboxRuntimePort;launcher:SandboxLauncher;workspaces:ManagedWorkspacePort;
   process:TestProcessPort;ledgerId():Promise<string>};
 
 export class TestGradingDriver {
@@ -104,6 +105,7 @@ export class TestGradingDriver {
       const ready = await tests.ready(id,receipt);
       return ready.ok ? this.drive(id,live) : ready;
     }
+    if (grader.strategy==="agent") return this.deps.agents.drive(id,{owner,location,containerId:sandbox.runtime.instanceId},grader,known.value.task,live,!!grading.cancelIntent);
     const last = grading.commandSteps.at(-1);
     const active = last && last.state !== "stopped_result" && last.state !== "stopped_no_result";
     if (!active) {

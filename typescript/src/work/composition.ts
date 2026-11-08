@@ -1,3 +1,5 @@
+import {AgentGradingDriver} from "./driver/agent-grading.js";
+import {ManagedEvaluators} from "./application/managed-evaluators.js";
 // Composition root: reads configuration, creates adapters and injects them
 // into the application services and drivers. The only place allowed to import
 // every layer.
@@ -65,11 +67,13 @@ export function composeWork(store: SQLStore): WorkApplication & {driver:ManagedT
   const delivery = new CodeDelivery({ units, exec, archive, repairs, ledgerId, materials:new MaterialWorkspaces(), worktrees: new GitWorktrees() });
   const sandboxes = new SandboxProvisioning({ ...managed, delivery }, recovery);
   const workers=new ManagedWorkers({...context,lifecycle});
-  const driver=new ManagedTaskDriver({repairs,workers,sandboxes,lifecycle,ledgerId,process:new ContainerAgentProcess(runtime,workspaces,archive)});
+  const agentProcess=new ContainerAgentProcess(runtime,workspaces,archive);
+  const driver=new ManagedTaskDriver({repairs,workers,sandboxes,lifecycle,ledgerId,process:agentProcess});
   const tests = new TestExecution(context);
-  const testDriver = new TestGradingDriver({tests,repairs,runtime,launcher,workspaces,ledgerId,
+  const evaluators=new ManagedEvaluators(context,commandLineProviders);
+  const testDriver = new TestGradingDriver({tests,agents:new AgentGradingDriver(evaluators,agentProcess),repairs,runtime,launcher,workspaces,ledgerId,
     process:new ContainerTestProcess(runtime,workspaces,new EvaluatorWorkspaces(workspaces,archive,artifacts.streams.bind(artifacts)))});
   const experiments = new ExperimentPlans({...context,repairs,source:archive});
   const members = new ExperimentMembers(context,agents,new ExperimentGrading(context,archive,repairs));
-  return { artifacts,experiments,members,experimentResults:new ExperimentResults(context),tests,testDriver,workers,driver,agents, traces:new ProviderTraces(context,new ProviderTraceCapture()), lifecycle, sandboxes, environments, rules, suites, repairs, tasks: new TaskDefinitions(shared), exec, grading: new Grading(shared), delivery };
+  return { evaluators,artifacts,experiments,members,experimentResults:new ExperimentResults(context),tests,testDriver,workers,driver,agents, traces:new ProviderTraces(context,new ProviderTraceCapture()), lifecycle, sandboxes, environments, rules, suites, repairs, tasks: new TaskDefinitions(shared), exec, grading: new Grading(shared), delivery };
 }

@@ -3,6 +3,7 @@
   "$id": "https://patchledger.dev/contracts/v1/suite-results.schema.json",
   "title": "Evaluation suite commands",
   "oneOf": [
+    {"type": "object", "required": ["command", "result_type", "gradingId", "executionId", "stream", "ordinal", "ref", "base64"], "properties": {"command": {"const": "grade.evaluator-evidence"}, "result_type": {"const": "grounds.result.grade.evaluator-evidence/v1"}, "gradingId": {"$ref": "work-results.schema.json#/$defs/Id"}, "executionId": {"$ref": "work-results.schema.json#/$defs/Id"}, "stream": {"enum": ["raw", "events", "output", "stderr"]}, "ordinal": {"type": "integer", "minimum": 0}, "ref": {"$ref": "trace-results.schema.json#/$defs/Blob"}, "base64": {"type": "string"}}, "additionalProperties": false},
     {
       "type": "object",
       "required": [
@@ -512,6 +513,26 @@
       ],
       "properties": {
         "command": {
+          "const": "grade.resume-evaluator"
+        },
+        "result_type": {
+          "const": "grounds.result.grade.resume-evaluator/v1"
+        },
+        "gradingId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "gradingId"
+      ],
+      "properties": {
+        "command": {
           "const": "grade.resume-test"
         },
         "result_type": {
@@ -519,6 +540,48 @@
         },
         "gradingId": {
           "$ref": "work-results.schema.json#/$defs/Id"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "command",
+        "result_type",
+        "gradingId",
+        "status"
+      ],
+      "properties": {
+        "command": {
+          "const": "grade.evaluator-status"
+        },
+        "result_type": {
+          "const": "grounds.result.grade.evaluator-status/v1"
+        },
+        "gradingId": {
+          "$ref": "work-results.schema.json#/$defs/Id"
+        },
+        "status": {
+          "$ref": "work-results.schema.json#/$defs/GradingStatus"
+        },
+        "sandboxPhase": {
+          "type": "string"
+        },
+        "host": {
+          "type": "object",
+          "required": [
+            "state"
+          ],
+          "properties": {
+            "state": {
+              "type": "string"
+            },
+            "detail": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

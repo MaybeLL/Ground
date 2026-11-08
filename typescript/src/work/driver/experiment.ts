@@ -2,7 +2,7 @@ import {operation} from "./operation-id.js";
 import type {WorkApplication} from "../application/index.js";
 import {succeed} from "../application/outcome.js";
 
-type Child = {runId:string;executionId:string;kind?:"test-grading";allowStart:boolean};
+type Child = {runId:string;executionId:string;kind?:"test-grading"|"agent-grading";allowStart:boolean};
 
 
 /** The batch owns task slots in SQL. Each child uses the existing worker
@@ -64,7 +64,7 @@ export class ExperimentDriver {
           if (!stop.ok) return stop;
         }
         const action = cancelled ? "cancel" : live ? "grade" : "observe";
-        changes = await this.dispatch({kind:"test-grading",runId:member.runId,executionId:grading.id,allowStart:live && !cancelled},action) || changes;
+        changes = await this.dispatch({kind:grading.strategy==="agent" ? "agent-grading" : "test-grading",runId:member.runId,executionId:grading.id,allowStart:live && !cancelled},action) || changes;
         if (!this.isRunning(grading.id,operation(this.requestId,grading.id,action))) blocked.push(grading.id + ": " + (grading.host?.detail ?? "evaluator needs reconciliation"));
         else active = true;
       }
@@ -77,7 +77,9 @@ export class ExperimentDriver {
         if (!result.ok) { blocked.push(member.key + ": " + result.error.message); continue; }
         changes = true;
         if ("status" in result.value && result.value.status === "accepted") {
-          await this.dispatch({kind:"test-grading",runId:member.runId,executionId:result.value.gradingId,allowStart:true},"grade");
+          const admitted=await this.app.tests.context(result.value.gradingId);
+          if (!admitted.ok) return admitted;
+          await this.dispatch({kind:admitted.value.grading.strategy==="agent" ? "agent-grading" : "test-grading",runId:member.runId,executionId:result.value.gradingId,allowStart:true},"grade");
         }
       }
     }

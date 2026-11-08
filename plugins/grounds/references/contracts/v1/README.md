@@ -136,3 +136,9 @@ Coding 任务有必需附件时，用 `grounds work deliver --run RUN --session 
 评测集可以选择一次已交付运行中的 Artifact。发布时核验产物回执和文件内容摘要，并固定任务修订及输出槽。历史材料保留产物的 `artifactSlot`，其 `commit` 为 `null`。规则评分读取归档文件，测试评分将该产物单独还原到评价者的工作区。参考答案和隐藏测试仅挂载给评价者。批次按同名输出槽选择本轮产物，结果记录实际参与评分的 Artifact ID。若某次成功交付省略了该可选槽，查询报告 `target-missing`。
 
 产物中的路径按跨平台可还原的相对文件名校验。每个组件至多 255 个 UTF-8 字节，目录和文件的拼写在 Unicode 规范化及大小写折叠后须一致。文件名之间不能重名或互为目录前缀。已有档案遇到不可还原的路径时，测试评分记录为 `grader_fault`。已评分成员的产物失去完整回执或任一文件证据后，查询以 `targetAvailability: unavailable` 标记，并保留此前采用的评分。
+
+### 托管 Agent 评分
+
+`grounds grade define-agent` 固定评价者 Agent 修订、独立环境修订、评分说明与标尺。数值标尺由 `min`、`max` 定义，分类标尺使用 `categories`。用 `suite publish` 将评分器关联到评测项后，可通过 `suite measure` 独立评分，也可由实验批次驱动。每次评分在 GradingRecord 自己的沙箱中启动新的 AgentExecution，保存原始轨迹和输出。评价者按标尺返回 JSON，例如 `{"grade":{"form":"numeric","value":0}}`。越界值、无效输出及评价者失败记为评分器故障。
+
+`grade evaluator-status` 查看运行状态，`grade resume-evaluator` 显式恢复，`grade cancel` 取消。使用 `grade evaluator-evidence --grading ID --stream raw|events|output|stderr --chunk N` 读取带执行身份的归档块。

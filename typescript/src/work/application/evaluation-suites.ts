@@ -6,7 +6,7 @@ import { createDefinition, createGrading, digestOf, isId, isText, publishRevisio
 import { GRADING_REQUEST_COUNTER, type CodeArchivePort, type WorkRepositories } from "../ports/index.js";
 import type { ArchiveRepairs } from "./archive-repairs.js";
 import { admitTestMeasurement, type AcceptedTest } from "./test-measurements.js";
-import { testGrader, fileRule, resolveRule, resolveSuiteGrader, type GraderSelection, type Rule } from "./rule-definitions.js";
+import { agentGrader,testGrader, fileRule, resolveRule, resolveSuiteGrader, type GraderSelection, type Rule } from "./rule-definitions.js";
 import { fail, fromRejection, succeed, type Outcome } from "./outcome.js";
 import { once, type RequestContext } from "./requests.js";
 
@@ -127,9 +127,9 @@ export class EvaluationSuites {
           if (!resolved.ok) return resolved;
           const grader = resolved.value.rule;
           if (grader.strategy === "rule" && !binding.answerPath) return fail("invalid", "a file rule needs the path to grade");
-          if (grader.strategy === "test" && binding.answerPath) return fail("invalid", "a test binding takes its commands from its grader revision");
+          if (grader.strategy !== "rule" && binding.answerPath) return fail("invalid", "a test binding takes its commands from its grader revision");
           const needsReference = grader.strategy === "rule" && grader.operation === "equal-file-bytes";
-          if (needsReference !== binding.materials.some(m => m.role === "reference-answer")) return fail("invalid", "reference answer does not match the grader's input contract");
+          if (grader.strategy!=="agent" && needsReference !== binding.materials.some(m => m.role === "reference-answer")) return fail("invalid", "reference answer does not match the grader's input contract");
           bindings.push({ ...binding, graderRevision: resolved.value.ref });
         }
         frozen.push({ ...entry, bindings });
@@ -236,7 +236,7 @@ export class EvaluationSuites {
     if (!binding) return fail("invalid", "select one of this case's grading bindings");
     const graderRevision = await this.deps.units.run("read", r => r.definitions.getRevision(binding.graderRevision.definitionId, binding.graderRevision.revisionId));
     const rule = graderRevision && fileRule(graderRevision.content);
-    const test = graderRevision && testGrader(graderRevision.content);
+    const test = graderRevision && (testGrader(graderRevision.content) ?? agentGrader(graderRevision.content));
     if (!graderRevision || !sameRef(refOf(graderRevision), binding.graderRevision) || (!rule && !test)) return fail("unsupported", "the frozen grader revision cannot be loaded");
     const delivery = await this.delivery(input.runId, input.deliveryId, repo);
     if (!delivery.ok) return delivery;

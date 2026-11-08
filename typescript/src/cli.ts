@@ -441,9 +441,9 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
           runId:data.batchId,executionId:data.batchId,allowStart:action !== "cancel"},batchNotificationId(action,action === "launch" ? data.batchId : value(args,"operation-id")));
       }
       if (typeof data.gradingId === "string" && ((group === "suite" && action === "measure" || group === "experiment" && action === "regrade") && data.status === "accepted" ||
-          group === "grade" && (action === "cancel" || action === "resume-test"))) {
+          group === "grade" && (action === "cancel" || action === "resume-test" || action==="resume-evaluator"))) {
         const test = await app.tests.context(data.gradingId);
-        if (test.ok) await notifyManaged({kind:"test-grading", config:configPath(value(args,"config")), ledgerId:opened.config.database.expected_database_id,
+        if (test.ok) await notifyManaged({kind:test.value.grading.strategy==="agent" ? "agent-grading" : "test-grading", config:configPath(value(args,"config")), ledgerId:opened.config.database.expected_database_id,
           runId:test.value.plan.runId, executionId:data.gradingId, allowStart:action !== "cancel"}, value(args,"operation-id"));
       }
       if (group === "experiment" && action === "regrade" && data.status === "accepted") {
@@ -451,7 +451,7 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
         await notifyManaged({kind:"experiment",config:configPath(value(args,"config")),ledgerId:opened.config.database.expected_database_id,
           runId:id,executionId:id,allowStart:false},batchNotificationId(action,value(args,"operation-id")));
       }
-      if (group === "grade" && action === "test-status" && typeof data.gradingId === "string") {
+      if (group === "grade" && (action === "test-status" || action==="evaluator-status") && typeof data.gradingId === "string") {
         const observation = await observeManagedHost(data.gradingId, opened.config.database.expected_database_id);
         if (observation) data.host = observation;
       }

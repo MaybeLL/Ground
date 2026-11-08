@@ -38,7 +38,7 @@ async function supervise(job: HostJob, name: string, observeOnly: boolean) {
       } finally { if (existsSync(owner)) removePrivateFile(owner); }
       return;
     }
-    const test = job.kind === "test-grading";
+    const test = job.kind === "test-grading" || job.kind==="agent-grading";
     const status = async () => {
       if (test) {
         const current = await app.tests.context(job.executionId);

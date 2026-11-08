@@ -1441,8 +1441,13 @@ test("experiment runs rule and sandbox test graders against the selected working
     const rule=ok(await h.cli("grade","define-rule","--name","exact bytes","--rule","equal-file-bytes","--pass","identical","--fail","different"));
     writeFileSync(commands,JSON.stringify([["sh","-c","test ! -d .git && cmp report.txt /grounds-grader/report.txt"]]));
     const grader=ok(await h.cli("grade","define-test","--name","compare file","--commands",commands,"--environment",env.environmentId,"--environment-revision",env.revisionId,"--pass","pass","--fail","fail"));
+    const judgeAgent=ok(await h.cli("work","define-agent","--name","report judge","--provider","claude-code"));
+    const scale=join(h.directory,"numeric.json");writeFileSync(scale,JSON.stringify({form:"numeric",min:0,max:5}));
+    const judge=ok(await h.cli("grade","define-agent","--name","numeric report","--agent",judgeAgent.agentId,"--agent-revision",judgeAgent.revisionId,
+      "--environment",env.environmentId,"--environment-revision",env.revisionId,"--rubric","exact report","--scale",scale));
     writeFileSync(cases,JSON.stringify([{key:"report",runId,deliveryId:artifact.id,bindings:[
       {key:"rule",answerPath:"report.txt",referencePath:"report.txt",grader:{definitionId:rule.graderId,revisionId:rule.revisionId}},
+      {key:"numeric",referencePath:"report.txt",grader:{definitionId:judge.graderId,revisionId:judge.revisionId}},
       {key:"test",hiddenTestPaths:["report.txt"],grader:{definitionId:grader.graderId,revisionId:grader.revisionId}}
     ]},{key:"optional",runId,deliveryId:chart.id,bindings:[{key:"chart",answerPath:"chart.txt",referencePath:"chart.txt",grader:{definitionId:rule.graderId,revisionId:rule.revisionId}}]}]));
     const suite=ok(await h.cli("suite","publish","--name","working reports","--cases-file",cases));
@@ -1462,7 +1467,8 @@ test("experiment runs rule and sandbox test graders against the selected working
     assert.equal(result.members.find((m:{caseKey:string})=>m.caseKey==="optional").requirements[0].notStarted,"target-missing");
     const report=result.members.find((m:{caseKey:string})=>m.caseKey==="report");
     const {member}=ok(await h.cli("experiment","member","--batch",batchId,"--member",report.key));
-    assert.deepEqual(member.gradings.map((g:{grade:{category:string}})=>g.grade.category).sort(),["identical","pass"]);
+    assert.equal(result.dimensions.find((d:{requirement:string})=>d.requirement==="numeric").numericMean,5);
+    assert.deepEqual(member.gradings.filter((g:{grade:{form:string}})=>g.grade.form==="category").map((g:{grade:{category:string}})=>g.grade.category).sort(),["identical","pass"]);
     assert.ok(member.gradings.every((g:{targets:{type:string;id:string}[]})=>g.targets[0]?.type==="artifact" && g.targets[0].id!==artifact.id));
     const id=member.gradings[0].targets[0].id, saved=ok(await h.cli("work","artifact","--run",member.runId,"--artifact",id)).artifact;
     const appendix=saved.files.find((file:{path:string})=>file.path==="appendix.txt").content.digest;
@@ -1486,8 +1492,66 @@ test("experiment runs rule and sandbox test graders against the selected working
       const after=ok(await h.cli("experiment","member","--batch",batchId,"--member",report.key)).member;
       assert.equal(after.targetAvailability,"unavailable");
       assert.deepEqual(after.requirements.map((v:{adopted:string})=>v.adopted),member.requirements.map((v:{adopted:string})=>v.adopted));
-      assert.equal(after.requirements.every((v:{latestFault?:unknown})=>!!v.latestFault),true);
+      assert.equal(after.requirements.filter((v:{key:string})=>v.key!=="numeric").every((v:{latestFault?:unknown})=>!!v.latestFault),true);
       assert.equal(ok(await h.cli("experiment","results","--batch",batchId)).counts.fullyGraded,1);
     } finally {db.close();}
+  });
+});
+
+test("managed evaluator runs in a fresh grading sandbox and returns a numeric zero", {skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async()=>{
+  await withHarness(async h=>{
+    const image=process.env.GROUNDS_TEST_MANAGED_AGENT!, cfg=join(h.directory,"evaluator-env.json"),scale=join(h.directory,"rubric-scale.json"),cases=join(h.directory,"judge-cases.json");
+    writeFileSync(cfg,JSON.stringify({image,workspaceFolder:"/review"}));
+    writeFileSync(scale,JSON.stringify({form:"numeric",min:0,max:5}));
+    const digest=execFileSync("docker",["image","inspect","--format","{{.Id}}",image],{encoding:"utf8"}).trim();
+    const environment=ok(await h.cli("work","define-environment","--name","evaluation","--devcontainer",cfg,"--image-digest",digest));
+    const task=ok(await h.cli("task","create","--kind","working","--title","Report","--criterion","accuracy","--required-output","answer","--optional-output","key"));
+    const runId=ok(await h.cli("work","start","--task",task.taskId,"--mode","none")).runId;
+    writeFileSync(join(h.repo,"answer"),"incorrect");writeFileSync(join(h.repo,"reference"),"correct");
+    const save=async(slot:string,file:string)=>ok(await h.cli("work","save-artifact","--run",runId,"--slot",slot,"--file",file)).artifact.id;
+    const answer=await save("answer","answer.txt=answer"),key=await save("key","reference.txt=reference");
+    ok(await h.cli("work","submit-artifacts","--run",runId,"--artifact",answer,"--artifact",key));
+    const agent=ok(await h.cli("work","define-agent","--provider","claude-code","--name","reviewer"));
+    const publications=[];
+    for(const rubric of ["Grade the submitted answer against the reference","invalid grade","wait to cancel"]) {
+      publications.push(ok(await h.cli("grade","define-agent","--name","accuracy","--agent",agent.agentId,"--agent-revision",agent.revisionId,
+        "--environment",environment.environmentId,"--environment-revision",environment.revisionId,"--rubric",rubric,"--scale",scale)));
+    }
+    writeFileSync(cases,JSON.stringify([{key:"case",runId,deliveryId:answer,bindings:publications.map((g,index)=>({
+      key:String(index),grader:{definitionId:g.graderId,revisionId:g.revisionId},materialSource:{runId,deliveryId:key},referencePath:"reference.txt"}))}]));
+    const suite=ok(await h.cli("suite","publish","--name","judge","--cases-file",cases));
+    for(const index of ["0","1","2"]) {
+      const accepted=ok(await h.cli("suite","measure","--suite",suite.suiteId,"--revision","1","--case","case","--binding",index,"--run",runId,"--delivery",answer));
+      const end=Date.now()+45000;
+      if (index==="2") {
+        let ready=false;
+        while(Date.now()<end && !ready) {
+          const g=ok(await h.cli("grade","show","--grading",accepted.gradingId));
+          if(g.sandboxId) {
+            const id=execFileSync("docker",["ps","-q","--filter","label=dev.grounds.sandbox="+g.sandboxId],{encoding:"utf8"}).trim();
+            if(id) try {execFileSync("docker",["exec",id,"test","-f","/tmp/grounds-judge-ready"],{stdio:"ignore"});ready=true;} catch {}
+          }
+          if(!ready) await new Promise(resolve=>setTimeout(resolve,200));
+        }
+        assert.ok(ready,"evaluator reached its cancellation barrier");
+        ok(await h.cli("grade","cancel","--grading",accepted.gradingId));
+      }
+      let status;
+      do {
+        status=ok(await h.cli("grade","evaluator-status","--grading",accepted.gradingId));
+        if (status.sandboxPhase==="released" || status.host?.state==="blocked") break;
+        await new Promise(resolve=>setTimeout(resolve,250));
+      } while(Date.now()<end);
+      assert.equal(status.sandboxPhase,"released",JSON.stringify(status));
+      const score=ok(await h.cli("grade","show","--grading",accepted.gradingId));
+      assert.equal(score.status,index==="0" ? "completed" : index==="1" ? "grader_fault" : "cancelled");
+      if (index==="2") {assert.equal(score.evaluatorStopped,true);continue;}
+      const trace=ok(await h.cli("grade","evaluator-evidence","--grading",accepted.gradingId,"--stream","raw","--chunk","0"));
+      assert.equal(trace.executionId,score.evaluator.executionId);
+      assert.match(Buffer.from(trace.base64,"base64").toString(),/independent-evaluator/);
+      assert.equal(score.evaluator.kind,"agent");assert.equal(score.evaluatorStopped,true);
+      if(index==="0") assert.deepEqual(score.grade,{form:"numeric",value:0});
+      else assert.equal(score.grade,undefined);
+    }
   });
 });
