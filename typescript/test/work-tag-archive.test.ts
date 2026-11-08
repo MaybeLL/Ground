@@ -105,3 +105,29 @@ test("malformed receipts do not decode", () => {
   assert.equal(decodeReceipt(encodeReceipt({ format: "grounds.git-delivery/v1", remote: "r", ref: "refs/heads/main", commit: "a".repeat(40), tree: "b".repeat(40), parents: [] })), undefined, "only the delivery namespace is accepted");
   assert.equal(decodeReceipt(encodeReceipt({ format: "grounds.git-delivery/v1", remote: "r", ref: "refs/tags/grounds/deliveries/x", commit: "nope", tree: "b".repeat(40), parents: [] })), undefined);
 });
+
+test("live integrity distinguishes tag movement, recoverable objects, confirmed loss and failed observation", async t => {
+  const r = repository(); t.after(r.cleanup);
+  const archive = new GitTagArchive();
+  const first = r.commit("first");
+  const result = await archive.archive({ repositoryPath: r.work, remote: r.remote, commit: first, deliveryId: "item" });
+  assert.equal(result.status, "confirmed");
+  if (result.status !== "confirmed") return;
+  const item = { id: "item", receipt: result.receipt };
+  const ref = decodeReceipt(item.receipt)!.ref;
+  assert.deepEqual(await archive.inspect(r.work, item), { id: "item", protection: { level: "unknown" }, recordedCommit: first, remoteCommit: first, tag: "unchanged", status: "intact" });
+  const second = r.commit("second");
+  git(r.work, "push", "--force", r.remote, `${second}:${ref}`);
+  assert.deepEqual(await archive.inspect(r.work, item), { id: "item", protection: { level: "unknown" }, recordedCommit: first, remoteCommit: second, tag: "moved", status: "ref-changed" });
+  git(r.remote, "update-ref", "-d", ref);
+  assert.equal((await archive.inspect(r.work, item)).tag, "missing");
+  const clean = join(r.root, "clean");
+  git(r.root, "init", "-q", clean);
+  assert.equal((await archive.inspect(clean, item)).status, "ref-changed", "can still fetch the recorded OID");
+  assert.throws(() => git(clean, "cat-file", "-e", first), "inspection leaves the caller's object database untouched");
+  git(r.remote, "reflog", "expire", "--expire=now", "--all");
+  git(r.remote, "gc", "--prune=now");
+  assert.equal((await archive.inspect(clean, item)).status, "unavailable");
+  rmSync(r.remote, { recursive: true, force: true });
+  assert.equal((await archive.inspect(r.work, item)).status, null, "transport errors cannot prove the reference is missing");
+});

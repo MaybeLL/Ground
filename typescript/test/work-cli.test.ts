@@ -64,8 +64,12 @@ test("the caller's own agent works a task end to end through the command line: d
     const worker = ok(await h.cli("work", "register", "--run", started.runId, "--agent", "claude-code"));
     ok(await h.cli("work", "transcript", "--run", started.runId, "--session", worker.sessionId, "--ref", "session.log", "--digest", `sha256:${"a".repeat(64)}`, "--coverage", "partial"));
     writeFileSync(join(space.path, "app.txt"), "v1\n"); git(space.path, "commit", "-qam", "export csv");
-    const first = ok(await h.cli("work", "deliver", "--run", started.runId, "--session", worker.sessionId, "--repo", space.path, "--declare-stop"));
+    const first = ok(await h.cli("work", "deliver", "--run", started.runId, "--session", worker.sessionId, "--repo", space.path, "--declare-stop", "--protection", "protected", "--protection-evidence", "admin/rules/7"));
     assert.equal(first.submitted.status, "delivered");
+    const observed = ok(await h.cli("work", "run", "--run", started.runId)).archiveIntegrity;
+    assert.equal(observed[0].status, "intact");
+    assert.equal(observed[0].recordedCommit, first.delivery.commit);
+    assert.deepEqual(observed[0].protection, { level: "protected", evidence: "admin/rules/7" });
     for (const invalid of [{ outcome: "unknown" }, { blocked: "unknown" }]) {
       assert.throws(() => assertContract("work-results.schema.json", { ...first, submitted: { ...first.submitted, ...invalid } }));
     }

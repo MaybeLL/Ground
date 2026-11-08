@@ -31,6 +31,13 @@ const flag = (args: ParsedArgs, name: string): boolean => raw(args, name) === tr
 const integer = (args: ParsedArgs, name: string): number => { const n = Number(need(args, name)); if (!Number.isSafeInteger(n) || n < 0) throw validation(name, "must be a non-negative integer"); return n; };
 const requestId = (args: ParsedArgs): string => need(args, "operation-id");
 const mode = (args: ParsedArgs): "external" | "none" => { const m = need(args, "mode"); if (m !== "external" && m !== "none") throw validation("mode", "must be external or none"); return m; };
+const archiveProtection = (args: ParsedArgs) => {
+  const level = text(args, "protection"), evidence = text(args, "protection-evidence");
+  if (level === undefined && evidence === undefined) return undefined;
+  if (level !== "protected" && level !== "unprotected") throw validation("protection", "must be protected or unprotected with a policy evidence reference");
+  if (!evidence?.trim() || evidence.length > 256) throw validation("protection-evidence", "must identify the observed policy in at most 256 characters");
+  return { level, evidence } as const;
+};
 const result = (group: string, action: string, data: object) => ({ result_type: `grounds.result.${group}.${action}/v1`, command: `${group}.${action}`, ...data });
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -85,12 +92,19 @@ async function work(args: ParsedArgs, action: string, app: WorkApplication, deps
     case "branch": return unwrap(await app.exec.addBranch({ requestId: requestId(args), workId: need(args, "work"), refines: need(args, "refines"), workerMode: mode(args), ...(text(args, "revision-id") ? { taskRevisionId: text(args, "revision-id")! } : {}) }));
     case "select": return unwrap(await app.exec.selectHead({ requestId: requestId(args), workId: need(args, "work"), runId: need(args, "run"), ...(text(args, "expected-head") ? { expectedHead: text(args, "expected-head")! } : {}) }));
     case "close": return unwrap(await app.exec.closeWork({ requestId: requestId(args), workId: need(args, "work") }));
-    case "show": return unwrap(await app.exec.getWork(need(args, "work")));
-    case "run": return unwrap(await app.exec.getRun(need(args, "run")));
+    case "show": {
+      const view = unwrap(await app.exec.getWork(need(args, "work")));
+      const head = view.runs.find(run => run.id === view.work.head);
+      return { ...view, archiveIntegrity: head ? await app.delivery.inspectRun(head, text(args, "repo") ?? deps.cwd) : [] };
+    }
+    case "run": {
+      const view = unwrap(await app.exec.getRun(need(args, "run")));
+      return { ...view, archiveIntegrity: await app.delivery.inspectRun(view.run, text(args, "repo") ?? deps.cwd) };
+    }
     case "register": return unwrap(await app.exec.registerExternalWorker({ requestId: requestId(args), runId: need(args, "run"), agent: { id: need(args, "agent"), ...(text(args, "agent-name") ? { name: text(args, "agent-name")! } : {}), ...(text(args, "model") ? { model: text(args, "model")! } : {}) } }));
     case "transcript": return unwrap(await app.exec.importTranscript({ requestId: requestId(args), runId: need(args, "run"), sessionId: need(args, "session"), ref: need(args, "ref"), digest: need(args, "digest"), coverage: need(args, "coverage") as "full" | "partial" | "unknown" }));
     case "workspace": return unwrap(await app.delivery.prepareWorkspace({ runId: need(args, "run"), repositoryPath: text(args, "repo") ?? deps.cwd }));
-    case "deliver": return unwrap(await app.delivery.deliver({ requestId: requestId(args), runId: need(args, "run"), repositoryPath: text(args, "repo") ?? deps.cwd, commit: text(args, "commit") ?? "HEAD",
+    case "deliver": return unwrap(await app.delivery.deliver({ protection: archiveProtection(args), requestId: requestId(args), runId: need(args, "run"), repositoryPath: text(args, "repo") ?? deps.cwd, commit: text(args, "commit") ?? "HEAD",
       ...(text(args, "session") ? { sessionId: text(args, "session")! } : {}), ...(text(args, "remote") ? { remote: text(args, "remote")! } : {}), ...(flag(args, "declare-stop") ? { declaresStop: true } : {}) }));
     case "stop": return unwrap(await app.exec.declareStop({ requestId: requestId(args), runId: need(args, "run"), reason: need(args, "reason") as "human" | "abandoned", ...(text(args, "session") ? { sessionId: text(args, "session")! } : {}) }));
     case "cancel": return unwrap(await app.exec.cancel({ requestId: requestId(args), runId: need(args, "run"), ...(text(args, "reason") ? { reason: text(args, "reason")! } : {}) }));
@@ -113,8 +127,18 @@ async function grade(args: ParsedArgs, action: string, app: WorkApplication, dep
     }
     case "stop": return unwrap(await app.grading.declareEvaluatorStop({ requestId: requestId(args), gradingId: grading(), ...(text(args, "session") ? { sessionId: text(args, "session")! } : {}) }));
     case "cancel": return unwrap(await app.grading.cancel({ requestId: requestId(args), gradingId: grading() }));
-    case "show": return unwrap(await app.grading.getGrading(grading()));
-    case "list": return { gates: unwrap(await app.grading.listGates(need(args, "run"))) };
+    case "show": {
+      const record = unwrap(await app.grading.getGrading(grading()));
+      if (record.origin.type !== "gate") return record;
+      const { run } = unwrap(await app.exec.getRun(record.origin.taskRunId));
+      return { ...record, archiveIntegrity: await app.delivery.inspectRun(run, text(args, "repo") ?? deps.cwd) };
+    }
+    case "list": {
+      const runId = need(args, "run");
+      const gates = unwrap(await app.grading.listGates(runId));
+      const archiveIntegrity = gates.length ? await app.delivery.inspectRun(unwrap(await app.exec.getRun(runId)).run, text(args, "repo") ?? deps.cwd) : [];
+      return { gates, archiveIntegrity };
+    }
     default: throw validation("action", `unknown grade action: ${action}`);
   }
 }
@@ -123,10 +147,10 @@ export const workHelp = (): string => [
   "grounds task create --title TEXT --criterion TEXT... [--context TEXT] [--repo-remote URL --baseline REF]",
   "grounds task revise --task ID --expected-seq N --title TEXT --criterion [ID: ]TEXT... | task show --task ID [--revision N] | task list",
   "grounds work start --task ID --mode external|none | work continue --work ID --expected-head RUN --mode M | work branch --work ID --refines RUN --mode M",
-  "grounds work select --work ID --run RUN [--expected-head RUN] | work close --work ID | work show --work ID | work run --run RUN",
+  "grounds work select --work ID --run RUN [--expected-head RUN] | work close --work ID | work show --work ID [--repo PATH] | work run --run RUN [--repo PATH]",
   "grounds work register --run RUN --agent NAME   (prints the session to present when delivering)",
   "grounds work workspace --run RUN [--repo PATH]   (a private worktree: the baseline, or what the refined run delivered)",
-  "grounds work deliver --run RUN [--session S] [--repo PATH] [--commit REF] [--remote URL] [--declare-stop]",
+  "grounds work deliver --run RUN [--session S] [--repo PATH] [--commit REF] [--remote URL] [--declare-stop] [--protection protected|unprotected --protection-evidence REF]",
   "grounds work stop --run RUN --reason human|abandoned [--session S] | work cancel --run RUN [--reason TEXT] | work transcript --run RUN --session S --ref REF --digest D --coverage full|partial|unknown",
   "grounds grade request --run RUN [--material ID=DIGEST...] | grade register --grading ID --agent NAME | grade stage --grading ID --session S --stage blind|freeze|reconcile|handoff|submit [--blind-digest D]",
   "grounds grade command --grading ID --session S --stage STAGE --entry NAME --argv-digest D --state succeeded|failed|unknown [--exit-code N]",

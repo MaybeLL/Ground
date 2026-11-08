@@ -114,6 +114,7 @@
       "additionalProperties": false,
       "required": ["command", "result_type", "work", "runs", "conclusion"],
       "properties": {
+        "archiveIntegrity": {"$ref": "#/$defs/ArchiveObservations"},
         "command": {"const": "work.show"},
         "result_type": {"const": "grounds.result.work.show/v1"},
         "work": {"$ref": "#/$defs/Work"},
@@ -126,6 +127,7 @@
       "additionalProperties": false,
       "required": ["command", "result_type", "run", "acceptance"],
       "properties": {
+        "archiveIntegrity": {"$ref": "#/$defs/ArchiveObservations"},
         "command": {"const": "work.run"},
         "result_type": {"const": "grounds.result.work.run/v1"},
         "run": {"$ref": "#/$defs/TaskRun"},
@@ -181,8 +183,25 @@
         "result_type": {"const": "grounds.result.work.deliver/v1"},
         "delivery": {
           "type": "object",
-          "properties": {"id": {"type": "string"}, "commit": {"type": "string"}, "receipt": {"type": "string"}},
-          "required": ["id", "commit", "receipt"],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "commit": {
+              "type": "string"
+            },
+            "receipt": {
+              "type": "string"
+            },
+            "protection": {
+              "$ref": "#/$defs/ArchiveProtection"
+            }
+          },
+          "required": [
+            "id",
+            "commit",
+            "receipt"
+          ],
           "additionalProperties": false
         },
         "submitted": {"$ref": "#/$defs/Submitted"}
@@ -298,7 +317,7 @@
     },
     {
       "type": "object",
-      "properties": {"command": {"const": "grade.show"}, "result_type": {"const": "grounds.result.grade.show/v1"}},
+      "properties": {"command": {"const": "grade.show"}, "result_type": {"const": "grounds.result.grade.show/v1"}, "archiveIntegrity": {"$ref": "#/$defs/ArchiveObservations"}},
       "required": ["command", "result_type"],
       "allOf": [{"$ref": "#/$defs/GradingRecordFields"}],
       "unevaluatedProperties": false
@@ -308,6 +327,7 @@
       "additionalProperties": false,
       "required": ["command", "result_type", "gates"],
       "properties": {
+        "archiveIntegrity": {"$ref": "#/$defs/ArchiveObservations"},
         "command": {"const": "grade.list"},
         "result_type": {"const": "grounds.result.grade.list/v1"},
         "gates": {"type": "array", "items": {"$ref": "#/$defs/GradingRecord"}}
@@ -315,6 +335,28 @@
     }
   ],
   "$defs": {
+    "ArchiveProtection": {
+      "oneOf": [
+        {"type":"object","required":["level"],"properties":{"level":{"const":"unknown"}},"additionalProperties":false},
+        {"type":"object","required":["level","evidence"],"properties":{"level":{"enum":["protected","unprotected"]},"evidence":{"type":"string","minLength":1,"maxLength":256}},"additionalProperties":false}
+      ]
+    },
+    "ArchiveObservations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "status", "tag", "protection"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"$ref": "#/$defs/Id"},
+          "status": {"enum": ["intact", "ref-changed", "unavailable", null]},
+          "protection": {"$ref": "#/$defs/ArchiveProtection"},
+          "tag": {"enum": ["unchanged", "moved", "missing", "unknown"]},
+          "recordedCommit": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
+          "remoteCommit": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"}
+        }
+      }
+    },
     "Id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^\\u0000-\\u001f\\u007f]+$"},
     "Timestamp": {"$ref": "common.schema.json#/$defs/timestamp"},
     "Digest": {"$ref": "common.schema.json#/$defs/sha256"},

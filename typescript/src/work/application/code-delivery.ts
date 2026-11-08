@@ -2,12 +2,12 @@
 // a git repository and its remote, which is outside the ledger: the archive is
 // written first and is idempotent, so a command that stops half way is simply
 // run again.
-import { isId, parseTaskContent, type Id } from "../domain/index.js";
-import type { CodeArchivePort, WorkUnitOfWork, WorktreePort } from "../ports/index.js";
+import { isId, parseTaskContent, type Id, type TaskRun } from "../domain/index.js";
+import type { ArchiveProtection, RecordedProtection, CodeArchivePort, WorkUnitOfWork, WorktreePort } from "../ports/index.js";
 import { fail, failureOf, succeed, type Outcome } from "./outcome.js";
 import type { Submitted, TaskExecution } from "./task-execution.js";
 
-export type Delivered = { delivery: { id: string; commit: string; receipt: string }; submitted: Submitted };
+export type Delivered = { delivery: { id: string; commit: string; receipt: string; protection: RecordedProtection }; submitted: Submitted };
 export type Workspace = { runId: Id; path: string; branch: string; base: { commit: string; from: "baseline" | "delivery"; of: string }; created: boolean };
 
 const repositoryOf = (content: unknown): { remote?: string; baseline?: string } => {
@@ -24,7 +24,7 @@ export class CodeDelivery {
    * running the command again after an interruption archives the same tag and
    * submits the same manifest.
    */
-  async deliver(input: { requestId: string; runId: Id; sessionId?: Id; repositoryPath: string; commit: string; remote?: string; declaresStop?: boolean }): Promise<Outcome<Delivered>> {
+  async deliver(input: { requestId: string; runId: Id; sessionId?: Id; repositoryPath: string; commit: string; remote?: string; protection?: ArchiveProtection; declaresStop?: boolean }): Promise<Outcome<Delivered>> {
     if (!isId(input.requestId) || !isId(input.runId)) return fail("invalid", "requestId and runId are required");
     const known = await this.taskRemote(input.runId);
     if (!known.found) return fail("not-found", `run ${input.runId} does not exist`);
@@ -33,12 +33,20 @@ export class CodeDelivery {
     const commit = await this.deps.archive.resolveCommit(input.repositoryPath, input.commit);
     if (!commit) return fail("invalid", `${input.commit} is not a commit of ${input.repositoryPath}`);
     const deliveryId = `d-${input.runId}-${commit.slice(0, 12)}`;
-    const archived = await this.deps.archive.archive({ repositoryPath: input.repositoryPath, remote, deliveryId, commit });
+    const archived = await this.deps.archive.archive({ repositoryPath: input.repositoryPath, remote, deliveryId, commit, protection: input.protection });
     if (archived.status !== "confirmed") return fail(archived.status === "unavailable" ? "unavailable" : archived.status, archived.reason);
     const submitted = await this.deps.exec.submit({ requestId: input.requestId, runId: input.runId, ...(input.sessionId ? { sessionId: input.sessionId } : {}),
       items: [{ type: "candidate", id: deliveryId, receipt: archived.receipt }], ...(input.declaresStop ? { declaresStop: true } : {}) });
     if (!submitted.ok) return submitted;
-    return succeed({ delivery: { id: deliveryId, commit: archived.commit, receipt: archived.receipt }, submitted: submitted.value });
+    return succeed({ delivery: { id: deliveryId, commit: archived.commit, receipt: archived.receipt, protection: input.protection ?? { level: "unknown" } }, submitted: submitted.value });
+  }
+
+  async inspectRun(run: TaskRun, repositoryPath: string) {
+    const observations = [];
+    for (const item of run.manifest?.items ?? []) {
+      if (item.type === "candidate") observations.push(await this.deps.archive.inspect(repositoryPath, item));
+    }
+    return observations;
   }
 
   /**

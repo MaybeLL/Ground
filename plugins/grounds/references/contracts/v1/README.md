@@ -15,6 +15,12 @@
 | 错误格式与恢复 | [error.schema.json](error.schema.json)、[错误说明](errors.md) |
 | 共用标识与摘要 | [common.schema.json](common.schema.json) |
 
+## 交付归档查询
+
+`work run`、`work show`（当前工作头）、`grade show/list` 的 `archiveIntegrity` 随查询重新读取远端标签。每个 Git 交付保留账本记录的 commit，并显示读回的远端 commit（若存在）。标签一致时为 `intact`；标签移动或删除且能按 OID 核对原始对象时为 `ref-changed`；确认无法取得对象时为 `unavailable`。远端读回或对象探测失败且无法确定时，`status` 为 `null`。这些观察不会修改冻结交付和历史评分。
+
+Git 传输不会返回托管服务的标签保护规则。已核对策略的操作者可在交付时使用 `--protection protected|unprotected --protection-evidence REF` 记录来源；省略时保护等级为 `unknown`。保护记录不参与标签推送、读回及验收判定。
+
 ## 本机环境（grounds env）
 
 [`environment-definition.schema.json`](environment-definition.schema.json) 定义仓库 YAML 的非敏感声明。单仓库、多变体，`repositories` 最多一项且 path 为 `.`；Docker 必须提供 `base.image` 配方。声明可版本化，凭据声明不构成宿主授权。

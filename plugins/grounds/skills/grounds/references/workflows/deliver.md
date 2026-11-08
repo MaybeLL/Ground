@@ -22,4 +22,6 @@ grounds work close --work "$WORK_ID" --json
 
 Grounds 交付回执证明标签在归档时指向确切提交，不证明分支已合并、部署或发布。按用户授权使用 Git 与远端平台工具准备 PR；核对目标分支、确切交付 commit、当前 gate 和差异。目标发生变化时明确风险，不能把不同代码算作已通过的交付。
 
+检查 `archiveIntegrity` 的远端引用与记录 commit；`null` 表示本次未能判定。记录 `ref-changed` 或 `unavailable` 时，分别说明是否还能取得原始对象。
+
 配置的 Git 凭据需能推送交付标签并从同一远端读回。
