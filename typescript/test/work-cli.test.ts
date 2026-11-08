@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { execute, runCLI } from "../src/cli.js";
 import { withRuntimeDirectories } from "../src/runtime-files.js";
 import { newUUIDv7 } from "../src/identity.js";
+import { assertContract } from "./schema-fixture.js";
 import { parseGrade } from "../src/work/entry/index.js";
 
 const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "T", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "T", GIT_COMMITTER_EMAIL: "t@t" } }).trim();
@@ -30,6 +31,7 @@ async function withHarness(run: (h: Harness) => Promise<void>, objectFormat: "sh
         const lines: string[] = [], errors: string[] = [];
         const code = await runCLI([...args, "--json", "--config", config, "--cwd", repo], { stdout: l => lines.push(l), stderr: l => errors.push(l) });
         const envelope = JSON.parse(lines[lines.length - 1]!);
+        if (envelope.ok) assertContract("cli-envelope.schema.json", envelope);
         return { code, ok: envelope.ok, data: envelope.data, error: envelope.error, stderr: errors };
       };
       await run({ cli, repo, remote, directory, baseline });
@@ -40,6 +42,7 @@ async function withHarness(run: (h: Harness) => Promise<void>, objectFormat: "sh
 const gradeFile = (directory: string, name: string, criteria: Array<{ criterion_id: string; final: string }>) => {
   const path = join(directory, name);
   writeFileSync(path, JSON.stringify({ criteria: criteria.map(c => ({ criterion_id: c.criterion_id, independent: c.final, reconciliation: "corroborated", final: c.final, rationale: "checked", evidence: ["ran the tests"] })) }));
+  assertContract("grade-input.schema.json", JSON.parse(readFileSync(path, "utf8")));
   return path;
 };
 const ok = (r: { ok: boolean; data: any; error: any }) => { assert.ok(r.ok, JSON.stringify(r.error)); return r.data; };
@@ -55,9 +58,12 @@ test("the caller's own agent works a task end to end through the command line: d
     assert.equal(space.base.from, "baseline");
     assert.equal(git(space.path, "rev-parse", "HEAD"), h.baseline);
     const worker = ok(await h.cli("work", "register", "--run", started.runId, "--agent", "claude-code"));
+    ok(await h.cli("work", "transcript", "--run", started.runId, "--session", worker.sessionId, "--ref", "session.log", "--digest", `sha256:${"a".repeat(64)}`, "--coverage", "partial"));
     writeFileSync(join(space.path, "app.txt"), "v1\n"); git(space.path, "commit", "-qam", "export csv");
     const first = ok(await h.cli("work", "deliver", "--run", started.runId, "--session", worker.sessionId, "--repo", space.path, "--declare-stop"));
     assert.equal(first.submitted.status, "delivered");
+    assert.throws(() => assertContract("work-results.schema.json", { ...first, command: "work.start" }));
+    assert.throws(() => assertContract("work-results.schema.json", { ...first, submitted: { ...first.submitted, status: "unknown" } }));
     assert.equal(git(h.remote.replace(/\/$/, ""), "rev-parse", `refs/tags/grounds/deliveries/${first.delivery.id}`), git(space.path, "rev-parse", "HEAD"), "the commit is archived on the remote");
 
     // An independent evaluator rejects it.
@@ -74,6 +80,8 @@ test("the caller's own agent works a task end to end through the command line: d
     for (const stage of ["reconcile", "handoff", "submit"]) {
       ok(await h.cli("grade", "stage", "--grading", gate.gradingId, "--session", evaluator.sessionId, "--stage", stage));
     }
+    ok(await h.cli("grade", "command", "--grading", gate.gradingId, "--session", evaluator.sessionId, "--stage", "reconcile",
+      "--entry", "git diff", "--argv-digest", blindDigest, "--state", "succeeded", "--exit-code", "0"));
     const recorded = ok(await h.cli("grade", "show", "--grading", gate.gradingId));
     assert.deepEqual(recorded.evaluator.protocol.map((s: { stage: string }) => s.stage), ["blind", "freeze", "reconcile", "handoff", "submit"]);
     assert.equal(recorded.evaluator.protocol[1].blindDigest, blindDigest);
@@ -99,6 +107,16 @@ test("the caller's own agent works a task end to end through the command line: d
     assert.equal(view.work.head, next.runId);
     assert.equal(ok(await h.cli("work", "run", "--run", started.runId)).acceptance, "rejected", "the first delivery keeps its own verdict");
     assert.deepEqual(ok(await h.cli("grade", "list", "--run", started.runId)).gates.map((g: { id: string }) => g.id), [gate.gradingId]);
+    const abandoned = ok(await h.cli("grade", "request", "--run", started.runId));
+    const otherEvaluator = ok(await h.cli("grade", "register", "--grading", abandoned.gradingId, "--agent", "second-reviewer"));
+    ok(await h.cli("grade", "cancel", "--grading", abandoned.gradingId));
+    assert.equal(ok(await h.cli("grade", "stop", "--grading", abandoned.gradingId, "--session", otherEvaluator.sessionId)).status, "cancelled");
+    const branch = ok(await h.cli("work", "branch", "--work", started.workId, "--refines", started.runId, "--mode", "external"));
+    ok(await h.cli("work", "select", "--work", started.workId, "--run", branch.runId));
+    const otherWorker = ok(await h.cli("work", "register", "--run", branch.runId, "--agent", "branch-worker"));
+    ok(await h.cli("work", "cancel", "--run", branch.runId));
+    assert.equal(ok(await h.cli("work", "stop", "--run", branch.runId, "--session", otherWorker.sessionId, "--reason", "abandoned")).status, "cancelled");
+    ok(await h.cli("work", "select", "--work", started.workId, "--run", next.runId));
     const closed = ok(await h.cli("work", "close", "--work", started.workId));
     assert.deepEqual([closed.status, closed.conclusion], ["closed", "accepted"]);
   });
@@ -214,6 +232,8 @@ test("a task revision keeps the criteria it names and the work started before ke
 test("a grade file is checked before anything is sent", () => {
   const reason = (value: unknown) => { try { parseGrade(value); } catch (error) { return (error as { details?: { reason?: string } }).details?.reason ?? ""; } return "accepted"; };
   assert.match(reason({}), /criteria/);
+  assert.match(reason({ criteria: [null] }), /each criterion/);
+  assert.throws(() => assertContract("grade-input.schema.json", { criteria: [null] }));
   assert.match(reason({ criteria: [{ criterion_id: "c", independent: "maybe", reconciliation: "corroborated", final: "satisfied", rationale: "r" }] }), /each criterion/);
   assert.match(reason({ criteria: [{ criterion_id: "c", independent: "satisfied", reconciliation: "corroborated", final: "satisfied", rationale: "r", evidence: [1] }] }), /evidence/);
   const grade = parseGrade({ criteria: [{ criterion_id: "c", independent: "satisfied", reconciliation: "corroborated", final: "satisfied", rationale: "r" }] });

@@ -48,6 +48,7 @@ export function parseGrade(json: unknown): Grade {
   const body = json as { criteria?: unknown };
   if (!body || typeof body !== "object" || !Array.isArray(body.criteria)) throw validation("grade", 'must be {"criteria": [...]}');
   const items: CriterionVerdict[] = body.criteria.map((entry: Record<string, unknown>) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw validation("grade", "each criterion must be an object");
     const { criterion_id, independent, reconciliation, final, rationale, evidence } = entry as { criterion_id?: string; independent?: string; reconciliation?: string; final?: string; rationale?: string; evidence?: unknown };
     if (typeof criterion_id !== "string" || !verdicts.includes(independent as never) || !verdicts.includes(final as never) || !relations.includes(reconciliation as never) || typeof rationale !== "string")
       throw validation("grade", "each criterion needs criterion_id, independent, reconciliation, final and rationale");

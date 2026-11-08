@@ -10,6 +10,8 @@ CandidateSubmission v1/v2 的 Criterion Claim 支持可选 `self_verification`�
 
 | 契约 | Schema | 方向 |
 |---|---|---|
+| Task、Work、Grade 命令结果 | [`work-results.schema.json`](work-results.schema.json) | CLI → 调用者 |
+| 外部评价者逐项判定 | [`grade-input.schema.json`](grade-input.schema.json) | 评价者 → `grade submit --grade-file` |
 | 本地配置 YAML | [`config.schema.json`](config.schema.json) | 人/CLI → CLI |
 | Requirement 规范输入 | [`requirement.schema.json`](requirement.schema.json) | 旧 Work Module 规范输入 |
 | Issue 规范输入 | [`issue.schema.json`](issue.schema.json) | 旧 Work Module 规范输入 |

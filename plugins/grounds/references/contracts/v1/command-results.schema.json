@@ -3,6 +3,7 @@
   "$id": "https://patchledger.dev/contracts/v1/command-results.schema.json",
   "title": "Grounds CLI 命令结果 v1",
   "oneOf": [
+    { "$ref": "work-results.schema.json" },
     { "$ref": "#/$defs/developmentDefaultResult" },
     { "$ref": "repository-archive.schema.json" },
     {
