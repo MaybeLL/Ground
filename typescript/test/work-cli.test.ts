@@ -2207,6 +2207,15 @@ test("managed evaluator runs the built-in gate blind before reading the author's
       const {gradingId}=ok(await h.cli("grade","request","--run",runId));
       const reveal=title.endsWith("reveal resume"),stamp=join(h.directory,"interrupted-"+gradingId);
       let calls:number|undefined;
+      const revealStarts=()=>{
+        const container=readFileSync(stamp,"utf8");
+        const events=execFileSync(realDocker,["events","--since","5m","--until",new Date().toISOString(),
+          "--filter","type=container","--filter","container="+container,"--filter","event=start","--filter","event=die",
+          "--format","{{.Action}}"],{encoding:"utf8",timeout:10000}).trim().split("\n");
+        const blindStop=events.indexOf("die");
+        assert.ok(blindStop>=0,JSON.stringify(events));
+        return events.slice(blindStop+1).filter(action=>action==="start").length;
+      };
       if (reveal) {
         writeFileSync(join(bin,"interrupt.json"),JSON.stringify({gate:gradingId,stamp,phase:title.split(" ")[0]}));
         process.env.PATH=bin+":"+priorPath;
@@ -2257,7 +2266,7 @@ test("managed evaluator runs the built-in gate blind before reading the author's
           assert.equal(managedRequestRunning(gradingId,args.at(-1)!),false);
           await withRuntimeLock(queueRoot(),"execution-"+gradingId,async()=>{},30000);
           assert.equal(readFileSync(log,"utf8"),"blind\n");
-          assert.equal(existsSync(stamp+".starts"),title.startsWith("after"));
+          assert.equal(revealStarts(),title.startsWith("after") ? 1 : 0);
           interrupted=true;
           const operationId=newUUIDv7();controllers.push({gradingId,operationId});
           ok(await h.cli("grade","resume-evaluator","--grading",gradingId,"--operation-id",operationId));
@@ -2280,7 +2289,7 @@ test("managed evaluator runs the built-in gate blind before reading the author's
       if (reveal) {
         assert.notEqual(calls,undefined);
         assert.equal(readFileSync(calls!,"utf8"),"blind\nreconcile\n");
-        assert.equal(readFileSync(stamp+".starts","utf8").trim().split("\n").length,1);
+        assert.equal(revealStarts(),1);
         resetDocker();
       }
       assert.equal(status?.sandboxPhase,"released",JSON.stringify(status));
