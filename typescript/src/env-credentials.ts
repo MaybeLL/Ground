@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, openSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { flockSync } from "fs-ext";
+import { flockSync } from "./native-binding.js";
 import { environmentStoreRoot, readRecord, writeRecord, instanceDirectories } from "./env-store.js";
 import { atomicPrivateWrite, digestBytes, privateDirectory, safeRead, directoryRegistryRoot } from "./runtime-files.js";
 import { stateConflict, validation } from "./errors.js";

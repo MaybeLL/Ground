@@ -15,7 +15,7 @@ try {
   const entries = execFileSync("tar", ["-tf", tarball], { encoding: "utf8" }).split(/\r?\n/).filter(Boolean);
   for (const name of ["LICENSE", "THIRD_PARTY_NOTICES.md"]) if (!entries.includes(`package/dist/${name}`)) throw new Error(`tarball is missing ${name}`);
   if (!entries.includes("package/native/host-process.c")) throw new Error("tarball is missing trusted-host process inspection source");
-  for (const required of ["package/dist/src/bin.js", "package/binding.gyp", "package/native/peercred.c", "package/dist/assets/grounds/skills/grounds/references/workflows/verify.md", "package/README.md"]) {
+  for (const required of [`package/prebuilds/${process.platform}-${process.arch}/peercred.node`, "package/dist/src/bin.js", "package/binding.gyp", "package/native/peercred.c", "package/dist/assets/grounds/skills/grounds/references/workflows/verify.md", "package/README.md"]) {
     if (!entries.includes(required)) throw new Error(`tarball is missing ${required}`);
   }
   if (entries.includes("package/vendor/mermaid.min.js")) throw new Error("tarball contains the retired contract renderer");

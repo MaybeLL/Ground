@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, openSync, closeSync } from "node:fs";
 import { join } from "node:path";
-import { flockSync } from "fs-ext";
+import { flockSync } from "./native-binding.js";
 import { stateConflict, validation } from "./errors.js";
 import { isUUIDv7 } from "./identity.js";
 import { atomicPrivateWrite, privateDirectory, runtimeRoot, safeRead } from "./runtime-files.js";

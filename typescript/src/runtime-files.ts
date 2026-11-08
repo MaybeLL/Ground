@@ -1,6 +1,6 @@
 import { dataLayout } from "./data-layout.js";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { flockSync } from "fs-ext";
+import { flockSync } from "./native-binding.js";
 import {
   constants,
   lstatSync,
@@ -167,7 +167,6 @@ export async function withRuntimeLock<T>(
   waitMs = 0,
   mode: "exclusive" | "shared" = "exclusive",
 ): Promise<T> {
-  const { flock } = await import("fs-ext");
   const path = join(
     privateDirectory(join(root, "locks")),
     createHash("sha256").update(key).digest("hex") + ".lock",
@@ -177,15 +176,11 @@ export async function withRuntimeLock<T>(
     constants.O_CREAT | constants.O_RDWR | constants.O_NOFOLLOW,
     0o600,
   );
-  const lock = (op: "exnb" | "shnb") =>
-    new Promise<void>((yes, no) =>
-      flock(fd, op, (err) => (err ? no(err) : yes())),
-    );
   const deadline = performance.now() + waitMs;
   try {
     for (;;) {
       try {
-        await lock(mode === "shared" ? "shnb" : "exnb");
+        flockSync(fd, mode === "shared" ? "shnb" : "exnb");
         break;
       } catch (error: any) {
         const contended = ["EAGAIN", "EWOULDBLOCK"].includes(error.code);

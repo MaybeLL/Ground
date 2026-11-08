@@ -79,3 +79,8 @@ node scripts/test-runtime-mysql.mjs node --import tsx --test --test-concurrency=
 ```
 
 They need Docker and OpenSSL. Tests that touch local data layout need an isolated `HOME` (the parallel runner provides one).
+
+
+## Native host support
+
+The package carries a Node-API binary for each supported operating system and architecture. It implements nonblocking shared and exclusive file locks and inspects host process identity. Grounds loads it on the first operation that needs these capabilities. Lock contention is retried by the caller, and missing host support leaves ownership and release checks in effect. The release workflow collects binaries built and tested on their respective platforms.

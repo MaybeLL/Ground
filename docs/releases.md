@@ -89,4 +89,4 @@ npm install -g @maybell/grounds@0.2.53 --registry=https://registry.npmjs.org/
 grounds --help
 ```
 
-Replace `0.2.53` with the version being verified. Installation requires Node.js 22.13 or later; the CLI's native modules may require Python 3 and local C/C++ build tools. Test npm installation in a fresh prefix or environment so a source checkout's dependencies cannot hide missing package contents.
+Replace `0.2.53` with the version being verified. Installation requires Node.js 22.13 or later; the assembled CLI includes Node-API binaries for macOS and glibc Linux on x64 and arm64. Source builds use node-gyp. Test npm installation in a fresh prefix or environment so a source checkout's dependencies cannot hide missing package contents.

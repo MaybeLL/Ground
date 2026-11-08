@@ -41,7 +41,7 @@ if [ ! -f typescript/build/Release/peercred.node ]; then
 fi
 case "${1:-build}" in
   build)
-    (cd typescript && node /usr/local/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js rebuild --nodedir=/usr/local --jobs=1 && npm run build)
+    (cd typescript && npm_config_nodedir=/usr/local npm run build)
     ;;
   test)
     grounds-dev build

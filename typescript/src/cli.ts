@@ -452,7 +452,8 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
     if (action) throw validation("command", "init does not take an action");
     if (hasOption(args, "config") && !value(args, "config").trim()) throw validation("config", "must not be empty");
     if (hasOption(args, "path") && !value(args, "path").trim()) throw validation("path", "must not be empty");
-    return initCommand(args, io);
+    const useLocalDefaults = Object.keys(args.values).every(key => ["json", "cwd", "non-interactive"].includes(key));
+    return initCommand(args, useLocalDefaults ? { ...io, isTTY: false } : io);
   }
   if (group === "config") {
     if (!action || !["show", "path", "validate"].includes(action)) throw validation("config", "expected show, path or validate");
