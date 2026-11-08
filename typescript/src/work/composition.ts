@@ -36,7 +36,7 @@ export function composeWork(store: SQLStore): WorkApplication & {driver:ManagedT
   const workspaces = new ManagedWorkspaces();
   const managed = { ...context, lifecycle, runtime, ledgerId, workspaces, launcher:new DurableSandboxLauncher(workspaces) };
   const recovery = new SandboxRecovery(managed);
-  const agents = new AgentDefinitions(context,commandLineProviders);
+  const agents = new AgentDefinitions(context,commandLineProviders,archive);
   const exec = new TaskExecution({ ...shared, agents, receipts: archive, lifecycle, recovery });
   const repairs = new ArchiveRepairs({ ...shared, archive });
   const suites = new EvaluationSuites({ units, repairs, archive, hash: shared.hash, now: shared.clock.now, newId: newUUIDv7,

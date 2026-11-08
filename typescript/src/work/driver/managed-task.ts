@@ -5,6 +5,7 @@ import type { ManagedWorkers, ManagedContext } from "../application/managed-work
 import type { SandboxProvisioning } from "../application/sandbox-provisioning.js";
 import type { SandboxLifecycle } from "../application/sandbox-lifecycle.js";
 
+type DriveObservation = {state: DriveState; detail?: string; providerStopped?: boolean};
 export type DriveState = "running" | "blocked" | "awaiting-resume" | "terminal";
 type Deps = {workers:ManagedWorkers;sandboxes:SandboxProvisioning;lifecycle:SandboxLifecycle;process:ManagedProcessPort;ledgerId():Promise<string>};
 
@@ -25,7 +26,7 @@ function declaredCommit(text:string) {
 export class ManagedTaskDriver {
   constructor(private readonly deps:Deps) {}
 
-  async drive(runId:string,allowStart:boolean):Promise<Outcome<{state:DriveState;detail?:string}>> {
+  async drive(runId:string,allowStart:boolean):Promise<Outcome<DriveObservation>> {
     const result=await this.deps.workers.context(runId);
     if(!result.ok)return result;
     const ctx=result.value;
@@ -74,6 +75,7 @@ export class ManagedTaskDriver {
       const begun=await this.deps.workers.begin(runId,runner,handle);
       if(!begun.ok)return begun;
     }
+    if (ctx.job.trace) return this.publish(ctx, plan, handle, allowStart);
     const observed=await this.deps.process.drive(plan,handle,allowStart);
     if(observed.state==="running" || observed.state==="awaiting-resume")return succeed({state:observed.state,detail:observed.detail});
     if(observed.state==="interrupted"){
@@ -85,12 +87,15 @@ export class ManagedTaskDriver {
     const captured=await this.deps.process.output(plan);
     try {
       const commit=declaredCommit(captured.message);
-      let candidate:{id:string;receipt:string}|undefined,rejected=false;
+      let rejected = false;
       const outcome = observed.exitCode === 0 && !captured.providerFailed ? "succeeded" : "failed";
       if (commit) {
         if (!ctx.baseline) return fail("conflict", "managed workspace baseline is missing");
         const exported = await this.deps.process.exportCandidate(plan, commit, allowStart);
-        if (exported === "running" || exported === "awaiting-resume") return succeed({state: exported});
+        if (exported === "running") return succeed({state: exported});
+        if (exported === "awaiting-resume") {
+          return succeed({state: exported, providerStopped: await this.deps.process.quiescent(plan), detail: "candidate export requires an explicit resume"});
+        }
         if (exported === "interrupted") {
           await this.deps.process.stop(plan, true);
           const ended = await this.deps.workers.infrastructure(runId, "bundle export was interrupted without a verified result", true);
@@ -99,19 +104,30 @@ export class ManagedTaskDriver {
         rejected = exported === "invalid";
       }
       await this.deps.process.stop(plan, false);
-      if (commit && !rejected) {
-        const frozen = await this.deps.workers.freezeOutput(runId, handle, captured.trace, captured.output, captured.stderr, outcome);
-        if (!frozen.ok) return frozen;
-        const published = await this.deps.process.candidate(plan, commit, ctx.baseline!, ctx.task.repository.remote, allowStart);
-        if (published.status === "unavailable") {
-          const blocked = await this.deps.workers.archiveUnavailable(runId, published.reason);
-          return blocked.ok ? succeed({state: "blocked", detail: published.reason}) : blocked;
-        }
-        if (published.status === "confirmed") candidate = {id: published.id, receipt: published.receipt};
-        else rejected = true;
-      }
-      const ended = await this.deps.workers.finish(runId, handle, captured.trace, captured.output, captured.stderr, outcome, candidate, rejected);
-      return ended.ok ? succeed({state:"terminal"}) : ended;
+      const frozen = await this.deps.workers.freezeOutput(runId, handle, captured.trace, captured.output, captured.stderr, outcome, commit, rejected);
+      if (!frozen.ok) return frozen;
+      return this.drive(runId, allowStart);
     } finally {await captured.trace.dispose();}
   }
+
+  private async publish(ctx: ManagedContext, plan: ProcessPlan, handle: string, allowPublish: boolean): Promise<Outcome<DriveObservation>> {
+    const commit = ctx.job.claim;
+    let candidate: {id:string;receipt:string} | undefined;
+    let rejected = ctx.job.rejected === true;
+    if (commit && !rejected) {
+      if (!ctx.baseline) return fail("conflict", "managed baseline is missing");
+      let published;
+      try { published = await this.deps.process.candidate(plan, commit, ctx.baseline, ctx.job.remote, allowPublish); }
+      catch { published = {status: "unavailable" as const, reason: "the frozen candidate archive is temporarily unavailable"}; }
+      if (published.status === "unavailable") {
+        const blocked = await this.deps.workers.archiveUnavailable(ctx.run.id, published.reason);
+        return blocked.ok ? succeed({state: "blocked", detail: published.reason}) : blocked;
+      }
+      if (published.status === "confirmed") candidate = {id: published.id, receipt: published.receipt};
+      else rejected = true;
+    }
+    const ended = await this.deps.workers.finish(ctx.run.id, handle, candidate, rejected);
+    return ended.ok ? succeed({state: "terminal"}) : ended;
+  }
+
 }

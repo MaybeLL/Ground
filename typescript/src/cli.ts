@@ -11,7 +11,7 @@ import { bundledPluginRoot, defaultSkillsDirectory, installGroundsSkills } from 
 import { installationStatus } from "./installation-status.js";
 import { cliVersion } from "./runtime-version.js";
 import { composeWork } from "./work/composition.js";
-import { notifyManaged } from "./managed-host-client.js";
+import { notifyManaged, observeManagedHost } from "./managed-host-client.js";
 import { executeWorkCommand, WORK_GROUPS, WORK_WRITE_ACTIONS, workHelp } from "./work/entry/index.js";
 
 export interface Warning { code: string; message: string }
@@ -424,6 +424,10 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
           if(managed.ok) id=managed.value.exec.id;
         }
         if(id) await notifyManaged({config:configPath(value(args,"config")),ledgerId:opened.config.database.expected_database_id,runId:data.runId,executionId:id,allowStart:action!=="cancel"},value(args,"operation-id"));
+      }
+      if (group === "work" && action === "managed-status" && typeof data.executionId === "string") {
+        const observation = await observeManagedHost(data.executionId, opened.config.database.expected_database_id);
+        if (observation) data.host = observation;
       }
       return data;
     }

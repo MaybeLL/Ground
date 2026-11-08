@@ -5,7 +5,7 @@
 import { inspectionEnvironment } from "./inspection-environment.js";
 import { execFile, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -117,6 +117,14 @@ export class GitTagArchive implements DeliveryReceiptPort, CodeArchivePort {
     const parents = lines.filter(line => line.startsWith("parent ")).map(line => line.slice(7));
     if (!done || !lines[0]?.startsWith("tree ") || !tree || !OID.test(tree) || parents.some(p => !OID.test(p))) throw new Error("invalid commit headers");
     return { tree, parents };
+  }
+
+  async freezeSource(path: string, baseline: string, remote: string) {
+    const repositoryPath = await realpath(path);
+    const commit = (await this.isolatedGit(repositoryPath, ["rev-parse", "--verify", "--end-of-options", baseline + "^{commit}"])).trim();
+    if (!OID.test(commit)) throw new Error("managed baseline must resolve to a full commit");
+    const endpoint = await this.archiveRemote(repositoryPath, remote);
+    return {repositoryPath, baseline: commit, remote: isAbsolute(endpoint) ? await realpath(endpoint) : endpoint};
   }
 
   async archiveRemote(repositoryPath: string, remote: string): Promise<string> {

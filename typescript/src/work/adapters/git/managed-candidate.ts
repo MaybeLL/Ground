@@ -19,13 +19,16 @@ export async function archiveCandidateBundle(archive:GitTagArchive,input:{reposi
   const git=async(args:string[]) => (await run("git",["-c","core.hooksPath=/dev/null","-c","protocol.ext.allow=never",...args],{cwd:root,env:inspectionEnvironment(),timeout:120_000,maxBuffer:1024*1024})).stdout.trim();
   try {
     await git(["init","--quiet","--bare","--template=","--object-format="+(input.commit.length===64?"sha256":"sha1")]);
-    await git(["fetch","--no-tags","--",pathToFileURL(input.repository).href,input.baseline]);
-    await git(["-c","fetch.fsckObjects=true","fetch","--no-tags","--",input.bundle,"refs/grounds/candidate"]);
+    try { await git(["fetch","--no-tags","--",pathToFileURL(input.repository).href,input.baseline]); }
+    catch { return {status: "unavailable" as const, reason: "the pinned repository baseline is unavailable"}; }
+    try { await git(["-c","fetch.fsckObjects=true","fetch","--no-tags","--",input.bundle,"refs/grounds/candidate"]); }
+    catch { return {status: "invalid" as const, reason: "the exported candidate bundle failed verification"}; }
     if(await git(["rev-parse","--verify","FETCH_HEAD^{commit}"])!==input.commit) return {status:"invalid" as const,reason:"bundle ref is not the declared commit"};
     try {await git(["merge-base","--is-ancestor",input.baseline,input.commit]);}
     catch {return {status:"invalid" as const,reason:"candidate is not based on this run's starting commit"};}
-    await git(["fsck","--full","--no-dangling",input.commit]);
-    const remote=await archive.archiveRemote(input.repository,input.remote);
+    try { await git(["fsck","--full","--no-dangling",input.commit]); }
+    catch { return {status: "invalid" as const, reason: "candidate objects failed integrity verification"}; }
+    const remote = input.remote;
     return await archive.archive({repositoryPath:root,commit:input.commit,remote,deliveryId:input.id,observeOnly:!input.allowPublish});
   } finally {await rm(root,{recursive:true,force:true});}
 }

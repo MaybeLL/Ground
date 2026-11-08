@@ -1,13 +1,13 @@
 import { acquireLease, authorizeBridge, beginExecution, claimRunner, concludeRound, confirmExecutionStopped, digestOf,
   blockArchive, retryArchive, executionHostLost, interruptExecution, failExecutionInfrastructure, failInfrastructure, isExecutionTerminal, isTerminal, prepareExecution, providerEnded, recordReceipt, registerManagedWorker, requestExecutionCancel,
   returnLease, start, submitManifest, workerStopped, type AgentExecution, type Decision, type FrozenTrace, type Result, type Sandbox, type TaskRun } from "../domain/index.js";
-import type { CapturedTrace, EvidenceSource, WorkRepositories } from "../ports/index.js";
+import type { CapturedTrace, EvidenceRef, EvidenceSource, WorkRepositories } from "../ports/index.js";
 import type { AgentSettings, ManagedTask } from "./agent-definitions.js";
 import { fail, fromRejection, succeed, type Outcome } from "./outcome.js";
 import { once, type RequestContext } from "./requests.js";
 import type { SandboxLifecycle } from "./sandbox-lifecycle.js";
 
-type Dispatch = ManagedTask & { trace?:FrozenTrace; observation?:{state:string;detail?:string}; dockerExecId?: string; runnerId?: string; token?: number };
+type Dispatch = ManagedTask & { trace?:FrozenTrace; output?:EvidenceRef; stderr?:EvidenceRef; claim?:string; rejected?:boolean; observation?:{state:string;detail?:string}; dockerExecId?: string; runnerId?: string; token?: number };
 export type ManagedContext = { job:Dispatch; intentId:string; sandbox?:Sandbox; baseline?:string; exec:AgentExecution; run:TaskRun; agent:AgentSettings; task: {summary:string;criteria:{id:string;statement:string}[];context?:string;repository:{baseline:string;remote:string}} };
 type ManagedDeps = RequestContext & { lifecycle:SandboxLifecycle };
 export type ManagedResult = { runId:string;executionId:string;stage:AgentExecution["stage"];status:TaskRun["status"] };
@@ -105,7 +105,7 @@ export class ManagedWorkers {
   }
 
   /** Commit the original provider result before any remote publication. */
-  async freezeOutput(runId: string, handle: string, trace: CapturedTrace, output: EvidenceSource, stderr: EvidenceSource, outcome: "succeeded" | "failed") {
+  async freezeOutput(runId: string, handle: string, trace: CapturedTrace, output: EvidenceSource, stderr: EvidenceSource, outcome: "succeeded" | "failed", claim?: string, rejected = false) {
     return this.deps.units.run("write", async r => {
       const intent = await this.job(r, runId);
       if (!intent) return fail("not-found", "managed intent is missing");
@@ -129,7 +129,7 @@ export class ManagedWorkers {
       await r.executions.save(ended.value.state, exec.version);
       await r.executions.save(message.value.state, ended.value.state.version);
       await r.executions.save(trajectory.value.state, message.value.state.version);
-      await r.intents.save({...intent, payload: {...job, trace: trace.descriptor, output: text, stderr: errors},
+      await r.intents.save({...intent, payload: {...job, trace: trace.descriptor, output: text, stderr: errors, ...(claim ? {claim} : {}), rejected},
         updatedAt: at, version: intent.version + 1}, intent.version);
       return succeed({});
     });
@@ -153,7 +153,7 @@ export class ManagedWorkers {
     });
   }
 
-  async finish(runId:string,dockerExecId:string,trace:CapturedTrace,output:EvidenceSource,stderr:EvidenceSource,outcome:"succeeded"|"failed",candidate?:{id:string;receipt:string},rejected=false):Promise<Outcome<ManagedResult>> {
+  async finish(runId:string,dockerExecId:string,candidate?:{id:string;receipt:string},rejected=false):Promise<Outcome<ManagedResult>> {
     const result=await this.deps.units.run("write",async r=>{
       const intent=await this.job(r,runId),run=await r.taskRuns.get(runId,{lock:true});
       if(!intent||!run?.sandboxId) return fail("not-found","managed run is missing");
@@ -164,7 +164,8 @@ export class ManagedWorkers {
       const authorized=authorizeBridge(sb,{holder,token:job.token});
       if(!authorized.ok) return fromRejection(authorized.error);
       const at=this.deps.now();
-      const archive={digest:output.digest,byteLength:output.byteLength,chunkCount:Math.ceil(output.byteLength/65536)};
+      const outcome = exec.providerOutcome;
+      if (!job.trace || !job.output || !job.stderr || !outcome) return fail("conflict", "original output has not been frozen");
       let state=exec;
       // Returning an unsuccessful decision after a save would commit a
       // partial chain. Compute all decisions before persisting any state.
@@ -174,9 +175,6 @@ export class ManagedWorkers {
         if(decision.value.state!==state){state=decision.value.state;steps.push(state);}
       };
       if (state.stage === "archive_blocked") step(retryArchive(state, {at}));
-      step(providerEnded(state,{outcome,at}));
-      step(recordReceipt(state,{kind:"output",ref:"sql-evidence:"+archive.digest,at}));
-      step(recordReceipt(state,{kind:"trajectory",ref:"sql-evidence:"+trace.descriptor.raw.digest,at}));
       if(candidate) step(recordReceipt(state,{kind:"delivery-claim",ref:candidate.receipt,at}));
       if (!isExecutionTerminal(state)) step(confirmExecutionStopped(state,{at}));
       const lease=returnLease(sb,{holder,token:job.token,stop:"verified",at}); if(!lease.ok)return fromRejection(lease.error);
@@ -195,14 +193,12 @@ export class ManagedWorkers {
           const concluded=concludeRound(final,{at});if(!concluded.ok)return fromRejection(concluded.error);final=concluded.value.state;
         }
       }
-      const errors=await r.evidence.put(stderr);
-      await r.evidence.put(output);await r.evidence.put(trace.raw);await r.evidence.put(trace.events);
       let version=exec.version;for(const s of steps){await r.executions.save(s,version);version=s.version;}
       await r.sandboxes.save(lease.value.state,sb.version);
       await r.taskRuns.save(stopped.value.state,run.version);
       if(final!==stopped.value.state)await r.taskRuns.save(final,stopped.value.state.version);
       const completed={runId,executionId:exec.id,stage:state.stage,status:final.status};
-      await r.intents.save({...intent,state:"completed",payload:{...job,observation:{state:"terminal"},trace:trace.descriptor,output:archive,stderr:errors},result:completed,updatedAt:at,version:intent.version+1},intent.version);
+      await r.intents.save({...intent,state:"completed",payload:{...job,observation:{state:"terminal"}},result:completed,updatedAt:at,version:intent.version+1},intent.version);
       await r.events.append({id:"managed-done-"+exec.id,parentIntentId:intent.id,type:"worker-ended",subject:{type:"execution",id:exec.id},payload:completed,createdAt:at,deliveredAt:at});
       return succeed(completed);
     });

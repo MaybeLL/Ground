@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -294,9 +294,19 @@ for (const backend of backends) test(backend + ": managed admission, archive out
       config: '{"image":"fixture","workspaceFolder":"/work"}', imageDigest: "sha256:" + "1".repeat(64) }));
     const agent = value(await app.agents.publish({ requestId: "agent", name: "worker", provider: "codex", expectedSeq: 0 }));
     const task = value(await app.tasks.createTask({ requestId: "task", summary: "managed", criteria: [{statement: "committed"}],
-      environmentDefinitionId: environment.environmentId, repository: {remote, baseline} }));
+      environmentDefinitionId: environment.environmentId, repository: {remote, baseline: "HEAD"} }));
+    const selected = join(root, "selected");
+    symlinkSync(repo, selected);
     const run = value(await app.exec.startWork({requestId: "start", taskDefinitionId: task.taskId, workerMode: "managed",
-      agent: {definitionId: agent.agentId, repositoryPath: repo}}));
+      agent: {definitionId: agent.agentId, repositoryPath: selected}}));
+    rmSync(selected);
+    symlinkSync(remote, selected);
+    writeFileSync(join(repo, "a.txt"), "advanced after admission");
+    git(repo, "commit", "-qam", "Move HEAD");
+    const admitted = value(await app.workers.context(run.runId));
+    assert.equal(admitted.job.repositoryPath, repo);
+    assert.equal(admitted.job.baseline, baseline);
+    refused(await app.sandboxes.prepare("retarget", run.runId, selected), "forbidden");
     refused(await app.sandboxes.prepare("override", run.runId, root), "forbidden");
     refused(await app.delivery.deliver({requestId: "publish", runId: run.runId, repositoryPath: repo, commit: baseline}), "unsupported");
     assert.equal(git(repo, "ls-remote", "--tags", remote), "");

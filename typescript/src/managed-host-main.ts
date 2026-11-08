@@ -3,14 +3,27 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { hostProcessIdentity } from "./env-process.js";
 import { atomicPrivateWrite, removePrivateFile, safeRead, withRuntimeLock } from "./runtime-files.js";
-import { hostDirectory, managedId, queueRoot } from "./managed-host-client.js";
+import { hostDirectory, launchManaged, managedId, queueRoot } from "./managed-host-client.js";
 
 async function schedule() {
   const queue = hostDirectory("waiting"), slots = hostDirectory("slots");
+  const attempted = new Set<string>();
   for (;;) {
     const waiting = readdirSync(queue).sort();
-    if (!waiting.length) return;
     const occupied = new Set(readdirSync(slots));
+    let live = false;
+    for (const id of occupied) {
+      const slot = join(slots, id);
+      let owner;
+      try { owner = JSON.parse(safeRead(slot, 4096).toString()); }
+      catch (error) { if (!existsSync(slot)) continue; throw error; }
+      if (hostProcessIdentity(owner.pid) === owner.birth) { live = true; continue; }
+      if (!attempted.has(owner.name)) {
+        attempted.add(owner.name);
+        await launchManaged("job", [owner.name, "recover"]);
+      }
+    }
+    if (!waiting.length && !live) return;
     for (const name of waiting) {
       if (!managedId.test(name)) throw new Error("invalid queued execution");
       const path = join(queue, name);
@@ -27,7 +40,7 @@ async function schedule() {
       } else if (!occupied.has(name) && occupied.size < 20) {
         await withRuntimeLock(queueRoot(), "ticket-" + name, async () => {
           if (!existsSync(path) || JSON.parse(safeRead(path, 4096).toString()).birth !== ticket.birth) return;
-          atomicPrivateWrite(join(slots, name), name);
+          atomicPrivateWrite(join(slots, name), JSON.stringify(ticket));
           occupied.add(name);
         }, 10_000);
       }

@@ -142,6 +142,20 @@ export class ContainerAgentProcess implements ManagedProcessPort {
       {status:archived.status==="unavailable"?"unavailable" as const:"invalid" as const,reason:archived.reason};
   }
 
+  async quiescent(plan: ProcessPlan) {
+    const {owner, containerId, location} = plan.target;
+    const bound = await this.runtime.location();
+    if (bound.hostId !== location.hostId || bound.daemonId !== location.daemonId) throw new Error("runtime location changed");
+    const current = await this.runtime.observe(owner);
+    if (!current) return true;
+    if (current.id !== containerId) throw new Error("execution container identity changed");
+    if (current.state === "stopped") return true;
+    const inventory = join(this.root(plan), "inventory.json");
+    if (!existsSync(inventory)) return false;
+    const before = new Set<string>(JSON.parse(safeRead(inventory).toString()));
+    return (await this.runtime.processes(owner, containerId)).every(line => before.has(line));
+  }
+
   async stop(plan:ProcessPlan,force:boolean) {
     const {owner,containerId,location}=plan.target;
     const bound=await this.runtime.location();
@@ -150,11 +164,7 @@ export class ContainerAgentProcess implements ManagedProcessPort {
     if(!current)return;
     if(current.id!==containerId)throw new Error("runtime identity changed before stop");
     if(current.state==="stopped")return;
-    if(!force && existsSync(join(this.root(plan),"inventory.json"))){
-      const before=new Set<string>(JSON.parse(safeRead(join(this.root(plan),"inventory.json")).toString()));
-      const after=await this.runtime.processes(owner,containerId);
-      if(after.every(line=>before.has(line)))return;
-    }
+    if (!force && await this.quiescent(plan)) return;
     await this.runtime.stop(owner,containerId);
   }
 }

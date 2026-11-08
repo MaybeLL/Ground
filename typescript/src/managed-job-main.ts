@@ -11,6 +11,8 @@ async function supervise(job: HostJob, name: string, observeOnly: boolean) {
   const opened = await openStore(job.config);
   try {
     if (opened.config.database.expected_database_id !== job.ledgerId) throw new Error("job ledger identity changed");
+    const fallback = join(hostDirectory("recovery-status"), job.executionId);
+    if (existsSync(fallback)) removePrivateFile(fallback);
     const app = composeWork(opened.store);
     const context = await app.workers.context(job.runId);
     if (!context.ok || context.value.exec.id !== job.executionId) throw new Error("execution identity changed");
@@ -23,7 +25,7 @@ async function supervise(job: HostJob, name: string, observeOnly: boolean) {
     try {
       let live = !observeOnly && job.allowStart && !existsSync(issued);
       if (live) {
-        await ticketLock(async () => atomicPrivateWrite(ticket, JSON.stringify({pid: process.pid, birth})));
+        await ticketLock(async () => atomicPrivateWrite(ticket, JSON.stringify({pid: process.pid, birth, name})));
         await launchManaged("host");
         let nextWake = Date.now() + 5000;
         while (!existsSync(slot)) {
@@ -33,6 +35,9 @@ async function supervise(job: HostJob, name: string, observeOnly: boolean) {
           if (Date.now() >= nextWake) { await launchManaged("host"); nextWake = Date.now() + 5000; }
           await delay(250);
         }
+        if (live) await ticketLock(async () => {
+          atomicPrivateWrite(slot, JSON.stringify({pid: process.pid, birth, name}));
+        });
         atomicPrivateWrite(issued, job.executionId);
       }
       for (;;) {
@@ -44,7 +49,7 @@ async function supervise(job: HostJob, name: string, observeOnly: boolean) {
           continue;
         }
         const current = await app.workers.context(job.runId);
-        if (current.ok && ["verified", "idle"].includes(current.value.exec.stop)) {
+        if (result.ok && result.value.providerStopped || current.ok && ["verified", "idle"].includes(current.value.exec.stop)) {
           await ticketLock(async () => {
             if (existsSync(ticket)) removePrivateFile(ticket);
             if (existsSync(slot)) removePrivateFile(slot);
@@ -68,9 +73,14 @@ if (!executionId || !operationId || name !== executionId + "." + operationId || 
 const job = JSON.parse(safeRead(join(hostDirectory("requests"), name), 32768).toString()) as HostJob;
 if (executionId !== job.executionId) throw new Error("execution identity mismatch");
 // A repeated notification for the same run must never start a second driver.
-const observeOnly = process.argv[3] === "observe";
+const observeOnly = ["observe", "recover"].includes(process.argv[3] ?? "");
 try {
   await withRuntimeLock(queueRoot(), "execution-" + executionId, () => supervise(job, name, observeOnly), observeOnly ? 0 : 600_000);
 } catch (error) {
-  if (!observeOnly || !String(error).includes("another local controller")) throw error;
+  if (String(error).includes("another local controller") && observeOnly) {
+    // The authorized runner still supervises this execution.
+  } else if (process.argv[3] === "recover") {
+    atomicPrivateWrite(join(hostDirectory("recovery-status"), executionId), JSON.stringify({ledgerId: job.ledgerId,
+      state: "awaiting-resume", detail: "automatic reconciliation needs the execution's original database or runtime context"}));
+  } else throw error;
 }

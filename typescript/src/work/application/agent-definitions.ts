@@ -8,7 +8,7 @@ export type {AgentSettings,ManagedTask} from "../domain/managed.js";
 import type {AgentSettings,ManagedTask} from "../domain/managed.js";
 
 export class AgentDefinitions {
-  constructor(private readonly ctx:RequestContext,private readonly providers:Record<ProviderName,AgentProvider>) {}
+  constructor(private readonly ctx:RequestContext,private readonly providers:Record<ProviderName,AgentProvider>, private readonly source: {freezeSource(path:string, baseline:string, remote:string):Promise<{repositoryPath:string;baseline:string;remote:string}>}) {}
 
   publish(input:{requestId:string;name:string;provider:ProviderName;model?:string;definitionId?:string;expectedSeq:number}) {
     return once(this.ctx,{requestId:input.requestId,kind:"publish-agent",input,subject:{type:"agent",id:input.definitionId??input.requestId}},async r=>{
@@ -42,7 +42,13 @@ export class AgentDefinitions {
     const accepted=acceptExecution({id:executionId,owner:{type:"task_run",id:run.id},role:"worker",agentRevision:refOf(revision),
       capabilities:{...this.providers[settings.provider].capabilities,verifiableStop:true},at});
     if (!accepted.ok) return fromRejection(accepted.error);
-    const payload:ManagedTask={runId:run.id,executionId,repositoryPath:selection.repositoryPath};
+    const task = await r.definitions.getRevision(run.taskRevision.definitionId, run.taskRevision.revisionId);
+    const repository = (task?.content as {repository?: {baseline?: string; remote?: string}})?.repository;
+    if (!repository?.baseline || !repository.remote) return fail("invalid", "managed coding requires a baseline and a publication remote");
+    let source;
+    try { source = await this.source.freezeSource(selection.repositoryPath, repository.baseline, repository.remote); }
+    catch { return fail("invalid", "the managed repository, baseline or publication endpoint could not be resolved"); }
+    const payload: ManagedTask = {runId: run.id, executionId, ...source};
     const hash=digestOf(payload,this.ctx.hash);
     if (!hash.ok) return fromRejection(hash.error);
     await r.executions.create(accepted.value.state);
