@@ -412,6 +412,12 @@ for (const backend of backends) test(`${backend}: upgrade a populated work ledge
         await client.run("UPDATE schema_metadata SET migration_state='in_progress'");
         const {evidenceSchemaStatements} = await import("../src/work/adapters/sql/schema.js");
         for (const ddl of evidenceSchemaStatements(client.dialect)) await client.exec(ddl + client.dialect.tableSuffix);
+        await client.exec("ALTER TABLE work_evidence_chunks ADD UNIQUE KEY stray_ordinal (ordinal)");
+        await assert.rejects(store.upgrade(identity),{code:"SCHEMA_INCOMPATIBLE"});
+        await client.exec("ALTER TABLE work_evidence_chunks DROP KEY stray_ordinal");
+        await client.exec("CREATE TRIGGER reject_evidence BEFORE INSERT ON work_evidence_chunks FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='fixture'");
+        await assert.rejects(store.upgrade(identity),{code:"SCHEMA_INCOMPATIBLE"});
+        await client.exec("DROP TRIGGER reject_evidence");
       }
     } finally { if (backend !== "sqlite") await client.close(); }
     assert.equal((await store.upgrade(identity)).schema_version,SCHEMA_VERSION);
