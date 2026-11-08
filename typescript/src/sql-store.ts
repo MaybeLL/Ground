@@ -12,7 +12,7 @@ export type DatabaseTarget = { state: "empty" } | { state: "unrecognized" } | { 
 import type { IntegrityReport, Metadata } from "./store-types.js";
 
 export { SCHEMA_VERSION, PROTOCOL_VERSION, REMOTE_NORMALIZATION_VERSION, MINIMUM_CLI_VERSION } from "./sql-schema.js";
-const CLI_VERSION = "0.2.53";
+const CLI_VERSION = "0.3.0";
 import { asText, isMissingTableError, isSchemaShapeError, retryDelay, safeInteger, isSafeTransactionRetry, mapStorageError, compareVersions } from "./sql-shared.js";
 
 import { planEvidenceUpgrade } from "./work/adapters/sql/evidence-upgrade.js";

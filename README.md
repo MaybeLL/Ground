@@ -12,16 +12,16 @@ Define a task and its acceptance criteria, then start a work. The worker deliver
 
 ## Install a published version
 
-Public npm packages are available beginning with version `0.2.52`. Install the CLI (published versions predate the source cutover described above):
+Install the Grounds CLI and bundled plugin from npm.
 
 ```sh
-npm install -g @maybell/grounds@0.2.53
+npm install -g @maybell/grounds@0.3.0
 grounds --help
 ```
 
-Use Node.js 22.13 or later. Published releases through 0.2.53 may require Python 3 and a C/C++ build toolchain (Xcode Command Line Tools on macOS, or make and a C/C++ compiler on Linux). The same installation artifacts are also available as [GitHub release tarballs](docs/releases.md#install-a-github-release). Stateful workflows require a configured SQL ledger; see the [getting started guide](docs/getting-started.md).
+Use Node.js 22.13 or later. The package includes native binaries for macOS and glibc Linux on x64 and arm64. The same tarball and checksum are available in the [GitHub Release](docs/releases.md#install-a-github-release).
 
-The refactor build bundles native support for macOS and glibc Linux on x64 and arm64. Its staged tarball can be installed with `npm install -g /path/to/package.tgz`.
+Version 0.3.0 introduces a new work ledger. When upgrading from 0.2.x, keep your existing database and initialize a fresh ledger for 0.3.0. See the [getting started guide](docs/getting-started.md).
 
 ## Build from source
 

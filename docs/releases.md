@@ -2,9 +2,15 @@
 
 GitHub is the canonical source, CI system, and release host for Grounds. No GitLab runner or mirrored repository is needed. Current source releases contain the CLI and bundled plugin; their versions must match. The legacy TUI package has been retired under D149. No new TUI package is built or published, and a new work-model TUI is not implemented. Already published packages and tags are unchanged.
 
-Public npm packages `@maybell/grounds` and `@maybell/grounds-tui` are available beginning with version `0.2.52`. Version `0.2.53` prepares the first automatic publication through the existing GitHub release workflow. The GitHub release assets remain an installation option.
+Public npm packages `@maybell/grounds` and `@maybell/grounds-tui` are available beginning with version `0.2.52`. Version `0.2.53` prepared the first automatic publication through the existing GitHub release workflow. The GitHub release assets remain an installation option.
 
 The `v0.2.51` tag is retained for traceability. Its release workflow was canceled with macOS 14 jobs queued during GitHub's [announced retirement and brownout period](https://github.blog/changelog/2026-10-01-github-actions-macos-14-runner-image-retirement/); no release assets or npm packages were published for it. Version `0.2.52` moves the macOS validation matrix to `macos-15` and keeps both Node.js 22 and 24.
+
+## Upgrading to 0.3.0
+
+The CLI and bundled plugin use the unified task, work and grading commands. Development sessions can contribute frozen deliveries to evaluation suites and managed experiments. The package includes native binaries for macOS and glibc Linux on x64 and arm64.
+
+Version 0.3.0 uses ledger protocol 2, schema 2. Keep any 0.2.x ledger and initialize a fresh database for the new CLI. Legacy drafts, TUI and development commands have been retired. The [getting started guide](getting-started.md) walks through the new workflow.
 
 ## Release gates
 
@@ -84,12 +90,12 @@ After the CLI trusted publisher is configured, set the GitHub Actions repository
 The workflow has one CLI npm publishing job. If publication fails, rerun **failed jobs only** after resolving the cause. Successful npm versions are immutable; rerunning an already successful publication will fail rather than overwrite it. A GitHub Release can exist while an npm publication is incomplete. Confirm the CLI npm version is present before announcing npm availability:
 
 ```sh
-npm view @maybell/grounds@0.2.53 version --registry=https://registry.npmjs.org/
-npm install -g @maybell/grounds@0.2.53 --registry=https://registry.npmjs.org/
+npm view @maybell/grounds@0.3.0 version --registry=https://registry.npmjs.org/
+npm install -g @maybell/grounds@0.3.0 --registry=https://registry.npmjs.org/
 grounds --help
 ```
 
-Replace `0.2.53` with the version being verified. Installation requires Node.js 22.13 or later; the assembled CLI includes Node-API binaries for macOS and glibc Linux on x64 and arm64. Source builds use node-gyp. Test npm installation in a fresh prefix or environment so a source checkout's dependencies cannot hide missing package contents.
+Replace `0.3.0` with the version being verified. Installation requires Node.js 22.13 or later; the assembled CLI includes Node-API binaries for macOS and glibc Linux on x64 and arm64. Source builds use node-gyp. Test npm installation in a fresh prefix or environment so a source checkout's dependencies cannot hide missing package contents.
 
 The validation workflow installs the staged tarball with only Node, npm and Git on PATH. It records repository setup time and the elapsed time from installation through an accepted work. Its four native jobs exercise Linux and macOS on x64 and arm64. The assembled package is verified again before the release workflow can publish it.
 

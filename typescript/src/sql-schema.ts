@@ -6,7 +6,7 @@ import { workSchemaStatements } from "./work/adapters/sql/schema.js";
 export const SCHEMA_VERSION = 2;
 export const PROTOCOL_VERSION = 2;
 export const REMOTE_NORMALIZATION_VERSION = 1;
-export const MINIMUM_CLI_VERSION = "0.2.53";
+export const MINIMUM_CLI_VERSION = "0.3.0";
 
 export const schemaStatements = (dialect: SqlDialect): string[] => {
   const id = dialect.idType, text = dialect.textType;
