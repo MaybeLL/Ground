@@ -644,3 +644,45 @@ for (const backend of backends) test(backend + ": working runs freeze selected a
     assert.equal((await app.evaluators.evidence(broken.gradingId,"stderr",0)).ok,true);
   },backend);
 });
+
+for (const backend of backends) test(backend+": managed gate selection, freeze and cancellation recover from the same ledger",{skip:backendSkip(backend)},async()=>{
+  await scenario(async({app,store,repo,remote,baseline})=>{
+    const definition=await task(app,{remote,baseline});
+    const {runId}=value(await app.exec.startWork({requestId:"run",taskDefinitionId:definition.taskId,workerMode:"none"}));
+    value(await app.delivery.deliver({requestId:"delivery",runId,repositoryPath:repo,commit:"HEAD"}));
+    const gate=value(await app.grading.requestGate({requestId:"gate",taskRunId:runId}));
+    const id=gate.gradingId;
+    const agent=value(await app.agents.publish({requestId:"judge",name:"judge",provider:"codex",expectedSeq:0}));
+    const env=value(await app.environments.publish({requestId:"env",name:"gate",config:'{"image":"test"}',imageDigest:"sha256:"+"a".repeat(64),expectedSeq:0}));
+    const input={requestId:"select",gradingId:id,agentId:agent.agentId,agentRevisionId:agent.revisionId,environmentId:env.environmentId,environmentRevisionId:env.revisionId,repository:repo};
+    const admitted=value(await app.grading.selectManaged(input));
+    refused(await app.grading.registerExternalEvaluator({requestId:"external",gradingId:id,agent:{id:"other"}}),"conflict");
+    value(await app.tests.allocate(id,{hostId:"host",daemonId:"engine"}));
+    value(await app.tests.ready(id,"container"));
+    const reserved=value(await app.evaluators.reserve(id,true));
+    assert.ok(reserved);
+    const execution=reserved.exec.id;
+    value(await app.evaluators.begin(id,execution,"blind-handle"));
+    assert.equal(await app.evaluators.authorizeStart(id,execution,"blind-handle"),true);
+    await assert.rejects(app.evaluators.gateMaterials(id,execution));
+    const source=(text:string)=>({byteLength:Buffer.byteLength(text),digest:"sha256:"+createHash("sha256").update(text).digest("hex"),async *open(){yield Buffer.from(text);}});
+    const message=JSON.stringify({findings:gate.criteria.map(c=>({criterionId:c.id,independent:"satisfied",rationale:"checked file",evidence:["a.txt"]}))});
+    const output=source(message),raw=source("raw\n"),events=source("events\n");
+    const ref=(s:typeof raw)=>({byteLength:s.byteLength,digest:s.digest,chunkCount:1});
+    const trace={descriptor:{format:"grounds.provider-trace/v1" as const,provider:"codex" as const,raw:ref(raw),events:ref(events),records:1,convertedRecords:1,eventCount:1,omissions:{invalidUtf8:0,invalidJson:0,oversized:0,unknownRecords:0,unknownParts:0,unserializableParts:0}},raw,events,dispose:async()=>{}};
+    value(await app.evaluators.freeze(id,execution,{output,message,trace,stderr:source(""),providerFailed:false}));
+    const restarted=composeWork(store);
+    assert.deepEqual(value(await restarted.grading.selectManaged(input)),admitted);
+    assert.equal(await restarted.evaluators.authorizeStart(id,execution,"blind-handle"),false);
+    const phase=await restarted.evaluators.gatePhase(id);
+    assert.equal(phase?.blindDigest,output.digest);
+    assert.equal(await restarted.evaluators.authorizeStart(id,execution,"new-handle",true),false);
+    value(await restarted.evaluators.begin(id,execution,"new-handle",true));
+    assert.equal(await restarted.evaluators.authorizeStart(id,execution,"new-handle",true),true);
+    value(await restarted.grading.cancel({requestId:"cancel",gradingId:id}));
+    assert.equal(await restarted.evaluators.authorizeStart(id,execution,"new-handle",true),false);
+    value(await restarted.evaluators.finish(id,execution,undefined,undefined));
+    assert.equal(value(await restarted.tests.context(id)).grading.status,"cancelled");
+    assert.equal((await restarted.evaluators.evidence(id,"blind-output",0)).ok,true);
+  },backend);
+});

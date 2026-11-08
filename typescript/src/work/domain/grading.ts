@@ -367,6 +367,11 @@ function reuseIsSound(grade: Grade, grading: GradingRecord, prior: readonly Grad
   return ok(undefined);
 }
 
+export function validateGradingSubmission(grade:Grade,g:GradingRecord,priorGates:readonly GradingRecord[]) {
+  const valid=validateGrade(grade,g.scale,g.binding);
+  return valid.ok ? reuseIsSound(grade,g,priorGates) : valid;
+}
+
 export function submitGrade(g: GradingRecord, command: { grade: Grade; sessionId?: Id; at: Timestamp }, context: { priorGates?: readonly GradingRecord[] } = {}): Step {
   if (!isTimestamp(command.at)) return invalid("at is required");
   if (isGradingTerminal(g)) return late(g, "grade", command.at, `grade submitted after the grading was ${g.status}`);
@@ -382,10 +387,8 @@ export function submitGrade(g: GradingRecord, command: { grade: Grade; sessionId
     const record: GradingLate = { kind: "grade", at: command.at, detail: "grade submitted after cancellation was requested" };
     return settleCancel(g, { ...base, lateRecords: [...g.lateRecords, record] }, [...declared, { type: "late-record", gradingId: g.id, kind: "grade", at: command.at }], command.at, "cancel-wins");
   }
-  const valid = validateGrade(command.grade, g.scale, g.binding);
+  const valid=validateGradingSubmission(command.grade,g,context.priorGates ?? []);
   if (!valid.ok) return valid;
-  const sound = reuseIsSound(command.grade, g, context.priorGates ?? []);
-  if (!sound.ok) return sound;
   if (g.strategy === "test") {
     if (g.commandSteps.length === 0) return conflict("a test grader runs at least one command");
     if (g.commandSteps.some(s => s.state !== "stopped_result")) return conflict("every command must have stopped with a result");

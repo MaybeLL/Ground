@@ -7,6 +7,7 @@ import {
 } from "../domain/index.js";
 import type { Clock, IdSource, WorkRepositories, WorkUnitOfWork } from "../ports/index.js";
 import { GRADING_REQUEST_COUNTER, StorageFailure } from "../ports/index.js";
+import {selectManagedGate} from "./managed-gates.js";
 import { ensureVerificationGrader } from "./builtin-grader.js";
 import { fail, failureOf, fromRejection, succeed, type Outcome } from "./outcome.js";
 import { once, type RequestContext } from "./requests.js";
@@ -19,7 +20,7 @@ export type GradingState = { gradingId: Id; status: GradingRecord["status"]; out
 
 const needId = (name: string, value: unknown) => isId(value) ? undefined : fail("invalid", `${name} is missing or malformed`);
 
-async function gateEvidence(r:WorkRepositories,run:TaskRun) {
+export async function gateEvidence(r:WorkRepositories,run:TaskRun) {
   const evidence = new Map<string,TraceBlob>();
   if (run.worker?.kind === "external") for (const entry of run.worker.registration.transcripts) {
     const raw=entry.trace?.raw ?? entry.raw;
@@ -125,6 +126,8 @@ export class Grading {
     });
   }
 
+  selectManaged(input:Parameters<typeof selectManagedGate>[1]) {return selectManagedGate(this.context,input);}
+
   /**
    * A fresh session of the caller's agent takes the evaluation. The session is
    * issued now, which is after the delivery was frozen, and it must not be the
@@ -138,6 +141,7 @@ export class Grading {
       if (!grading) return fail("not-found", `grading ${input.gradingId} does not exist`);
       const run = grading.origin.type === "gate" ? await r.taskRuns.get(grading.origin.taskRunId) : undefined;
       if (!run?.manifest) return fail("conflict", "the graded run has no frozen delivery");
+      if ((await r.intents.listForSubject("run-agent-grader","grading_record",grading.id)).length) return fail("conflict","a managed evaluator already owns this gate");
       const at = this.deps.clock.now();
       const sessionId = this.deps.ids.next();
       const next = registerExternalEvaluator(grading, {

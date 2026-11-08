@@ -3,7 +3,8 @@
   "$id": "https://patchledger.dev/contracts/v1/suite-results.schema.json",
   "title": "Evaluation suite commands",
   "oneOf": [
-    {"type": "object", "required": ["command", "result_type", "gradingId", "executionId", "stream", "ordinal", "ref", "base64"], "properties": {"command": {"const": "grade.evaluator-evidence"}, "result_type": {"const": "grounds.result.grade.evaluator-evidence/v1"}, "gradingId": {"$ref": "work-results.schema.json#/$defs/Id"}, "executionId": {"$ref": "work-results.schema.json#/$defs/Id"}, "stream": {"enum": ["raw", "events", "output", "stderr"]}, "ordinal": {"type": "integer", "minimum": 0}, "ref": {"$ref": "trace-results.schema.json#/$defs/Blob"}, "base64": {"type": "string"}}, "additionalProperties": false},
+    {"type":"object","required":["command","result_type","gradingId","runId","status"],"properties":{"command":{"const":"grade.start-managed"},"result_type":{"const":"grounds.result.grade.start-managed/v1"},"gradingId":{"$ref":"work-results.schema.json#/$defs/Id"},"runId":{"$ref":"work-results.schema.json#/$defs/Id"},"status":{"const":"accepted"}},"additionalProperties":false},
+    {"type": "object", "required": ["command", "result_type", "gradingId", "executionId", "stream", "ordinal", "ref", "base64"], "properties": {"command": {"const": "grade.evaluator-evidence"}, "result_type": {"const": "grounds.result.grade.evaluator-evidence/v1"}, "gradingId": {"$ref": "work-results.schema.json#/$defs/Id"}, "executionId": {"$ref": "work-results.schema.json#/$defs/Id"}, "stream": {"enum": ["raw", "events", "output", "stderr", "blind-raw", "blind-events", "blind-output", "blind-stderr"]}, "ordinal": {"type": "integer", "minimum": 0}, "ref": {"$ref": "trace-results.schema.json#/$defs/Blob"}, "base64": {"type": "string"}}, "additionalProperties": false},
     {
       "type": "object",
       "required": [
@@ -565,6 +566,7 @@
         "status": {
           "$ref": "work-results.schema.json#/$defs/GradingStatus"
         },
+        "protocol": {"type":"array","items":{"$ref":"work-results.schema.json#/$defs/ProtocolRecord"}},
         "sandboxPhase": {
           "type": "string"
         },

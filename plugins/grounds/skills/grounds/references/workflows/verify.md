@@ -1,5 +1,7 @@
 # 独立验收：主 agent 创建全新子 agent
 
+如采用托管评价者，先以 `grounds grade request --run RUN` 取得验收 ID，再运行 `grounds grade start-managed --grading ID --agent ID --agent-revision REV --environment ID --environment-revision REV --repo PATH`。使用 `grade evaluator-status --grading ID` 查看阶段与沙箱释放状态，使用 `grade show --grading ID` 回读逐项结论。固定的独立发现可通过 `grade evaluator-evidence --grading ID --stream blind-output --chunk 0` 起按块读取。以下步骤适用于外部评价者。
+
 ## 1. 主 agent 准备受限交接
 
 先读 `work run --run ID --json`：必须有 `status=delivered` 及冻结 manifest。用该 run 的 `taskRevision.definitionId/seq` 读取确切任务版本，不能取最新任务替代。核对标准 ID、manifest 摘要、归档回执和固定 commit。

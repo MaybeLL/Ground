@@ -15,17 +15,17 @@ export function checkCommit(oid:string,bytes:Buffer) {
   return match[1];
 }
 
-export async function verifyTree(root:string,oid:string,dir=root):Promise<Buffer> {
+export async function verifyTree(root:string,oid:string,dir=root,requireReadonly=true):Promise<Buffer> {
   const here = await lstat(dir);
-  if (!here.isDirectory() || here.mode & 0o222) throw new Error("material directory is missing or writable");
+  if (!here.isDirectory() || requireReadonly && here.mode & 0o222) throw new Error("material directory is missing or writable");
   const entries = [];
   for (const name of await readdir(dir)) {
     const path = join(dir,name), stat = await lstat(path);
     let mode:string, hash:Buffer;
     if (stat.isDirectory()) {
-      mode="40000"; hash=await verifyTree(root,oid,path);
+      mode="40000"; hash=await verifyTree(root,oid,path,requireReadonly);
     } else if (stat.isFile()) {
-      if (stat.mode & 0o222) throw new Error("material file is writable");
+      if (requireReadonly && stat.mode & 0o222) throw new Error("material file is writable");
       mode=stat.mode & 0o111 ? "100755" : "100644";
       const file=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
       try {
@@ -37,7 +37,7 @@ export async function verifyTree(root:string,oid:string,dir=root):Promise<Buffer
       } finally {await file.close();}
     } else if (stat.isSymbolicLink()) {
       const target=await readlink(path,{encoding:"buffer"}), resolved=relative(root,await realpath(path));
-      if (resolved===".." || resolved.startsWith("../") || isAbsolute(resolved)) throw new Error("material symlink points outside its repository");
+      if ((!requireReadonly && isAbsolute(target.toString())) || resolved===".." || resolved.startsWith("../") || isAbsolute(resolved)) throw new Error("material symlink points outside its repository");
       mode="120000"; hash=objectHash(oid,"blob",target.length).update(target).digest();
     } else throw new Error("unexpected material file type");
     entries.push({sort:Buffer.from(name+(stat.isDirectory()?"/":"")),data:Buffer.concat([Buffer.from(mode+" "+name+"\0"),hash])});

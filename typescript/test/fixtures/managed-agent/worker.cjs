@@ -2,6 +2,44 @@
 const { readFileSync, writeFileSync } = require("node:fs");
 const { execFileSync } = require("node:child_process");
 const task = JSON.parse(readFileSync(0,"utf8"));
+if (task.role==="independent-verifier") {
+  const fs=require("node:fs"),assert=require("node:assert/strict");
+  const dir="/grounds-delivery",material="/grounds-grader/author";
+  const dirs=fs.readdirSync(dir);
+  if (task.task.kind==="coding") {
+    assert.deepEqual(dirs,["candidate-1"]);
+    assert.equal(fs.existsSync(dir+"/candidate-1/.git"),false);
+    assert.equal(readFileSync(dir+"/candidate-1/report","utf8"),"pinned code");
+  } else {
+    assert.equal(readFileSync("/grounds-materials/input/app.txt","utf8"),"v0\n");
+    assert.equal(dirs.length,2);
+    for (const d of dirs) assert.equal(readFileSync(dir+"/"+d+"/report","utf8"),"public result");
+  }
+  const findings=task.task.criteria.map(c=>({criterionId:c.id,independent:"satisfied",rationale:"inspected frozen files",evidence:["report"]}));
+  let result;
+  if (task.phase==="blind") {
+    assert.equal(fs.existsSync(material),false);
+    assert.equal(JSON.stringify(task).includes("private-author-marker"),false);
+    result={findings};
+  } else {
+    assert.deepEqual(task.findings,findings);
+    const author=JSON.parse(readFileSync(material+"/index.json","utf8"));
+    assert.deepEqual(author.manifest.items.map(i=>i.path).sort(),dirs);
+    const [reference]=author.materials;
+    assert.equal(readFileSync(material+"/"+reference.file,"utf8"),"private-author-marker");
+    const items=findings.map(f=>({...f,independent:task.task.summary==="alter findings" ? "unsatisfied" : f.independent,
+      reconciliation:"corroborated",final:"satisfied"}));
+    result={grade:{form:"criteria",items}};
+  }
+  const message=JSON.stringify(result);
+  if (process.argv[1].endsWith("claude")) {
+    assert.ok(process.argv.includes("--safe-mode") && process.argv.includes("--strict-mcp-config"));
+    for (const e of [{type:"system",subtype:"init",session_id:task.phase},{type:"result",subtype:"success",is_error:false,result:message}]) console.log(JSON.stringify(e));
+    return;
+  }
+  for (const e of [{type:"thread.started",thread_id:task.phase},{type:"item.completed",item:{id:"msg",type:"agent_message",text:message}},{type:"turn.completed"}]) console.log(JSON.stringify(e));
+  return;
+}
 if (task.role==="evaluator") {
   if(task.rubric==="wait to cancel") {
     process.stdout.write(JSON.stringify({type:"system",subtype:"init",session_id:"partial-cancelled-evaluation"})+"\n");

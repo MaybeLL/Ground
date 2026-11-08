@@ -12,9 +12,11 @@ import type {EvaluatorWorkspaces} from "./evaluator-workspace.js";
 
 export class ContainerTestProcess implements TestProcessPort {
   private readonly engine:EngineProcess;
+  readonly prepareGate:TestProcessPort["prepareGate"];
   readonly prepare:TestProcessPort["prepare"];
   constructor(private readonly runtime:DevcontainerRuntime, private readonly workspaces:ManagedWorkspaces, evaluator:EvaluatorWorkspaces) {
     this.engine = new EngineProcess(runtime);
+    this.prepareGate=(...args)=>evaluator.prepareGate(...args);
     this.prepare = evaluator.prepare.bind(evaluator);
   }
 

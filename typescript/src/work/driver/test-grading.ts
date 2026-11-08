@@ -70,16 +70,27 @@ export class TestGradingDriver {
         }
         let workspace;
         try {
-          let target = plan;
-          const original = plan.originalReceipt ?? (plan.archiveId === plan.deliveryId ? plan.receipt : undefined);
-          if (original && plan.commit!==null) {
-            const {observation,receipt} = await this.deps.repairs.current(plan.runId,{id:plan.deliveryId,receipt:original},plan.repository);
-            if (observation.recordedCommit !== plan.commit || !["intact","ref-changed"].includes(observation.status ?? "")) {
-              return succeed({state:"blocked",detail:"frozen evaluator target archive could not be verified",providerStopped:true});
+          if ("items" in plan) {
+            const items=[];
+            for (const item of plan.items) {
+              if (item.type==="artifact") {items.push({...item,archiveId:item.id});continue;}
+              const {observation,receipt}=await this.deps.repairs.current(plan.runId,item,plan.repository);
+              if (!["intact","ref-changed"].includes(observation.status ?? "")) return succeed({state:"blocked",detail:"gate candidate archive could not be verified",providerStopped:true});
+              items.push({...item,archiveId:"activeArchiveId" in observation ? observation.activeArchiveId : item.id,receipt});
             }
-            target = {...plan,archiveId:"activeArchiveId" in observation ? observation.activeArchiveId : plan.deliveryId,receipt};
+            workspace=await process.prepareGate(owner,plan.runId,plan.repository,items,environment,known.value.taskMaterials ?? []);
+          } else {
+            let target = plan;
+            const original = plan.originalReceipt ?? (plan.archiveId === plan.deliveryId ? plan.receipt : undefined);
+            if (original && plan.commit!==null) {
+              const {observation,receipt} = await this.deps.repairs.current(plan.runId,{id:plan.deliveryId,receipt:original},plan.repository);
+              if (observation.recordedCommit !== plan.commit || !["intact","ref-changed"].includes(observation.status ?? "")) {
+                return succeed({state:"blocked",detail:"frozen evaluator target archive could not be verified",providerStopped:true});
+              }
+              target = {...plan,archiveId:"activeArchiveId" in observation ? observation.activeArchiveId : plan.deliveryId,receipt};
+            }
+            workspace = await process.prepare(owner,target,environment,materials,grader.strategy);
           }
-          workspace = await process.prepare(owner,target,environment,materials,grader.strategy);
         }
         catch (error) {
           if (error instanceof TestTargetFault) {

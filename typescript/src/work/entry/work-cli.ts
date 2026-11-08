@@ -12,7 +12,7 @@ import type { Outcome, WorkApplication } from "../application/index.js";
 export const WORK_GROUPS = ["task", "work", "grade", "suite", "experiment"] as const;
 export const WORK_WRITE_ACTIONS = new Set([
   "experiment:define", "experiment:launch", "experiment:resume", "experiment:cancel", "experiment:regrade",
-  "grade:define-agent","grade:measure", "grade:resume-test","grade:resume-evaluator", "grade:define-test", "grade:define-rule", "suite:publish", "suite:measure",
+  "grade:start-managed","grade:define-agent","grade:measure", "grade:resume-test","grade:resume-evaluator", "grade:define-test", "grade:define-rule", "suite:publish", "suite:measure",
   "work:resume-managed", "work:define-agent", "work:import-trace", "work:prepare-sandbox", "work:pause-sandbox", "work:release-sandbox", "work:build-environment", "work:define-environment", "task:create", "task:revise",
   "work:save-artifact", "work:submit-artifacts", "work:start", "work:start-run", "work:continue", "work:branch", "work:select", "work:close", "work:register", "work:transcript", "work:deliver", "work:repair", "work:stop", "work:cancel",
   "grade:request", "grade:register", "grade:stage", "grade:command", "grade:submit", "grade:stop", "grade:cancel",
@@ -301,6 +301,9 @@ async function work(args: ParsedArgs, action: string, app: WorkApplication, deps
 async function grade(args: ParsedArgs, action: string, app: WorkApplication, deps: WorkEntryDependencies): Promise<object> {
   const grading = need.bind(null, args, "grading");
   switch (action) {
+    case "start-managed": return unwrap(await app.grading.selectManaged({requestId:requestId(args),gradingId:grading(),
+      agentId:need(args,"agent"),agentRevisionId:need(args,"agent-revision"),environmentId:need(args,"environment"),
+      environmentRevisionId:need(args,"environment-revision"),repository:resolve(deps.cwd,text(args,"repo") ?? ".")}));
     case "measure": {
       const reference = ["reference-path", "reference-run", "reference-delivery"].some(key => raw(args, key) !== undefined) ? {
         path: need(args, "reference-path"), runId: need(args, "reference-run"), deliveryId: need(args, "reference-delivery"),
@@ -322,7 +325,7 @@ async function grade(args: ParsedArgs, action: string, app: WorkApplication, dep
     case "evaluator-status":
     case "test-status": {
       const ctx = unwrap(await app.tests.context(grading()));
-      return {gradingId:ctx.grading.id, status:ctx.grading.status, ...(ctx.sandbox ? {sandboxPhase:ctx.sandbox.phase} : {}),
+      return {gradingId:ctx.grading.id, status:ctx.grading.status,...(ctx.protocol ? {protocol:ctx.protocol} : {}), ...(ctx.sandbox ? {sandboxPhase:ctx.sandbox.phase} : {}),
         ...(ctx.observation ? {host:ctx.observation} : {})};
     }
     case "define-agent": {
@@ -386,7 +389,8 @@ export const workHelp = (): string => [
   "grounds grade measure --run RUN --delivery ID --grader ID --grader-revision ID --answer-path PATH [--reference-run RUN --reference-delivery ID --reference-path PATH]",
   "grounds grade test-status|resume-test --grading ID | grade test-output --grading ID --step N --stream stdout|stderr --chunk N",
   "grounds grade define-agent --name NAME --agent ID --agent-revision REV --environment ID --environment-revision REV --rubric TEXT --scale FILE",
-  "grounds grade evaluator-status|resume-evaluator --grading ID | grade evaluator-evidence --grading ID --stream raw|events|output|stderr --chunk N",
+  "grounds grade start-managed --grading ID --agent ID --agent-revision REV --environment ID --environment-revision REV [--repo PATH]",
+  "grounds grade evaluator-status|resume-evaluator --grading ID | grade evaluator-evidence --grading ID --stream raw|events|output|stderr|blind-raw|blind-events|blind-output|blind-stderr --chunk N",
   "grounds grade define-test --name NAME --commands FILE --environment ID --environment-revision REV --pass LABEL --fail LABEL",
   "grounds grade define-rule --name NAME --rule equal-file-bytes|file-exists --pass LABEL --fail LABEL [--grader ID --expected-seq N]",
   "grounds suite publish --name NAME --cases-file FILE [--suite ID --expected-seq N] [--repo PATH]",

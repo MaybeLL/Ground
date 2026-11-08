@@ -11,21 +11,21 @@ import {inspectionEnvironment} from "./inspection-environment.js";
 const exec = promisify(execFile);
 /** Export the pinned blobs without checkout filters, EOL conversion or
  * repository-configured smudge commands. The staging directory is private. */
-async function exportTree(repository:string,tree:string,dir:string) {
+async function exportTree(repository:string,tree:string,dir:string,mode=0o700) {
   const {stdout}=await exec("git",["-C",repository,"ls-tree","-z",tree],{env:inspectionEnvironment(),maxBuffer:64*1024*1024,encoding:"buffer"});
   const records=new TextDecoder("utf-8",{fatal:true}).decode(stdout).split("\0");
-  await mkdir(dir,{mode:0o700});
+  await mkdir(dir,{mode});
   for (const record of records.slice(0,-1)) {
     const match=/^(100644|100755|120000|040000) (blob|tree) ([a-f0-9]+)\t([\s\S]+)$/.exec(record);
     if (!match || [".","..",".git"].includes(match[4]!.toLowerCase()) || match[4]!.includes("/")) throw new Error("unsupported material tree entry");
-    const [,mode,,oid,name]=match, path=join(dir,name!);
-    if (mode==="040000") {await exportTree(repository,oid!,path);continue;}
-    if (mode==="120000") {
+    const [,entryMode,,oid,name]=match, path=join(dir,name!);
+    if (entryMode==="040000") {await exportTree(repository,oid!,path,mode);continue;}
+    if (entryMode==="120000") {
       const link=await exec("git",["-C",repository,"cat-file","blob",oid!],{encoding:"buffer",env:inspectionEnvironment()});
       await symlink(link.stdout,path);
       continue;
     }
-    const output=await open(path,"wx",mode==="100755"?0o755:0o644);
+    const output=await open(path,"wx",entryMode==="100755"?0o755:0o644);
     try {
       const child=spawn("git",["-C",repository,"cat-file","blob",oid!],{env:inspectionEnvironment(),stdio:["ignore",output.fd,"ignore"]});
       await new Promise<void>((resolve,reject)=>{
@@ -34,6 +34,14 @@ async function exportTree(repository:string,tree:string,dir:string) {
       });
     } finally {await output.close();}
   }
+}
+
+/** A blind verifier receives the Git tree without commit messages, authors or repository metadata. */
+export async function exportVerificationTree(repository:string,commit:string,directory:string) {
+  const proof=await commitObject(repository,commit);
+  const expected=checkCommit(commit,Buffer.from(proof,"base64"));
+  await exportTree(repository,expected,directory,0o755);
+  if ((await verifyTree(directory,commit,directory,false)).toString("hex")!==expected) throw Error("verification checkout differs from its frozen commit");
 }
 
 async function protect(root:string,dir=root):Promise<void> {

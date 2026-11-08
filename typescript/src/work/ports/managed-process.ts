@@ -9,7 +9,12 @@ export type ProcessPlan = AgentProcessPlan & {job:ManagedTask};
 export type ProcessRead = {state:"complete";exitCode:number} | {state:"running"|"awaiting-resume"|"interrupted";detail:string};
 export type WorkerOutput = {trace:CapturedTrace;output:EvidenceSource;stderr:EvidenceSource;message:string;providerFailed:boolean};
 export type CapturedArtifacts = {entries:{slot:string;files:{path:string;source:EvidenceSource}[]}[];dispose():Promise<void>};
+export type GateAuthorMaterials = {
+  manifest:{digest:string;origin:string;items:{id:string;type:string;path:string}[];trajectoryReceipt?:string};
+  materials:readonly {id:string;digest:string;file?:string;source?:EvidenceSource}[];
+};
 export interface ManagedProcessPort {
+  revealGate(target:WorkerTarget,author:GateAuthorMaterials):Promise<void>;
   artifacts(plan:ProcessPlan,declared:readonly import("../domain/managed-delivery.js").ArtifactDeclaration[]):Promise<CapturedArtifacts>;
   handle(plan:AgentProcessPlan,allowCreate:boolean):Promise<string|undefined>;
   drive(plan:AgentProcessPlan,handle:string,allowStart:boolean,authorizeStart?:()=>Promise<boolean>):Promise<ProcessRead>;

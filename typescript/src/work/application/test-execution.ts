@@ -1,13 +1,14 @@
 import {
-  acquireLease, attachGradingSandbox, authorizeBridge, digestOf, isGradingTerminal, markReady, refOf,
-  completeRelease, faultGrader, markBlocked, reserve, requestSandbox, returnLease, sameRef, startCommandStep, stepStopped, submitGrade, type GradingRecord, type CommandOutput,
+  parseTaskContent,acquireLease, attachGradingSandbox, authorizeBridge, digestOf, isGradingTerminal, markReady, refOf,
+  completeRelease, faultGrader, markBlocked, reserve, requestSandbox, returnLease, sameRef, startCommandStep, stepStopped, submitGrade, type ProtocolRecord, type GradingRecord, type Sandbox, type CommandOutput,
 } from "../domain/index.js";
 import type { RuntimeLocation, WorkRepositories, TestStreams } from "../ports/index.js";
 import { once, type RequestContext } from "./requests.js";
+import {configuredJudge,type GateJudge,type ManagedGatePlan} from "./managed-gates.js";
 import type { EnvironmentContent } from "./environment-definitions.js";
 import type { TestPlan } from "./test-measurements.js";
-import { agentGrader,testGrader } from "./rule-definitions.js";
-import { fail, fromRejection, succeed } from "./outcome.js";
+import { agentGrader,testGrader,type TestGrader,type AgentGrader } from "./rule-definitions.js";
+import { fail, fromRejection, succeed,type Outcome } from "./outcome.js";
 
 const holder = (gradingRecordId: string, ordinal: number) => ({type: "command_step" as const, gradingRecordId, ordinal});
 type Material = {path:string; role:string; digest:string; base64:string};
@@ -16,11 +17,29 @@ type Case = {key:string;taskRevision:{definitionId:string;revisionId:string}; bi
 export class TestExecution {
   constructor(private readonly ctx: RequestContext) {}
 
-  async context(id: string) {
+  async context(id: string):Promise<Outcome<{grading:GradingRecord;plan:TestPlan|ManagedGatePlan;grader:TestGrader|AgentGrader|GateJudge;
+    task:unknown;taskMaterials?:readonly import("../domain/index.js").MaterialRepository[];protocol?:readonly ProtocolRecord[];environment:EnvironmentContent;materials:Material[];sandbox?:Sandbox;observation?:{state:string;detail?:string}}>> {
     return this.ctx.units.run("read", async r => {
       const grading = await r.gradings.get(id);
       const [intent] = await r.intents.listForSubject(grading?.strategy==="agent" ? "run-agent-grader" : "run-test-grader","grading_record",id);
       if (!grading || !["test","agent"].includes(grading.strategy) || !intent) return fail("not-found", "managed test grading does not exist");
+      if (grading.origin.type==="gate" && grading.binding) {
+        const plan=intent.payload as unknown as ManagedGatePlan;
+        const grader=await configuredJudge(r,grading);
+        if (!grader || !("protocol" in grader)) return fail("conflict","managed verification selection changed");
+        const task=await r.definitions.getRevision(grading.binding.taskRevision.definitionId,grading.binding.taskRevision.revisionId);
+        const env=await r.definitions.getRevision(grader.environment.definitionId,grader.environmentRevisionId);
+        if (!task || !sameRef(refOf(task),grading.binding.taskRevision) || !env) return fail("conflict","frozen verification inputs are unavailable");
+        const sandbox=grading.sandboxId ? await r.sandboxes.get(grading.sandboxId) : undefined;
+        const observation=(intent.payload as {observation?:{state:string;detail?:string}}).observation;
+        const content=parseTaskContent(task.content);
+        if (!content.ok) return fromRejection(content.error);
+        const {kind,summary,criteria,outputs,materialRepositories}=content.value;
+        const promptTask={kind,summary,criteria,outputs,context:(task.content as {context?:string}).context,
+          materials:materialRepositories?.map(({name,commit})=>({name,commit,path:"/grounds-materials/"+name}))};
+        const exec=grading.evaluator?.kind==="agent" ? await r.executions.get(grading.evaluator.executionId) : undefined;
+        return succeed({grading,plan,grader,protocol:exec?.protocol ?? [],environment:env.content as EnvironmentContent,materials:[],task:promptTask,taskMaterials:materialRepositories,sandbox,observation});
+      }
       const plan = intent.payload as unknown as TestPlan;
       const snapshot = await r.definitions.getRevision(plan.suite.definitionId, plan.suite.revisionId);
       const definition = await r.definitions.getRevision(grading.graderRevision.definitionId, grading.graderRevision.revisionId);
@@ -73,7 +92,7 @@ export class TestExecution {
       if (!grading || !["test","agent"].includes(grading.strategy) || !grading.sandboxId) return fail("conflict", "grading has no sandbox");
       const sandbox = await this.owned(r,grading);
       const revision = await r.definitions.getRevision(grading.graderRevision.definitionId, grading.graderRevision.revisionId);
-      const grader = revision && (testGrader(revision.content) ?? agentGrader(revision.content));
+      const grader = revision && (testGrader(revision.content) ?? await configuredJudge(r,grading));
       if (!sandbox || !grader) return fail("conflict", "grading setup identity changed");
       if (sandbox.runtime) return sandbox.runtime.instanceId === instanceId ? succeed({}) : fail("conflict", "grading runtime changed");
       const ready = markReady(sandbox, {workspace:{ref:sandbox.id,origin:"own"}, runtime:{instanceId,environmentRevisionId:grader.environmentRevisionId}, at:this.ctx.now()});

@@ -1,3 +1,4 @@
+import {exportVerificationTree,MaterialWorkspaces} from "../git/material-workspaces.js";
 import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -16,27 +17,8 @@ export class EvaluatorWorkspaces {
 
   async prepare(owner:RuntimeOwner, target:{runId:string;commit:string|null;archiveId:string;receipt:string;repository:string}, environment:Environment, materials:Material[],role:"agent"|"test"="test") {
     if (target.commit===null) {
-      const files=await this.artifactFiles(target.runId,target.archiveId,target.receipt);
-      if (!portableArtifactPaths(files.map(f=>f.path))) throw new TestTargetFault("frozen artifact contains incompatible evaluator paths");
-      const prepared=await this.workspaces.prepare(owner,target.repository,null,environment,false,[],{receipt:target.receipt,populate:async directory=>{
-        try {
-          for (const {path,source} of files) {
-            const dest=join(directory,path);
-            await mkdir(dirname(dest),{recursive:true});
-            const output=await open(dest,"wx"), hash=createHash("sha256");
-            let size=0;
-            try {
-              for await (const bytes of source.open()) {await output.writeFile(bytes);hash.update(bytes);size+=bytes.length;}
-            } finally {await output.close();}
-            if (size!==source.byteLength || "sha256:"+hash.digest("hex")!==source.digest) throw new TestTargetFault("artifact bytes differ from their frozen identity");
-          }
-        } catch (error) {
-          if (["ENAMETOOLONG","ENOTDIR","EEXIST","EILSEQ"].includes((error as NodeJS.ErrnoException).code ?? "")) {
-            throw new TestTargetFault("archived paths cannot be materialized on the evaluator filesystem");
-          }
-          throw error;
-        }
-      }});
+      const prepared=await this.workspaces.prepare(owner,target.repository,null,environment,false,[],{
+        receipt:target.receipt,populate:directory=>this.writeArtifact(directory,target.runId,target.archiveId,target.receipt)});
       return this.layout(owner,prepared,materials,role);
     }
     const prepared = await this.archive.withTree(target.repository,{id:target.archiveId,receipt:target.receipt},async (scratch,commit) => {
@@ -45,6 +27,48 @@ export class EvaluatorWorkspaces {
     });
     if ("status" in prepared) throw new Error("the frozen evaluation target is unavailable");
     return this.layout(owner,prepared,materials,role);
+  }
+
+  private async writeArtifact(directory:string,runId:string,id:string,receipt:string) {
+    const files=await this.artifactFiles(runId,id,receipt);
+    if (!portableArtifactPaths(files.map(f=>f.path))) throw new TestTargetFault("frozen artifact contains incompatible evaluator paths");
+    try {
+      for (const {path,source} of files) {
+        const dest=join(directory,path);
+        await mkdir(dirname(dest),{recursive:true});
+        const output=await open(dest,"wx"),hash=createHash("sha256");
+        let size=0;
+        try {
+          for await (const bytes of source.open()) {await output.writeFile(bytes);hash.update(bytes);size+=bytes.length;}
+        } finally {await output.close();}
+        if (size!==source.byteLength || "sha256:"+hash.digest("hex")!==source.digest) throw new TestTargetFault("artifact bytes differ from their frozen identity");
+      }
+    } catch(error) {
+      if (["ENAMETOOLONG","ENOTDIR","EEXIST","EILSEQ"].includes((error as NodeJS.ErrnoException).code ?? "")) throw new TestTargetFault("archived paths cannot be materialized on the evaluator filesystem");
+      throw error;
+    }
+  }
+
+  async prepareGate(owner:RuntimeOwner,runId:string,repository:string,items:readonly {type:"candidate"|"artifact";id:string;archiveId:string;receipt:string}[],environment:Environment,taskMaterials:readonly import("../../domain/index.js").MaterialRepository[]) {
+    const prepared=await this.workspaces.prepare(owner,repository,null,environment,false,[],{
+      receipt:JSON.stringify(items),populate:async directory=>{
+        for (const [index,item] of items.entries()) {
+          const path=join(directory,item.type+"-"+(index+1));
+          if (item.type==="artifact") {
+            await mkdir(path);
+            await this.writeArtifact(path,runId,item.id,item.receipt);
+          } else {
+            const tree=await this.archive.withTree(repository,{id:item.archiveId,receipt:item.receipt},async(scratch,commit)=>{
+              await exportVerificationTree(scratch,commit,path);
+              return {status:"exported" as const};
+            });
+            if (tree.status!=="exported") throw Error("cannot verify the gate candidate archive");
+          }
+        }
+      }
+    });
+    const selected=taskMaterials.length ? await new MaterialWorkspaces().prepare(owner.ledgerId,runId,taskMaterials) : undefined;
+    return this.layout(owner,{...prepared,...(selected ? {taskMaterials:dirname(selected.materials[0]!.path)} : {})},[],"agent");
   }
 
   private async layout(owner:RuntimeOwner,prepared:RuntimeWorkspace,materials:Material[],role:"agent"|"test") {

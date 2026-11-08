@@ -2140,3 +2140,59 @@ test("external sandbox runs a frozen Compose project and releases its own depend
     }
   });
 });
+
+test("managed evaluator runs the built-in gate blind before reading the author's transcript",{skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async()=>{
+  await withHarness(async h=>{
+    const image=process.env.GROUNDS_TEST_MANAGED_AGENT!,envFile=join(h.directory,"review.json");
+    writeFileSync(envFile,JSON.stringify({image,workspaceFolder:"/review"}));
+    const digest=execFileSync("docker",["image","inspect","--format","{{.Id}}",image],{encoding:"utf8"}).trim();
+    const env=ok(await h.cli("work","define-environment","--name","gate","--devcontainer",envFile,"--image-digest",digest));
+    const materials=join(h.directory,"gate-task-inputs.json");
+    writeFileSync(materials,JSON.stringify([{name:"input",repository:h.repo,commit:h.baseline}]));
+    const judges=await Promise.all(["codex","claude-code"].map(async provider=>ok(await h.cli("work","define-agent","--provider",provider,"--name",provider))));
+
+    const transcript=join(h.directory,"author.log"),bytes="private-author-marker";
+    writeFileSync(transcript,bytes);
+    writeFileSync(join(h.directory,"report"),"public result");
+    for (const title of ["independent review","alter findings","pinned code"]) {
+      const coding=title==="pinned code";
+      const agent=judges[coding ? 1 : 0];
+      const working=ok(await h.cli("task","create","--title",title,"--criterion","complete","--criterion","correct",
+        ...(coding ? ["--repo-remote",h.remote,"--baseline",h.baseline] : ["--kind","working","--materials",materials,"--required-output","a","--required-output","b"])));
+      const {runId}=ok(await h.cli("work","start","--mode","external","--task",working.taskId));
+      const {sessionId}=ok(await h.cli("work","register","--run",runId,"--agent","author"));
+      const ids=[];
+      for (const slot of coding ? [] : ["a","b"]) ids.push(ok(await h.cli("work","save-artifact","--run",runId,"--session",sessionId,"--slot",slot,"--file","report="+join(h.directory,"report"))).artifact.id);
+      ok(await h.cli("work","transcript","--run",runId,"--session",sessionId,"--digest","sha256:"+createHash("sha256").update(bytes).digest("hex"),"--coverage","partial","--file",transcript));
+      if (coding) {
+        writeFileSync(join(h.repo,"report"),"pinned code");
+        git(h.repo,"add","report");git(h.repo,"commit","-qm","private author claim");
+        ok(await h.cli("work","deliver","--run",runId,"--session",sessionId,"--repo",h.repo,"--declare-stop"));
+        writeFileSync(join(h.repo,"report"),"later change");
+      } else ok(await h.cli("work","submit-artifacts","--run",runId,"--session",sessionId,...ids.flatMap(id=>["--artifact",id])));
+      const {gradingId}=ok(await h.cli("grade","request","--run",runId));
+      const args=["grade","start-managed","--grading",gradingId,"--agent",agent.agentId,"--agent-revision",agent.revisionId,"--environment",env.environmentId,"--environment-revision",env.revisionId,"--operation-id",newUUIDv7()];
+      const started=ok(await h.cli(...args));
+      assert.deepEqual(ok(await h.cli(...args)),started);
+      assert.equal((await h.cli("grade","register","--grading",gradingId,"--agent","another")).ok,false);
+      let status;
+      const deadline=Date.now()+65000;
+      do {
+        status=ok(await h.cli("grade","evaluator-status","--grading",gradingId));
+        if (status.sandboxPhase==="released" || status.host?.state==="blocked") break;
+        await new Promise(resolve=>setTimeout(resolve,250));
+      } while (Date.now()<deadline);
+      assert.equal(status.sandboxPhase,"released",JSON.stringify(status));
+      assert.deepEqual(status.protocol.map((p:{stage:string})=>p.stage),title==="alter findings" ? ["blind","freeze","reconcile"] : ["blind","freeze","reconcile","handoff","submit"]);
+      const grading=ok(await h.cli("grade","show","--grading",gradingId));
+      assert.equal(grading.status,title==="alter findings" ? "grader_fault" : "completed",JSON.stringify(grading));
+      const blind=ok(await h.cli("grade","evaluator-evidence","--grading",gradingId,"--stream","blind-output","--chunk","0"));
+      const final=ok(await h.cli("grade","evaluator-evidence","--grading",gradingId,"--stream","output","--chunk","0"));
+      assert.equal(blind.executionId,grading.evaluator.executionId);
+      assert.equal(final.executionId,blind.executionId);
+      assert.equal(blind.ref.digest,status.protocol[1].blindDigest);
+      assert.equal(JSON.parse(Buffer.from(blind.base64,"base64").toString()).findings.length,2);
+      assert.equal(ok(await h.cli("work","run","--run",runId)).acceptance,title==="alter findings" ? "pending" : "accepted");
+    }
+  });
+});

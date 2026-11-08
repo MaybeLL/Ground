@@ -1,3 +1,4 @@
+import {chmod,lstat,mkdtemp,open,readdir,rename,rm,writeFile} from "node:fs/promises";
 import { createReadStream, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { createInterface } from "node:readline";
@@ -181,6 +182,47 @@ export class ContainerAgentProcess implements ManagedProcessPort {
       }
       return {entries,dispose};
     } catch (error) {await dispose();throw error;}
+  }
+
+  async revealGate(target:Parameters<ManagedProcessPort["revealGate"]>[0],author:Parameters<ManagedProcessPort["revealGate"]>[1]) {
+    const {materials}=author;
+    const {owner,location,containerId}=target;
+    const current=await this.runtime.location(),instance=await this.runtime.observe(owner);
+    if (location.hostId!==current.hostId || location.daemonId!==current.daemonId || instance?.id!==containerId || instance.setupAttempt!==owner.setupAttempt) throw Error("gate sandbox identity changed before reconciliation");
+    const root=this.workspaces.root(owner),dest=join(root,"evaluator-materials","author");
+    await this.workspaces.withSetupLifetime(owner,async()=>{
+      const stage=await mkdtemp(join(root,"gate-author-"));
+      try {
+        const index=JSON.stringify({manifest:author.manifest,materials:materials.map(({id,digest,file})=>({id,digest,...(file ? {file} : {availability:"reference-only"})}))});
+        await writeFile(join(stage,"index.json"),index,{mode:0o444});
+        for (const input of materials) {
+          if (!input.source || !input.file) continue;
+          if (!/^material-[1-9][0-9]*$/.test(input.file)) throw Error("invalid gate material path");
+          const out=await open(join(stage,input.file),"wx",0o444),hash=createHash("sha256");
+          let size=0;
+          try {
+            for await (const bytes of input.source.open()) {await out.writeFile(bytes);hash.update(bytes);size+=bytes.length;}
+          } finally {await out.close();}
+          if (size!==input.source.byteLength || "sha256:"+hash.digest("hex")!==input.digest) throw Error("gate evidence differs from its frozen digest");
+        }
+        await chmod(stage,0o755);
+        try {await rename(stage,dest);}
+        catch(error) {
+          if (!["ENOTEMPTY","EEXIST"].includes((error as NodeJS.ErrnoException).code ?? "") || !(await lstat(dest)).isDirectory()) throw error;
+          const files=(await readdir(stage)).sort();
+          if (JSON.stringify(files)!==JSON.stringify((await readdir(dest)).sort())) throw Error("gate reconciliation files changed");
+          for (const name of files) {
+            const path=join(dest,name);
+            if (!(await lstat(path)).isFile()) throw Error("gate reconciliation file replaced");
+            const hash=createHash("sha256");
+            for await(const bytes of createReadStream(path)) hash.update(bytes);
+            const expected=name==="index.json" ? "sha256:"+createHash("sha256").update(index).digest("hex") : materials.find(m=>m.file===name)?.digest;
+            if ("sha256:"+hash.digest("hex")!==expected) throw Error("gate reconciliation bytes changed");
+          }
+        }
+      } finally {await rm(stage,{recursive:true,force:true});}
+    });
+    if (instance.state!=="running") await this.runtime.resume(owner,containerId);
   }
 
   async quiescent(plan: AgentProcessPlan) {
