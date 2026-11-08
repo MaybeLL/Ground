@@ -103,9 +103,8 @@ export class ContainerTestProcess implements TestProcessPort {
   async dispose(owner:EvaluatorTarget["owner"]) {
     await this.workspaces.withSetupLifetime(owner,async()=>{
       const root=this.workspaces.root(owner),retiring=root+".retiring";
-      const tombstone="released legacy command sandbox "+owner.ledgerId+"/"+owner.sandboxId;
-      if (existsSync(root) && (await lstat(root)).isFile()) {
-        if (safeRead(root,256).toString()!==tombstone) throw Error("unexpected file at sandbox root");
+      const tombstone=this.workspaces.releaseMarker(owner);
+      if (await this.workspaces.hasReleaseMarker(owner)) {
         await rm(retiring,{recursive:true,force:true});
         return;
       }

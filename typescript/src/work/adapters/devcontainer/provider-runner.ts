@@ -26,7 +26,7 @@ export async function spawnProviderBridge(root:string,plan:BridgePlan) {
     if (existsSync(path)) {
       if(safeRead(path,1024*1024).toString()!==data) throw new Error("provider bridge plan changed");
     } else {
-      atomicPrivateWrite(join(root,"dispatch-protocol"),"inherited-lock/v1");
+      atomicPrivateWrite(join(root,"dispatch-protocol"),"inherited-lock/v2");
       atomicPrivateWrite(path,data);
     }
     const source=import.meta.url.endsWith(".ts");
@@ -76,7 +76,9 @@ export async function revokeBridge(root:string) {
     if (!existsSync(path) || bridgeResult(root)) return;
     const plan=JSON.parse(safeRead(path,1024*1024).toString()) as BridgePlan;
     atomicPrivateWrite(join(root,"dispatch-revoked"),plan.handle);
-    if (!existsSync(join(root,"dispatch-protocol")) && !existsSync(join(root,"start-attempt"))) atomicPrivateWrite(join(root,"start-attempt"),plan.handle);
+    const protocol=join(root,"dispatch-protocol");
+    const understandsRevocation=existsSync(protocol) && safeRead(protocol,64).toString()==="inherited-lock/v2";
+    if (!understandsRevocation && !existsSync(join(root,"start-attempt"))) atomicPrivateWrite(join(root,"start-attempt"),plan.handle);
   },30000);
 }
 

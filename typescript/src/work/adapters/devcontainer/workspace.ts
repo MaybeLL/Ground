@@ -4,7 +4,7 @@ import {dirname,join} from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { inspectionEnvironment } from "../git/inspection-environment.js";
-import { atomicPrivateWrite, privateDirectory, withRuntimeLock } from "../../../runtime-files.js";
+import { atomicPrivateWrite, privateDirectory, safeRead, withRuntimeLock } from "../../../runtime-files.js";
 import {MaterialWorkspaces} from "../git/material-workspaces.js";
 import type {MaterialRepository} from "../../domain/index.js";
 import { pinnedConfig } from "./config.js";
@@ -20,6 +20,22 @@ export class ManagedWorkspaces implements ManagedWorkspacePort {
   root(owner: RuntimeOwner) {
     if (![owner.ledgerId, owner.sandboxId].every(id => /^[0-9a-f-]{36}$/.test(id))) throw new Error("invalid managed workspace identity");
     return join(this.directory, "sandboxes", owner.ledgerId, owner.sandboxId);
+  }
+
+  releaseMarker(owner: RuntimeOwner) {
+    return "released legacy command sandbox "+owner.ledgerId+"/"+owner.sandboxId;
+  }
+
+  async hasReleaseMarker(owner: RuntimeOwner) {
+    const root = this.root(owner);
+    try {
+      if (!(await lstat(root)).isFile()) return false;
+    } catch (error) {
+      if (absent(error)) return false;
+      throw error;
+    }
+    if (safeRead(root,256).toString() !== this.releaseMarker(owner)) throw Error("unexpected file at sandbox root");
+    return true;
   }
 
   /** The launch helper can be delayed before acquiring its per-attempt

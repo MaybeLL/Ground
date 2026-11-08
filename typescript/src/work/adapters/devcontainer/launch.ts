@@ -16,6 +16,7 @@ export class DurableSandboxLauncher implements SandboxLauncher {
   dispatched(owner:RuntimeOwner) { return existsSync(join(this.workspaces.setupRoot(owner),"launch.json")); }
 
   async status(owner: RuntimeOwner): Promise<LaunchObservation> {
+    if (await this.workspaces.hasReleaseMarker(owner)) return "interrupted";
     const root = this.workspaces.setupRoot(owner);
     if (!existsSync(marker(root))) return "not-started";
     const state = safeRead(marker(root),64).toString();

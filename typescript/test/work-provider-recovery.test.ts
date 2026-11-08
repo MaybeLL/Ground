@@ -8,6 +8,8 @@ import {setTimeout as delay} from "node:timers/promises";
 import {EngineProcess} from "../src/work/adapters/devcontainer/engine-process.js";
 import {bridgeStarting,collectProvider,pendingBridge,spawnProviderBridge} from "../src/work/adapters/devcontainer/provider-runner.js";
 import {ContainerAgentProcess} from "../src/work/adapters/devcontainer/managed-process.js";
+import {DurableSandboxLauncher} from "../src/work/adapters/devcontainer/launch.js";
+import {TestGradingDriver} from "../src/work/driver/test-grading.js";
 import {ContainerTestProcess} from "../src/work/adapters/devcontainer/test-process.js";
 import {DevcontainerRuntime} from "../src/work/adapters/devcontainer/runtime.js";
 import {GitTagArchive} from "../src/work/adapters/git/tag-archive.js";
@@ -105,7 +107,21 @@ test("a released legacy command sandbox blocks the pre-upgrade collector's direc
     assert.ok(lstatSync(sandbox).isFile());
     // The old binary acquires this lock before its first read of bridge.json.
     await assert.rejects(withRuntimeLock(spool,"bridge",async()=>{}));
-    await commands.dispose(owner);
+    const location={hostId:"host",daemonId:"daemon"},id=randomUUID();
+    let observed=0,released=0;
+    const driver=new TestGradingDriver({
+      tests:{
+        context:async()=>({ok:true,value:{grading:{status:"failed"},sandbox:{id:owner.sandboxId,phase:"releasing",location}}}),
+        reserveRelease:async()=>({ok:true,value:{operationId:"release-"+id}}),
+        released:async(record:string,operation:string)=>{
+          assert.equal(record,id);assert.equal(operation,"release-"+id);released++;return {ok:true};
+        },
+      },
+      runtime:{location:async()=>location,exclusive:async(_:unknown,action:()=>Promise<unknown>)=>action(),observe:async()=>{observed++;return undefined;}},
+      ledgerId:async()=>owner.ledgerId,launcher:new DurableSandboxLauncher(ws),process:commands,
+    } as unknown as ConstructorParameters<typeof TestGradingDriver>[0]);
+    assert.deepEqual(await driver.drive(id,false),{ok:true,value:{state:"terminal",providerStopped:true}});
+    assert.equal(observed,1);assert.equal(released,1);
     assert.ok(lstatSync(sandbox).isFile());
     assert.equal(existsSync(spool),false);
   } finally {
