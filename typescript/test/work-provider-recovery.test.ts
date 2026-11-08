@@ -176,3 +176,46 @@ test("provider recovery never creates a second exec or replays a confirmed exit"
     rmSync(directory,{recursive:true,force:true});
   }
 });
+
+test("managed worker runs once when its collector dies after a real Docker exit and before the result receipt",{skip:!process.env.GROUNDS_TEST_MANAGED_AGENT},async t=>{
+  const {execFileSync,spawnSync}=await import("node:child_process");
+  const {readFileSync}=await import("node:fs");
+  const directory=realpathSync(mkdtempSync(join(tmpdir(),"grounds-engine-exit-")));
+  const previousHome=process.env.GROUNDS_DATA_HOME;
+  process.env.GROUNDS_DATA_HOME=directory;
+  t.after(()=>{
+    if (previousHome===undefined) delete process.env.GROUNDS_DATA_HOME;
+    else process.env.GROUNDS_DATA_HOME=previousHome;
+    rmSync(directory,{recursive:true,force:true});
+  });
+  const {dataLayout}=await import("../src/data-layout.js");
+  const runtime=new DevcontainerRuntime(),engine=new EngineProcess(runtime);
+  const owner={ledgerId:randomUUID(),sandboxId:randomUUID()},executionId=randomUUID();
+  const docker=(...args:string[])=>execFileSync("docker",args,{encoding:"utf8",timeout:60_000}).trim();
+  const id=docker("run","--detach","--network","none","--label","dev.grounds.ledger="+owner.ledgerId,
+    "--label","dev.grounds.sandbox="+owner.sandboxId,process.env.GROUNDS_TEST_MANAGED_AGENT!);
+  const root=join(dataLayout().runtime,"executions",owner.ledgerId,executionId);
+  try {
+    const target={owner,location:await runtime.location(),containerId:id};
+    const handle=await engine.create(target,{cwd:"/tmp",argv:["sh","-c","echo started >> /tmp/calls; echo evidence; exit 17"]});
+    mkdirSync(root,{recursive:true,mode:0o700});
+    writeFileSync(join(root,"bridge.json"),JSON.stringify({target,handle,prompt:""}),{mode:0o600});
+    const interrupted=spawnSync(process.execPath,["--import","tsx","test/fixtures/interrupt-after-engine-exit.ts",root],{encoding:"utf8",timeout:60_000});
+    assert.ifError(interrupted.error);
+    assert.equal(interrupted.signal,"SIGKILL",interrupted.stderr);
+    assert.deepEqual(await engine.observe(target,handle),{running:false,exitCode:17});
+    assert.equal(existsSync(join(root,"result.json")),false);
+    assert.equal(readFileSync(join(root,"stdout.jsonl"),"utf8"),"evidence\n");
+    const plan={target,role:"evaluator" as const,agent:{provider:"codex" as const},prompt:"",job:{executionId}};
+    for(const live of [false,true]) {
+      const port=new ContainerAgentProcess(runtime,new ManagedWorkspaces(),new GitTagArchive());
+      assert.equal((await port.drive(plan,handle,live)).state,"interrupted");
+    }
+    await collectProvider(root);
+    assert.equal(existsSync(join(root,"bridge-failed")),false);
+    assert.equal(existsSync(join(root,"result.json")),false);
+    assert.equal(docker("exec",id,"cat","/tmp/calls"),"started");
+  } finally {
+    docker("rm","--force",id);
+  }
+});

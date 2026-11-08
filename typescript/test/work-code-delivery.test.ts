@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -569,8 +569,8 @@ for (const backend of backends) test(backend + ": immutable experiment plans bin
   },backend);
 });
 
-for (const backend of backends) test(backend + ": working runs freeze selected artifact files and enforce required output ownership", {skip:backendSkip(backend)}, async () => {
-  await scenario(async ({app}) => {
+for (const backend of backends) test(backend + ": working runs freeze selected artifact files and enforce required output ownership", {skip:backendSkip(backend)}, async t => {
+  await scenario(async ({app,store,root}) => {
     const task = value(await app.tasks.createTask({requestId:"working",kind:"working",summary:"Submit a report",criteria:[{statement:"cite evidence"}],
       outputs:[{key:"report",required:true},{key:"data",required:true},{key:"chart",required:false}]}));
     const start = async (requestId:string) => value(await app.exec.startWork({requestId,taskDefinitionId:task.taskId,workerMode:"none"})).runId;
@@ -619,7 +619,47 @@ for (const backend of backends) test(backend + ": working runs freeze selected a
     const reserved=value(await app.evaluators.reserve(late.gradingId,true));
     assert.ok(reserved);
     const execId=reserved.exec.id;
-    value(await app.evaluators.begin(late.gradingId,execId,"durable-handle"));
+    const previousHome=process.env.GROUNDS_DATA_HOME;
+    process.env.GROUNDS_DATA_HOME=root;
+    t.after(()=>{
+      if (previousHome===undefined) delete process.env.GROUNDS_DATA_HOME;
+      else process.env.GROUNDS_DATA_HOME=previousHome;
+    });
+    const {AgentGradingDriver}=await import("../src/work/driver/agent-grading.js");
+    const {ContainerAgentProcess}=await import("../src/work/adapters/devcontainer/managed-process.js");
+    const {EngineProcess}=await import("../src/work/adapters/devcontainer/engine-process.js");
+    const {ManagedWorkspaces}=await import("../src/work/adapters/devcontainer/workspace.js");
+    const {DevcontainerRuntime}=await import("../src/work/adapters/devcontainer/runtime.js");
+    const context=value(await app.tests.context(late.gradingId));
+    assert.ok(context.sandbox && context.grader.strategy==="agent");
+    const location={hostId:"host",daemonId:"daemon"};
+    const owner={ledgerId:(await store.inspect()).database_id,sandboxId:context.sandbox.id};
+    const target={owner,location,containerId:"container"},ws=new ManagedWorkspaces(root),runtime=new DevcontainerRuntime();
+    const config=join(ws.root(owner),"prepared",".devcontainer","effective");
+    mkdirSync(config,{recursive:true});
+    writeFileSync(join(config,"devcontainer.json"),'{"workspaceFolder":"/review"}',{mode:0o600});
+    t.mock.method(runtime,"processes",async()=>[]);
+    const created=t.mock.method(EngineProcess.prototype,"create",async()=>"durable-handle");
+    const port=()=>new ContainerAgentProcess(runtime,ws,new GitTagArchive());
+    const begin=t.mock.method(app.evaluators,"begin",async()=>{throw Error("interrupted before SQL begin");});
+    const driveArgs=[late.gradingId,target,context.grader,context.task] as const;
+    await assert.rejects(new AgentGradingDriver(app.evaluators,port()).drive(...driveArgs,true,false),/interrupted before SQL begin/);
+    begin.mock.restore();
+    const recovered=composeWork(store).evaluators;
+    assert.equal(value(await recovered.reserve(late.gradingId,false))?.exec.sessionRef,undefined);
+    const resumedPort=port();
+    const dispatch=t.mock.method(resumedPort,"drive",async(_plan:unknown,handle:string,_live:boolean,authorize:()=>Promise<boolean>)=>{
+      assert.equal(handle,"durable-handle");
+      assert.equal(await authorize(),true);
+      return {state:"running" as const};
+    });
+    const driver=new AgentGradingDriver(recovered,resumedPort);
+    assert.equal(value(await driver.drive(...driveArgs,false,false)).state,"awaiting-resume");
+    assert.equal(dispatch.mock.callCount(),0);
+    assert.equal(value(await driver.drive(...driveArgs,true,false)).state,"running");
+    assert.equal(created.mock.callCount(),1);
+    assert.equal(dispatch.mock.callCount(),1);
+    assert.equal(value(await recovered.reserve(late.gradingId,false))?.exec.sessionRef,"durable-handle");
     value(await app.grading.cancel({requestId:"cancel-ready-grading",gradingId:late.gradingId}));
     assert.equal(await app.evaluators.authorizeStart(late.gradingId,execId,"durable-handle"),false);
     assert.equal(value(await app.evaluators.reserve(late.gradingId,true))?.cancelled,true);
