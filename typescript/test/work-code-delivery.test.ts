@@ -686,3 +686,16 @@ for (const backend of backends) test(backend+": managed gate selection, freeze a
     assert.equal((await restarted.evaluators.evidence(id,"blind-output",0)).ok,true);
   },backend);
 });
+
+test("blind checkout reports unrepresentable Git symlink bytes as a frozen target fault",async()=>{
+  const {exportVerificationTree}=await import("../src/work/adapters/git/material-workspaces.js");
+  const {UnsupportedGitTree}=await import("../src/work/adapters/git/material-integrity.js");
+  await scenario(async({repo,root})=>{
+    for (const [index,bytes] of [Buffer.alloc(0),Buffer.from("a\0b")].entries()) {
+      const oid=execFileSync("git",["hash-object","-w","--stdin"],{cwd:repo,input:bytes,encoding:"utf8"}).trim();
+      git(repo,"update-index","--add","--cacheinfo","120000,"+oid+",invalid-link");
+      git(repo,"commit","-qm","record symlink blob");
+      await assert.rejects(exportVerificationTree(repo,git(repo,"rev-parse","HEAD"),join(root,"export-"+index)),UnsupportedGitTree);
+    }
+  });
+});
