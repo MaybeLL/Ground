@@ -8,7 +8,7 @@ import { atomicPrivateWrite, privateDirectory, withRuntimeLock } from "../../../
 import {MaterialWorkspaces} from "../git/material-workspaces.js";
 import type {MaterialRepository} from "../../domain/index.js";
 import { pinnedConfig } from "./config.js";
-import { dataLayout, repositoryDataRoot } from "../../../data-layout.js";
+import { dataLayout, repositoryDataRoot,verifiedDataPath } from "../../../data-layout.js";
 import type { ManagedWorkspacePort, RuntimeOwner } from "../../ports/index.js";
 
 const exec = promisify(execFile);
@@ -42,12 +42,13 @@ export class ManagedWorkspaces implements ManagedWorkspacePort {
     } catch(error) {if (!absent(error)) throw error;}
     const {path,materials}=await select();
     const expected=commit===null ? join(this.directory,"working",owner.ledgerId,runId,"output") : join(repositoryDataRoot(repository),"work",runId,"worktree");
-    if (path!==expected || await realpath(path)!==expected || !(await lstat(path)).isDirectory()) throw Error("external workspace binding changed");
+    const physical=verifiedDataPath(expected);
+    if (await realpath(path)!==physical || !(await lstat(path)).isDirectory()) throw Error("external workspace binding changed");
     if (commit!==null) {
       const registered=(await git(["-C",repository,"worktree","list","--porcelain","-z"])).stdout.split("\0");
-      if (!registered.includes("worktree "+expected)) throw Error("external coding workspace is not registered with this repository");
+      if (!registered.includes("worktree "+physical)) throw Error("external coding workspace is not registered with this repository");
     }
-    return this.prepare(owner,repository,commit,content,false,repositories,undefined,path,materials?.[0] && dirname(materials[0].path));
+    return this.prepare(owner,repository,commit,content,false,repositories,undefined,physical,materials?.[0] && dirname(materials[0].path));
   }
 
   async prepare(owner: RuntimeOwner, repository: string, commit: string|null, content: { config: string; lockfile: string | null; imageDigest: string }, requireExisting = false,repositories:readonly MaterialRepository[] = [],artifact?:{receipt:string;populate(directory:string):Promise<void>},externalPath?:string,externalMaterials?:string) {

@@ -3,7 +3,7 @@ import { constants,existsSync, mkdirSync,realpathSync } from "node:fs";
 import {open,readdir} from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { dataLayout,repositoryDataRoot } from "../../../data-layout.js";
+import { dataLayout,repositoryDataRoot,verifiedDataPath } from "../../../data-layout.js";
 import type { WorktreePort } from "../../ports/index.js";
 
 const run = promisify(execFile);
@@ -29,7 +29,7 @@ export class GitWorktrees implements WorktreePort {
     }
     if (!existsSync(path)) return;
     const listing=await run("git",["-C",input.repositoryPath,"worktree","list","--porcelain","-z"]);
-    if (realpathSync(path)!==path || !listing.stdout.split("\0").includes("worktree "+path)) throw Error("external workspace is not registered with this clone");
+    if (!listing.stdout.split("\0").includes("worktree "+verifiedDataPath(path))) throw Error("external workspace is not registered with this clone");
     const first=async(ref:string)=>{
       const {stdout}=await run("git",["-C",path,"rev-parse","--path-format=absolute","--git-path","logs/"+ref]);
       const file=await open(stdout.trim(),constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
@@ -51,9 +51,9 @@ export class GitWorktrees implements WorktreePort {
     if ([".",".."].includes(input.runId) || !/^[A-Za-z0-9._-]{1,128}$/.test(input.runId)) throw new Error("the run identity is not usable in a path");
     const parent = join(repositoryDataRoot(input.repositoryPath), "work", input.runId);
     const path = join(parent, "worktree"), branch = `grounds/work/${input.runId}`;
-    if (existsSync(path)) return { path, branch, created: false };
+    if (existsSync(path)) return { path:verifiedDataPath(path), branch, created: false };
     mkdirSync(parent, { recursive: true });
     await run("git", ["worktree", "add", "-b", branch, path, input.commit], { cwd: input.repositoryPath, maxBuffer: 8 * 1024 * 1024 });
-    return { path, branch, created: true };
+    return { path:verifiedDataPath(path), branch, created: true };
   }
 }
