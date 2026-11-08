@@ -16,6 +16,32 @@ export function publishedHostEntries(directory:string) {
 export const queueRoot = () => privateDirectory(join(dataLayout().runtime, "managed-host"));
 export const hostDirectory = (name: string) => privateDirectory(join(queueRoot(), name));
 
+/** The host shares one admission limit across all ledgers in this Grounds data home. */
+export function managedAgentCapacity():number {
+  const path=join(dataLayout().runtime,"managed-host","agent-capacity");
+  if (!existsSync(path)) return 20;
+  const capacity=Number(safeRead(path,64).toString());
+  if (!Number.isSafeInteger(capacity) || capacity<1) throw new Error("invalid managed Agent capacity");
+  return capacity;
+}
+
+export function setManagedAgentCapacity(capacity:number) {
+  if (!Number.isSafeInteger(capacity) || capacity<1) throw new Error("expected a positive integer for Agent capacity");
+  atomicPrivateWrite(join(queueRoot(),"agent-capacity"),String(capacity));
+}
+
+/** Older runners did not record the kind in their ticket. Their immutable request still identifies command-only grading. */
+export function usesAgentSlot(ticket:{name?:string;kind?:HostJob["kind"]|"worker"}) {
+  if (ticket.kind!==undefined) return ticket.kind!=="test-grading";
+  const name=ticket.name ?? "";
+  const [id,operation]=name.split(".");
+  if (!id || !operation || !managedId.test(id) || !managedId.test(operation) || name!==id+"."+operation) return true;
+  const path=join(dataLayout().runtime,"managed-host","requests",name);
+  if (!existsSync(path)) return true;
+  const request=JSON.parse(safeRead(path,32768).toString()) as HostJob;
+  return request.executionId!==id || request.kind!=="test-grading";
+}
+
 export async function launchManaged(entry: "host" | "job", args: string[] = []) {
   const source = import.meta.url.endsWith(".ts");
   const file = "./managed-" + entry + "-main." + (source ? "ts" : "js");

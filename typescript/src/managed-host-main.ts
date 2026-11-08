@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { hostProcessIdentity } from "./env-process.js";
 import { atomicPrivateWrite, removePrivateFile, safeRead, withRuntimeLock } from "./runtime-files.js";
-import { hostDirectory, launchManaged, managedId, publishedHostEntries, queueRoot } from "./managed-host-client.js";
+import { hostDirectory, launchManaged, managedId, publishedHostEntries, managedAgentCapacity, usesAgentSlot, queueRoot } from "./managed-host-client.js";
 
 async function schedule() {
   const queue = hostDirectory("waiting"), slots = hostDirectory("slots");
@@ -11,12 +11,15 @@ async function schedule() {
   for (;;) {
     const waiting = publishedHostEntries(queue).sort();
     const occupied = new Set(publishedHostEntries(slots));
+    const capacity=managedAgentCapacity();
+    let agentCount=0;
     const batches = hostDirectory("batches");
     let live = false;
     for (const slot of [...Array.from(occupied,id=>join(slots,id)), ...publishedHostEntries(batches).map(id=>join(batches,id))]) {
       let owner;
       try { owner = JSON.parse(safeRead(slot, 4096).toString()); }
       catch (error) { if (!existsSync(slot)) continue; throw error; }
+      if (dirname(slot)===slots && usesAgentSlot(owner)) agentCount++;
       if (hostProcessIdentity(owner.pid) === owner.birth) { live = true; continue; }
       if (!attempted.has(owner.name)) {
         attempted.add(owner.name);
@@ -41,11 +44,12 @@ async function schedule() {
         await withRuntimeLock(queueRoot(), "ticket-" + name, async () => {
           if (existsSync(path) && JSON.parse(safeRead(path, 4096).toString()).birth === ticket.birth) removePrivateFile(path);
         }, 10_000);
-      } else if (!occupied.has(name) && occupied.size < 20) {
+      } else if (!occupied.has(name) && (!usesAgentSlot(ticket) || agentCount < capacity)) {
         await withRuntimeLock(queueRoot(), "ticket-" + name, async () => {
           if (!existsSync(path) || JSON.parse(safeRead(path, 4096).toString()).birth !== ticket.birth) return;
           atomicPrivateWrite(join(slots, name), JSON.stringify(ticket));
           occupied.add(name);
+          if (usesAgentSlot(ticket)) agentCount++;
         }, 10_000);
       }
     }

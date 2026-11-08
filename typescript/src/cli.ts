@@ -12,7 +12,7 @@ import { bundledPluginRoot, defaultSkillsDirectory, installGroundsSkills } from 
 import { installationStatus } from "./installation-status.js";
 import { cliVersion } from "./runtime-version.js";
 import { composeWork } from "./work/composition.js";
-import { notifyManaged, observeManagedHost, batchNotificationId, batchHostObservation } from "./managed-host-client.js";
+import { managedAgentCapacity, setManagedAgentCapacity, notifyManaged, observeManagedHost, batchNotificationId, batchHostObservation } from "./managed-host-client.js";
 import { executeWorkCommand, WORK_GROUPS, WORK_WRITE_ACTIONS, workHelp } from "./work/entry/index.js";
 
 export interface Warning { code: string; message: string }
@@ -414,6 +414,16 @@ export const execute = async (argv: string[], io: CLIIO = {}): Promise<unknown> 
 
   if ((WORK_GROUPS as readonly string[]).includes(group)) {
     if (bool(args, "help") || !action || action === "help") return { result_type: "patchledger.result.help/v1", command: "help", usage: workHelp() };
+    if (group==="work" && action==="host-capacity") {
+      if (args.positionals.length!==2) throw validation("arguments","unexpected positional argument");
+      for (const key of Object.keys(args.values)) if (!["slots","json","cwd","config"].includes(key)) throw validation(key,"unknown option for work host-capacity");
+      if (hasOption(args,"slots")) {
+        const requested=args.values.slots;
+        if (typeof requested!=="string" || !/^[1-9][0-9]*$/.test(requested) || !Number.isSafeInteger(Number(requested))) throw validation("slots","expected a positive integer");
+        setManagedAgentCapacity(Number(requested));
+      }
+      return {command:"work.host-capacity",result_type:"grounds.result.work.host-capacity/v1",agentSlots:managedAgentCapacity()};
+    }
     const opened = await openStore(value(args, "config"));
     try {
       const app=composeWork(opened.store);

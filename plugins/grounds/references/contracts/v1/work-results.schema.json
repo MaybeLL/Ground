@@ -3,6 +3,7 @@
   "$id": "https://patchledger.dev/contracts/v1/work-results.schema.json",
   "title": "Task, work and grade CLI results",
   "oneOf": [
+    {"type":"object","properties":{"command":{"const":"work.host-capacity"},"result_type":{"const":"grounds.result.work.host-capacity/v1"},"agentSlots":{"type":"integer","minimum":1}},"required":["command","result_type","agentSlots"],"additionalProperties":false},
     {"type": "object", "properties": {"command": {"const": "work.workspace"}, "result_type": {"const": "grounds.result.work.workspace/v1"}, "kind": {"const": "working"}, "runId": {"$ref": "#/$defs/Id"}, "path": {"type": "string"}, "created": {"type": "boolean"}, "materials": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "commit": {"type": "string"}, "path": {"type": "string"}}, "required": ["name", "commit", "path"], "additionalProperties": false}}}, "required": ["command", "result_type", "kind", "runId", "path", "created", "materials"], "additionalProperties": false},
     {"type": "object", "required": ["command", "result_type", "artifact"], "properties": {"command": {"const": "work.save-artifact"}, "result_type": {"const": "grounds.result.work.save-artifact/v1"}, "artifact": {"$ref": "#/$defs/SavedArtifact"}}, "additionalProperties": false},
     {"type": "object", "required": ["command", "result_type", "artifact"], "properties": {"command": {"const": "work.artifact"}, "result_type": {"const": "grounds.result.work.artifact/v1"}, "artifact": {"$ref": "#/$defs/SavedArtifact"}}, "additionalProperties": false},

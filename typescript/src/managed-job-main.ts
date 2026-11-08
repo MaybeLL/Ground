@@ -63,7 +63,7 @@ async function supervise(job: HostJob, name: string, observeOnly: boolean) {
     try {
       let live = !observeOnly && job.allowStart && !existsSync(issued);
       if (live) {
-        await ticketLock(async () => atomicPrivateWrite(ticket, JSON.stringify({pid: process.pid, birth, name})));
+        await ticketLock(async () => atomicPrivateWrite(ticket, JSON.stringify({pid:process.pid,birth,name,kind:job.kind ?? "worker"})));
         await launchManaged("host");
         let nextWake = Date.now() + 5000;
         while (!existsSync(slot)) {
@@ -72,7 +72,7 @@ async function supervise(job: HostJob, name: string, observeOnly: boolean) {
           await delay(250);
         }
         if (live) await ticketLock(async () => {
-          atomicPrivateWrite(slot, JSON.stringify({pid: process.pid, birth, name}));
+          atomicPrivateWrite(slot, JSON.stringify({pid:process.pid,birth,name,kind:job.kind ?? "worker"}));
         });
         atomicPrivateWrite(issued, job.executionId);
       }

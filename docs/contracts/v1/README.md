@@ -72,6 +72,8 @@ Publish a trusted environment using `work define-environment --name NAME --devco
 
 External sessions can archive arbitrary transcript bytes through `work transcript --file FILE --digest SHA256 --coverage full|partial|unknown --run RUN --session SESSION`. Read the bytes with `work trace --stream raw --digest SHA256 --run RUN --chunk N`. A reported `--ref` remains visible in the session history. Gates only bind transcript evidence archived for that run and verified against its recorded digest.
 
+Use `grounds work host-capacity` to read the local AgentExecution limit and `grounds work host-capacity --slots N` to set it. The default is 20 across worker and evaluator Agents in the same Grounds data home. A running scheduler reads capacity changes before admitting more jobs. Command-only test graders and batch controllers can proceed while all Agent slots are occupied. Existing executions continue when the limit is lowered.
+
 Use `work start-run --task ID --mode external|managed|none` to create a TaskRun independently of a Work. The result includes the run and task revision IDs. Use `--refines RUN` for a finished independent attempt under the same Task, and `--sandbox inherit` to request its retained managed sandbox. The retention default is `keep`. Select `--retention release` to release the sandbox when the run ends. The same operation ID replays the original admission.
 
 Declare `--environment ID` when authoring a task. `work start`, `start-run`, `continue` and `branch` record the resolved revision and its selection source. Use `--environment-revision REVISION_ID` to pin a specific revision of the required definition. External tasks and tasks without an environment remain available on machines without Docker.

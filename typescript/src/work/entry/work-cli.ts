@@ -389,6 +389,7 @@ export const workHelp = (): string => [
   "grounds work import-trace --run RUN --session SESSION --provider codex|claude-code --file FILE --digest SHA256 | work trace --run RUN --digest SHA256 --stream raw|events --chunk N",
   "grounds work prepare-sandbox --run RUN [--repo PATH] | work reconcile-sandbox --run RUN | work pause-sandbox|release-sandbox --run RUN",
   "grounds work define-environment --name NAME --devcontainer FILE --image-digest SHA256 [--lockfile FILE] [--environment ID --expected-seq N] | work environment --environment ID --revision N",
+  "grounds work host-capacity [--slots N] (shared local worker and evaluator Agent slots; default 20)",
   "grounds work start-run --task ID --mode external|none|managed [--revision-id REV --environment-revision REV --refines RUN --retention release|keep --sandbox fresh|inherit]; managed requires --agent ID [--agent-revision REV --repo PATH]",
   "grounds work start --task ID --mode external|none [--environment-revision ID] | work continue --work ID --expected-head RUN --mode M [--sandbox inherit|fresh] | work branch --work ID --refines RUN --mode M [--sandbox fresh|inherit]",
   "grounds work select --work ID --run RUN [--expected-head RUN] | work close --work ID | work show --work ID [--repo PATH] | work run --run RUN [--repo PATH]",
